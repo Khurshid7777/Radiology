@@ -85,10 +85,12 @@ def run_pipeline(
     ml_spike_times = pacing_multilead_spike_times(sig, cfg.pacing.multilead_k,
                                                   cfg.pacing.multilead_min_leads)
 
-    # Layer 2 — preprocess + quality (TZ §5).
+    # Layer 2 — preprocess + quality (TZ §5). preprocess() filters in place: work on a
+    # copy so the caller's raw signal survives — a second run on the same object
+    # would otherwise see the band-passed signal and lose the pacing spikes.
     pp = cfg.preprocessing
     sig = preprocess(
-        sig,
+        sig.model_copy(deep=True),
         mains_frequency_hz=cfg.mains_frequency_hz,
         bandpass_low_hz=pp.bandpass_low_hz,
         bandpass_high_hz=pp.bandpass_high_hz,

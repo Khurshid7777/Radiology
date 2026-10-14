@@ -47,18 +47,17 @@ def test_delta_descriptor_short_on_a_normal_qrs_and_long_on_a_slurred_one():
     m = run_pipeline(sig, mode="A").measurements
     assert m.morphology.delta_ms is not None and m.morphology.delta_ms < 40
     assert "wpw_preexcitation" not in run_pipeline(sig, mode="A").findings.codes()
-    # Slur every QRS onset: replace the first 60 ms after each onset by a slow ramp
-    # into the complex (a delta wave), in every lead.
+    # Slur every QRS onset: replace R-60 ms .. R-10 ms (onset and upstroke; the QRS is
+    # 70 ms) by a slow ramp into the complex (a delta wave), in every lead.
     res = run_pipeline(sig, mode="A")
     fs = sig.sampling_rate_hz
     slurred = sig.model_copy(deep=True)
-    n = int(0.06 * fs)
     for r in res.measurements.r_peaks_samples:
-        on = r - int(0.05 * fs) - n
+        on, off = r - int(0.06 * fs), r - int(0.01 * fs)
         if on < 0:
             continue
         for li in range(slurred.signal.shape[0]):
-            a, b = slurred.signal[li, on], slurred.signal[li, on + n]
-            slurred.signal[li, on:on + n] = np.linspace(a, b, n)
+            a, b = slurred.signal[li, on], slurred.signal[li, off]
+            slurred.signal[li, on:off] = np.linspace(a, b, off - on)
     m2 = run_pipeline(slurred, mode="A").measurements
     assert m2.morphology.delta_ms is not None and m2.morphology.delta_ms > m.morphology.delta_ms

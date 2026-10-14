@@ -43,3 +43,17 @@ def test_audit_log_traceability():
     joined = " ".join(result.audit_log)
     for tag in ("[L2]", "[L3]", "[L4]", "[L5]", "[L6]"):
         assert tag in joined
+
+
+def test_pipeline_leaves_input_signal_untouched():
+    # Preprocessing used to band-pass the caller's signal in place: a second run on the
+    # same object saw the filtered signal (pacing spikes erased, R-peaks shifted).
+    import numpy as np
+
+    sig = generate_synthetic_ecg(heart_rate_bpm=72)
+    raw = sig.signal.copy()
+    first = run_pipeline(sig, mode="A")
+    assert np.array_equal(sig.signal, raw)
+    second = run_pipeline(sig, mode="A")
+    assert second.measurements.r_peaks_samples == first.measurements.r_peaks_samples
+    assert second.findings.codes() == first.findings.codes()
