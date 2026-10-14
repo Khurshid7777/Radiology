@@ -24,6 +24,11 @@ rhythm:
   # >= 0.85 the index is >= 3.6. Sinus tachycardia read as flutter: 0.9-1.0 and 1.5-2.4.
   flutter_harmonic_p_ratio_min: 0.85
   flutter_harmonic_fwave_max: 2.5
+  # ... and at 2.5 or 3.5 x HR - harmonics of a two-beat cycle (slight beat-to-beat
+  # QRS-T alternation) - when the RR is regular (D85): flutter there needs alternating
+  # 2:1/3:1 conduction, i.e. alternating RR (PTB-XL AFLT at ~2.5 x HR: RR CV 0.18-0.25;
+  # sinus tachycardia 6818 at 2.49 x HR: 0.009).
+  flutter_harmonic_half_rr_cv_max: 0.05
   # Atrial fibrillation gates: RR coefficient of variation above, and fraction of
   # beats with an organised P below. Chosen on the train half of 964 PhysioNet
   # ecg-arrhythmia records with a specificity floor and confirmed on the test half

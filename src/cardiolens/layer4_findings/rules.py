@@ -341,14 +341,20 @@ _WCT_EXCLUDES = ("wpw_preexcitation", "first_degree_av_block", "pathological_q_w
 def _hr_harmonic(m, rh: dict) -> bool:
     """The "atrial rate" is an HR harmonic of a regular sinus tachycardia (D83, D84): the
     QRS-T train at 2 x HR in the slow-flutter range or with sinus P waves and a quiet
-    baseline, or at 3 x HR, with a regular RR."""
+    baseline, or at 3 x HR, with a regular RR; or at 2.5 / 3.5 x HR with a regular RR."""
     top = rh.get("flutter_harmonic_max_bpm")
     hr, rate, mad = m.heart_rate_bpm, m.atrial_rate_bpm, m.rr_mad_cv
     if top is None or hr is None or rate is None or mad is None:
         return False
+    tol = rh.get("flutter_harmonic_tolerance", 0.08)
+    # Half-integer multiples (2.5, 3.5 x HR) of a regular rhythm: a two-beat cycle's
+    # harmonics; flutter there needs alternating conduction, hence alternating RR (D85).
+    half_cv = rh.get("flutter_harmonic_half_rr_cv_max")
+    if (half_cv is not None and m.rr_cv is not None and m.rr_cv < half_cv
+            and any(abs(rate - k * hr) <= tol * k * hr for k in (2.5, 3.5))):
+        return True
     if mad >= rh.get("flutter_harmonic_rr_mad_cv_max", 0.03):
         return False
-    tol = rh.get("flutter_harmonic_tolerance", 0.08)
     at2 = abs(rate - 2 * hr) <= tol * 2 * hr
     sinus_p = (m.p_wave_ratio is not None and m.fwave_index is not None
                and m.p_wave_ratio >= rh.get("flutter_harmonic_p_ratio_min", 0.85)

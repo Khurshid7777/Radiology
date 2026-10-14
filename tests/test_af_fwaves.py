@@ -101,6 +101,10 @@ def test_a_sinus_tachycardia_harmonic_is_not_flutter():
     assert "atrial_flutter" not in at255(0.9, 2.37)
     assert "atrial_flutter" in at255(0.9, 4.0)
     assert "atrial_flutter" in at255(0.3, 2.0)
+    # 2.5 x HR on a regular rhythm is a two-beat-cycle harmonic (6818: 112.6/min, 280);
+    # with alternating 2:1/3:1 conduction the RR alternates and it is flutter (D85).
+    assert "atrial_flutter" not in codes(112.6, 280.4, 0.006, rr_cv=0.009, p_ratio=0.78, fwave=0.38)
+    assert "atrial_flutter" in codes(110.5, 275.2, 0.04, rr_cv=0.25, p_ratio=0.67, fwave=1.33)
     # Flutter with 2:1 conduction at 300, or a harmonic-looking rate with irregular
     # (variable) conduction, still is flutter.
     assert "atrial_flutter" in codes(150.0, 300.0, 0.01, p_ratio=0.2, fwave=4.0)   # sawtooth
