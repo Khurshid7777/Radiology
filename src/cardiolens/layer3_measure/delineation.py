@@ -71,6 +71,14 @@ def spatial_velocity(signal: np.ndarray, fs: float) -> np.ndarray:
     return np.convolve(env, np.ones(k) / k, mode="same")
 
 
+def envelope_floor(env: np.ndarray, rpeaks: np.ndarray) -> float:
+    """Background level of the envelope: median over the middle third of each RR,
+    away from the QRS (and mostly from the T wave). 0.0 with fewer than two beats."""
+    rs = np.sort(np.asarray(rpeaks, dtype=int))
+    mids = [env[x + (y - x) // 3: y - (y - x) // 3] for x, y in pairwise(rs) if y - x >= 6]
+    return float(np.median(np.concatenate(mids))) if mids else 0.0
+
+
 def qrs_bounds_envelope(
     signal: np.ndarray, rpeaks: np.ndarray, fs: float
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -84,9 +92,7 @@ def qrs_bounds_envelope(
     n = env.size
     half = int(QRS_SEARCH_MS / 1000.0 * fs)
     quiet = max(1, int(round(QRS_QUIET_MS / 1000.0 * fs)))
-    rs = np.sort(np.asarray(rpeaks, dtype=int))
-    mids = [env[x + (y - x) // 3: y - (y - x) // 3] for x, y in pairwise(rs) if y - x >= 6]
-    floor = float(np.median(np.concatenate(mids))) if mids else 0.0
+    floor = envelope_floor(env, rpeaks)
     for i, r in enumerate(rpeaks):
         a, b = max(0, int(r) - half), min(n, int(r) + half + 1)
         if b - a < 3:

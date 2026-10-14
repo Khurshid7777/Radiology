@@ -29,6 +29,7 @@ from cardiolens.layer3_measure.atrial import atrial_activity, fwave_index
 from cardiolens.layer3_measure.delineation import (
     P_ONSET_MIN_FRACTION,
     P_ONSET_MIN_UV,
+    envelope_floor,
     qrs_bounds_envelope,
     qt_multilead,
     refine_p_onsets,
@@ -146,9 +147,12 @@ def _reject_non_qrs_detections(
 RECOVER_ENV_FRACTION = 0.5    # a recovered QRS reaches half the accepted beats' median envelope peak
 RECOVER_MIN_GAP_S = 0.25      # ... and lies a refractory period from every accepted beat: a wide
                               # (LBBB) QRS has two envelope peaks ~130 ms apart (PTB-XL 13820)
+RECOVER_MAX_FLOOR = 0.25      # no recovery when the envelope between beats is this high relative
+                              # to the beats: noise, not QRS, reaches half their level (PTB-XL 15973)
 
 
-def _recover_missed_qrs(signal: np.ndarray, rpeaks: np.ndarray, fs: float) -> tuple[np.ndarray, int]:
+def _recover_missed_qrs(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
+                        notes: list[str] | None = None) -> tuple[np.ndarray, int]:
     """Add QRS complexes the single-lead detector missed (D75).
 
     The primary detector runs on one lead. Where the QRS is small in that lead and the
@@ -168,6 +172,14 @@ def _recover_missed_qrs(signal: np.ndarray, rpeaks: np.ndarray, fs: float) -> tu
     w = int(0.03 * fs)
     ref = float(np.median([env[max(0, int(r) - w):int(r) + w].max() for r in rpeaks]))
     if ref <= 0:
+        return rpeaks, 0
+    # Quality gate: on a noisy strip the accepted "beats" are themselves partly noise and
+    # noise peaks pass the half-level test (15973, floor 0.45 of the beats: 33 -> 164/min,
+    # true 44). Where recovery helped on PTB-XL the floor was <= 0.15 (median 0.03).
+    floor = envelope_floor(env, rpeaks)
+    if floor > RECOVER_MAX_FLOOR * ref:
+        if notes is not None:
+            notes.append(f"QRS recovery skipped: noisy envelope (floor {floor / ref:.2f} of beats) (D79)")
         return rpeaks, 0
     cand, _ = find_peaks(env, height=RECOVER_ENV_FRACTION * ref, distance=max(1, int(0.25 * fs)))
     gap = RECOVER_MIN_GAP_S * fs
@@ -498,7 +510,7 @@ def measure(sig: SignalRepresentation) -> Measurements:
         rpeaks = _reject_non_qrs_detections(
             sig.signal, rpeaks, fs, windows=getattr(sig.provenance, "lead_windows", None), lead_names=sig.lead_names)
         if not getattr(sig.provenance, "lead_windows", None):
-            rpeaks, n_rec = _recover_missed_qrs(sig.signal, rpeaks, fs)
+            rpeaks, n_rec = _recover_missed_qrs(sig.signal, rpeaks, fs, m.notes)
             if n_rec:
                 m.notes.append(f"{n_rec} QRS recovered from the multi-lead envelope (D75)")
     m.r_peaks_samples = rpeaks.tolist()

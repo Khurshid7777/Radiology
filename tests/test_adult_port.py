@@ -239,3 +239,22 @@ def test_recover_missed_qrs_fills_gaps_but_not_spikes():
     for t in beats[:-1]:
         y[:, int((t + 0.15) * fs)] += 3000
     assert _recover_missed_qrs(y, idx, fs)[1] == 0
+
+
+def test_recover_missed_qrs_skips_a_noisy_strip():
+    # Noise between beats at half the beats' level (PTB-XL 15973): recovery would count
+    # noise peaks as beats, so it is skipped and says why (D79).
+    from cardiolens.layer3_measure.measure import _recover_missed_qrs
+
+    fs = 500.0
+    tt = np.arange(5000) / fs
+    beats = np.arange(0.3, 9.8, 0.6)
+    x = np.zeros((12, tt.size))
+    for t in beats:
+        x += 1000 * np.exp(-((tt - t) / 0.012) ** 2)
+    x += 120 * np.random.default_rng(0).standard_normal(x.shape)
+    idx = (beats * fs).astype(int)
+    notes: list[str] = []
+    out, n_rec = _recover_missed_qrs(x, idx[[0, 1, 4, 5, 9, 11, 12, 15]], fs, notes)
+    assert n_rec == 0 and len(out) == 8
+    assert notes and "noisy envelope" in notes[0]
