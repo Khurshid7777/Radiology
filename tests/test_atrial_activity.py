@@ -93,3 +93,14 @@ def test_fundamental_peak_with_only_negative_peaks_returns_none():
 
     ac = -np.abs(np.sin(np.linspace(0, 40, 4000))) - 0.1
     assert fundamental_peak(ac, 75, 750) is None
+
+
+def test_organised_p_veto_is_stable_at_low_beat_counts():
+    from cardiolens.layer3_measure.measure import _lacks_organised_p
+
+    # Complete block at ~40/min: one beat more at the strip edge must not flip it.
+    assert not _lacks_organised_p(2 / 6, 6)
+    assert not _lacks_organised_p(2 / 7, 7)
+    # No organised P (AF with a slow response), or P before only 2 of 11 beats (paced).
+    assert _lacks_organised_p(0.0, 7)
+    assert _lacks_organised_p(2 / 11, 11)

@@ -74,6 +74,19 @@ PR_STD_DISSOCIATION_MS = 40.0
 AV_DISSOCIATION_MIN_P_RATIO = 0.3
 
 
+def _lacks_organised_p(p_wave_ratio: float | None, n_beats: int) -> bool:
+    """Too few beats with an organised P for AV dissociation (AF with a slow response).
+
+    A complete block at 35-45/min leaves only 6-7 beats on a 10 s strip, so one beat
+    more or less at the record edge moved the plain share across the threshold (2/6 =
+    0.33 passed, 2/7 = 0.29 vetoed a synthetic block). The share is taken with one beat
+    of slack, (P + 1) / (beats + 1): a paced record with P before 2 of 11 beats (PTB-XL
+    12000) is still vetoed, and on PTB-XL no other record reached this veto.
+    """
+    n_p = round((p_wave_ratio or 0.0) * n_beats)
+    return (n_p + 1) / (n_beats + 1) < AV_DISSOCIATION_MIN_P_RATIO
+
+
 def _pick_rhythm_lead(sig: SignalRepresentation) -> int:
     for name in _RHYTHM_LEAD_PREFERENCE:
         if name in sig.lead_names:
@@ -131,7 +144,8 @@ def _reject_non_qrs_detections(
 
 
 RECOVER_ENV_FRACTION = 0.5    # a recovered QRS reaches half the accepted beats' median envelope peak
-RECOVER_MIN_GAP_S = 0.12      # ... and lies this far from every accepted beat
+RECOVER_MIN_GAP_S = 0.25      # ... and lies a refractory period from every accepted beat: a wide
+                              # (LBBB) QRS has two envelope peaks ~130 ms apart (PTB-XL 13820)
 
 
 def _recover_missed_qrs(signal: np.ndarray, rpeaks: np.ndarray, fs: float) -> tuple[np.ndarray, int]:
@@ -632,7 +646,7 @@ def measure(sig: SignalRepresentation) -> Measurements:
         # A complete block has P waves by definition: without organised P waves the
         # periodic residual is fibrillatory/noise (AF with a slow response), not
         # dissociation.
-        if (av is True and (m.p_wave_ratio or 0.0) < AV_DISSOCIATION_MIN_P_RATIO
+        if (av is True and _lacks_organised_p(m.p_wave_ratio, n_beats)
                 and (m.p_onset_ratio or 0.0) < 0.5):
             av = False
             notes.append("atrial activity: no organised P waves -> not AV dissociation")

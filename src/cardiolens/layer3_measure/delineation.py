@@ -10,6 +10,8 @@ fabricated (TZ §0).
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 
 # Envelope threshold as a fraction of the per-beat envelope maximum. Calibrated on
@@ -23,6 +25,13 @@ QRS_MAX_MS = 220.0
 # below threshold to count as "outside the QRS".
 QRS_SEARCH_MS = 150.0
 QRS_QUIET_MS = 8.0
+# The threshold is never below this multiple of the record's envelope floor (median
+# envelope over the middle third of each RR). Fibrillatory waves or noise on a
+# low-voltage QRS lift the floor above 0.05 of the QRS peak: the envelope is never
+# "quiet" and the bounds slide outward (PTB-XL 3166, AF at 150/min: floor 0.069,
+# QRS 122 ms vs 86 ms by GE 12SL -> false wide-complex tachycardia alert). Clean
+# records sit at 0.01-0.03 and keep the 0.05 threshold.
+QRS_FLOOR_FACTOR = 1.5
 
 # P-onset refinement: search window before QRS onset, onset criterion and cap.
 P_SEARCH_BEFORE_MS = 320.0
@@ -75,12 +84,15 @@ def qrs_bounds_envelope(
     n = env.size
     half = int(QRS_SEARCH_MS / 1000.0 * fs)
     quiet = max(1, int(round(QRS_QUIET_MS / 1000.0 * fs)))
+    rs = np.sort(np.asarray(rpeaks, dtype=int))
+    mids = [env[x + (y - x) // 3: y - (y - x) // 3] for x, y in pairwise(rs) if y - x >= 6]
+    floor = float(np.median(np.concatenate(mids))) if mids else 0.0
     for i, r in enumerate(rpeaks):
         a, b = max(0, int(r) - half), min(n, int(r) + half + 1)
         if b - a < 3:
             continue
         seg = env[a:b]
-        thr = QRS_ENVELOPE_FRACTION * float(seg.max())
+        thr = max(QRS_ENVELOPE_FRACTION * float(seg.max()), QRS_FLOOR_FACTOR * floor)
         below = seg < thr
         ri = int(r) - a
         # Onset: walk left from R until the envelope has been quiet for `quiet`.
