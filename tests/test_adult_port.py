@@ -213,3 +213,29 @@ def test_brugada_type1_coved_pattern():
     assert "brugada_pattern" not in _find(_brugada_m(v1=(450.0, 480.0, 500.0, -250.0))).codes()  # saddleback
     assert "brugada_pattern" not in _find(_brugada_m(v1=(450.0, 300.0, 150.0, 80.0))).codes()    # upright T
     assert "brugada_pattern" not in _find(_brugada_m(s_v6=-400.0)).codes()                        # true RBBB
+
+
+# --- R-peak recovery from the multi-lead envelope (D75) ---
+def test_recover_missed_qrs_fills_gaps_but_not_spikes():
+    from cardiolens.layer3_measure.measure import _recover_missed_qrs
+
+    fs = 500.0
+    tt = np.arange(5000) / fs
+    beats = np.arange(0.3, 9.8, 0.6)                      # 100/min
+    x = np.zeros((12, tt.size))
+    for t in beats:
+        x += 1000 * np.exp(-((tt - t) / 0.012) ** 2)        # sharp QRS in every lead
+        x += 150 * np.exp(-((tt - t - 0.3) / 0.06) ** 2)    # broad T
+    idx = (beats * fs).astype(int)
+    # The single-lead detector kept an irregular subset (PTB-XL 18191: 4 of 12 beats).
+    kept = idx[[0, 1, 4, 5, 9, 11, 12, 15]]
+    out, n_rec = _recover_missed_qrs(x, kept, fs)
+    assert n_rec == len(idx) - len(kept)
+    assert np.all(np.abs(np.sort(out) - np.sort(idx)) <= 10)   # envelope peak within 20 ms of R
+    # A complete list gets nothing added; a spike inside every RR (pacemaker-like)
+    # would make the rhythm less regular and is refused.
+    assert _recover_missed_qrs(x, idx, fs)[1] == 0
+    y = x.copy()
+    for t in beats[:-1]:
+        y[:, int((t + 0.15) * fs)] += 3000
+    assert _recover_missed_qrs(y, idx, fs)[1] == 0
