@@ -258,3 +258,22 @@ def test_recover_missed_qrs_skips_a_noisy_strip():
     out, n_rec = _recover_missed_qrs(x, idx[[0, 1, 4, 5, 9, 11, 12, 15]], fs, notes)
     assert n_rec == 0 and len(out) == 8
     assert notes and "noisy envelope" in notes[0]
+
+
+def test_recover_missed_qrs_takes_the_whole_wide_complex_as_reference():
+    # LBBB-like QRS: a weak first envelope hump (where the detector sits) and a dominant
+    # second hump 130 ms later; T waves 270 ms after that. Half the first hump's level let
+    # the T waves through (PTB-XL 13820: 124/min at 75); the whole complex does not (D80).
+    from cardiolens.layer3_measure.measure import _recover_missed_qrs
+
+    fs = 500.0
+    tt = np.arange(5000) / fs
+    beats = np.arange(0.4, 9.6, 0.8)                        # 75/min
+    x = np.zeros((12, tt.size))
+    for t in beats:
+        x += 400 * np.exp(-((tt - t) / 0.012) ** 2)
+        x -= 900 * np.exp(-((tt - t - 0.13) / 0.014) ** 2)
+        x += 560 * np.exp(-((tt - t - 0.40) / 0.035) ** 2)
+    idx = (beats * fs).astype(int)
+    out, n_rec = _recover_missed_qrs(x, idx[[0, 1, 4, 5, 6, 8, 10, 11]], fs)
+    assert n_rec == 4 and len(out) == len(beats)

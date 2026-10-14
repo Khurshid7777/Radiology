@@ -147,6 +147,7 @@ def _reject_non_qrs_detections(
 RECOVER_ENV_FRACTION = 0.5    # a recovered QRS reaches half the accepted beats' median envelope peak
 RECOVER_MIN_GAP_S = 0.25      # ... and lies a refractory period from every accepted beat: a wide
                               # (LBBB) QRS has two envelope peaks ~130 ms apart (PTB-XL 13820)
+RECOVER_REF_HALF_S = 0.15     # an accepted beat's envelope level = max within this of its R (QRS search half-width)
 RECOVER_MAX_FLOOR = 0.25      # no recovery when the envelope between beats is this high relative
                               # to the beats: noise, not QRS, reaches half their level (PTB-XL 15973)
 
@@ -169,7 +170,10 @@ def _recover_missed_qrs(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
     from scipy.signal import find_peaks
 
     env = spatial_velocity(signal, fs)
-    w = int(0.03 * fs)
+    # The reference is each accepted beat's whole complex, not the detected point: on a
+    # wide (LBBB) QRS the detector often sits on the weaker first of two envelope humps,
+    # and half of that let the T waves through as beats (13820: 124/min at 75).
+    w = int(RECOVER_REF_HALF_S * fs)
     ref = float(np.median([env[max(0, int(r) - w):int(r) + w].max() for r in rpeaks]))
     if ref <= 0:
         return rpeaks, 0
