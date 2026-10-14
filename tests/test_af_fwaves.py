@@ -67,6 +67,12 @@ def test_strong_f_waves_overrule_a_conducted_p_at_a_fast_rate():
         _sig(), tight, norms=load_norms("adult"), la_ra_reversed=False).codes()
     codes = detect_findings(_sig(), m(0.6), norms=load_norms("adult"), la_ra_reversed=False).codes()
     assert "atrial_fibrillation" not in codes
+    # A measured flutter rate makes those waves flutter F waves with variable conduction:
+    # flutter, not AF (PTB-XL 1773, D82).
+    fl = m(1.07)
+    fl.atrial_rate_bpm = 297.0
+    codes = detect_findings(_sig(), fl, norms=load_norms("adult"), la_ra_reversed=False).codes()
+    assert "atrial_flutter" in codes and "atrial_fibrillation" not in codes
     # Children keep the conducted-P gate (pediatric sinus arrhythmia).
     child = _sig()
     child.patient = Patient(age_years=8)

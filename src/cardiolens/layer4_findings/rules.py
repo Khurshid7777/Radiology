@@ -199,9 +199,13 @@ def detect_findings(
     # fast or irregular rate its window spans most of the RR and the "PR" is stable only
     # loosely; a tight PR stays conducted. Adults only: in children the conducted-P gate
     # is what keeps sinus arrhythmia from reading as AF.
+    # A measured flutter rate means those waves are flutter F waves conducted with a
+    # varying ratio, not fibrillation: the override stays off (PTB-XL 1773, D82).
     af_override = rh.get("af_fwave_conducted_override")
+    fl_lo, fl_hi = rh.get("atrial_flutter_bpm", [240, 350])
+    flutter_rate = m.atrial_rate_bpm is not None and fl_lo <= m.atrial_rate_bpm <= fl_hi
     if (conducted_p and af_override is not None and m.fwave_index is not None
-            and m.fwave_index >= float(af_override)
+            and m.fwave_index >= float(af_override) and not flutter_rate
             and m.pr_std_ms >= rh.get("af_fwave_override_min_pr_std_ms", 15)):
         conducted_p = False
     if (m.rr_cv or 0) > af_cv and (no_p or fwaves) and not conducted_p:
