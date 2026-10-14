@@ -195,6 +195,15 @@ def detect_findings(
     af_fw = rh.get("af_fwave_index_min")
     no_p = m.p_wave_ratio is not None and m.p_wave_ratio < af_p
     fwaves = af_fw is not None and m.fwave_index is not None and m.fwave_index >= float(af_fw)
+    # ... unless strong f-waves are what the P search found before each QRS (D81): at a
+    # fast or irregular rate its window spans most of the RR and the "PR" is stable only
+    # loosely; a tight PR stays conducted. Adults only: in children the conducted-P gate
+    # is what keeps sinus arrhythmia from reading as AF.
+    af_override = rh.get("af_fwave_conducted_override")
+    if (conducted_p and af_override is not None and m.fwave_index is not None
+            and m.fwave_index >= float(af_override)
+            and m.pr_std_ms >= rh.get("af_fwave_override_min_pr_std_ms", 15)):
+        conducted_p = False
     if (m.rr_cv or 0) > af_cv and (no_p or fwaves) and not conducted_p:
         fs.findings.append(Finding(
             code="atrial_fibrillation", group="rhythm",

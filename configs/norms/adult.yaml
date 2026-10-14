@@ -26,6 +26,14 @@ rhythm:
   # f-waves). Chosen on PTB-XL (123 AF): 0.537 -> 0.626 at spec 0.969 -> 0.958;
   # ecg-arrhythmia halves +2 AF on one half, no new false alarm on either.
   af_fwave_index_min: 0.45
+  # Strong f-waves overrule a loosely "conducted P" (D81): at a fast or irregular rate
+  # the P search window spans most of the RR and finds an f-wave or T remnant before
+  # every QRS, its "PR" SD under af_pr_std_max_ms yet not tight (PTB-XL 3166, AF at
+  # 150/min: index 1.07, PR SD 29 ms, read as sinus tachycardia). PTB-XL: those AF
+  # records have PR SD 18-40 ms, true conducted P a median of 13 ms; non-AF f-wave
+  # index p99 0.59. A PR SD below the floor keeps the conducted P in charge.
+  af_fwave_conducted_override: 0.8
+  af_fwave_override_min_pr_std_ms: 15
 
 # A regular narrow tachycardia at/above this rate is SVT, a wide one VT-suspect (§7.1,
 # §10; ported from claude/vibrant-curie-ro1zsz D37): resting sinus rarely exceeds ~140.

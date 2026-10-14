@@ -47,3 +47,28 @@ def test_fwave_index_is_measured_and_low_on_a_sinus_record():
     m = measure(sig)
     assert m.fwave_index is not None
     assert m.fwave_index < 0.45
+
+
+def test_strong_f_waves_overrule_a_conducted_p_at_a_fast_rate():
+    # PTB-XL 3166, AF at 150/min: the P search found an f-wave before every QRS with a
+    # "stable PR" (onset 1.0, SD 29 ms) and the record read as sinus tachycardia (D81).
+    def m(fwave):
+        x = _m(rr_cv=0.106, p_ratio=0.68, fwave=fwave, p_onset=1.0, pr_std=29.1)
+        x.heart_rate_bpm = 150.6
+        return x
+
+    codes = detect_findings(_sig(), m(1.07), norms=load_norms("adult"), la_ra_reversed=False).codes()
+    assert "atrial_fibrillation" in codes and "sinus_tachycardia" not in codes
+    # A tight PR (true conduction) or moderate f-waves (non-AF PTB-XL p99 is 0.59) still
+    # leave the conducted P in charge.
+    tight = m(1.07)
+    tight.pr_std_ms = 10.0
+    assert "atrial_fibrillation" not in detect_findings(
+        _sig(), tight, norms=load_norms("adult"), la_ra_reversed=False).codes()
+    codes = detect_findings(_sig(), m(0.6), norms=load_norms("adult"), la_ra_reversed=False).codes()
+    assert "atrial_fibrillation" not in codes
+    # Children keep the conducted-P gate (pediatric sinus arrhythmia).
+    child = _sig()
+    child.patient = Patient(age_years=8)
+    codes = detect_findings(child, m(1.07), norms=load_norms("pediatric"), la_ra_reversed=False).codes()
+    assert "atrial_fibrillation" not in codes
