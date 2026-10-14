@@ -339,14 +339,22 @@ _WCT_EXCLUDES = ("wpw_preexcitation", "first_degree_av_block", "pathological_q_w
 
 
 def _hr_harmonic(m, rh: dict) -> bool:
-    """The "atrial rate" is the second harmonic of a regular sinus tachycardia (D83): a
-    slow-flutter-range rate at 2 x HR with a regular RR is the QRS-T train, not F waves."""
+    """The "atrial rate" is an HR harmonic of a regular sinus tachycardia (D83, D84): the
+    QRS-T train at 2 x HR in the slow-flutter range or with sinus P waves and a quiet
+    baseline, or at 3 x HR, with a regular RR."""
     top = rh.get("flutter_harmonic_max_bpm")
-    hr, rate = m.heart_rate_bpm, m.atrial_rate_bpm
-    if top is None or hr is None or rate is None or m.rr_cv is None:
+    hr, rate, mad = m.heart_rate_bpm, m.atrial_rate_bpm, m.rr_mad_cv
+    if top is None or hr is None or rate is None or mad is None:
         return False
-    return (rate < float(top) and abs(rate - 2 * hr) <= rh.get("flutter_harmonic_tolerance", 0.05) * 2 * hr
-            and m.rr_cv < rh.get("flutter_harmonic_rr_cv_max", 0.05))
+    if mad >= rh.get("flutter_harmonic_rr_mad_cv_max", 0.03):
+        return False
+    tol = rh.get("flutter_harmonic_tolerance", 0.08)
+    at2 = abs(rate - 2 * hr) <= tol * 2 * hr
+    sinus_p = (m.p_wave_ratio is not None and m.fwave_index is not None
+               and m.p_wave_ratio >= rh.get("flutter_harmonic_p_ratio_min", 0.85)
+               and m.fwave_index < rh.get("flutter_harmonic_fwave_max", 2.5))
+    return ((at2 and (rate < float(top) or sinus_p))
+            or abs(rate - 3 * hr) <= tol * 3 * hr)
 
 
 _SINUS_CODES = {"sinus_rhythm", "sinus_bradycardia", "sinus_tachycardia"}

@@ -81,14 +81,28 @@ def test_strong_f_waves_overrule_a_conducted_p_at_a_fast_rate():
 
 
 def test_a_sinus_tachycardia_harmonic_is_not_flutter():
-    # Regular sinus tachycardia at 105/min: its second harmonic (210/min) read as flutter
-    # on 12 of 442 PTB-XL sinus tachycardias (D83). Flutter at 300 with 2:1 conduction,
-    # or a 2 x HR rate with an irregular rhythm, still is.
-    def codes(hr, atrial, rr_cv):
-        x = _m(rr_cv=rr_cv, p_ratio=0.9, fwave=0.2)
-        x.heart_rate_bpm, x.atrial_rate_bpm = hr, atrial
+    # Regular sinus tachycardia: its HR harmonics read as flutter on PTB-XL (D83, D84).
+    def codes(hr, atrial, mad_cv, rr_cv=None, p_ratio=0.9, fwave=0.2):
+        x = _m(rr_cv=rr_cv if rr_cv is not None else mad_cv, p_ratio=p_ratio, fwave=fwave)
+        x.heart_rate_bpm, x.atrial_rate_bpm, x.rr_mad_cv = hr, atrial, mad_cv
         return detect_findings(_sig(), x, norms=load_norms("adult"), la_ra_reversed=False).codes()
 
-    assert "atrial_flutter" not in codes(105.0, 210.0, 0.01)
-    assert "atrial_flutter" in codes(150.0, 300.0, 0.01)
+    assert "atrial_flutter" not in codes(105.0, 210.0, 0.01)              # 2 x HR
+    assert "atrial_flutter" not in codes(98.2, 210.0, 0.027)              # 2.14 x HR (3806)
+    assert "atrial_flutter" not in codes(109.0, 225.0, 0.011, rr_cv=0.09)  # ectopics inflate RR CV (12138)
+    assert "atrial_flutter" not in codes(109.0, 330.0, 0.008)             # 3 x HR (17804)
+    # 2 x HR above 240 (7330: 128/min, 255) is a harmonic only with sinus P waves and a
+    # quiet baseline; a sawtooth (high f-wave index) at the same rates is 2:1 flutter.
+    def at255(p_ratio, fwave):
+        x = _m(rr_cv=0.008, p_ratio=p_ratio, fwave=fwave)
+        x.heart_rate_bpm, x.atrial_rate_bpm, x.rr_mad_cv = 128.0, 255.0, 0.009
+        return detect_findings(_sig(), x, norms=load_norms("adult"), la_ra_reversed=False).codes()
+
+    assert "atrial_flutter" not in at255(0.9, 2.37)
+    assert "atrial_flutter" in at255(0.9, 4.0)
+    assert "atrial_flutter" in at255(0.3, 2.0)
+    # Flutter with 2:1 conduction at 300, or a harmonic-looking rate with irregular
+    # (variable) conduction, still is flutter.
+    assert "atrial_flutter" in codes(150.0, 300.0, 0.01, p_ratio=0.2, fwave=4.0)   # sawtooth
     assert "atrial_flutter" in codes(105.0, 210.0, 0.15)
+    assert "atrial_flutter" in codes(90.0, 270.0, 0.12)

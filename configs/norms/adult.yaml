@@ -10,12 +10,20 @@ heart_rate_bpm: [60, 100]
 rhythm:
   # Regular atrial (F-wave) rate band for atrial flutter (bpm).
   atrial_flutter_bpm: [200, 350]
-  # A regular rhythm whose "atrial rate" is 2 x HR (+-5 %) and below 240/min is the
-  # second HR harmonic of a sinus tachycardia, not flutter (D83): PTB-XL sinus
-  # tachycardia 100-125/min read as flutter 210-255/min (12 of 442).
+  # A regular rhythm whose "atrial rate" is an HR harmonic is the QRS-T train of a
+  # sinus tachycardia, not flutter (D83, D84): 2 x HR below 240/min, or 3 x HR (true
+  # 3:1 flutter on PTB-XL is never regular), within the tolerance. Regularity by the
+  # median-based RR spread, which atrial ectopics do not inflate (12138: RR CV 0.09,
+  # MAD CV 0.011; true flutter at 2 x HR below 240: MAD CV >= 0.061).
   flutter_harmonic_max_bpm: 240
-  flutter_harmonic_tolerance: 0.05
-  flutter_harmonic_rr_cv_max: 0.05
+  flutter_harmonic_tolerance: 0.08
+  flutter_harmonic_rr_mad_cv_max: 0.03
+  # ... and at 2 x HR at any rate when an organised P precedes nearly every beat and the
+  # baseline carries little 4-9 Hz energy (D84): sinus P + quiet TP, not a sawtooth.
+  # PTB-XL 2:1 flutter: with f-wave index < 2.5 the P share is <= 0.67; with P share
+  # >= 0.85 the index is >= 3.6. Sinus tachycardia read as flutter: 0.9-1.0 and 1.5-2.4.
+  flutter_harmonic_p_ratio_min: 0.85
+  flutter_harmonic_fwave_max: 2.5
   # Atrial fibrillation gates: RR coefficient of variation above, and fraction of
   # beats with an organised P below. Chosen on the train half of 964 PhysioNet
   # ecg-arrhythmia records with a specificity floor and confirmed on the test half
