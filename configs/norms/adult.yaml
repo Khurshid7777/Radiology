@@ -10,6 +10,12 @@ heart_rate_bpm: [60, 100]
 rhythm:
   # Regular atrial (F-wave) rate band for atrial flutter (bpm).
   atrial_flutter_bpm: [200, 350]
+  # A regular rhythm whose "atrial rate" is 2 x HR (+-5 %) and below 240/min is the
+  # second HR harmonic of a sinus tachycardia, not flutter (D83): PTB-XL sinus
+  # tachycardia 100-125/min read as flutter 210-255/min (12 of 442).
+  flutter_harmonic_max_bpm: 240
+  flutter_harmonic_tolerance: 0.05
+  flutter_harmonic_rr_cv_max: 0.05
   # Atrial fibrillation gates: RR coefficient of variation above, and fraction of
   # beats with an organised P below. Chosen on the train half of 964 PhysioNet
   # ecg-arrhythmia records with a specificity floor and confirmed on the test half

@@ -78,3 +78,17 @@ def test_strong_f_waves_overrule_a_conducted_p_at_a_fast_rate():
     child.patient = Patient(age_years=8)
     codes = detect_findings(child, m(1.07), norms=load_norms("pediatric"), la_ra_reversed=False).codes()
     assert "atrial_fibrillation" not in codes
+
+
+def test_a_sinus_tachycardia_harmonic_is_not_flutter():
+    # Regular sinus tachycardia at 105/min: its second harmonic (210/min) read as flutter
+    # on 12 of 442 PTB-XL sinus tachycardias (D83). Flutter at 300 with 2:1 conduction,
+    # or a 2 x HR rate with an irregular rhythm, still is.
+    def codes(hr, atrial, rr_cv):
+        x = _m(rr_cv=rr_cv, p_ratio=0.9, fwave=0.2)
+        x.heart_rate_bpm, x.atrial_rate_bpm = hr, atrial
+        return detect_findings(_sig(), x, norms=load_norms("adult"), la_ra_reversed=False).codes()
+
+    assert "atrial_flutter" not in codes(105.0, 210.0, 0.01)
+    assert "atrial_flutter" in codes(150.0, 300.0, 0.01)
+    assert "atrial_flutter" in codes(105.0, 210.0, 0.15)

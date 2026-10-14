@@ -25,7 +25,7 @@ from cardiolens.contracts.features import (
 )
 from cardiolens.contracts.signal import SignalRepresentation
 from cardiolens.layer2_preprocess.quality import is_lead_off
-from cardiolens.layer3_measure.atrial import atrial_activity, fwave_index
+from cardiolens.layer3_measure.atrial import FLUTTER_SPECTRAL_LEADS, atrial_activity, fwave_index
 from cardiolens.layer3_measure.delineation import (
     P_ONSET_MIN_FRACTION,
     P_ONSET_MIN_UV,
@@ -651,6 +651,11 @@ def measure(sig: SignalRepresentation) -> Measurements:
             atrial_leads, rpeaks, fs,
             heart_rate_bpm=m.heart_rate_bpm, rr_cv=m.rr_cv, r_ref=r_ref,
             pr_unstable=pr_unstable, qrs_on=qrs_on, qrs_off=qrs_off,
+            # The spectral flutter search reads its own leads (II, III, aVF, V1): F waves are
+            # best seen inferiorly; with II and V1 alone it missed flutter one lead short
+            # of the two required (PTB-XL 15676, D83).
+            spectral_leads={ln: sig.lead(ln).astype(np.float64)
+                            for ln in FLUTTER_SPECTRAL_LEADS if ln in sig.lead_names} or None,
         )
         # AV dissociation means no fixed PR: when a P onset was found before most
         # beats and the PR is stable, the atria are conducting (sinus rhythm with a

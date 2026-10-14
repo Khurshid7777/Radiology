@@ -61,6 +61,10 @@ FLUTTER_SPECTRAL_BAND_HZ = (3.3, 6.0)
 FLUTTER_SPECTRAL_LOW_HZ = (0.5, 3.0)
 FLUTTER_SPECTRAL_SHARPNESS = 10.0     # peak / median PSD inside the band
 FLUTTER_SPECTRAL_RATIO = 1.0          # band power / low-band power
+# III and aVF (D82) see F waves best but also the T waves and HR harmonics of a sinus
+# tachycardia: they count only with a clearer band dominance. PTB-XL (73 AFLT, 442 STACH):
+# 1.5 -> 48 found / 9 false, 2.0 -> 45 / 4, 3.0 -> 42 / 3.
+FLUTTER_SPECTRAL_RATIO_BY_LEAD = {"III": 2.0, "aVF": 2.0}
 FLUTTER_SPECTRAL_LEADS = ("II", "III", "aVF", "V1")
 FLUTTER_SPECTRAL_MIN_LEADS = 2
 FWAVE_BAND_HZ = (4.0, 9.0)            # fibrillatory waves: broadband, 240-540/min
@@ -201,7 +205,8 @@ def flutter_spectrum(
         k = int(np.argmax(p[band]))
         sharp = float(p[band][k] / (np.median(p[band]) + 1e-12))
         ratio = float(p[band].sum() / (p[low].sum() + 1e-12))
-        if sharp >= FLUTTER_SPECTRAL_SHARPNESS and ratio >= FLUTTER_SPECTRAL_RATIO:
+        if (sharp >= FLUTTER_SPECTRAL_SHARPNESS
+                and ratio >= FLUTTER_SPECTRAL_RATIO_BY_LEAD.get(name, FLUTTER_SPECTRAL_RATIO)):
             hits.append(float(f[band][k]) * 60.0)
     if len(hits) < FLUTTER_SPECTRAL_MIN_LEADS:
         return None
@@ -254,6 +259,7 @@ def atrial_activity(
     pr_unstable: bool = False,
     qrs_on: np.ndarray | None = None,
     qrs_off: np.ndarray | None = None,
+    spectral_leads: dict[str, np.ndarray] | None = None,
 ) -> tuple[float | None, bool | None, list[str]]:
     """Return (atrial_rate_bpm, av_dissociation, notes).
 
@@ -310,7 +316,7 @@ def atrial_activity(
 
     # --- Stage 1b: spectral F-wave search (fixed-ratio flutter locked to the QRS) ---
     if rate is None or rate < FLUTTER_BAND_BPM[0]:
-        spec = flutter_spectrum(leads, rpeaks, fs, qrs_on, qrs_off)
+        spec = flutter_spectrum(spectral_leads or leads, rpeaks, fs, qrs_on, qrs_off)
         if spec is not None and FLUTTER_BAND_BPM[0] <= spec <= FLUTTER_BAND_BPM[1]:
             rate = spec
             notes.append("atrial activity: flutter waves found spectrally")

@@ -249,7 +249,8 @@ def detect_findings(
 
     # Atrial flutter: regular atrial rate ~250-350/min (sawtooth) (§7.1).
     fl_lo, fl_hi = norms.get("rhythm", {}).get("atrial_flutter_bpm", [240, 350])
-    if m.atrial_rate_bpm is not None and fl_lo <= m.atrial_rate_bpm <= fl_hi:
+    if (m.atrial_rate_bpm is not None and fl_lo <= m.atrial_rate_bpm <= fl_hi
+            and not _hr_harmonic(m, norms.get("rhythm", {}))):
         fs.findings.append(Finding(
             code="atrial_flutter", group="rhythm",
             label_ru=f"Трепетание предсердий (частота предсердий {m.atrial_rate_bpm}/мин)",
@@ -335,6 +336,17 @@ def detect_findings(
 
 
 _WCT_EXCLUDES = ("wpw_preexcitation", "first_degree_av_block", "pathological_q_waves")
+
+
+def _hr_harmonic(m, rh: dict) -> bool:
+    """The "atrial rate" is the second harmonic of a regular sinus tachycardia (D83): a
+    slow-flutter-range rate at 2 x HR with a regular RR is the QRS-T train, not F waves."""
+    top = rh.get("flutter_harmonic_max_bpm")
+    hr, rate = m.heart_rate_bpm, m.atrial_rate_bpm
+    if top is None or hr is None or rate is None or m.rr_cv is None:
+        return False
+    return (rate < float(top) and abs(rate - 2 * hr) <= rh.get("flutter_harmonic_tolerance", 0.05) * 2 * hr
+            and m.rr_cv < rh.get("flutter_harmonic_rr_cv_max", 0.05))
 
 
 _SINUS_CODES = {"sinus_rhythm", "sinus_bradycardia", "sinus_tachycardia"}
