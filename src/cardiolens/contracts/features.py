@@ -126,6 +126,9 @@ class Measurements(BaseModel):
     ml_probabilities: dict[str, float] | None = None   # learnable layer, per finding code
     n_beats: int = 0
     r_peaks_samples: list[int] = Field(default_factory=list)
+    # The subset of r_peaks_samples added from the multi-lead envelope (D75): marked at the
+    # envelope peak, not the rhythm lead's R, so shape comparisons must allow a shift (D87).
+    r_peaks_recovered: list[int] = Field(default_factory=list)
     intervals: Intervals = Field(default_factory=Intervals)
     voltages: Voltages = Field(default_factory=Voltages)
     axes: Axes = Field(default_factory=Axes)

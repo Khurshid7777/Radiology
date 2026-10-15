@@ -277,3 +277,21 @@ def test_recover_missed_qrs_takes_the_whole_wide_complex_as_reference():
     idx = (beats * fs).astype(int)
     out, n_rec = _recover_missed_qrs(x, idx[[0, 1, 4, 5, 6, 8, 10, 11]], fs)
     assert n_rec == 4 and len(out) == len(beats)
+
+
+def test_recovered_beats_marked_off_their_r_peak_do_not_make_a_vt_run():
+    # Envelope-recovered beats (D75) sit at the envelope peak, not the rhythm lead's R.
+    # Three normal beats marked 40 ms early read as an abnormally shaped premature run
+    # unless they are compared at their best alignment (PTB-XL 15108, 4885; D87).
+    from cardiolens.arrhythmia.beats import detect_ventricular_runs
+    from cardiolens.layer6_interpret import StubProvider
+
+    sig = generate_synthetic_ecg(heart_rate_bpm=150, seed=3)
+    rp = list(run_pipeline(sig.model_copy(deep=True), mode="A", provider=StubProvider())
+              .measurements.r_peaks_samples)
+    fs = sig.sampling_rate_hz
+    off = int(-0.040 * fs)
+    moved = set(rp[5:8])
+    shifted = [r + off if r in moved else r for r in rp]
+    assert detect_ventricular_runs(sig, shifted, fs)                     # the artefact
+    assert not detect_ventricular_runs(sig, shifted, fs, recovered=[r + off for r in moved])

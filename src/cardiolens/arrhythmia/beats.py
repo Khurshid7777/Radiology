@@ -299,9 +299,26 @@ _RUN_CORR_CORE = 0.70          # ... and at least one clearly abnormal beat
 _RUN_MIN_BEATS = 3
 _RUN_PRE_MAX = 0.90            # the run starts early: RR <= 0.90 x the RR before it
 _RUN_MAX_RR_MS = 600.0         # >= 100/min inside the run
+# A beat recovered from the multi-lead envelope (D75) is marked at the envelope peak,
+# not the rhythm lead's R: it is compared with the template at its best alignment
+# within this shift. Off-R, a normal beat reads as abnormal and three in a row made a
+# false VT run (PTB-XL 15108, 18619, 4885, D87). Detector beats keep the strict match:
+# a shift for every beat lets wide complexes fit too (INCART VT 46 -> 42 of 86).
+_RUN_RECOVERED_SHIFT_MS = 40.0
 
 
-def detect_ventricular_runs(sig, rpeaks, fs: float) -> list[tuple[int, int, float]]:
+def _best_corr(x: np.ndarray, tmpl: np.ndarray, shift: int) -> float:
+    """Max correlation of the template against ``x`` (template length + 2*shift)."""
+    n = tmpl.size
+    best = -1.0
+    for s in range(2 * shift + 1):
+        c = np.corrcoef(x[s:s + n], tmpl)[0, 1]
+        if np.isfinite(c) and c > best:
+            best = float(c)
+    return best
+
+
+def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tuple[int, int, float]]:
     """Runs of >= 3 consecutive premature, abnormally shaped beats at >= 100/min.
 
     Returns ``(first_beat, n_beats, rate_per_min)`` per run. The template is built
@@ -326,8 +343,15 @@ def detect_ventricular_runs(sig, rpeaks, fs: float) -> list[tuple[int, int, floa
     pick = timing_normal if len(timing_normal) >= 3 else list(range(len(ok)))
     tmpl = {n: np.median(segs[n][pick], axis=0) for n in leads}
     corr = np.ones(len(rp))
+    shift = int(_RUN_RECOVERED_SHIFT_MS / 1000.0 * fs)
+    rec = {int(r) for r in (recovered or [])}
     for k, i in enumerate(ok):
         corr[i] = np.mean([np.corrcoef(segs[n][k], tmpl[n])[0, 1] for n in leads])
+        r = int(rp[i])
+        if r in rec and shift and r - half - shift >= 0 and r + half + shift < n_samples:
+            corr[i] = max(corr[i], float(np.mean([
+                _best_corr(sig.lead(n)[r - half - shift:r + half + shift].astype(float), tmpl[n], shift)
+                for n in leads])))
     abnormal = corr <= _RUN_CORR_MAX
     out = []
     j = 0

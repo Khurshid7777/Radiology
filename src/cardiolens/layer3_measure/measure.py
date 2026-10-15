@@ -514,9 +514,11 @@ def measure(sig: SignalRepresentation) -> Measurements:
         rpeaks = _reject_non_qrs_detections(
             sig.signal, rpeaks, fs, windows=getattr(sig.provenance, "lead_windows", None), lead_names=sig.lead_names)
         if not getattr(sig.provenance, "lead_windows", None):
+            before = {int(r) for r in rpeaks}
             rpeaks, n_rec = _recover_missed_qrs(sig.signal, rpeaks, fs, m.notes)
             if n_rec:
                 m.notes.append(f"{n_rec} QRS recovered from the multi-lead envelope (D75)")
+                m.r_peaks_recovered = sorted(int(r) for r in rpeaks if int(r) not in before)
     m.r_peaks_samples = rpeaks.tolist()
     m.qrs_template_consistency = _qrs_template_consistency(sig, rpeaks, fs)
     # Median-beat Q waves and right-precordial ST (ported from claude/vibrant-curie-ro1zsz

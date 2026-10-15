@@ -123,7 +123,8 @@ def run_pipeline(
     # Ventricular ectopy (TZ §7.1). VT (a §10 alert): runs of premature, abnormally
     # shaped beats on the 12-lead strip; isolated PVCs and bigeminy by the 12-lead
     # PVC rule (ported from claude/vibrant-curie-ro1zsz D25, D38, D40, D41).
-    runs = detect_ventricular_runs(sig, m.r_peaks_samples or [], sig.sampling_rate_hz)
+    runs = detect_ventricular_runs(sig, m.r_peaks_samples or [], sig.sampling_rate_hz,
+                                   recovered=m.r_peaks_recovered)
     if runs:
         findings.findings.append(vt_run_finding(runs))
         audit.append(f"[L4] ventricular run(s) (first beat, beats, rate): {runs}")
