@@ -521,6 +521,7 @@ def measure(sig: SignalRepresentation) -> Measurements:
                 m.r_peaks_recovered = sorted(int(r) for r in rpeaks if int(r) not in before)
     m.r_peaks_samples = rpeaks.tolist()
     m.qrs_template_consistency = _qrs_template_consistency(sig, rpeaks, fs)
+    m.qrs_partner_consistency = _qrs_partner_consistency(sig, rpeaks, fs)
     # Median-beat Q waves and right-precordial ST (ported from claude/vibrant-curie-ro1zsz
     # D36, D89, D90): pathological Q and the Brugada type-1 pattern.
     if len(rpeaks) >= 3:
@@ -1027,6 +1028,32 @@ def _measure_t_morphology(
             # absolute cut alone flagged 70 % of children (small limb-lead
             # voltages) (D44).
             m.morphology.flat_t_leads.append(lead)
+
+
+def _qrs_partner_consistency(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float) -> float | None:
+    """Median over beats of each beat's best correlation to another beat (D89).
+
+    The single-template consistency drops when a strip has two or more stable QRS
+    shapes (PVCs, bigeminy, intermittent pacing): the median template blends them
+    (PTB-XL 17939, RBBB with PVCs: 0.37). Every beat there still has a near-identical
+    twin (0.997); noise does not repeat itself. Same lead and window as the template
+    measure. ``None`` with fewer than three beats.
+    """
+    if len(rpeaks) < 3:
+        return None
+    li = sig.lead_names.index("II") if "II" in sig.lead_names else 0
+    row = sig.signal[li].astype(np.float64)
+    w = int(0.09 * fs)
+    beats = [row[int(r) - w:int(r) + w] for r in rpeaks
+             if int(r) - w >= 0 and int(r) + w < len(row)]
+    if len(beats) < 3:
+        return None
+    m = np.vstack(beats)
+    if np.any(np.std(m, axis=1) < 1e-9):
+        return 0.0
+    c = np.corrcoef(m)
+    np.fill_diagonal(c, -1.0)
+    return round(float(np.median(c.max(axis=1))), 3)
 
 
 def _qrs_template_consistency(

@@ -62,6 +62,10 @@ pause:
 # R-peak-derived findings and reports poor quality instead (mode B escalates).
 quality:
   beat_consistency_min: 0.80
+  # ... unless the median beat's best match among the other beats is at least this
+  # (D89): several stable QRS shapes (PVCs, bigeminy, pacing) are organised, noise is
+  # not. PTB-XL: records with burst noise / electrode problems stay below it.
+  beat_partner_min: 0.95
 
 # Paced rhythm (TZ §7.1; ported from claude/vibrant-curie-ro1zsz D24, D74, D75): a slope
 # outlier on the raw signal QRS-locked on >= coupling_min of beats, or a spike-shaped event

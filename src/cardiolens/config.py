@@ -93,6 +93,10 @@ class QualityConfig(BaseModel):
     """Signal-organization gate (TZ §5): below beat_consistency_min the QRS complexes
     are not self-consistent (artifact/noise), so R-peak-derived findings are withheld."""
     beat_consistency_min: float = 0.8
+    # ... unless nearly every beat has a near-identical twin on the strip (D89): two or
+    # more stable QRS shapes (frequent PVCs, bigeminy, intermittent pacing) blend the
+    # single median template, but noise does not repeat itself.
+    beat_partner_min: float = 0.95
 
 
 class AppConfig(BaseModel):

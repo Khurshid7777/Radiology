@@ -104,3 +104,28 @@ def test_organised_p_veto_is_stable_at_low_beat_counts():
     # No organised P (AF with a slow response), or P before only 2 of 11 beats (paced).
     assert _lacks_organised_p(0.0, 7)
     assert _lacks_organised_p(2 / 11, 11)
+
+
+def test_no_complete_block_alongside_atrial_fibrillation():
+    # An AF finding (irregular, no organised P) and AV dissociation together were false on
+    # PTB-XL (5878, 10044): a block needs organised atria; AF with a block is regular (D89).
+    import numpy as np
+
+    from cardiolens.config import load_norms
+    from cardiolens.contracts.features import Intervals, Measurements
+    from cardiolens.contracts.signal import STANDARD_12_LEADS, Patient, SignalRepresentation
+    from cardiolens.layer4_findings import detect_findings
+
+    sig = SignalRepresentation(signal=np.zeros((12, 10)), sampling_rate_hz=500,
+                               lead_names=list(STANDARD_12_LEADS), duration_s=0.02,
+                               source="synthetic", patient=Patient(age_years=60, sex="male"))
+
+    def codes(rr_cv, p_ratio):
+        m = Measurements(heart_rate_bpm=60, rhythm_regular=rr_cv < 0.1, rr_cv=rr_cv,
+                         p_wave_ratio=p_ratio, p_onset_ratio=0.2, pr_std_ms=80.0,
+                         fwave_index=0.2, av_dissociation=True, atrial_rate_bpm=90.0,
+                         intervals=Intervals(qrs_ms=90, qt_ms=380, qtc_bazett_ms=420))
+        return detect_findings(sig, m, norms=load_norms("adult"), la_ra_reversed=False).codes()
+
+    assert "complete_av_block" not in codes(rr_cv=0.4, p_ratio=0.1)      # AF found
+    assert "complete_av_block" in codes(rr_cv=0.002, p_ratio=0.6)        # regular escape

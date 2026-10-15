@@ -112,6 +112,9 @@ class Measurements(BaseModel):
     pause_ratio: float | None = None          # longest RR / median RR (dropped-beat cue)
     # Median correlation of each QRS to the median beat (§5): noise has no repeatable beat.
     qrs_template_consistency: float | None = None
+    # Median over beats of the best correlation to any other beat (D89): high when the
+    # strip has several stable QRS shapes that blend a single median template.
+    qrs_partner_consistency: float | None = None
     p_wave_ratio: float | None = None         # fraction of beats with an organised P (AF gate)
     fwave_index: float | None = None          # fibrillatory-wave band-power index (AF evidence, D58)
     p_onset_ratio: float | None = None        # fraction of beats with a refined P onset (PR)

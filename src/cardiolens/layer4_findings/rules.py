@@ -237,8 +237,11 @@ def detect_findings(
     _conduction_findings(m, norms, fs, sig.patient)
     _qt_findings(iv, norms, is_pediatric, sig, fs)
 
-    # Complete (third-degree) AV block: atrioventricular dissociation (§7.1, §10).
-    if m.av_dissociation is True:
+    # Complete (third-degree) AV block: atrioventricular dissociation (§7.1, §10). Not
+    # with an AF finding (D89): a block needs organised atrial activity, and AF with a
+    # true block has a regular escape rhythm the AF rule never fires on; together they
+    # were false on PTB-XL (5878, 10044; none of the 7 found 3AVB had an AF finding).
+    if m.av_dissociation is True and "atrial_fibrillation" not in fs.codes():
         fs.findings.append(Finding(
             code="complete_av_block", group="rhythm",
             label_ru="Полная АВ-блокада (АВ-диссоциация)",

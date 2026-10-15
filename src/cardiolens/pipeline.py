@@ -169,7 +169,9 @@ def run_pipeline(
     # are not self-consistent, R-peaks (hence HR, intervals, rhythm) are unreliable:
     # withhold the findings and report poor quality; mode B escalates.
     tc = m.qrs_template_consistency
-    if tc is not None and tc < cfg.quality.beat_consistency_min:
+    pc = m.qrs_partner_consistency
+    if (tc is not None and tc < cfg.quality.beat_consistency_min
+            and not (pc is not None and pc >= cfg.quality.beat_partner_min)):
         findings.findings = [Finding(
             code="poor_quality_signal", group="quality",
             label_ru=f"Сигнал непригоден для надёжной интерпретации "
