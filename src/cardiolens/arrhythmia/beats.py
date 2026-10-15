@@ -305,6 +305,10 @@ _RUN_MAX_RR_MS = 600.0         # >= 100/min inside the run
 # false VT run (PTB-XL 15108, 18619, 4885, D87). Detector beats keep the strict match:
 # a shift for every beat lets wide complexes fit too (INCART VT 46 -> 42 of 86).
 _RUN_RECOVERED_SHIFT_MS = 40.0
+# A detector beat marked off its R by up to the same shift is rescued only when the
+# shifted match is near-perfect: the same shape displaced, not a wide complex that
+# partly lines up (a plain shift for every beat cost INCART VT 46 -> 42, D87).
+_RUN_SHIFTED_RESCUE_MIN = 0.95
 
 
 def _best_corr(x: np.ndarray, tmpl: np.ndarray, shift: int) -> float:
@@ -348,10 +352,13 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
     for k, i in enumerate(ok):
         corr[i] = np.mean([np.corrcoef(segs[n][k], tmpl[n])[0, 1] for n in leads])
         r = int(rp[i])
-        if r in rec and shift and r - half - shift >= 0 and r + half + shift < n_samples:
-            corr[i] = max(corr[i], float(np.mean([
+        if (corr[i] <= _RUN_CORR_MAX and shift and r - half - shift >= 0
+                and r + half + shift < n_samples):
+            shifted = float(np.mean([
                 _best_corr(sig.lead(n)[r - half - shift:r + half + shift].astype(float), tmpl[n], shift)
-                for n in leads])))
+                for n in leads]))
+            if r in rec or shifted >= _RUN_SHIFTED_RESCUE_MIN:
+                corr[i] = max(corr[i], shifted)
     abnormal = corr <= _RUN_CORR_MAX
     out = []
     j = 0

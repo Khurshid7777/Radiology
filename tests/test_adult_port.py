@@ -293,5 +293,15 @@ def test_recovered_beats_marked_off_their_r_peak_do_not_make_a_vt_run():
     off = int(-0.040 * fs)
     moved = set(rp[5:8])
     shifted = [r + off if r in moved else r for r in rp]
-    assert detect_ventricular_runs(sig, shifted, fs)                     # the artefact
     assert not detect_ventricular_runs(sig, shifted, fs, recovered=[r + off for r in moved])
+    # A detector beat displaced the same way is rescued too when its shifted match is
+    # near-perfect (PTB-XL 18619: 0.998; true PVCs there 0.33-0.81; D88) ...
+    assert not detect_ventricular_runs(sig, shifted, fs)
+    # ... and without that rescue the displaced beats are the false run it removes.
+    from cardiolens.arrhythmia import beats
+    keep = beats._RUN_SHIFTED_RESCUE_MIN
+    try:
+        beats._RUN_SHIFTED_RESCUE_MIN = 2.0
+        assert detect_ventricular_runs(sig, shifted, fs)
+    finally:
+        beats._RUN_SHIFTED_RESCUE_MIN = keep
