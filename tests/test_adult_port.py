@@ -305,3 +305,39 @@ def test_recovered_beats_marked_off_their_r_peak_do_not_make_a_vt_run():
         assert detect_ventricular_runs(sig, shifted, fs)
     finally:
         beats._RUN_SHIFTED_RESCUE_MIN = keep
+
+
+# --- QRS offset past a terminal R' after an envelope dip (D90) ---
+
+def test_qrs_offset_continues_past_a_terminal_r_prime():
+    import cardiolens.layer3_measure.delineation as D
+
+    fs = 500.0
+    tt = np.arange(5000) / fs
+    beats = np.arange(0.5, 9.5, 0.75)
+    x = np.zeros((12, tt.size))
+    for t in beats:
+        x += 1000 * np.exp(-((tt - t) / 0.012) ** 2)            # main QRS deflection
+        x += 350 * np.exp(-((tt - t - 0.085) / 0.012) ** 2)     # terminal R', after a 30 ms dip
+        x += 300 * np.exp(-((tt - t - 0.33) / 0.04) ** 2)       # T wave
+    r = (beats * fs).astype(int)
+    on, off = D.qrs_bounds_envelope(x, r, fs)
+    assert np.nanmedian((off - on) / fs * 1000) >= 120
+    old = D.QRS_HUMP_FRACTION
+    try:
+        D.QRS_HUMP_FRACTION = 0.0
+        on0, off0 = D.qrs_bounds_envelope(x, r, fs)
+    finally:
+        D.QRS_HUMP_FRACTION = old
+    assert np.nanmedian((off0 - on0) / fs * 1000) < 100
+
+
+def test_wave_marks_missing_an_edge_beat_stay_on_their_own_beats():
+    from cardiolens.layer3_measure.measure import _aligned
+
+    r = np.array([10, 721, 1187, 1897])
+    p_on = _aligned([584, 1100, 1815], r, before=True)       # no P onset for the edge beat
+    assert np.isnan(p_on[0]) and list(p_on[1:]) == [584, 1100, 1815]
+    t_off = _aligned([300, 1000, 1450], r, before=False)     # no T offset for the last beat
+    assert list(t_off[:3]) == [300, 1000, 1450] and np.isnan(t_off[3])
+    assert list(_aligned([1, 2, 3, 4], r, before=True)) == [1, 2, 3, 4]

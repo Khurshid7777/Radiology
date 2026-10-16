@@ -32,6 +32,12 @@ QRS_QUIET_MS = 8.0
 # QRS 122 ms vs 86 ms by GE 12SL -> false wide-complex tachycardia alert). Clean
 # records sit at 0.01-0.03 and keep the 0.05 threshold.
 QRS_FLOOR_FACTOR = 1.5
+# Terminal hump (D90): an envelope dip after the main QRS deflection can be longer than
+# the quiet window while a terminal R'/S (RBBB) follows. When the envelope rises again
+# above this fraction of the beat peak within QRS_HUMP_GAP_MS of the offset found, the
+# offset walk continues past that hump. 0 disables.
+QRS_HUMP_FRACTION = 0.15
+QRS_HUMP_GAP_MS = 40.0
 
 # P-onset refinement: search window before QRS onset, onset criterion and cap.
 P_SEARCH_BEFORE_MS = 320.0
@@ -92,6 +98,7 @@ def qrs_bounds_envelope(
     n = env.size
     half = int(QRS_SEARCH_MS / 1000.0 * fs)
     quiet = max(1, int(round(QRS_QUIET_MS / 1000.0 * fs)))
+    gap = int(round(QRS_HUMP_GAP_MS / 1000.0 * fs))
     floor = envelope_floor(env, rpeaks)
     for i, r in enumerate(rpeaks):
         a, b = max(0, int(r) - half), min(n, int(r) + half + 1)
@@ -109,14 +116,23 @@ def qrs_bounds_envelope(
             if run >= quiet:
                 on[i] = a + j + quiet
                 break
-        # Offset: walk right from R likewise.
-        run, j = 0, ri
-        while j < len(seg) - 1:
-            j += 1
-            run = run + 1 if below[j] else 0
-            if run >= quiet:
-                off[i] = a + j - quiet + 1
+        # Offset: walk right from R likewise, then past a terminal hump.
+        j, peak = ri, float(seg.max())
+        while True:
+            run, end = 0, np.nan
+            while j < len(seg) - 1:
+                j += 1
+                run = run + 1 if below[j] else 0
+                if run >= quiet:
+                    end = j - quiet + 1
+                    break
+            if not np.isfinite(end):
                 break
+            off[i] = a + end
+            g = seg[int(end): int(end) + gap]
+            if QRS_HUMP_FRACTION <= 0 or g.size == 0 or g.max() < max(QRS_HUMP_FRACTION * peak, 2.0 * thr):
+                break
+            j = int(end) + int(np.argmax(g))
         if np.isfinite(on[i]) and np.isfinite(off[i]) and (off[i] - on[i]) > QRS_MAX_MS / 1000.0 * fs:
             on[i] = off[i] = np.nan
     return on, off

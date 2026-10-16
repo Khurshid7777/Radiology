@@ -257,11 +257,24 @@ def _lead_mask(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray, fs: flo
     return (t >= t0 + pad) & (t <= t1 - pad)
 
 
-def _aligned(values, n: int) -> np.ndarray:
-    """neurokit wave marks as a float array of length ``n`` (NaN-padded)."""
+def _aligned(values, rpeaks: np.ndarray, before: bool) -> np.ndarray:
+    """neurokit wave marks as a float array, one slot per R peak (NaN where missing).
+
+    neurokit can return fewer marks than beats (it drops beats at the record edge);
+    padding by order then shifts every later mark to the wrong beat (D90: 14323,
+    PR -1031 ms). On a count mismatch each mark goes to its own beat by position:
+    an onset (``before``) to the next R, an offset to the previous R.
+    """
+    r = np.asarray(rpeaks)
+    n = len(r)
     arr = np.full(n, np.nan)
-    vals = np.asarray(list(values)[:n], dtype=float)
-    arr[:len(vals)] = vals
+    vals = np.asarray(list(values), dtype=float)
+    if len(vals) == n:
+        return vals
+    for v in vals[np.isfinite(vals)]:
+        k = int(np.searchsorted(r, v, side="left")) if before else int(np.searchsorted(r, v, side="right")) - 1
+        if 0 <= k < n and not np.isfinite(arr[k]):
+            arr[k] = v
     return arr
 
 
@@ -566,11 +579,11 @@ def measure(sig: SignalRepresentation) -> Measurements:
         p_on = p_off = None
         waves = _delineate(cleaned, rpeaks, fs)
         if waves is not None:
-            p_on = _aligned(waves.get("ECG_P_Onsets", []), n_beats)
-            p_off = _aligned(waves.get("ECG_P_Offsets", []), n_beats)
-            dwt_on = _aligned(waves.get("ECG_R_Onsets", []), n_beats)
-            dwt_off = _aligned(waves.get("ECG_R_Offsets", []), n_beats)
-            t_off = _aligned(waves.get("ECG_T_Offsets", []), n_beats)
+            p_on = _aligned(waves.get("ECG_P_Onsets", []), rpeaks, before=True)
+            p_off = _aligned(waves.get("ECG_P_Offsets", []), rpeaks, before=True)
+            dwt_on = _aligned(waves.get("ECG_R_Onsets", []), rpeaks, before=True)
+            dwt_off = _aligned(waves.get("ECG_R_Offsets", []), rpeaks, before=False)
+            t_off = _aligned(waves.get("ECG_T_Offsets", []), rpeaks, before=False)
             # Fall back to dwt bounds only where the envelope found nothing.
             qrs_on = np.where(np.isfinite(qrs_on), qrs_on, dwt_on)
             qrs_off = np.where(np.isfinite(qrs_off), qrs_off, dwt_off)
