@@ -293,7 +293,8 @@ def detect_pvc_beats(sig, rpeaks, fs: float) -> list[int]:
 # Ventricular runs (non-sustained VT) on a 10-s strip (D40; first iteration D38).
 # Chosen on MIT-BIH DS1+DS2, INCART windows and PTB-XL/Chapman development records.
 _RUN_LEADS = ("II", "MLII", "V1", "V5")
-_RUN_TEMPLATE_PRE_MIN = 0.92   # template beats: not premature (pre-RR >= 0.92 x median)
+_RUN_TEMPLATE_PRE_MIN = 0.92   # template beats: not premature (pre-RR >= 0.92 x reference RR)
+_RUN_TEMPLATE_RR_PCT = 75.0    # reference RR: upper quartile of the strip RR (D94; the median is ectopic when ectopy dominates)
 _RUN_CORR_MAX = 0.80           # every run beat: mean correlation to that template
 _RUN_CORR_CORE = 0.70          # ... and at least one clearly abnormal beat
 _RUN_MIN_BEATS = 3
@@ -342,7 +343,7 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
     segs = {n: np.stack([sig.lead(n)[rp[i] - half:rp[i] + half].astype(float) for i in ok])
             for n in leads}
     rr = np.diff(rp).astype(float)
-    med = float(np.median(rr)) or 1.0
+    med = float(np.percentile(rr, _RUN_TEMPLATE_RR_PCT)) or 1.0
     timing_normal = [k for k, i in enumerate(ok) if i >= 1 and rr[i - 1] >= _RUN_TEMPLATE_PRE_MIN * med]
     pick = timing_normal if len(timing_normal) >= 3 else list(range(len(ok)))
     tmpl = {n: np.median(segs[n][pick], axis=0) for n in leads}

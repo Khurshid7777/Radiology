@@ -56,6 +56,15 @@ def test_ventricular_run_detector():
     assert detect_ventricular_runs(sig, rp, 500.0) == []
 
 
+def test_ventricular_run_found_when_ectopic_beats_are_the_majority():
+    # D94: with frequent couplets the median RR is the ectopic cycle, so a template of
+    # "not premature" beats against the median is built from PVCs (INCART I29-I31).
+    types = "NVVNVVNVVVVNVVNVVN"
+    rr = [900 if t == "N" else 400 for t in types[1:]]
+    sig, rp = _pulse_train(rr, odd={k for k, t in enumerate(types) if t == "V"})
+    assert detect_ventricular_runs(sig, rp, 500.0) == [(7, 4, 150)]
+
+
 def test_pvc_rule_and_bigeminy():
     rr = [800] * 5 + [560, 1040] + [800] * 5
     sig, rp = _pulse_train(rr, odd={6})
