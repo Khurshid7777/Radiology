@@ -388,8 +388,13 @@ def vt_run_finding(runs: list[tuple[int, int, float]]):
     _, n, rate = max(runs, key=lambda r: r[1])
     return Finding(
         code="ventricular_tachycardia", group="rhythm",
-        label_ru=f"Пробежка желудочковой тахикардии ({n} комплексов, ~{int(rate)}/мин)",
-        label_uz=f"Ventrikulyar taxikardiya yugurishi ({n} kompleks, ~{int(rate)}/daq)",
+        # The run detector sees premature beats shaped unlike the dominant QRS: VT and an
+        # aberrated SVT run look alike to it (D92: PTB-XL 21033, 12490), and a run on a
+        # 10 s strip is non-sustained by definition.
+        label_ru=(f"Пробежка широких комплексов ({n} комплексов, ~{int(rate)}/мин): "
+                  "вероятна неустойчивая ЖТ, аберрация не исключена"),
+        label_uz=(f"Keng komplekslar yugurishi ({n} kompleks, ~{int(rate)}/daq): "
+                  "ehtimoliy beqaror JT, aberratsiya istisno qilinmagan"),
         evidence=[Evidence(feature="run_beats", value=str(n)),
                   Evidence(feature="run_rate_per_min", value=str(int(rate))),
                   Evidence(feature="runs", value=str(len(runs)))],
