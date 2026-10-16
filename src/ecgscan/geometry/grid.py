@@ -168,9 +168,41 @@ def _best_pitch(spec: np.ndarray, n: int, lo: float, hi: float) -> tuple[float |
 
 
 def _refine(spec: np.ndarray, n: int, p: float, span: float = 0.02, maxed=None) -> float:
-    fine = np.linspace(p * (1 - span), p * (1 + span), 81)
-    fs = comb_scores(spec, n, fine, max_k=25, rel_tol=0.004, maxed=maxed)
-    return float(fine[int(np.argmax(fs))])
+    """Precise pitch from the harmonic peaks themselves: each k / (5 p) peak located with
+    parabolic interpolation, then f_k = k * F fitted by magnitude-weighted least squares.
+    (Maximising a max-filtered comb is flat over a range and biased ~0.3 %; the legacy
+    page reader turns that into ~10 ms of QRS error.)"""
+    major = 5.0 * p
+    ks, fs, ws = [], [], []
+    for k in range(1, 400):
+        f = k / major
+        if f >= 0.45:
+            break
+        b = f * n
+        half = max(2, int(np.ceil(span * b)))
+        lo, hi = max(1, int(b) - half), min(len(spec) - 2, int(b) + half + 1)
+        if hi <= lo:
+            continue
+        i = lo + int(np.argmax(spec[lo:hi]))
+        if i <= 0 or i >= len(spec) - 1:
+            continue
+        y0, y1, y2 = spec[i - 1], spec[i], spec[i + 1]
+        den = y0 - 2 * y1 + y2
+        off = 0.5 * (y0 - y2) / den if den != 0 else 0.0
+        ks.append(k)
+        fs.append((i + float(np.clip(off, -0.5, 0.5))) / n)
+        ws.append(float(y1))
+    if len(ks) < 3:
+        return p
+    k_arr, f_arr, w_arr = np.array(ks, float), np.array(fs), np.array(ws)
+    base = float(np.median(spec[1:])) + 1e-9
+    keep = w_arr >= PEAK_PROMINENCE * base           # only real peaks vote
+    if keep.sum() < 3:
+        return p
+    k_arr, f_arr, w_arr = k_arr[keep], f_arr[keep], w_arr[keep]
+    fund = float(np.sum(w_arr * k_arr * f_arr) / np.sum(w_arr * k_arr * k_arr))
+    p_new = 1.0 / (5.0 * fund)
+    return p_new if abs(p_new - p) <= span * p else p
 
 
 PEAK_PROMINENCE = 8.0         # spectral peaks this many medians above the floor must be explained

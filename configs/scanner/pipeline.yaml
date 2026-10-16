@@ -8,7 +8,8 @@ quality:
 
 geometry:
   working_px_per_mm: 10.0        # the photo is resampled to this before rectification (speed; 5 ms/px at 25 mm/s... 2.5 at 50)
-  max_upscale: 1.0               # never invent resolution
+  max_upscale: 1.25              # 8..10 px/mm photos are brought up to 10: the M2 (legacy) trace reader
+                                 # rounds px/mm to an integer (a 9.3 page would be timed 3 % wrong); M3 lifts this
   fit_px_per_mm: null            # fit the perspective homography at the working scale (6 px/mm was 2x faster but lost the traces: photo r 0.94 -> 0.30)
 
 calibration:

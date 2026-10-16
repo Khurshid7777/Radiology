@@ -22,7 +22,7 @@ def _pct(v) -> str:
 
 COLUMNS = [
     ("n", "n", lambda a: _f(a["n"])),
-    ("отказ/ошибка", "", lambda a: f"{a['rejected']}/{a['errors']}"),
+    ("ok/подтв./отказ/ошибка", "", lambda a: f"{a['ok']}/{a['needs_confirmation']}/{a['rejected']}/{a['errors']}"),
     ("r", "", lambda a: _f(a["r_median"])),
     ("SNR дБ", "", lambda a: _f(a["snr_db_median"], 1)),
     ("RMSE мВ", "", lambda a: _f(a["rmse_mv_median"], 3)),
