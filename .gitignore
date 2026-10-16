@@ -41,3 +41,4 @@ data/telegram/
 data/scanner_bench/
 reports/scanner/**/cases/
 reports/scanner/**/cases.jsonl
+data/bench_*.log
