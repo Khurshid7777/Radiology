@@ -16,6 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--n", type=int, default=None, help="override cases per slice")
     b.add_argument("--slices", nargs="*", default=None, help="only these slices")
     b.add_argument("--digitizers", nargs="*", default=None, help="only these digitisers")
+    b.add_argument("--resume", action="store_true", help="keep rows already in <out>/cases.jsonl, score the rest")
     b.add_argument("--images", default=None,
                    help="folder of images + WFDB records (ECG-Image-Database / ECG-Image-Kit) instead of a suite")
     b.add_argument("--assume-layout", default="3x4+rhythm", help="layout of the --images pages")
@@ -51,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"no image + WFDB pairs found in {args.images}", file=sys.stderr)
             return 2
     summary = run_bench(args.suite, args.out, cases_dir=args.cases, digitizers=digs, cases_per_slice=args.n,
-                        slices=args.slices, cases=cases)
+                        slices=args.slices, cases=cases, resume=args.resume)
     print(f"report: {args.out}/report.md ({summary['n_cases']} cases, {summary['wall_s']} s)")
     return 0
 

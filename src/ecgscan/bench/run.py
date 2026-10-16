@@ -18,6 +18,7 @@ from ecgscan.bench.digitizers import default_digitizers
 from ecgscan.bench.metrics import (
     INTERVALS,
     CaseMetrics,
+    TraceMetrics,
     clinical_measurements,
     score_case,
     truth_scan_result,
@@ -88,6 +89,12 @@ def acceptance(agg: dict, acc: dict) -> dict:
     return out
 
 
+def _row_from_json(d: dict) -> CaseMetrics:
+    d = {k: v for k, v in d.items() if k != "reference"}
+    d["traces"] = [TraceMetrics(**t) for t in d["traces"]]
+    return CaseMetrics(**d)
+
+
 def _git_rev() -> str | None:
     try:
         return subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
@@ -98,7 +105,7 @@ def _git_rev() -> str | None:
 
 def run_bench(suite: str, out_dir: str | Path, *, cases_dir: str | Path | None = None, digitizers=None,
               cases_per_slice: int | None = None, slices: list[str] | None = None,
-              cases: list[Case] | None = None, log=print) -> dict:
+              cases: list[Case] | None = None, resume: bool = False, log=print) -> dict:
     """``cases`` (e.g. ``image_record_cases``) replaces the synthetic suite when given."""
     cfg = bench_config()
     out_dir = Path(out_dir)
@@ -121,20 +128,39 @@ def run_bench(suite: str, out_dir: str | Path, *, cases_dir: str | Path | None =
         ok, why = d.available()
         (active.append(d) if ok else unavailable.__setitem__(d.name, why))
     rows: list[CaseMetrics] = []
-    with (out_dir / "cases.jsonl").open("w", encoding="utf-8") as fh:
+    done: set[tuple[str, str]] = set()
+    jsonl = out_dir / "cases.jsonl"
+    if resume and jsonl.exists():
+        # A long run killed midway (container restart) continues where it stopped.
+        kept = []
+        for line in jsonl.read_text(encoding="utf-8").splitlines():
+            try:
+                cm = _row_from_json(json.loads(line))
+            except (ValueError, TypeError, KeyError):
+                continue                                   # a half-written last line is redone
+            rows.append(cm)
+            kept.append(line)
+            done.add((cm.case_id, cm.digitizer))
+        jsonl.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
+        log(f"resume: {len(done)} case x digitiser rows already scored")
+    with jsonl.open("a" if resume else "w", encoding="utf-8") as fh:
         for i, case in enumerate(cases):
+            todo = [d for d in active if (case.case_id, d.name) not in done]
+            if not todo:
+                continue
             reference = clinical_measurements(truth_scan_result(case))
             hint = {"speed_mm_s": case.truth.speed_mm_s, "gain_mm_mv": case.truth.gain_mm_mv}
-            for d in active:
+            for d in todo:
                 run = d.digitize(case.image_path, truth_hint=hint)
                 cm = score_case(case, d.name, run, reference, cfg)
                 rows.append(cm)
                 rec = asdict(cm)
                 rec["reference"] = {k: (None if v is None else round(v, 1)) for k, v in reference.items()}
                 fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                fh.flush()
             log(f"[{i + 1}/{len(cases)}] {case.case_id}: "
                 + "; ".join(f"{r.digitizer} {r.status} r={r.r_median} QRSΔ={r.interval_err_ms.get('qrs_ms')}"
-                            for r in rows[-len(active):]))
+                            for r in rows[-len(todo):]))
     by: dict[tuple[str, str], list[CaseMetrics]] = defaultdict(list)
     for r in rows:
         by[(r.digitizer, r.slice)].append(r)

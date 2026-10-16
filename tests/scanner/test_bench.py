@@ -181,3 +181,29 @@ def test_image_folder_pairs_kit_and_database_names(synth_mv, tmp_path):
     v4 = next(t for t in c.truth.traces if t.lead == "V4")
     assert v4.start_s == 7.5 and np.allclose(v4.samples_mv, synth_mv["V4"][3750:5000], atol=2e-3)
     assert next(t for t in c.truth.traces if t.kind == "rhythm").samples_mv.size == 5000
+
+
+def test_resume_scores_only_missing_rows(smoke_cases, tmp_path):
+    out, _ = smoke_cases
+    calls = []
+
+    class Counting:
+        name = "counting"
+
+        def available(self):
+            return True, ""
+
+        def digitize(self, image, *, truth_hint=None):
+            calls.append(image)
+            case = next(c for c in load_suite(out) if c.image_path == Path(image))
+            return DigitizerRun(truth_scan_result(case), None, 0.01)
+
+    rep = tmp_path / "rep"
+    run_bench("smoke", rep, cases_dir=out, digitizers=[Counting()], log=lambda *_: None)
+    lines = (rep / "cases.jsonl").read_text(encoding="utf-8").splitlines()
+    (rep / "cases.jsonl").write_text(lines[0] + "\n" + lines[1][:40], encoding="utf-8")   # killed mid-write
+    calls.clear()
+    summary = run_bench("smoke", rep, cases_dir=out, digitizers=[Counting()], resume=True, log=lambda *_: None)
+    assert len(calls) == 1 and summary["overall"]["counting"]["n"] == 2
+    rows = (rep / "cases.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(rows) == 2 and all(json.loads(r)["digitizer"] == "counting" for r in rows)
