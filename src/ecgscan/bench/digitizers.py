@@ -188,8 +188,33 @@ class ExternalCommand:
                 return DigitizerRun(None, f"invalid result.json: {exc}"[:200], elapsed)
 
 
+class Ecgscan:
+    """This module's own pipeline (``ecgscan.pipeline.scan``)."""
+
+    name = "ecgscan"
+
+    def available(self) -> tuple[bool, str]:
+        try:
+            import cv2  # noqa: F401
+        except ImportError as exc:
+            return False, f"import failed: {exc}"
+        return True, ""
+
+    def digitize(self, image: Path, *, truth_hint: dict | None = None) -> DigitizerRun:
+        from ecgscan.pipeline import ScanDebug, scan
+
+        dbg = ScanDebug()
+        t = time.perf_counter()
+        try:
+            res = scan(image, debug=dbg)
+        except Exception as exc:  # an unhandled pipeline error is a bug, but still a refusal in the numbers
+            return DigitizerRun(None, f"{type(exc).__name__}: {exc}"[:200], time.perf_counter() - t)
+        extra = {"timings": dbg.timings, "rows": dbg.rows, "pulses": len(dbg.pulses)}
+        return DigitizerRun(res, None, time.perf_counter() - t, extra)
+
+
 def default_digitizers(cfg: dict) -> list:
-    out: list = [CardiolensV0(), CardiolensV0(oracle=True)]
+    out: list = [Ecgscan(), CardiolensV0(), CardiolensV0(oracle=True)]
     for name, ext in (cfg.get("external") or {}).items():
         out.append(ExternalCommand(name, ext))
     return out

@@ -1,0 +1,34 @@
+# ecgscan pipeline thresholds (TZ §0.3: everything tunable lives here).
+
+quality:
+  min_px_per_mm: 8.0             # TZ §5.3: below this -> rejected LOW_RESOLUTION
+  marginal_px_per_mm: 10.0       # below this -> warning LOW_RESOLUTION_MARGINAL
+  min_grid_confidence: 0.3       # grid read below this -> rejected GRID_NOT_FOUND (bench: 113/114 correct reads are above, no wrong one is)
+  min_trace_contrast: 0.67       # PROVISIONAL (synthetic: faded 0.65, others >= 0.70): below -> rejected LOW_CONTRAST
+
+geometry:
+  working_px_per_mm: 10.0        # the photo is resampled to this before rectification (speed; 5 ms/px at 25 mm/s... 2.5 at 50)
+  max_upscale: 1.0               # never invent resolution
+  fit_px_per_mm: null            # fit the perspective homography at the working scale (6 px/mm was 2x faster but lost the traces: photo r 0.94 -> 0.30)
+
+calibration:
+  speeds_mm_s: [25, 50]
+  gains_mm_mv: [5, 10, 20]
+  value_tolerance: 0.12          # a measured value within this fraction of a standard one is that value
+  pulse:
+    min_agreeing: 2              # pulses needed for full confidence (one -> lower confidence)
+    gain_conf_single: 0.75
+    gain_conf_multi: 0.95
+    speed_conf: 0.35             # SD-011: pulse width is a weak speed hint
+  ocr:
+    enabled: true
+    header_frac: 0.25
+    footer_frac: 0.12
+    conf: 0.9
+  # Rules (SD-011, TZ §5.4):
+  #  speed is established only by OCR or the user; pulse width alone -> needs_confirmation;
+  #  gain is established by the pulse (OCR agreeing or absent) or the user; OCR alone -> needs_confirmation;
+  #  any disagreement between sources -> needs_confirmation with the candidates.
+
+layout:
+  pitch_tolerance: 0.1           # measured baseline pitch within this fraction of a registry pitch matches it
