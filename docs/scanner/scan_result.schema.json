@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cardiolens.local/schemas/ecgscan/scan_result/1.0.0",
+  "title": "ECG Scanner result (ScanResult)",
+  "description": "Output of the ecgscan pipeline for one photo/scan of a paper ECG. Amplitudes in mV, time in seconds. A missing sample is null (never silently interpolated). See docs/scanner/REPO_AUDIT.md section 9 and DECISIONS SD-006, SD-007.",
+  "type": "object",
+  "required": ["schema_version", "scan_id", "status", "reject_reasons", "warnings", "source", "calibration", "layout", "sampling_rate_hz", "leads", "rhythm", "quality", "artifacts", "provenance_flags"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "scan_id": {"type": "string", "format": "uuid"},
+    "status": {"enum": ["ok", "needs_confirmation", "rejected"]},
+    "reject_reasons": {
+      "description": "Non-empty if and only if status == rejected.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/reject_code"},
+      "uniqueItems": true
+    },
+    "warnings": {
+      "description": "Why the result needs confirmation or has reduced confidence.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/warning_code"},
+      "uniqueItems": true
+    },
+    "source": {
+      "type": "object",
+      "required": ["modality", "original_sha256", "pipeline_version", "header_masked"],
+      "additionalProperties": false,
+      "properties": {
+        "modality": {"enum": ["photo", "scan", "pdf"]},
+        "original_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "original_bytes": {"type": "integer", "minimum": 0},
+        "mime_type": {"type": "string"},
+        "width_px": {"type": "integer", "minimum": 1},
+        "height_px": {"type": "integer", "minimum": 1},
+        "exif_orientation": {"type": ["integer", "null"], "minimum": 1, "maximum": 8},
+        "captured_at": {"type": ["string", "null"], "format": "date-time"},
+        "received_at": {"type": "string", "format": "date-time"},
+        "device": {"type": ["string", "null"], "description": "Capture device model, no personal data."},
+        "client": {"enum": ["flutter", "telegram_bot", "api", "web", "cli"]},
+        "client_crop": {
+          "description": "Page quadrilateral proposed by the client, in original pixel coordinates (TL, TR, BR, BL).",
+          "type": ["array", "null"],
+          "items": {"$ref": "#/$defs/point"},
+          "minItems": 4, "maxItems": 4
+        },
+        "header_masked": {"type": "boolean", "description": "Patient header was masked on the device before upload."},
+        "pipeline_version": {"type": "string"}
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "required": ["px_per_mm_x", "px_per_mm_y", "paper_speed_mm_s", "gain_mm_mv", "speed_source", "gain_source", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "px_per_mm_x": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "px_per_mm_y": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "grid_residual_mm": {"type": ["number", "null"], "minimum": 0, "description": "RMS distance of grid intersections from the ideal lattice after rectification."},
+        "paper_speed_mm_s": {"type": ["number", "null"], "enum": [25, 50, null], "description": "null = not established; status is then needs_confirmation or rejected."},
+        "gain_mm_mv": {"type": ["number", "null"], "enum": [5, 10, 20, null]},
+        "speed_source": {"$ref": "#/$defs/cal_source"},
+        "gain_source": {"$ref": "#/$defs/cal_source"},
+        "speed_candidates": {"type": "array", "items": {"$ref": "#/$defs/candidate"}},
+        "gain_candidates": {"type": "array", "items": {"$ref": "#/$defs/candidate"}},
+        "confidence": {"$ref": "#/$defs/unit"}
+      }
+    },
+    "layout": {
+      "type": "object",
+      "required": ["name", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": ["string", "null"], "description": "Registry key, e.g. 3x4+rhythm, 6x2, 12x1, single; null if unknown."},
+        "registry_version": {"type": "string"},
+        "confidence": {"$ref": "#/$defs/unit"},
+        "label_agreement": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Fraction of OCR-read lead labels matching the layout order."}
+      }
+    },
+    "sampling_rate_hz": {"type": "number", "exclusiveMinimum": 0},
+    "leads": {
+      "description": "Panel signals keyed by canonical lead name (I, II, III, aVR, aVL, aVF, V1..V6). Empty when rejected.",
+      "type": "object",
+      "propertyNames": {"enum": ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]},
+      "additionalProperties": {"$ref": "#/$defs/trace"}
+    },
+    "rhythm": {
+      "description": "Long rhythm strips (e.g. 10-s lead II under a 3x4 page).",
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/trace"},
+          {"type": "object", "required": ["lead"], "properties": {"lead": {"type": "string"}}}
+        ]
+      }
+    },
+    "quality": {
+      "type": "object",
+      "required": ["overall", "limb_lead_consistency", "px_per_mm"],
+      "additionalProperties": false,
+      "properties": {
+        "overall": {"$ref": "#/$defs/unit"},
+        "limb_lead_consistency": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "null when the limb leads do not overlap in time."},
+        "px_per_mm": {"type": ["number", "null"], "minimum": 0},
+        "sharpness": {"type": ["number", "null"]},
+        "glare_fraction": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "trace_contrast": {"type": ["number", "null"]},
+        "processing_ms": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "description": "Debug and confirmation artifacts (storage keys or URLs). Never contain the unmasked original.",
+      "additionalProperties": {"type": "string"},
+      "properties": {
+        "rectified_image": {"type": "string"},
+        "trace_mask": {"type": "string"},
+        "trace_overlay": {"type": "string"}
+      }
+    },
+    "provenance_flags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "contains": {"const": "digitized_from_image"},
+      "uniqueItems": true
+    },
+    "confirmation": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["by", "at", "decision"],
+      "properties": {
+        "by": {"type": "string", "description": "Pseudonymous user id, no names."},
+        "at": {"type": "string", "format": "date-time"},
+        "decision": {"enum": ["accepted", "corrected", "retake"]},
+        "changes": {"type": "object", "description": "Field path -> {from, to}, e.g. calibration.paper_speed_mm_s."}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "rejected"}}},
+      "then": {"properties": {"reject_reasons": {"minItems": 1}}},
+      "else": {"properties": {"reject_reasons": {"maxItems": 0}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "ok"}}},
+      "then": {"properties": {"calibration": {"properties": {
+        "paper_speed_mm_s": {"type": "number"},
+        "gain_mm_mv": {"type": "number"}
+      }}}}
+    }
+  ],
+  "$defs": {
+    "unit": {"type": "number", "minimum": 0, "maximum": 1},
+    "point": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "cal_source": {"enum": ["calibration_pulse", "header_ocr", "format_registry", "user", null]},
+    "candidate": {
+      "type": "object",
+      "required": ["value", "source", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {"type": "number"},
+        "source": {"enum": ["calibration_pulse", "header_ocr", "format_registry"]},
+        "confidence": {"$ref": "#/$defs/unit"}
+      }
+    },
+    "trace": {
+      "type": "object",
+      "required": ["samples_mv", "start_s", "duration_s", "quality", "flags"],
+      "properties": {
+        "lead": {"type": "string"},
+        "samples_mv": {"type": "array", "items": {"type": ["number", "null"]}},
+        "start_s": {"type": "number", "minimum": 0},
+        "duration_s": {"type": "number", "exclusiveMinimum": 0},
+        "quality": {"$ref": "#/$defs/unit"},
+        "coverage": {"$ref": "#/$defs/unit"},
+        "missing_fraction": {"$ref": "#/$defs/unit"},
+        "method": {"enum": ["dp_path", "weighted_centroid", "column_median", "onnx"]},
+        "box_px": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4, "description": "x0, y0, x1, y1 in the rectified image."},
+        "flags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "reject_code": {
+      "enum": ["LOW_RESOLUTION", "GLARE", "BLUR", "GRID_NOT_FOUND", "CALIBRATION_MISSING", "LAYOUT_UNKNOWN", "TRACE_BROKEN", "LIMB_LEADS_INCONSISTENT", "LOW_CONTRAST", "SCREEN_PHOTO", "NOT_AN_ECG", "PAGE_INCOMPLETE", "PROCESSING_ERROR"]
+    },
+    "warning_code": {
+      "enum": ["SPEED_UNCERTAIN", "GAIN_UNCERTAIN", "SPEED_SOURCES_DISAGREE", "GAIN_SOURCES_DISAGREE", "LAYOUT_UNCERTAIN", "LABEL_ORDER_CONFLICT", "LIMB_LEADS_INCONSISTENT", "TRACE_GAPS", "LEAD_OVERLAP", "LOW_RESOLUTION_MARGINAL", "FADED_PAPER", "STITCHED"]
+    }
+  }
+}
