@@ -159,6 +159,26 @@ def test_paced_call_requires_spike_locked_to_qrs():
     assert "paced_rhythm" not in run_pipeline(_spiked_ecg(+0.40), mode="A").findings.codes()
 
 
+def test_af_is_withheld_on_a_paced_rhythm(monkeypatch):
+    # D91: paced beats have no P and the pacer sets the RR, so the P/RR AF rule
+    # does not apply under a pacemaker.
+    import cardiolens.pipeline as P
+    from cardiolens.contracts.findings import Finding
+
+    real = P.detect_findings
+
+    def with_af(*a, **k):
+        fs = real(*a, **k)
+        fs.findings.append(Finding(code="atrial_fibrillation", group="rhythm", label_ru="ФП",
+                                   label_uz="FP", confidence=0.7))
+        return fs
+
+    monkeypatch.setattr(P, "detect_findings", with_af)
+    paced = run_pipeline(_spiked_ecg(-0.04), mode="A").findings.codes()
+    assert "paced_rhythm" in paced and "atrial_fibrillation" not in paced
+    assert "atrial_fibrillation" in run_pipeline(generate_synthetic_ecg(heart_rate_bpm=72), mode="A").findings.codes()
+
+
 def test_multilead_spike_detects_small_qrs_locked_spikes():
     sig = _spiked_ecg(-0.04, leads=list(STANDARD_12_LEADS), scale=0.6)
     assert len(pacing_multilead_spike_times(sig)) >= 5

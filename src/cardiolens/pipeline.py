@@ -241,9 +241,12 @@ def run_pipeline(
 
 # A paced QRS is wide with secondary ST-T and a left axis by construction: these are not
 # separate diagnoses under a pacemaker (ported from claude/vibrant-curie-ro1zsz).
+# Nor is AF by the P/RR rule (D91): paced beats have no P and the pacer sets the RR;
+# on 294 PTB-XL paced records it fired 55 times, once with AF in the report.
 _PACED_EXCLUDES = ("lbbb", "rbbb", "wide_qrs_nonspecific", "lvh", "lvh_probable",
                    "first_degree_av_block", "sinus_rhythm", "left_axis_deviation", "st_depression",
-                   "t_inversion", "secondary_st_t_change", "pathological_q_waves", "brugada_pattern")
+                   "t_inversion", "secondary_st_t_change", "pathological_q_waves", "brugada_pattern",
+                   "atrial_fibrillation")
 
 
 @functools.lru_cache(maxsize=2)
