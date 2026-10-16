@@ -36,3 +36,8 @@ data/georgia/
 data/telegram/
 # scripts/run_local.sh: background Ollama log
 .ollama-serve.log
+
+# Scanner bench: rendered cases and per-case rows are regenerable (python -m ecgscan bench)
+data/scanner_bench/
+reports/scanner/**/cases/
+reports/scanner/**/cases.jsonl

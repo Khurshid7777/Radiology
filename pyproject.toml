@@ -28,10 +28,15 @@ llm = ["anthropic"]
 validation = ["pandas"]
 digitize = ["opencv-python-headless"]
 telegram = ["telethon", "opencv-python-headless"]
-dev = ["pytest", "ruff", "httpx", "opencv-python-headless"]
+# ECG scanner (src/ecgscan, docs/scanner): image I/O and the ScanResult schema check.
+scanner = ["opencv-python-headless", "jsonschema"]
+dev = ["pytest", "ruff", "httpx", "opencv-python-headless", "jsonschema"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+ecgscan = ["contract/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

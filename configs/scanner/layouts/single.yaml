@@ -1,0 +1,16 @@
+# One continuous lead (monitor/rhythm strip). Multi-frame stitching joins several of these (M3).
+name: "single"
+registry_version: "1"
+confidence: medium
+panel_s: 10.0
+rows:
+  - [II]
+rhythm: []
+row_pitch_mm: 40.0
+header_mm: 10.0
+margin_mm: 8.0
+pulse:
+  present: true
+  width_s: 0.2
+  area_mm: 8.0
+label_offset_mm: [2.0, 4.0]

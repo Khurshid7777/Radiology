@@ -1,0 +1,7 @@
+114 cases (348 s to prepare); skipped slices: —
+[1/114] clean_scan-000: cardiolens-v0 ok r=0.9666 QRSΔ=8.0; cardiolens-v0-oracle ok r=0.9666 QRSΔ=8.0
+[2/114] clean_scan-001: cardiolens-v0 ok r=0.9683 QRSΔ=4.0; cardiolens-v0-oracle ok r=0.9683 QRSΔ=4.0
+[3/114] clean_scan-002: cardiolens-v0 ok r=0.9684 QRSΔ=6.0; cardiolens-v0-oracle ok r=0.9684 QRSΔ=6.0
+[4/114] clean_scan-003: cardiolens-v0 ok r=0.9973 QRSΔ=6.0; cardiolens-v0-oracle ok r=0.9973 QRSΔ=6.0
+[5/114] clean_scan-004: cardiolens-v0 ok r=0.9642 QRSΔ=7.0; cardiolens-v0-oracle ok r=0.9642 QRSΔ=7.0
+[6/114] clean_scan-005: cardiolens-v0 ok r=0.9675 QRSΔ=6.0; cardiolens-v0-oracle ok r=0.9675 QRSΔ=6.0

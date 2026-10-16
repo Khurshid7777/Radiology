@@ -1,0 +1,19 @@
+# Standard 12-lead page: three rows x four 2.5-s columns, lead-II rhythm strip below.
+# Column c covers [c * panel_s, (c + 1) * panel_s) of the same 10-s record.
+name: "3x4+rhythm"
+registry_version: "1"
+confidence: high          # common on every 12-lead machine at 25 mm/s
+panel_s: 2.5
+rows:
+  - [I, aVR, V1, V4]
+  - [II, aVL, V2, V5]
+  - [III, aVF, V3, V6]
+rhythm: [II]              # full-width strips under the panel rows, panel_s * n_columns long
+row_pitch_mm: 32.0        # baseline-to-baseline distance (printer dependent; bench varies it)
+header_mm: 20.0           # space above the first row for the printed patient/settings header
+margin_mm: 8.0
+pulse:
+  present: true
+  width_s: 0.2            # TODO(real devices): many printers draw a fixed time, some a fixed width in mm
+  area_mm: 8.0            # left of the traces
+label_offset_mm: [2.0, 4.0]

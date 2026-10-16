@@ -25,8 +25,8 @@
 - [REPO_AUDIT.md](REPO_AUDIT.md) — что уже есть в CardioLens, контракт сигнала,
   противоречия ТЗ, предлагаемая структура, вопросы.
 - [DECISIONS.md](DECISIONS.md) — журнал решений `SD-NNN`.
-- [scan_result.schema.json](scan_result.schema.json) — JSON Schema результата
-  сканера; [scan_result.example.json](scan_result.example.json) — пример.
+- [scan_result.schema.json](../../src/ecgscan/contract/scan_result.schema.json) — JSON Schema результата
+  сканера; [scan_result.example.json](../../src/ecgscan/contract/scan_result.example.json) — пример.
 
 ## Что важно знать до M1
 

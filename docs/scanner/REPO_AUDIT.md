@@ -256,8 +256,8 @@ legacy | ecgscan`). Существующий путь пользователя (
 
 ## 9. Схема результата
 
-Предложена в [`scan_result.schema.json`](scan_result.schema.json) (JSON Schema
-2020-12) с примером [`scan_result.example.json`](scan_result.example.json).
+Предложена в [`scan_result.schema.json`](../../src/ecgscan/contract/scan_result.schema.json) (JSON Schema
+2020-12) с примером [`scan_result.example.json`](../../src/ecgscan/contract/scan_result.example.json).
 Отличия от минимального набора ТЗ §7 (все аддитивные):
 
 - `schema_version` обязателен (ТЗ: «версия схемы обязательна»).
