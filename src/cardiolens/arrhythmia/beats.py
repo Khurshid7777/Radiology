@@ -299,6 +299,7 @@ _RUN_CORR_MAX = 0.80           # every run beat: mean correlation to that templa
 _RUN_CORR_CORE = 0.70          # ... and at least one clearly abnormal beat
 _RUN_MIN_BEATS = 3
 _RUN_PRE_MAX = 0.90            # the run starts early: RR <= 0.90 x the RR before it
+_RUN_PRE_INNER = 0.70          # ... or the run inside is clearly faster: mean inner RR <= 0.70 x the RR before it (D95)
 _RUN_MAX_RR_MS = 600.0         # >= 100/min inside the run
 # A beat recovered from the multi-lead envelope (D75) is marked at the envelope peak,
 # not the rhythm lead's R: it is compared with the template at its best alignment
@@ -375,7 +376,8 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
         # ectopy the median itself is short (D38 missed 19 INCART runs this way).
         if (e - j >= _RUN_MIN_BEATS and j >= 2 and e < len(rp)
                 and float(corr[j:e].min()) <= _RUN_CORR_CORE
-                and rr[j - 1] <= _RUN_PRE_MAX * rr[j - 2]
+                and (rr[j - 1] <= _RUN_PRE_MAX * rr[j - 2]
+                     or float(np.mean(rr[j:e - 1])) <= _RUN_PRE_INNER * rr[j - 2])
                 and float(np.mean(inner_ms)) <= _RUN_MAX_RR_MS):
             out.append((j, e - j, round(60000.0 / float(np.mean(inner_ms)))))
         j = e

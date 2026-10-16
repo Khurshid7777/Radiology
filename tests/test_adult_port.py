@@ -65,6 +65,15 @@ def test_ventricular_run_found_when_ectopic_beats_are_the_majority():
     assert detect_ventricular_runs(sig, rp, 500.0) == [(7, 4, 150)]
 
 
+def test_ventricular_run_with_a_late_first_beat_but_a_fast_inside():
+    # D95: the first run beat comes only slightly early (760 vs 800 ms), the run inside is
+    # at ~146/min (INCART I42, I66). A run barely faster than the rhythm stays out.
+    sig, rp = _pulse_train([800] * 5 + [760, 420, 400, 1100] + [800] * 4, odd={6, 7, 8})
+    assert detect_ventricular_runs(sig, rp, 500.0) == [(6, 3, 146)]
+    sig, rp = _pulse_train([800] * 5 + [760, 600, 580, 1100] + [800] * 4, odd={6, 7, 8})
+    assert detect_ventricular_runs(sig, rp, 500.0) == []
+
+
 def test_pvc_rule_and_bigeminy():
     rr = [800] * 5 + [560, 1040] + [800] * 5
     sig, rp = _pulse_train(rr, odd={6})
