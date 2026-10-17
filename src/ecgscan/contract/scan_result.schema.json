@@ -657,6 +657,7 @@
         "LIMB_LEADS_INCONSISTENT",
         "TRACE_GAPS",
         "LEAD_INCOMPLETE",
+        "BEATS_INCONSISTENT",
         "LEAD_OVERLAP",
         "LOW_RESOLUTION_MARGINAL",
         "FADED_PAPER",

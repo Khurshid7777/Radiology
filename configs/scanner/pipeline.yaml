@@ -62,4 +62,5 @@ validate:
   min_median_coverage: 0.5       # below -> rejected TRACE_BROKEN
   lead_min_coverage: 0.8         # any lead with less coverage -> LEAD_INCOMPLETE (needs confirmation)
   limb_warn: 0.7                 # PROVISIONAL: limb-lead consistency below -> LIMB_LEADS_INCONSISTENT (clean pages 0.83-0.86, I<->II swap 0.61)
+  beat_check: true               # CardioLens beats vs page columns (D92) disagree -> BEATS_INCONSISTENT (needs confirmation)
   ok_min_overall: 0.6            # overall quality below -> needs_confirmation

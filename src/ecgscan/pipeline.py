@@ -8,8 +8,9 @@ Status rules:
 * ``rejected`` — LOW_RESOLUTION, GRID_NOT_FOUND, LOW_CONTRAST, LAYOUT_UNKNOWN,
   TRACE_BROKEN, PROCESSING_ERROR (no traces are returned);
 * ``needs_confirmation`` — speed or gain not established (SD-011), sources disagree,
-  layout uncertain, limb leads inconsistent, a lead largely missing, or overall
-  quality below ``validate.ok_min_overall``;
+  layout uncertain, limb leads inconsistent, a lead largely missing, the CardioLens
+  beats disagreeing with the page columns (D92), or overall quality below
+  ``validate.ok_min_overall``;
 * ``ok`` — otherwise.
 """
 
@@ -36,7 +37,7 @@ from ecgscan.layout.detect import detect_layout
 from ecgscan.layout.panels import frame_page, panels
 from ecgscan.layout.rows import long_stroke_mask
 from ecgscan.segmentation import make_segmenter
-from ecgscan.validate import limb_consistency
+from ecgscan.validate import beats_agree, limb_consistency
 from ecgscan.vectorize import read_panels
 
 
@@ -238,6 +239,11 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     res = result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,
                  overall=overall, ppm=raw_ppm, contrast=contrast)
     res.quality.limb_lead_consistency = cons.score
+    if status == "ok" and val.get("beat_check", True) and beats_agree(res) is False:
+        # Accurate traces can still give a wrong rhythm downstream (CardioLens D92): the
+        # beats the measurement keeps disagree with the beats the page columns show.
+        res.warnings = sorted({*res.warnings, "BEATS_INCONSISTENT"})
+        res.status = "needs_confirmation"
     t = tick("validate", t)
     if artifacts_dir is not None:
         from ecgscan.artifacts import write_artifacts

@@ -29,8 +29,8 @@ validation = ["pandas"]
 digitize = ["opencv-python-headless"]
 telegram = ["telethon", "opencv-python-headless"]
 # ECG scanner (src/ecgscan, docs/scanner): image I/O, ScanResult schema check, header OCR (Apache-2.0).
-scanner = ["opencv-python-headless", "jsonschema", "rapidocr-onnxruntime"]
-dev = ["pytest", "ruff", "httpx", "opencv-python-headless", "jsonschema", "rapidocr-onnxruntime"]
+scanner = ["opencv-python-headless", "jsonschema", "rapidocr-onnxruntime", "cryptography"]
+dev = ["pytest", "ruff", "httpx", "opencv-python-headless", "jsonschema", "rapidocr-onnxruntime", "cryptography"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -37,8 +37,11 @@ from cardiolens.outputs import (
     result_to_dict,
     write_pdf,
 )
+from ecgscan_service.router import router as scans_router
 
 app = FastAPI(title="CardioLens", version="0.1.0")
+# ECG scanner (photo/scan input, TZ scanner §4, SD-004): /scans, own API-key auth.
+app.include_router(scans_router)
 
 _STATIC = Path(__file__).parent / "static"
 

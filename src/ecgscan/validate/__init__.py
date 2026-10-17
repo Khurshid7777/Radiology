@@ -94,3 +94,23 @@ def lead_quality(missing_fraction: float, ambiguity: float, edge_contact: float,
     w = weights or {"ambiguity": 1.0, "edge": 0.5}
     q = (1.0 - missing_fraction) * (1.0 - w["ambiguity"] * min(1.0, ambiguity)) * (1.0 - w["edge"] * min(1.0, edge_contact))
     return float(np.clip(q, 0.0, 1.0))
+
+
+def beats_agree(result) -> bool | None:
+    """The CardioLens measurement on this result: do its final beats match the page
+    columns' (D92)? ``None`` when there is nothing to compare (no page columns, too few
+    beats) or CardioLens cannot measure it."""
+    from cardiolens.config import load_app_config
+    from cardiolens.layer2_preprocess import preprocess
+    from cardiolens.layer3_measure import measure
+    from ecgscan.contract.cardiolens_adapter import to_signal_representation
+
+    cfg = load_app_config()
+    pp = cfg.preprocessing
+    try:
+        sig = preprocess(to_signal_representation(result), mains_frequency_hz=cfg.mains_frequency_hz,
+                         bandpass_low_hz=pp.bandpass_low_hz, bandpass_high_hz=pp.bandpass_high_hz,
+                         target_sampling_rate_hz=pp.target_sampling_rate_hz)
+        return measure(sig).page_beat_agreement
+    except ValueError:
+        return None
