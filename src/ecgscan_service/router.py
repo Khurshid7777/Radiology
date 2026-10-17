@@ -75,7 +75,8 @@ def view(row: ScanRow) -> dict:
 @router.post("", status_code=202)
 async def submit_scan(file: UploadFile = File(...), paper_speed_mm_s: float | None = Form(None),
                       gain_mm_mv: float | None = Form(None), layout: str | None = Form(None),
-                      client: str | None = Form(None), device: str | None = Form(None),
+                      client: Literal["flutter", "telegram_bot", "api", "web", "cli"] | None = Form(None),
+                      device: str | None = Form(None),
                       header_masked: bool = Form(False), who: str = Depends(actor),
                       svc: ScanService = Depends(get_service)) -> dict:
     data = await file.read(svc.settings.max_bytes + 1)

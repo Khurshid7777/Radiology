@@ -106,9 +106,16 @@ def test_upload_is_checked(make_client):
     assert client.post("/scans", files={"file": ("a.png", big, "image/png")}, headers=KEY).status_code == 413
 
 
+def test_unknown_client_is_refused_at_submission(make_client):
+    client, _ = make_client()
+    r = client.post("/scans", files={"file": ("ecg.png", PNG, "image/png")}, data={"client": "telegram"},
+                    headers=KEY)
+    assert r.status_code == 422
+
+
 def test_scan_is_processed_with_messages_and_audit(make_client):
     client, svc = make_client()
-    sid = _submit(client, client="android")
+    sid = _submit(client, client="flutter")
     svc.wait(sid)
     body = client.get(f"/scans/{sid}", headers=KEY).json()
     assert body["status"] == "ok" and body["result"]["scan_id"] == sid

@@ -67,7 +67,7 @@ class ScanApi:
         self.headers = {"X-API-Key": cfg.api_key or ""}
 
     def submit(self, data: bytes, filename: str) -> str:
-        r = self.http.post("/scans", files={"file": (filename, data)}, data={"client": "telegram"},
+        r = self.http.post("/scans", files={"file": (filename, data)}, data={"client": "telegram_bot"},
                            headers=self.headers)
         r.raise_for_status()
         return r.json()["scan_id"]
