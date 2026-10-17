@@ -44,3 +44,5 @@ reports/scanner/**/cases.jsonl
 data/bench_*.log
 # ECG scanner service: job store, encrypted originals, artifacts (never committed)
 data/scanner_service/
+# Real ECG photos and their digital originals (patients; never committed, TZ §9)
+data/real/

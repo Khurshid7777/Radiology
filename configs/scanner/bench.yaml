@@ -64,7 +64,7 @@ suites:
 
 # TZ §11 acceptance criteria, evaluated per slice in the report.
 acceptance:
-  slices: [photo_clean]         # "фото чистой бумаги"; real photos join in M5
+  slices: [photo_clean]         # "фото чистой бумаги"; with --real the criteria apply to all real photos
   interval_mae_ms: 10           # RR, QRS, QT — digitisation-induced error (SD-010)
   snr_db_min: 15
   r_min: 0.95

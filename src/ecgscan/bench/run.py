@@ -174,8 +174,13 @@ def run_bench(suite: str, out_dir: str | Path, *, cases_dir: str | Path | None =
         "overall": {d.name: aggregate([r for r in rows if r.digitizer == d.name]) for d in active},
         "acceptance": {}, "wall_s": round(time.perf_counter() - t0, 1),
     }
+    # Real photos (M5) are judged as a whole: TZ §11 applies the criteria to real data
+    # and to the synthetic clean-paper photos alike.
+    real = any(s.startswith("real_") for s in slices_seen)
+    summary["acceptance_scope"] = "реальные фото" if real else "фото чистой бумаги"
     for d in active:
-        acc_rows = [r for r in rows if r.digitizer == d.name and r.slice in cfg["acceptance"]["slices"]]
+        acc_rows = [r for r in rows if r.digitizer == d.name
+                    and (r.slice.startswith("real_") if real else r.slice in cfg["acceptance"]["slices"])]
         if acc_rows:
             summary["acceptance"][d.name] = acceptance(aggregate(acc_rows), cfg["acceptance"])
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False), encoding="utf-8")

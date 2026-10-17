@@ -75,7 +75,7 @@ def write_report(summary: dict, path: str | Path) -> Path:
         lines.append("")
         acc = summary["acceptance"].get(dname)
         if acc:
-            lines += ["Критерии приёмки ТЗ §11 (срез «фото чистой бумаги»):", "",
+            lines += ["Критерии приёмки ТЗ §11 (срез «" + summary.get("acceptance_scope", "фото чистой бумаги") + "»):", "",
                       "| критерий | значение | порог | |", "|---|:-:|:-:|:-:|"]
             for k, v in acc.items():
                 mark = "—" if v["passed"] is None else ("✅" if v["passed"] else "❌")

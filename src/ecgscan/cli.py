@@ -19,6 +19,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--resume", action="store_true", help="keep rows already in <out>/cases.jsonl, score the rest")
     b.add_argument("--images", default=None,
                    help="folder of images + WFDB records (ECG-Image-Database / ECG-Image-Kit) instead of a suite")
+    b.add_argument("--real", default=None,
+                   help="data/real-style folder: <device>/<id>.jpg + digital original + device.yaml (M5)")
     b.add_argument("--assume-layout", default="3x4+rhythm", help="layout of the --images pages")
     b.add_argument("--assume-speed", type=float, default=25.0, help="paper speed of the --images pages")
     b.add_argument("--assume-gain", type=float, default=10.0, help="gain of the --images pages")
@@ -50,6 +52,13 @@ def main(argv: list[str] | None = None) -> int:
                                    gain_mm_mv=args.assume_gain)
         if not cases:
             print(f"no image + WFDB pairs found in {args.images}", file=sys.stderr)
+            return 2
+    if args.real:
+        from ecgscan.bench.real import real_cases
+
+        cases = real_cases(args.real)
+        if not cases:
+            print(f"no photo + digital original pairs found in {args.real}", file=sys.stderr)
             return 2
     summary = run_bench(args.suite, args.out, cases_dir=args.cases, digitizers=digs, cases_per_slice=args.n,
                         slices=args.slices, cases=cases, resume=args.resume)
