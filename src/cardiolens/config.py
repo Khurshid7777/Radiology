@@ -97,6 +97,10 @@ class QualityConfig(BaseModel):
     # more stable QRS shapes (frequent PVCs, bigeminy, intermittent pacing) blend the
     # single median template, but noise does not repeat itself.
     beat_partner_min: float = 0.95
+    # No ECG at all (D108): 8-40 Hz peak-to-peak in the best lead below this (µV) — an
+    # unattached cable or a flat line. Development: PTB-XL >= 494, Georgia >= 309, PACE
+    # >= 481; CODE-15% 1969740 (baseline wander only) 25.
+    min_qrs_hf_uv: float = 150.0
 
 
 class AppConfig(BaseModel):

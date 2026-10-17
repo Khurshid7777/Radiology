@@ -480,3 +480,17 @@ def test_rr_regularity_without_the_intervals_around_pvcs():
     af = np.cumsum(rng.uniform(450, 1100, 14)).astype(int).tolist()
     assert _rr_cv_without(af, [4]) > 0.15
     assert _rr_cv_without([0, 800, 1600], [1]) is None
+
+
+def test_flat_line_or_baseline_wander_is_no_ecg_signal_without_alerts():
+    # D108: a recording without any QRS (cable off: baseline wander + noise) gave "sinus
+    # bradycardia" and a critical pause alert (CODE-15% 1969740).
+    rng = np.random.default_rng(0)
+    fs, n = 500.0, 5000
+    t = np.arange(n) / fs
+    x = np.stack([300 * np.sin(2 * np.pi * 0.15 * t + k) + rng.normal(0, 5, n) for k in range(12)])
+    sig = SignalRepresentation(signal=x.astype(np.float32), sampling_rate_hz=fs, lead_names=list(STANDARD_12_LEADS),
+                               duration_s=n / fs, source="synthetic")
+    res = run_pipeline(sig, mode="A")
+    assert res.findings.codes() == {"no_ecg_signal"} and not res.safety.alerts
+    assert "no_ecg_signal" not in run_pipeline(generate_synthetic_ecg(heart_rate_bpm=70), mode="A").findings.codes()

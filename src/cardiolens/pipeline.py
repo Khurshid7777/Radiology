@@ -195,6 +195,18 @@ def run_pipeline(
             confidence=0.9)]
         quality_ok = False
         audit.append(f"[L2] signal disorganized (beat consistency {tc}) — R-peak findings withheld")
+    # No ECG at all (D108): neither a rhythm nor an alert can be read from a flat line or
+    # baseline wander; the disorganisation gate above needs beats to judge.
+    no_ecg = _hf_amplitude_uv(sig) < cfg.quality.min_qrs_hf_uv
+    if no_ecg:
+        findings.findings = [Finding(
+            code="no_ecg_signal", group="quality",
+            label_ru="ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении) — проверьте электроды",
+            label_uz="EKG signali aniqlanmadi (hech bir tarmoqda QRS yo'q) — elektrodlarni tekshiring",
+            evidence=[Evidence(feature="hf_peak_to_peak_uv", value=f"{_hf_amplitude_uv(sig):.0f}")],
+            confidence=0.95)]
+        quality_ok = False
+        audit.append("[L2] no ECG signal (8-40 Hz below threshold in every lead) — all findings and alerts withheld")
     # Apply confidence calibration to each finding (TZ §13).
     for f in findings.findings:
         f.confidence = round(calibrator.apply(f.confidence), 3)
@@ -212,7 +224,7 @@ def run_pipeline(
                      f"qtcΔ={serial.qtc_delta_ms}")
 
     # Safety scan (TZ §10) — before interpretation, independent of LLM.
-    safety = scan_critical(findings, m)
+    safety = scan_critical(findings, Measurements() if no_ecg else m)
     # New critical dynamics on serial comparison force escalation (TZ §8.4, §10).
     if serial is not None:
         for d in serial.deltas:
@@ -251,6 +263,20 @@ def run_pipeline(
         signal=sig, measurements=m, findings=findings, causal_graph=causal,
         safety=safety, report=report, config=cfg, audit_log=audit, serial=serial,
     )
+
+
+def _hf_amplitude_uv(sig: SignalRepresentation) -> float:
+    """Largest 8-40 Hz peak-to-peak (0.5-99.5 percentile) over the leads, µV (D108)."""
+    import numpy as np
+    from scipy.signal import butter, filtfilt
+
+    fs = sig.sampling_rate_hz
+    x = np.nan_to_num(np.asarray(sig.signal, dtype=np.float64))
+    if x.shape[-1] < int(fs):
+        return 0.0
+    b, a = butter(2, [8.0 / (fs / 2), min(40.0, fs / 2 - 1) / (fs / 2)], btype="band")
+    y = filtfilt(b, a, x, axis=-1)
+    return float(np.max(np.percentile(y, 99.5, axis=-1) - np.percentile(y, 0.5, axis=-1)))
 
 
 AF_PVC_RECHECK = True   # D106: accepted on the held-out check (fold 10 + Georgia g6-g11)
