@@ -1,0 +1,19 @@
+{
+ "scale_to_capture": 2.979687,
+ "metrics": {
+  "width": 800,
+  "height": 450,
+  "factor": 1,
+  "brightness": 233.825,
+  "glare": 0.0,
+  "sharpness": 2090.523,
+  "tilt_deg": 8.686,
+  "period_px": 20.348,
+  "px_per_mm": 12.126,
+  "sheet": 0.9869,
+  "hints": [
+   "level"
+  ],
+  "ok": false
+ }
+}

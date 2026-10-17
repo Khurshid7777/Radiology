@@ -14,10 +14,19 @@ from ecgscan.capture_qc import check_frame, config
 
 cv2 = pytest.importorskip("cv2")
 FIX = Path(__file__).parent / "fixtures" / "capture_qc"
-CASES = sorted(p.stem for p in FIX.glob("*.json"))
-# How far an implementation (another JPEG decoder, float order) may drift.
+CASES = sorted(p.stem for p in FIX.glob("*.json") if p.stem != "config")
+# JPEG frames: another decoder (the app's package:image vs libjpeg) shifts pixels by
+# ~0.4 grey levels, which moves the sheet share of a tilted frame by up to 0.23 and the
+# tilt by 0.35 deg. The hints must still agree; the numbers are checked exactly on the
+# lossless frame in exact/ (Dart and Python agree there to the last digit).
 TOL = {"px_per_mm": 0.02, "sharpness": 0.10, "brightness": 0.01}
-ABS = {"tilt_deg": 0.3, "sheet": 0.05, "glare": 0.002}
+ABS = {"tilt_deg": 0.5, "sheet": 0.25, "glare": 0.005}
+DECIMALS = {"brightness": 3, "glare": 5, "sharpness": 3, "tilt_deg": 3, "period_px": 3, "px_per_mm": 3, "sheet": 4}
+
+
+def test_fixture_config_is_the_live_config():
+    """The Dart tests read the thresholds from fixtures/capture_qc/config.json."""
+    assert json.loads((FIX / "config.json").read_text()) == config()
 
 
 def test_reference_frames_exist():
@@ -36,6 +45,15 @@ def test_reference_frame(name):
         assert q.to_dict()[key] == pytest.approx(m[key], rel=rel), key
     for key, tol in ABS.items():
         assert q.to_dict()[key] == pytest.approx(m[key], abs=tol), key
+
+
+def test_exact_frame():
+    ref = json.loads((FIX / "exact" / "parity.json").read_text())
+    rgb = cv2.imread(str(FIX / "exact" / "parity.png"))[..., ::-1]
+    got = check_frame(rgb, scale_to_capture=ref["scale_to_capture"]).to_dict()
+    assert got["hints"] == ref["metrics"]["hints"]
+    for key, dec in DECIMALS.items():
+        assert got[key] == pytest.approx(ref["metrics"][key], abs=0.6 * 10 ** -dec), key
 
 
 def test_px_per_mm_scales_to_the_captured_photo():
