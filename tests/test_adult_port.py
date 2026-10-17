@@ -74,6 +74,14 @@ def test_ventricular_run_with_a_late_first_beat_but_a_fast_inside():
     assert detect_ventricular_runs(sig, rp, 500.0) == []
 
 
+def test_ventricular_run_at_the_rhythm_rate_is_not_vt():
+    # D98: one early beat followed by abnormally shaped beats at the sinus rate is not a
+    # tachycardia run (Georgia sinus tachycardia: inner RR 0.97-1.00 of the reference;
+    # INCART true runs <= 0.82).
+    sig, rp = _pulse_train([500] * 5 + [430, 500, 500, 500] + [500] * 4, odd={6, 7, 8})
+    assert detect_ventricular_runs(sig, rp, 500.0) == []
+
+
 def test_pvc_rule_and_bigeminy():
     rr = [800] * 5 + [560, 1040] + [800] * 5
     sig, rp = _pulse_train(rr, odd={6})
@@ -335,14 +343,15 @@ def test_recovered_beats_marked_off_their_r_peak_do_not_make_a_vt_run():
     # A detector beat displaced the same way is rescued too when its shifted match is
     # near-perfect (PTB-XL 18619: 0.998; true PVCs there 0.33-0.81; D88) ...
     assert not detect_ventricular_runs(sig, shifted, fs)
-    # ... and without that rescue the displaced beats are the false run it removes.
+    # ... and without that rescue the displaced beats are the false run it removes (the
+    # D98 rate check, which rejects this same-rate run too, is switched off for the proof).
     from cardiolens.arrhythmia import beats
-    keep = beats._RUN_SHIFTED_RESCUE_MIN
+    keep, keep_rate = beats._RUN_SHIFTED_RESCUE_MIN, beats._RUN_FASTER_THAN_REF
     try:
-        beats._RUN_SHIFTED_RESCUE_MIN = 2.0
+        beats._RUN_SHIFTED_RESCUE_MIN, beats._RUN_FASTER_THAN_REF = 2.0, 0.0
         assert detect_ventricular_runs(sig, shifted, fs)
     finally:
-        beats._RUN_SHIFTED_RESCUE_MIN = keep
+        beats._RUN_SHIFTED_RESCUE_MIN, beats._RUN_FASTER_THAN_REF = keep, keep_rate
 
 
 # --- QRS offset past a terminal R' after an envelope dip (D90) ---

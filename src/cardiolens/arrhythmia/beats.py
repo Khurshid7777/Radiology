@@ -301,7 +301,7 @@ _RUN_MIN_BEATS = 3
 _RUN_PRE_MAX = 0.90            # the run starts early: RR <= 0.90 x the RR before it
 _RUN_PRE_INNER = 0.70          # ... or the run inside is clearly faster: mean inner RR <= 0.70 x the RR before it (D95)
 _RUN_MAX_RR_MS = 600.0         # >= 100/min inside the run
-_RUN_FASTER_THAN_REF = 0.0     # experiment (D98): inner RR <= this x the reference RR (0 = off)
+_RUN_FASTER_THAN_REF = 0.90    # the run is faster than the rhythm: inner RR <= 0.90 x the reference RR (D98)
 # A beat recovered from the multi-lead envelope (D75) is marked at the envelope peak,
 # not the rhythm lead's R: it is compared with the template at its best alignment
 # within this shift. Off-R, a normal beat reads as abnormal and three in a row made a
