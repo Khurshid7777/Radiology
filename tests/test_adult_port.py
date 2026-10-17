@@ -444,3 +444,34 @@ def test_age_and_sex_are_read_from_wfdb_header_comments():
     p = patient_from_wfdb_comments(["Age: NaN", "Sex: Unknown"])
     assert p.age_years is None and p.sex is None
     assert patient_from_wfdb_comments(None).sex is None
+
+
+def test_every_finding_code_has_a_statement_map_row():
+    # D102: external scoring goes through configs/statement_map.yaml only; a new finding
+    # code without a row would silently drop out of every check.
+    import re
+    from pathlib import Path
+
+    import yaml
+
+    from cardiolens.config import configs_dir
+
+    table = yaml.safe_load((configs_dir() / "statement_map.yaml").read_text())
+    src = Path(__file__).resolve().parents[1] / "src" / "cardiolens"
+    codes = {m for p in src.rglob("*.py") for m in re.findall(r'code="([a-z_0-9]+)"', p.read_text())}
+    assert codes and not (codes - set(table)), sorted(codes - set(table))
+    assert all(isinstance(v["snomed"], list) and isinstance(v["scp"], list) for v in table.values())
+
+
+def test_statement_score_groups_codes_and_reports_wilson_intervals():
+    from cardiolens.validation.statement_score import score, wilson
+
+    table = {"lvh": {"snomed": ["164873001"], "scp": []}, "lvh_probable": {"snomed": ["164873001"], "scp": []},
+             "atrial_fibrillation": {"snomed": ["164889003"], "scp": []}}
+    pred = {"a": {"lvh_probable"}, "b": {"atrial_fibrillation"}, "c": set()}
+    gold = {"a": {"164873001"}, "b": {"426783006"}, "c": {"164889003"}}
+    res = score(pred, gold, "snomed", table)
+    assert set(res) == {"lvh", "atrial_fibrillation"}          # lvh + lvh_probable: one group
+    assert (res["lvh"].tp, res["atrial_fibrillation"].fp, res["atrial_fibrillation"].fn) == (1, 1, 1)
+    lo, hi = wilson(8, 10)
+    assert lo < 0.8 < hi and wilson(0, 0) is None
