@@ -630,6 +630,7 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
     qrs_on = np.full(n_beats, np.nan)
     qrs_off = np.full(n_beats, np.nan)
     t_off: np.ndarray | None = None
+    p_on = p_off = None
     if n_beats >= 3:
         qrs_on, qrs_off = qrs_bounds_envelope(sig.signal, rpeaks, fs)
         p_on = p_off = None
@@ -758,7 +759,8 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
         )
 
     # --- Frontal QRS axis ---
-    m.axes = Axes(qrs_deg=_qrs_axis(sig, rpeaks, fs, qrs_on, qrs_off))
+    m.axes = Axes(qrs_deg=_qrs_axis(sig, rpeaks, fs, qrs_on, qrs_off),
+                  p_deg=_p_axis(sig, rpeaks, fs, p_on, p_off) if p_on is not None and p_off is not None else None)
 
     # --- Sokolow-Lyon voltage (LVH) + the other hypertrophy voltages ---
     m.sokolow_lyon_uv = _sokolow_lyon(sig, rpeaks, fs)
@@ -817,6 +819,40 @@ def _qrs_net_deflection(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray
         if seg.size:
             vals.append(float(seg.max() + seg.min()))
     return float(np.median(vals)) if vals else None
+
+
+def _p_axis(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float,
+            p_on: np.ndarray, p_off: np.ndarray) -> float | None:
+    """Frontal P axis (degrees), D99.
+
+    Per limb lead, the median over beats of the P-wave area above the straight line
+    joining its onset and offset (a slope across the P — T wave tail, wander — is not
+    taken for P), combined on the hexaxial frame like the QRS axis. Sinus P points
+    down and to the left (0-75 deg); a low atrial or retrograde focus points up.
+    """
+    names = set(sig.lead_names)
+    x = y = 0.0
+    n = 0
+    for lead, deg in _LIMB_ANGLES_DEG.items():
+        if lead not in names or _lead_off(sig, lead):
+            continue
+        row = sig.lead(lead).astype(np.float64)
+        vals = []
+        for i in range(len(rpeaks)):
+            a, b = p_on[i], p_off[i]
+            if not (np.isfinite(a) and np.isfinite(b)) or b - a < int(0.02 * fs) or a < 0 or b >= row.size:
+                continue
+            seg = row[int(a):int(b) + 1]
+            vals.append(float(np.mean(seg - np.linspace(seg[0], seg[-1], seg.size))))
+        if len(vals) < 3:
+            continue
+        net = float(np.median(vals))
+        x += net * np.cos(np.radians(deg))
+        y += net * np.sin(np.radians(deg))
+        n += 1
+    if n < 2 or (abs(x) < 1e-6 and abs(y) < 1e-6):
+        return None
+    return round(float(np.degrees(np.arctan2(y, x))), 1)
 
 
 def _qrs_axis(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float,
