@@ -107,7 +107,8 @@ def test_scan_reads_speed_and_gain(synth_mv, speed, gain):
     res = scan(_encode(_page(synth_mv, ppm=11.0, speed=speed, gain=gain)))
     assert res.status == "ok", (res.warnings, res.reject_reasons)
     assert res.calibration.paper_speed_mm_s == speed and res.calibration.gain_mm_mv == gain
-    assert res.layout.name == "3x4+rhythm" and len(res.leads) == 11 and res.rhythm[0].lead == "II"
+    assert res.layout.name == "3x4+rhythm" and len(res.leads) == 12 and res.rhythm[0].lead == "II"
+    assert all(abs(v) < 3.0 for t in res.leads.values() for v in t.samples_mv if v is not None)
     assert res.calibration.px_per_mm_x == pytest.approx(11.0, rel=0.01)
 
 

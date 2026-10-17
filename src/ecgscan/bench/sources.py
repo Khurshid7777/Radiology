@@ -30,10 +30,26 @@ def synthetic_signal(preset: dict, rng: np.random.Generator, case_seed: int) -> 
     hr = float(rng.uniform(*hr)) if isinstance(hr, list | tuple) else float(hr)
     sig = generate_synthetic_ecg(heart_rate_bpm=hr, duration_s=10.0, sampling_rate_hz=500.0,
                                  seed=case_seed, **kw)
-    leads = {n: sig.lead(n).astype(np.float64) / 1000.0 for n in sig.lead_names}
+    leads = derive_limb_leads({n: sig.lead(n).astype(np.float64) / 1000.0 for n in sig.lead_names})
     return SourceSignal(source_id=f"synthetic:{preset['name']}:{case_seed}", fs=sig.sampling_rate_hz,
                         leads_mv=leads, meta={"preset": preset["name"], "heart_rate_bpm": round(hr, 1),
                                               "age_years": kw.get("age_years", 40.0)})
+
+
+def derive_limb_leads(leads: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """III, aVR, aVL, aVF from I and II, as an electrocardiograph derives them.
+
+    The CardioLens generator scales one template per lead, so its limb leads violate
+    Einthoven / Goldberger (II != I + III: consistency 0.34 on its pages, real PTB-XL
+    records 0.93-0.95). A benchmark for the consistency check needs physiological truth.
+    """
+    i, ii = leads["I"], leads["II"]
+    out = dict(leads)
+    out["III"] = ii - i
+    out["aVR"] = -(i + ii) / 2.0
+    out["aVL"] = i - ii / 2.0
+    out["aVF"] = ii - i / 2.0
+    return out
 
 
 def ptbxl_records(root: str | Path) -> list[Path]:

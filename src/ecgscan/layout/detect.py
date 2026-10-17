@@ -31,12 +31,27 @@ class LayoutGuess:
     uncertain: bool
 
 
-def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1) -> LayoutGuess:
-    base = row_baselines(ink, px_per_mm)
+def merge_baselines(projection: list[int], pulse_bottoms: list[int], px_per_mm: float,
+                    tol_mm: float = 4.0) -> list[int]:
+    """Projection peaks plus calibration-pulse bottoms (a pulse stands on its row's baseline).
+    Busy rows (a child's 180/min) have few flat segments and a weak projection peak; their
+    pulse still marks them."""
+    out = sorted(projection)
+    for y in sorted(pulse_bottoms):
+        if all(abs(y - b) > tol_mm * px_per_mm for b in out):
+            out.append(int(y))
+    return sorted(out)
+
+
+def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
+                  pulse_bottoms: list[int] | None = None) -> LayoutGuess:
+    base = merge_baselines(row_baselines(ink, px_per_mm), pulse_bottoms or [], px_per_mm)
     n = len(base)
     pitch = float(np.median(np.diff(base))) / px_per_mm if n > 1 else None
     by_count, by_pitch = [], []
     for spec in available_layouts().values():
+        if spec.n_trace_rows == 1 and pulse_bottoms and len({int(y // (8 * px_per_mm)) for y in pulse_bottoms}) > 1:
+            continue    # several pulses at different heights: not a single strip
         if spec.n_trace_rows == n:
             by_count.append(spec.name)
         if pitch is not None and abs(pitch - spec.row_pitch_mm) <= pitch_tol * spec.row_pitch_mm:

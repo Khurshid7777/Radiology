@@ -6,11 +6,12 @@ from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, So
 
 @pytest.fixture(scope="session")
 def synth_mv():
-    """10-s synthetic 12-lead ECG as {lead: mV} at 500 Hz."""
+    """10-s synthetic 12-lead ECG as {lead: mV} at 500 Hz, limb leads derived from I and II."""
     from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from ecgscan.bench.sources import derive_limb_leads
 
     s = generate_synthetic_ecg(heart_rate_bpm=72, seed=7)
-    return {n: s.lead(n).astype(np.float64) / 1000.0 for n in s.lead_names}
+    return derive_limb_leads({n: s.lead(n).astype(np.float64) / 1000.0 for n in s.lead_names})
 
 
 def make_result(**over) -> ScanResult:

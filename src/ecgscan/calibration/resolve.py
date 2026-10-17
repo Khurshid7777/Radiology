@@ -40,7 +40,8 @@ def snap(value: float | None, standards: list[float], tol: float) -> float | Non
 
 def resolve(*, px_per_mm: float, grid_residual_mm: float | None, pulse: dict | None, ocr_speeds: list[float],
             ocr_gains: list[float], cfg: dict, pulse_width_s: float | None = 0.2,
-            user_speed: float | None = None, user_gain: float | None = None) -> CalibrationDecision:
+            layout_speed: float | None = None, user_speed: float | None = None,
+            user_gain: float | None = None) -> CalibrationDecision:
     speeds, gains = cfg["speeds_mm_s"], cfg["gains_mm_mv"]
     tol = cfg["value_tolerance"]
     pc, oc = cfg["pulse"], cfg["ocr"]
@@ -66,13 +67,19 @@ def resolve(*, px_per_mm: float, grid_residual_mm: float | None, pulse: dict | N
             if pulse_speed is not None:
                 speed_c.append(Candidate(value=pulse_speed, source="calibration_pulse", confidence=pc["speed_conf"]))
 
+    # The page's ink length over the layout's record length (``layout.panels``): a third,
+    # independent speed hint; like the pulse width it never establishes the speed alone.
+    registry_speed = snap(layout_speed, speeds, tol) if layout_speed else None
+    if registry_speed is not None:
+        speed_c.append(Candidate(value=registry_speed, source="format_registry", confidence=cfg.get("layout_speed_conf", 0.5)))
+
     # --- speed
     speed = speed_src = None
     if user_speed is not None:
         speed, speed_src = float(user_speed), "user"
     elif len(ocr_s) == 1:
         (v,) = ocr_s
-        if pulse_speed is not None and pulse_speed != v:
+        if (pulse_speed is not None and pulse_speed != v) or (registry_speed is not None and registry_speed != v):
             warnings.append("SPEED_SOURCES_DISAGREE")
         else:
             speed, speed_src = v, "header_ocr"

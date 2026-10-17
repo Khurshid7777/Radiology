@@ -16,6 +16,7 @@ calibration:
   speeds_mm_s: [25, 50]
   gains_mm_mv: [5, 10, 20]
   value_tolerance: 0.12          # a measured value within this fraction of a standard one is that value
+  layout_speed_conf: 0.5         # candidate from the ink length / layout record length (never establishes alone)
   pulse:
     min_agreeing: 2              # pulses needed for full confidence (one -> lower confidence)
     gain_conf_single: 0.75
@@ -33,3 +34,25 @@ calibration:
 
 layout:
   pitch_tolerance: 0.1           # measured baseline pitch within this fraction of a registry pitch matches it
+
+segmentation:
+  kind: classic                  # classic | onnx (M6; unavailable without a model -> error, never a silent fallback)
+  onnx_model: null
+  classic:
+    ratio: 0.62                  # darker than this fraction of the local paper level = ink
+    max_chroma: 70               # ... and neutral (the grid is coloured)
+    paper_window_mm: 4.0
+    min_speck_px: 6
+
+vectorize:
+  band_pitches: 1.3              # search band around a baseline, in row pitches (20 mm/mV traces cross rows)
+  baseline_weight: 0.6           # pull to the own baseline vs continuity
+  gap_cost: 2.5                  # per missing column (in stroke widths of vertical jump)
+  neighbour_cost: 4.0            # per column riding a flat run on another row's baseline (> gap_cost)
+  gap_flag: 0.05                 # missing share above this -> TRACE_GAPS
+  overlap_flag: 0.1              # band-edge contact above this -> LEAD_OVERLAP
+
+validate:
+  min_median_coverage: 0.5       # below -> rejected TRACE_BROKEN
+  limb_warn: 0.5                 # limb-lead consistency below -> LIMB_LEADS_INCONSISTENT (needs confirmation)
+  ok_min_overall: 0.6            # overall quality below -> needs_confirmation

@@ -22,7 +22,7 @@ import numpy as np
 
 from ecgscan import PIPELINE_VERSION
 from ecgscan.calibration.header_ocr import read_bands
-from ecgscan.calibration.pulse import find_pulses, ink_mask, summarize_pulses
+from ecgscan.calibration.pulse import find_pulses, summarize_pulses
 from ecgscan.calibration.resolve import resolve
 from ecgscan.config import load_yaml
 from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, Source
@@ -31,8 +31,11 @@ from ecgscan.geometry.rectify import Rectified, rectify
 from ecgscan.io import load_image
 from ecgscan.layout import get_layout
 from ecgscan.layout.detect import detect_layout
-
-TRACE_READERS = ("3x4+rhythm", "12x1")   # layouts the M2 (legacy) trace reader handles
+from ecgscan.layout.panels import frame_page, panels
+from ecgscan.layout.rows import long_stroke_mask
+from ecgscan.segmentation import make_segmenter
+from ecgscan.validate import limb_consistency
+from ecgscan.vectorize import read_panels
 
 
 @dataclass
@@ -55,6 +58,9 @@ class ScanDebug:
     pulses: list = field(default_factory=list)
     ocr_texts: list[str] = field(default_factory=list)
     rows: int | None = None
+    frame: object | None = None
+    readings: list = field(default_factory=list)
+    consistency: object | None = None
     timings: dict[str, float] = field(default_factory=dict)
 
 
@@ -137,12 +143,13 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
         reasons.append("LOW_CONTRAST")
         return result("rejected", ppm=raw_ppm, contrast=contrast)
 
-    # 3. Calibration: pulses, header OCR, resolution of the sources (TZ §5.4).
+    # 3. Segmentation (TZ §5.5) and the calibration sources: pulses, header OCR (§5.4).
     c_cfg = cfg["calibration"]
-    ink = ink_mask(rect.bgr, ppm)
+    mask = make_segmenter(cfg.get("segmentation", {})).segment(rect.bgr, ppm)
+    ink = mask.ink
     pulses = find_pulses(ink, ppm)
     dbg.pulses = pulses
-    t = tick("pulse", t)
+    t = tick("segment+pulse", t)
     ocr_speeds: list[float] = []
     ocr_gains: list[float] = []
     if c_cfg["ocr"]["enabled"]:
@@ -151,48 +158,75 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
         ocr_speeds, ocr_gains = reading.speeds, reading.gains
     t = tick("ocr", t)
 
-    # 4. Layout: trace rows + registry (M3 adds lead labels).
+    # 4. Layout: trace rows + registry; the page frame (rows, time origin, ink extent).
+    guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses])
+    dbg.rows = guess.rows
     if hints.layout:
         layout_name, layout_conf = hints.layout, 1.0
     else:
-        guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"])
-        dbg.rows = guess.rows
         layout_name, layout_conf = guess.name, guess.confidence
         if guess.uncertain and guess.name:
             warnings.append("LAYOUT_UNCERTAIN")
+    frame = None
+    if layout_name is not None:
+        spec = get_layout(layout_name)
+        frame = frame_page(spec, guess.baselines, long_stroke_mask(ink, ppm), ppm, [p.x_right for p in pulses])
+    dbg.frame = frame
+    if (frame is not None and not hints.layout and "LAYOUT_UNCERTAIN" in warnings
+            and abs(frame.pitch_px / ppm - spec.row_pitch_mm) <= cfg["layout"]["pitch_tolerance"] * spec.row_pitch_mm):
+        # Rows filled/picked to the registry count at the registry pitch: the layout is settled.
+        warnings.remove("LAYOUT_UNCERTAIN")
+        layout_conf = max(layout_conf, 0.8)
     t = tick("layout", t)
-    if layout_name is None or layout_name not in TRACE_READERS:
-        # 6x2 / single are recognised but the M2 trace reader cannot read them (M3): refuse, do not guess.
+    if layout_name is None or frame is None:
         reasons.append("LAYOUT_UNKNOWN")
         return result("rejected", ppm=raw_ppm, contrast=contrast,
                       layout=Layout(name=layout_name, confidence=layout_conf))
-    spec = get_layout(layout_name)
     decision = resolve(px_per_mm=ppm, grid_residual_mm=rect.residual_mm, pulse=summarize_pulses(pulses),
                        ocr_speeds=ocr_speeds, ocr_gains=ocr_gains, cfg=c_cfg,
                        pulse_width_s=spec.pulse.width_s if spec.pulse.present else None,
+                       layout_speed=frame.implied_speed_mm_s if layout_conf >= 0.7 else None,
                        user_speed=hints.paper_speed_mm_s, user_gain=hints.gain_mm_mv)
     decision.calibration.px_per_mm_x = round(raw.px_per_mm_x, 4) if raw.px_per_mm_x else None
     decision.calibration.px_per_mm_y = round(raw.px_per_mm_y, 4) if raw.px_per_mm_y else None
     warnings += decision.warnings
 
-    # 5. Traces (legacy reader on the rectified, calibrated page).
-    from ecgscan.legacy import read_traces, signal_traces
-
+    # 5. Traces: registry panels, vectorisation, validation (TZ §5.7-5.8).
+    v_cfg = cfg.get("vectorize", {})
     try:
-        sig = read_traces(rect.gray, layout=layout_name, px_per_mm=ppm, speed_mm_s=decision.speed_for_traces,
-                          gain_mm_mv=decision.gain_for_traces)
-    except ValueError as exc:
-        reasons.append("TRACE_BROKEN" if "trace" in str(exc) or "rows" in str(exc) else "PROCESSING_ERROR")
-        return result("rejected", calibration=decision.calibration, ppm=raw_ppm, contrast=contrast)
+        readings = read_panels(mask, panels(spec, frame, ppm, decision.speed_for_traces), px_per_mm=ppm,
+                               speed_mm_s=decision.speed_for_traces, gain_mm_mv=decision.gain_for_traces,
+                               pitch_px=frame.pitch_px, fs_out=fs_out, cfg=v_cfg)
     except Exception:
         reasons.append("PROCESSING_ERROR")
         return result("rejected", calibration=decision.calibration, ppm=raw_ppm, contrast=contrast)
-    tick("traces", t)
-    coverage = float(sig.provenance.confidence or 0.0)
-    leads, rhythm = signal_traces(sig, fs_out=fs_out, quality=coverage)
-    status = "ok" if decision.established and not ({"LAYOUT_UNCERTAIN"} & set(warnings)) else "needs_confirmation"
-    overall = coverage * raw.confidence * (decision.calibration.confidence if decision.established else 0.5)
+    dbg.readings = readings
+    t = tick("traces", t)
+    leads = {r.panel.lead: r.trace for r in readings if r.panel.kind == "panel"}
+    rhythm = [r.trace for r in readings if r.panel.kind == "rhythm"]
+    val = cfg.get("validate", {})
+    cover = [r.trace.coverage or 0.0 for r in readings]
+    if float(np.median(cover)) < val.get("min_median_coverage", 0.5):
+        reasons.append("TRACE_BROKEN")
+        return result("rejected", calibration=decision.calibration, ppm=raw_ppm, contrast=contrast,
+                      layout=Layout(name=layout_name, confidence=layout_conf))
+    cons = limb_consistency([(r.panel.lead, r.trace) for r in readings], fs_out)
+    dbg.consistency = cons
+    if cons.score is not None and cons.score < val.get("limb_warn", 0.5):
+        warnings.append("LIMB_LEADS_INCONSISTENT")
+    if any("TRACE_GAPS" in r.trace.flags for r in readings):
+        warnings.append("TRACE_GAPS")
+    if any("LEAD_OVERLAP" in r.trace.flags for r in readings):
+        warnings.append("LEAD_OVERLAP")
+    lead_q = float(np.median([r.quality for r in readings]))
+    cons_f = 1.0 if cons.score is None else float(np.clip(0.5 + cons.score, 0.0, 1.0))
+    overall = lead_q * cons_f * raw.confidence ** 0.5 * (decision.calibration.confidence if decision.established else 0.5)
+    trusted = (decision.established and overall >= val.get("ok_min_overall", 0.6)
+               and "LAYOUT_UNCERTAIN" not in warnings and "LIMB_LEADS_INCONSISTENT" not in warnings)
+    status = "ok" if trusted else "needs_confirmation"
     layout = Layout(name=layout_name, registry_version=spec.registry_version, confidence=layout_conf)
-    return result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,
-                  overall=overall, ppm=raw_ppm, contrast=contrast)
-
+    res = result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,
+                 overall=overall, ppm=raw_ppm, contrast=contrast)
+    res.quality.limb_lead_consistency = cons.score
+    tick("validate", t)
+    return res
