@@ -30,13 +30,25 @@ class HeaderReading:
     gains: list[float] = field(default_factory=list)
 
 
-def parse_settings(texts: list[str]) -> tuple[list[float], list[float]]:
-    """Speed (mm/s) and gain (mm/mV) values in OCR strings ('25mm/s10mm/mV' included)."""
+def _values(texts: list[str]) -> tuple[list[float], list[float]]:
     speeds, gains = [], []
     for t in texts:
         s = t.replace("O", "0").replace("o", "0") if any(c.isdigit() for c in t) else t
         speeds += [float(v.replace(",", ".")) for v in SPEED_RE.findall(s)]
         gains += [float(v.replace(",", ".")) for v in GAIN_RE.findall(s)]
+    return speeds, gains
+
+
+def parse_settings(texts: list[str]) -> tuple[list[float], list[float]]:
+    """Speed (mm/s) and gain (mm/mV) values in OCR strings ('25mm/s10mm/mV' included).
+
+    Newer RapidOCR (1.4) returns '25' and 'mm/s' as separate boxes: what single
+    strings do not give is looked for in the boxes joined in reading order."""
+    speeds, gains = _values(texts)
+    if not speeds or not gains:
+        j_speeds, j_gains = _values([" ".join(texts)])
+        speeds = speeds or j_speeds
+        gains = gains or j_gains
     return speeds, gains
 
 

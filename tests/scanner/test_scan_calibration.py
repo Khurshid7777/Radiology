@@ -53,6 +53,8 @@ def test_settings_parser():
     sp, gn = parse_settings(["25mm/s10mm/mV0.05-150Hz", "Name:TEST", "50 mm/s  20 mm/mV", "12,5mm/s"])
     assert sp == [25.0, 50.0, 12.5] and gn == [10.0, 20.0]
     assert parse_settings(["0.05-150Hz 50Hz"]) == ([], [])
+    # RapidOCR 1.4 splits a header line into boxes
+    assert parse_settings(["Name:", "TEST", "25", "mm/s", "10", "mm/mV", "0.05-150"]) == ([25.0], [10.0])
 
 
 CAL = pipeline_config()["calibration"]
