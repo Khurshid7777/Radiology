@@ -705,14 +705,8 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                         p_present += 1
             m.p_wave_ratio = round(p_present / max(1, n_beats), 2)
             # P-wave duration/amplitude for atrial enlargement (P-mitrale/-pulmonale).
-            if P_DURATION_MODE == 1:
-                ons = np.where(np.isfinite(p_on_ref), p_on_ref, p_on)
-            else:
-                ons = p_on
-            pdur = [(p_off[i] - ons[i]) for i in range(n_beats)
-                    if np.isfinite(ons[i]) and np.isfinite(p_off[i]) and p_off[i] > ons[i]]
-            if P_DURATION_MODE == 2:
-                pdur = _global_p_durations(sig.signal, p_on, p_off, qrs_on, fs) or pdur
+            pdur = [(p_off[i] - p_on[i]) for i in range(n_beats)
+                    if np.isfinite(p_on[i]) and np.isfinite(p_off[i]) and p_off[i] > p_on[i]]
             m.p_wave_duration_ms = _median_ms(pdur, fs)
             m.p_wave_amplitude_uv = _p_amplitude(sig, p_on, p_off)
 
@@ -825,42 +819,6 @@ def _qrs_net_deflection(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray
         if seg.size:
             vals.append(float(seg.max() + seg.min()))
     return float(np.median(vals)) if vals else None
-
-
-P_DURATION_MODE = 0   # experiment (D104): 0 rhythm-lead dwt; 1 refined onset; 2 multi-lead global
-
-
-def _global_p_durations(signal: np.ndarray, p_on: np.ndarray, p_off: np.ndarray,
-                        qrs_on: np.ndarray, fs: float) -> list[float]:
-    """Global P duration per beat: earliest onset to latest offset over all leads (D104).
-
-    Around the rhythm-lead P (its onset - 60 ms .. min(offset + 60 ms, QRS onset - 10 ms))
-    each lead's deflection from its PR-baseline is thresholded at 15 % of that lead's P
-    amplitude; the first and last suprathreshold samples over all leads bound the P —
-    the multi-lead definition 12SL and the CSE referees use.
-    """
-    out = []
-    pre, post = int(0.06 * fs), int(0.06 * fs)
-    for i in range(len(p_on)):
-        a, b, q = p_on[i], p_off[i], qrs_on[i]
-        if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(q)) or b <= a:
-            continue
-        lo, hi = max(0, int(a) - pre), min(int(b) + post, int(q) - int(0.01 * fs))
-        if hi - lo < int(0.04 * fs):
-            continue
-        firsts, lasts = [], []
-        for row in signal:
-            seg = row[lo:hi].astype(np.float64)
-            base = float(np.median(row[max(0, lo - int(0.02 * fs)):lo])) if lo >= 2 else float(seg[0])
-            dev = np.abs(seg - base)
-            amp = float(dev.max())
-            if amp < 20.0:          # µV: no P in this lead
-                continue
-            idx = np.flatnonzero(dev >= 0.15 * amp)
-            firsts.append(idx[0]); lasts.append(idx[-1])
-        if len(firsts) >= 3:
-            out.append(float(np.percentile(lasts, 90) - np.percentile(firsts, 10)))
-    return out
 
 
 def _p_axis(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float,
