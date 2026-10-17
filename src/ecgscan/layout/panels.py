@@ -5,7 +5,8 @@
   matches the registry pitch (or the median detected pitch when the printer uses
   another) is taken.
 * **Time origin** ``x0``: where the traces start — after the calibration pulse of
-  each row, the first trace ink near the baseline; the median over rows.
+  each row, the first trace ink near the baseline; the earliest start that another
+  row confirms (a row starting off its baseline is found late).
 * **Columns**: from the *calibrated* paper speed — column ``c`` of a row spans
   ``[x0 + c * panel_s * speed * ppm, ...)``, so a page is never stretched to the ink
   extent (the legacy reader did, and a desk edge or a shadow then shifted every
@@ -85,9 +86,9 @@ def fill_gaps(baselines: list[int], pitch_px: float | None, tol: float = 0.15) -
 
 
 def trace_start(strokes: np.ndarray, baselines: list[float], px_per_mm: float, pulse_right: list[int],
-                band_mm: float = 2.5) -> tuple[float, float | None]:
+                band_mm: float = 2.5, agree_mm: float = 1.5) -> tuple[float, float | None]:
     """(x0, ink right end): first/last long-stroke ink within ``band_mm`` of each baseline
-    (after any calibration pulse), medians over rows."""
+    (after any calibration pulse); the start that rows agree on, the median end."""
     h, w = strokes.shape
     starts, ends = [], []
     band = int(round(band_mm * px_per_mm))
@@ -102,7 +103,19 @@ def trace_start(strokes: np.ndarray, baselines: list[float], px_per_mm: float, p
             ends.append(cols[-1])
     if not starts:
         return 0.0, None
-    return float(np.median(starts)), float(np.median(ends)) if ends else None
+    return _common_start(starts, agree_mm * px_per_mm), float(np.median(ends)) if ends else None
+
+
+def _common_start(starts: list[int], tol_px: float) -> float:
+    """Every row starts at the same moment. A row whose trace begins off its baseline
+    (baseline wander, a DC offset) is found late; the median of six rows with three late
+    put a 6x2 page 176 ms off. The earliest start that another row confirms is taken."""
+    s = sorted(starts)
+    need = 2 if len(s) >= 2 else 1
+    for i, x in enumerate(s):
+        if sum(1 for y in s[i:] if y - x <= tol_px) >= need:
+            return float(np.median([y for y in s[i:] if y - x <= tol_px]))
+    return float(np.median(s))
 
 
 def frame_page(layout: LayoutSpec, baselines: list[int], strokes: np.ndarray, px_per_mm: float,

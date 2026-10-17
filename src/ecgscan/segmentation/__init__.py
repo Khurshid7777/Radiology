@@ -80,7 +80,7 @@ def paper_mask(bgr: np.ndarray, px_per_mm: float, *, window_mm: float = 6.0, min
     half a period apart than one period apart; on a desk, a hand or the warp border the two
     are equal (bench: desk 0.5-0.9, paper 1.3-2.8, faded paper 1.5). Without this mask the
     dark neutral desk is "ink" and a desk band along the frame swamped the row projection.
-    Holes (traces, text, glare) are closed; regions >= 20 % of the largest are kept."""
+    Regions >= 20 % of the largest are kept and holes in them (traces, labels, glare) filled."""
     import cv2
 
     g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
@@ -101,7 +101,11 @@ def paper_mask(bgr: np.ndarray, px_per_mm: float, *, window_mm: float = 6.0, min
     areas = stats[1:, cv2.CC_STAT_AREA]
     keep = np.zeros(n, dtype=bool)
     keep[1:] = areas >= 0.2 * areas.max()
-    return keep[labels]
+    # Large lead labels have no grid texture either and left holes the closing did not
+    # reach (the first 9 mm of a 6x2 row were cut out). Anything enclosed by paper is paper.
+    from scipy.ndimage import binary_fill_holes
+
+    return binary_fill_holes(keep[labels])
 
 
 class OnnxSegmenter:
