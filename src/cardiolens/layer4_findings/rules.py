@@ -132,13 +132,6 @@ def detect_findings(
             svt_min = norms.get("svt_rate_min")
             block = norms.get("intervals_ms", {}).get("qrs_bbb") or 120
             qrs = m.intervals.qrs_ms
-            # A narrow one is sinus by definition when a P with a sinus frontal axis precedes
-            # nearly every QRS (D99): a focal SVT's "P" is retrograde, buried or on the T wave
-            # (PTB-XL/Georgia SVT: P on <= 77 % of beats), and sinus tachycardia at 140-170/min
-            # (fever, pain) was read as SVT.
-            sinus_lo, sinus_hi = norms.get("sinus_p_axis_deg", [0, 90])
-            sinus_p = ((m.p_wave_ratio or 0.0) >= norms.get("svt_sinus_p_ratio_min", 1.01)
-                       and m.axes.p_deg is not None and sinus_lo <= m.axes.p_deg <= sinus_hi)
             if not is_pediatric and svt_min and hr >= svt_min and qrs is not None and qrs >= block:
                 fs.findings.append(Finding(
                     code="wide_complex_tachycardia", group="rhythm",
@@ -149,7 +142,7 @@ def detect_findings(
                     evidence=_ev(heart_rate_bpm=hr, qrs_ms=qrs, rate_min=svt_min,
                                  qrs_min=block), confidence=0.7,
                 ))
-            elif (not is_pediatric and svt_min and hr >= svt_min and not sinus_p
+            elif (not is_pediatric and svt_min and hr >= svt_min
                     and m.rhythm_regular is not False and qrs is not None and qrs < block):
                 fs.findings.append(Finding(
                     code="supraventricular_tachycardia", group="rhythm",

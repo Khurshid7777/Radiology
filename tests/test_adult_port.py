@@ -415,23 +415,6 @@ def test_detections_on_atrial_pacing_spikes_move_to_their_qrs():
     assert moved == 0 and list(out) == list(det)
 
 
-def test_fast_narrow_rhythm_with_a_sinus_p_before_every_qrs_is_sinus_tachycardia():
-    # D99: >= 140/min regular narrow is SVT unless a P of sinus axis precedes nearly every QRS.
-    from cardiolens.contracts.features import Axes
-
-    sig = SignalRepresentation(signal=np.zeros((12, 10)), sampling_rate_hz=500, lead_names=list(STANDARD_12_LEADS),
-                               duration_s=0.02, source="synthetic", patient=Patient(age_years=40, sex="male"))
-    base = dict(heart_rate_bpm=150, rhythm_regular=True,
-                intervals=Intervals(pr_ms=130, qrs_ms=86, qt_ms=280, qtc_bazett_ms=440))
-
-    def codes(**kw):
-        return detect_findings(sig, Measurements(**base, **kw), norms=load_norms("adult"),
-                               la_ra_reversed=False).codes()
-    assert "sinus_tachycardia" in codes(p_wave_ratio=0.95, axes=Axes(p_deg=60))
-    assert "supraventricular_tachycardia" in codes(p_wave_ratio=0.95, axes=Axes(p_deg=-70))
-    assert "supraventricular_tachycardia" in codes(p_wave_ratio=0.5, axes=Axes(p_deg=60))
-
-
 def test_age_and_sex_are_read_from_wfdb_header_comments():
     # D101: Challenge-format and PTBDB headers carry demographics; without them every
     # woman was judged by male QTc / STEMI / Cornell thresholds.
