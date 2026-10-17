@@ -7,4 +7,4 @@ api_url: http://127.0.0.1:8000     # the /scans service
 max_mb: 20                         # Telegram Bot API download limit
 poll_interval_s: 1.0
 poll_timeout_s: 90                 # then the user gets a link instead of the verdict
-send_overlay: false                # send the trace overlay back (it shows the page header unless masked)
+send_overlay: false                # send the trace overlay preview back (it shows the page header unless masked)

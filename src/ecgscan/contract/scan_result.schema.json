@@ -399,6 +399,9 @@
         },
         "trace_overlay": {
           "type": "string"
+        },
+        "trace_overlay_preview": {
+          "type": "string"
         }
       }
     },

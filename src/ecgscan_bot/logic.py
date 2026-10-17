@@ -85,7 +85,7 @@ class ScanApi:
         return None
 
     def overlay(self, scan_id: str) -> bytes | None:
-        r = self.http.get(f"/scans/{scan_id}/artifacts/trace_overlay", headers=self.headers)
+        r = self.http.get(f"/scans/{scan_id}/artifacts/trace_overlay_preview", headers=self.headers)
         return r.content if r.status_code == 200 else None
 
 

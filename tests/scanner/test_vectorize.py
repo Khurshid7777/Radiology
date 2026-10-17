@@ -226,5 +226,5 @@ def test_layouts_are_read_and_match_the_truth(synth_mv, layout, tmp_path):
         rs.append(np.corrcoef(a[ok], ref[ok])[0, 1])
     assert np.median(rs) > 0.9 and min(rs) > 0.75          # bench clean_scan: r 0.956
     assert res.quality.limb_lead_consistency is None or res.quality.limb_lead_consistency > 0.7
-    for name in ("rectified.png", "overlay.png", "mask.png"):
+    for name in ("rectified.png", "overlay.png", "mask.png", "overlay_preview.jpg"):
         assert (tmp_path / name).exists()

@@ -268,7 +268,10 @@ def test_real_page_end_to_end(tmp_path, env, synth_mv):
         row = svc.wait(sid, timeout_s=120)
         assert row.status == "ok", row.result and row.result["warnings"]
         assert row.result["calibration"]["speed_source"] == "user"
-        assert set(row.result["artifacts"]) == {"rectified_image", "trace_overlay", "trace_mask"}
+        assert set(row.result["artifacts"]) == {"rectified_image", "trace_overlay", "trace_mask",
+                                                "trace_overlay_preview"}
+        preview = svc.artifact_path(sid, "trace_overlay_preview")
+        assert preview.suffix == ".jpg" and preview.stat().st_size < 1_000_000
         assert all("/" not in v for v in row.result["artifacts"].values())
     finally:
         svc.close()

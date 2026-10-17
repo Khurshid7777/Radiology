@@ -60,7 +60,7 @@ async def main() -> None:
         if cfg.send_overlay and scan_id:
             png = await asyncio.to_thread(api.overlay, scan_id)
             if png:
-                await message.answer_photo(BufferedInputFile(png, "overlay.png"))
+                await message.answer_photo(BufferedInputFile(png, "overlay.jpg"))
 
     @dp.message()
     async def other(message: Message) -> None:

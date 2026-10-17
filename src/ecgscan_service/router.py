@@ -150,6 +150,7 @@ def scan_audit(scan_id: str, who: str = Depends(actor), svc: ScanService = Depen
 def scan_artifact(scan_id: str, name: str, who: str = Depends(actor),
                   svc: ScanService = Depends(get_service)) -> FileResponse:
     try:
-        return FileResponse(svc.artifact_path(scan_id, name), media_type="image/png")
+        path = svc.artifact_path(scan_id, name)
+        return FileResponse(path, media_type="image/jpeg" if path.suffix == ".jpg" else "image/png")
     except ScanError as exc:
         raise _http(exc) from exc

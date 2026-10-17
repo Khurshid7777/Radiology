@@ -4,7 +4,9 @@
 * ``mask.png`` — the trace segmentation;
 * ``overlay.png`` — every extracted trace drawn over the rectified page, panel
   boxes and lead names, coloured by quality (green ok / amber doubtful / red bad):
-  what the doctor checks on the confirmation screen.
+  what the doctor checks on the confirmation screen;
+* ``overlay_preview.jpg`` — the same, at most ``preview_width`` px wide (the full
+  PNG of a 3000-px page is ~8 MB; a phone screen and the bot need ~0.3 MB).
 
 Artifacts are derived from the working copy only: never the unmasked original.
 """
@@ -51,14 +53,20 @@ def render_overlay(bgr: np.ndarray, readings) -> np.ndarray:
     return out
 
 
-def write_artifacts(out_dir: str | Path, *, rectified: np.ndarray, mask: np.ndarray | None, readings) -> dict[str, str]:
+def write_artifacts(out_dir: str | Path, *, rectified: np.ndarray, mask: np.ndarray | None, readings,
+                    preview_width: int = 1600, preview_quality: int = 85) -> dict[str, str]:
     import cv2
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    paths = {"rectified_image": out_dir / "rectified.png", "trace_overlay": out_dir / "overlay.png"}
+    paths = {"rectified_image": out_dir / "rectified.png", "trace_overlay": out_dir / "overlay.png",
+             "trace_overlay_preview": out_dir / "overlay_preview.jpg"}
     cv2.imwrite(str(paths["rectified_image"]), rectified)
-    cv2.imwrite(str(paths["trace_overlay"]), render_overlay(rectified, readings))
+    overlay = render_overlay(rectified, readings)
+    cv2.imwrite(str(paths["trace_overlay"]), overlay)
+    f = min(1.0, preview_width / overlay.shape[1])
+    small = cv2.resize(overlay, None, fx=f, fy=f, interpolation=cv2.INTER_AREA) if f < 1.0 else overlay
+    cv2.imwrite(str(paths["trace_overlay_preview"]), small, [cv2.IMWRITE_JPEG_QUALITY, preview_quality])
     if mask is not None:
         paths["trace_mask"] = out_dir / "mask.png"
         cv2.imwrite(str(paths["trace_mask"]), (mask.astype(np.uint8) * 255))
