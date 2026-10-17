@@ -61,7 +61,7 @@ svt_rate_min: 140
 # of beats with a frontal P axis inside sinus_p_axis_deg (our P axis on PTB-XL sinus rhythm:
 # 25-80 deg, p5-p95; vs 12SL median 6 deg). SVT on PTB-XL/Georgia: P on <= 0.77 of beats.
 svt_sinus_p_ratio_min: 0.85
-sinus_p_axis_deg: [0, 90]
+sinus_p_axis_deg: [0, 75]   # textbook sinus P axis, fixed before the held-out check (D99)
 
 intervals_ms:
   pr: [120, 200]
