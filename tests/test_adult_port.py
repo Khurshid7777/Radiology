@@ -475,3 +475,12 @@ def test_statement_score_groups_codes_and_reports_wilson_intervals():
     assert (res["lvh"].tp, res["atrial_fibrillation"].fp, res["atrial_fibrillation"].fn) == (1, 1, 1)
     lo, hi = wilson(8, 10)
     assert lo < 0.8 < hi and wilson(0, 0) is None
+
+
+def test_measurement_report_bias_sd_and_iec_style_limits():
+    from cardiolens.validation.measurement_report import summarise
+
+    pairs = [({"QRS": 100 + d, "P axis": 350.0}, {"QRS": 100, "P axis": 10.0}) for d in (2, 4, 6, 8)]
+    rows = {r["param"]: r for r in summarise(pairs, ["QRS", "P axis"])}
+    assert rows["QRS"]["bias"] == 5 and rows["QRS"]["passes"] is True     # +5 ms, SD 2.6 <= 6 / 10
+    assert rows["P axis"]["bias"] == -20                                   # 350 vs 10 deg is -20, not +340

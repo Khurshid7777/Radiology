@@ -20,8 +20,8 @@ from cardiolens.contracts.signal import (
     canonical_lead_name,
 )
 
-_AGE_RE = re.compile(r"\bage\s*:\s*([0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
-_SEX_RE = re.compile(r"\bsex\s*:\s*([a-z]+)", re.IGNORECASE)
+_AGE_RE = re.compile(r"\bage>?\s*:\s*([0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
+_SEX_RE = re.compile(r"\bsex>?\s*:\s*([a-z]+)", re.IGNORECASE)
 
 
 def patient_from_wfdb_comments(comments: list[str] | None) -> Patient:
