@@ -15,12 +15,21 @@ _MODE_LABEL = {
 }
 
 
+# ECG scanner SD-015 / TZ §12: a mark on every report built from a photo.
+DIGITIZED_NOTE = (
+    "⚠ Получено по фото ЭКГ, возможны искажения сигнала.",
+    "⚠ EKG fotosuratidan olingan, signal buzilishi mumkin.",
+)
+
+
 def format_conclusion(result: PipelineResult, lang: str = "ru") -> str:
     r = result.report
     is_ru = lang == "ru"
     lines: list[str] = []
     mode_ru, mode_uz = _MODE_LABEL.get(r.mode, (r.mode, r.mode))
     lines.append(mode_ru if is_ru else mode_uz)
+    if result.signal.provenance.digitized:
+        lines.append(DIGITIZED_NOTE[0] if is_ru else DIGITIZED_NOTE[1])
     if r.escalation_reason:
         lines.append(("Причина: " if is_ru else "Sabab: ") + r.escalation_reason)
     lines.append("")

@@ -181,6 +181,10 @@ def run_pipeline(
             confidence=0.9)]
         quality_ok = False
         audit.append(f"[L2] signal disorganized (beat consistency {tc}) — R-peak findings withheld")
+    # Digitised page: the final beats disagree with the page's column detector (D92).
+    if m.page_beat_agreement is False:
+        quality_ok = False
+        audit.append("[L3] beats disagree with the page columns (D92) — rhythm uncertain")
     # Apply confidence calibration to each finding (TZ §13).
     for f in findings.findings:
         f.confidence = round(calibrator.apply(f.confidence), 3)
@@ -219,6 +223,13 @@ def run_pipeline(
         f"implausible={causal.implausible_flags} conf={causal.confidence}"
     )
 
+    # A signal digitised from a photo is no more certain than its digitisation
+    # (ECG scanner SD-015): the overall confidence is capped by the scanner's.
+    prov = sig.provenance
+    if prov.digitized and prov.confidence is not None and causal.confidence > prov.confidence:
+        audit.append(f"[L5] confidence {causal.confidence} capped by digitisation {prov.confidence}")
+        causal.confidence = round(float(prov.confidence), 3)
+
     # Layer 6 — interpretation with mode policy (TZ §9, §2).
     requested_mode = mode or cfg.mode
     data = InterpretationInput(
@@ -230,6 +241,7 @@ def run_pipeline(
     report = interpret(
         data, safety, provider=provider or default_provider(llm=cfg.llm),
         min_overall=cfg.confidence.autonomous_min_overall, quality_ok=quality_ok,
+        digitized=prov.digitized,
     )
     audit.append(f"[L6] provider={report.mode} escalation={report.escalation_reason}")
 

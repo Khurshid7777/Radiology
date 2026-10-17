@@ -352,6 +352,39 @@ def _fit_page_edits_to_rhythm(confirmed: list, kept: list, added: list, rpeaks: 
     return kept, added
 
 
+def _page_beat_agreement(sig: SignalRepresentation, windows: dict, rhythm_row: np.ndarray,
+                         rpeaks: np.ndarray, fs: float) -> bool | None:
+    """Do the final beats match the column detector's beats (D92)?
+
+    Both are compared where both can judge: inside the rhythm lead's own window, away
+    from the page edges and the column boundaries. A beat in one list without a partner
+    within ``PAGE_BEAT_MATCH_S`` in the other is a disagreement: on a digitised page the
+    rhythm (and every interval anchored on it) is then uncertain however clean the
+    traces are. ``None`` when the columns find no rhythm to compare with."""
+    found = _page_beats(sig, windows, rhythm_row, fs)
+    if found is None or len(found[0]) < 3:
+        return None
+    page = np.asarray(found[0], dtype=int)
+    n = sig.signal.shape[1]
+    lead = sig.lead_names[_pick_rhythm_lead(sig)]
+    t0, t1 = windows.get(lead, (0.0, n / fs))
+    tol = int(PAGE_BEAT_MATCH_S * fs)
+    lo = max(int(round(t0 * fs)), int(PAGE_BEAT_EDGE_START_S * fs)) + tol
+    hi = min(int(round(t1 * fs)), n - int(PAGE_BEAT_EDGE_END_S * fs)) - tol
+    bounds = np.array(sorted({int(round(w[0] * fs)) for w in windows.values()}))
+
+    def _judged(x):
+        return lo <= x < hi and (bounds.size == 0 or np.min(np.abs(bounds - x)) > tol)
+
+    a = [int(r) for r in rpeaks if _judged(r)]
+    b = [int(p) for p in page if _judged(p)]
+    if len(b) < 2:
+        return None
+    unmatched = [x for x in a if not b or min(abs(x - y) for y in b) > tol]
+    unmatched += [y for y in b if not a or min(abs(x - y) for x in a) > tol]
+    return not unmatched
+
+
 def _page_beats(sig: SignalRepresentation, windows: dict, rhythm_row: np.ndarray,
                 fs: float) -> tuple[np.ndarray, np.ndarray] | None:
     """Beat times on a 3x4 page from every lead valid at each moment (D55).
@@ -483,13 +516,23 @@ def measure(sig: SignalRepresentation) -> Measurements:
                 return (np.min(np.abs(edges - r)) <= tol or r < int(PAGE_BEAT_EDGE_START_S * fs)
                         or r >= n_s - int(PAGE_BEAT_EDGE_END_S * fs))
             confirmed = [r for r in rpeaks if page.size and np.min(np.abs(page - r)) <= tol]
+            # The rhythm lead's own window may end before the page does (6x2: lead II
+            # stops at 5 s and is 0 after it). A single-lead beat at that edge is the
+            # step into the padding, not a QRS (a 6x2 page read HR 77 for 69, D92):
+            # there it counts only when the columns confirm it.
+            own = page_windows.get(sig.lead_names[lead_idx])
+            own_edges = [int(round(e * fs)) for e in (own or ()) if 0 < e * fs < n_s]
+
+            def _own_edge(r):
+                return any(abs(r - e) <= tol for e in own_edges)
             # Such a beat is judged on the rhythm strip alone, which runs across
             # every boundary: its slope must reach half of the confirmed beats'.
             slope = spatial_velocity(cleaned[None, :], fs)
             w_s = int(0.03 * fs)
             s_at = lambda r: float(slope[max(0, int(r) - w_s):int(r) + w_s].max())
             s_ref = float(np.median([s_at(r) for r in confirmed])) if confirmed else 0.0
-            kept = [r for r in rpeaks if (r in confirmed) or (_unjudgeable(r) and s_at(r) >= 0.5 * s_ref)]
+            kept = [r for r in rpeaks if (r in confirmed)
+                    or (_unjudgeable(r) and not _own_edge(r) and s_at(r) >= 0.5 * s_ref)]
             added = [p for p, hgt in zip(page, heights, strict=True)
                      if hgt >= PAGE_BEAT_ADD_FRACTION and (not rpeaks.size or np.min(np.abs(rpeaks - p)) > tol)]
             # Both edits must fit the rhythm the confirmed beats define. On a
@@ -532,6 +575,10 @@ def measure(sig: SignalRepresentation) -> Measurements:
             if n_rec:
                 m.notes.append(f"{n_rec} QRS recovered from the multi-lead envelope (D75)")
                 m.r_peaks_recovered = sorted(int(r) for r in rpeaks if int(r) not in before)
+    if page_windows:
+        m.page_beat_agreement = _page_beat_agreement(sig, page_windows, cleaned, rpeaks, fs)
+        if m.page_beat_agreement is False:
+            m.notes.append("beats disagree with the page columns: the rhythm needs a look (D92)")
     m.r_peaks_samples = rpeaks.tolist()
     m.qrs_template_consistency = _qrs_template_consistency(sig, rpeaks, fs)
     m.qrs_partner_consistency = _qrs_partner_consistency(sig, rpeaks, fs)
