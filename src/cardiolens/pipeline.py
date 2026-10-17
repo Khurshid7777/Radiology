@@ -253,7 +253,7 @@ def run_pipeline(
     )
 
 
-AF_PVC_RECHECK = False   # experiment (D106)
+AF_PVC_RECHECK = True   # D106: accepted on the held-out check (fold 10 + Georgia g6-g11)
 
 
 def _rr_cv_without(rpeaks, pvc_idx) -> float | None:

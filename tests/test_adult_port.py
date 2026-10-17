@@ -467,3 +467,16 @@ def test_measurement_report_bias_sd_and_iec_style_limits():
     rows = {r["param"]: r for r in summarise(pairs, ["QRS", "P axis"])}
     assert rows["QRS"]["bias"] == 5 and rows["QRS"]["passes"] is True     # +5 ms, SD 2.6 <= 6 / 10
     assert rows["P axis"]["bias"] == -20                                   # 350 vs 10 deg is -20, not +340
+
+
+def test_rr_regularity_without_the_intervals_around_pvcs():
+    # D106: sinus rhythm with PVCs is regular once the coupling and compensatory intervals
+    # are left out; AF stays irregular.
+    from cardiolens.pipeline import _rr_cv_without
+
+    sinus = [0, 800, 1600, 2100, 3200, 4000, 4800, 5300, 6400, 7200, 8000]   # PVCs at 3 and 7
+    assert _rr_cv_without(sinus, [3, 7]) < 0.02
+    rng = np.random.default_rng(1)
+    af = np.cumsum(rng.uniform(450, 1100, 14)).astype(int).tolist()
+    assert _rr_cv_without(af, [4]) > 0.15
+    assert _rr_cv_without([0, 800, 1600], [1]) is None
