@@ -4,6 +4,7 @@ quality:
   min_px_per_mm: 8.0             # TZ §5.3: below this -> rejected LOW_RESOLUTION
   marginal_px_per_mm: 10.0       # below this -> warning LOW_RESOLUTION_MARGINAL
   min_grid_confidence: 0.3       # grid read below this -> rejected GRID_NOT_FOUND (bench: 113/114 correct reads are above, no wrong one is)
+  capture_qc: true               # repeat the phone's frame checks on the photo (quality.sharpness / glare_fraction)
   min_trace_contrast: 0.67       # PROVISIONAL (synthetic: faded 0.65, others >= 0.70): below -> rejected LOW_CONTRAST
 
 geometry:

@@ -1,0 +1,22 @@
+{
+ "scale_to_capture": 2.979687,
+ "expected_hints": [
+  "level"
+ ],
+ "metrics": {
+  "width": 1280,
+  "height": 837,
+  "factor": 1,
+  "brightness": 196.624,
+  "glare": 0.0,
+  "sharpness": 1332.357,
+  "tilt_deg": 8.744,
+  "period_px": 20.604,
+  "px_per_mm": 12.279,
+  "sheet": 0.5204,
+  "hints": [
+   "level"
+  ],
+  "ok": false
+ }
+}

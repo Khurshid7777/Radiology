@@ -89,6 +89,16 @@ async def submit_scan(file: UploadFile = File(...), paper_speed_mm_s: float | No
     return {"scan_id": scan_id, "status": "queued"}
 
 
+@router.get("/config/capture-qc")
+def capture_qc_config(who: str = Depends(actor)) -> dict:
+    """Frame-check thresholds and hint texts for the camera screen (TZ §6.1, SD-014)."""
+    from ecgscan.capture_qc import HINTS, config
+    from ecgscan.i18n import strings
+
+    return {"config": config(), "hints": {lang: {h: strings(lang)[f"qc.{h}"] for h in (*HINTS, "ready")}
+                                          for lang in LANGS}}
+
+
 @router.get("/{scan_id}")
 def get_scan(scan_id: str, who: str = Depends(actor), svc: ScanService = Depends(get_service)) -> dict:
     try:

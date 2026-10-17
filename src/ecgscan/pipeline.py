@@ -105,6 +105,13 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
                     header_masked=hints.header_masked, pipeline_version=PIPELINE_VERSION)
     reasons: list[str] = []
     warnings: list[str] = []
+    # The phone's frame checks, repeated on the photo as received (TZ §6.1, SD-046):
+    # recorded for the record and for comparing client and server, not a gate.
+    frame_qc = None
+    if q_cfg.get("capture_qc", True):
+        from ecgscan.capture_qc import check_frame
+
+        frame_qc = check_frame(img.bgr[..., ::-1])
 
     def result(status: str, *, calibration: Calibration | None = None, layout: Layout | None = None,
                leads=None, rhythm=None, overall: float = 0.0, ppm: float | None = None,
@@ -116,6 +123,8 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
             sampling_rate_hz=fs_out, leads=leads or {}, rhythm=rhythm or [],
             quality=QualitySummary(overall=round(float(overall), 3), px_per_mm=None if ppm is None else round(ppm, 3),
                                    trace_contrast=None if contrast is None else round(contrast, 3),
+                                   sharpness=None if frame_qc is None else frame_qc.sharpness,
+                                   glare_fraction=None if frame_qc is None else frame_qc.glare,
                                    processing_ms=int((time.perf_counter() - t_start) * 1000)))
 
     # 1. Grid and resolution on the photo as taken (TZ §5.3).

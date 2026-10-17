@@ -5,7 +5,6 @@
   "status.queued": "Surat navbatda.",
   "status.processing": "Surat qayta ishlanmoqda…",
   "status.failed": "Ichki ishlov berish xatosi. Keyinroq qayta urinib ko‘ring.",
-
   "reject.LOW_RESOLUTION": "Ruxsat juda past (to‘rning 1 mm ga 8 pikseldan kam). Yaqinroqdan suratga oling yoki suratni siqmasdan, fayl sifatida yuboring.",
   "reject.GLARE": "Yaltirash chiziqlarni yopib qo‘ygan. Chaqnoqsiz, telefonni yorug‘lik manbasiga nisbatan qiyalatib qayta suratga oling.",
   "reject.BLUR": "Surat xira. Telefonni qimirlatmay ushlang va fokuslanishini kuting.",
@@ -19,7 +18,6 @@
   "reject.NOT_AN_ECG": "Suratda EKG topilmadi.",
   "reject.PAGE_INCOMPLETE": "Varaq kadrga to‘liq tushmagan. Uni to‘liq suratga oling.",
   "reject.PROCESSING_ERROR": "Suratni qayta ishlashda xato. Qayta urinib ko‘ring.",
-
   "warning.SPEED_UNCERTAIN": "Qog‘oz tezligi aniqlanmadi — 25 yoki 50 mm/s ni tasdiqlang.",
   "warning.GAIN_UNCERTAIN": "Kuchaytirish aniqlanmadi — 5, 10 yoki 20 mm/mV ni tasdiqlang.",
   "warning.SPEED_SOURCES_DISAGREE": "Qog‘oz tezligi manbalari bir-biriga zid — tezlikni tasdiqlang.",
@@ -34,14 +32,12 @@
   "warning.LOW_RESOLUTION_MARGINAL": "Ruxsat quyi chegarada — aniqlik pasayishi mumkin.",
   "warning.FADED_PAPER": "Qog‘oz o‘chgan — aniqlik pasayishi mumkin.",
   "warning.STITCHED": "Sahifa bir nechta suratdan yig‘ilgan.",
-
   "result.calibration": "Tezlik {speed} mm/s, kuchaytirish {gain} mm/mV.",
   "result.calibration_unknown": "Kalibrovka: aniqlanmagan.",
   "result.layout": "Joylashuv: {layout}.",
   "result.quality": "Raqamlashtirish sifati: {quality}.",
   "result.link": "Natija: {url}",
   "result.digitized_note": "⚠ EKG fotosuratidan olingan, signal buzilishi mumkin.",
-
   "bot.welcome": "Ruxsatni saqlash uchun qog‘ozdagi EKG suratini fayl sifatida yuboring (qisqich → «Fayl»). Bu qaror qabul qilishni qo‘llab-quvvatlash vositasi, tashxis emas.",
   "bot.not_allowed": "Botga kirish ochilmagan. Administratorga murojaat qiling.",
   "bot.send_as_document": "«Rasm» sifatida yuborilgan suratni Telegram kerakli ruxsatdan pastgacha siqadi. Uni fayl sifatida yuboring (qisqich → «Fayl»).",
@@ -52,5 +48,12 @@
   "bot.server_error": "Skaner serveri mavjud emas. Keyinroq urinib ko‘ring.",
   "bot.reasons": "Sabablar:",
   "bot.warnings": "E’tibor bering:",
-  "bot.disclaimer": "Qaror qabul qilishni qo‘llab-quvvatlash vositasi. Shifokor o‘rnini bosmaydi."
+  "bot.disclaimer": "Qaror qabul qilishni qo‘llab-quvvatlash vositasi. Shifokor o‘rnini bosmaydi.",
+  "qc.closer": "Yaqinroq keling: to‘r juda mayda ko‘rinmoqda.",
+  "qc.glare": "Yaltirashni yo‘qoting: telefonni qiyalating yoki chiroqdan uzoqlashing.",
+  "qc.steady": "Telefonni qimirlatmang — surat xira.",
+  "qc.level": "Telefonni tekisroq, varaqqa parallel ushlang.",
+  "qc.light": "Ko‘proq yorug‘lik kerak.",
+  "qc.frame": "Butun varaqni ramkaga joylang.",
+  "qc.ready": "Yaxshi, ushlab turing — suratga olinmoqda…"
 }

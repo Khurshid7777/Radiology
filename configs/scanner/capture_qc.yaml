@@ -1,0 +1,28 @@
+# Frame quality checks on the phone and on the server (TZ §6.1, SD-014, SD-046).
+# The client fetches this file through GET /scans/config/capture-qc.
+# Algorithm parameters must match in Python (ecgscan.capture_qc) and Dart.
+
+algorithm:
+  work_width: 1920         # frames wider than this are block-averaged; below ~4 px/mm on the page the
+                           # 5-mm period is lost (800 px previews failed): the client asks for 1280-1920 px
+  glare_level: 250         # grey level counted as blown-out
+  grey_clip: 60            # grey grid: darkness above this counts as a grid line (a black trace no more)
+  detrend: 31              # moving-average window (working px) for the grid profile
+  band: 16                 # rows per profile band (autocorrelations summed: a tilted page still works)
+  smooth: 3                # moving average on band profiles (a fractional period must not lose to its multiples)
+  harmonics: 4             # comb over the period's multiples (the period, not a multiple, wins)
+  comb_tol: 0.9            # the smallest lag scoring this share of the best comb (a period ties its double)
+  min_lag: 6               # shortest 5-mm period searched (working px)
+  block: 32                # sheet blocks, working px (at least 2 × (period + tilt shift))
+  paper_ratio: 1.15        # half-period / full-period difference ratio of paper (as the server's paper mask)
+
+thresholds:                # PROVISIONAL until real phone frames (M5 data): see SD-046
+  min_px_per_mm: 8.0       # on the captured photo (TZ §6.1: mandatory for auto-capture)
+  max_glare: 0.01
+  min_sharpness: 15.0      # synthetic: sigma 0.25 mm blur 107-110 / 27 (1280 / 1920 px previews), 0.5 mm 8-9 / 2
+  max_tilt_deg: 5.0
+  min_brightness: 90.0
+  min_sheet: 0.5
+
+auto_capture:
+  consecutive_frames: 5    # all checks pass this many frames in a row
