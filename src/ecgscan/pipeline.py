@@ -83,7 +83,8 @@ def trace_contrast(bgr: np.ndarray, px_per_mm: float) -> float:
 
 
 def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: float = 500.0,
-         debug: ScanDebug | None = None) -> ScanResult:
+         debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None) -> ScanResult:
+    """Digitise one photo/scan. ``artifacts_dir``: write rectified / mask / overlay images there."""
     t_start = time.perf_counter()
     cfg = pipeline_config()
     hints = hints or ScanHints()
@@ -150,13 +151,6 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     pulses = find_pulses(ink, ppm)
     dbg.pulses = pulses
     t = tick("segment+pulse", t)
-    ocr_speeds: list[float] = []
-    ocr_gains: list[float] = []
-    if c_cfg["ocr"]["enabled"]:
-        reading = read_bands(rect.bgr, header_frac=c_cfg["ocr"]["header_frac"], footer_frac=c_cfg["ocr"]["footer_frac"])
-        dbg.ocr_texts = reading.texts
-        ocr_speeds, ocr_gains = reading.speeds, reading.gains
-    t = tick("ocr", t)
 
     # 4. Layout: trace rows + registry; the page frame (rows, time origin, ink extent).
     guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses])
@@ -182,6 +176,18 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
         reasons.append("LAYOUT_UNKNOWN")
         return result("rejected", ppm=raw_ppm, contrast=contrast,
                       layout=Layout(name=layout_name, confidence=layout_conf))
+    # Header / footer OCR only outside the trace rows (TZ §5.4: never on the trace).
+    ocr_speeds: list[float] = []
+    ocr_gains: list[float] = []
+    if c_cfg["ocr"]["enabled"]:
+        h_img = rect.bgr.shape[0]
+        top = int(max(0.0, frame.baselines[0] - 0.6 * frame.pitch_px))
+        bottom = int(min(h_img, frame.baselines[-1] + 0.6 * frame.pitch_px))
+        reading = read_bands(rect.bgr, header_frac=top / h_img, footer_frac=(h_img - bottom) / h_img,
+                             min_band_px=int(4 * ppm))
+        dbg.ocr_texts = reading.texts
+        ocr_speeds, ocr_gains = reading.speeds, reading.gains
+    t = tick("ocr", t)
     decision = resolve(px_per_mm=ppm, grid_residual_mm=rect.residual_mm, pulse=summarize_pulses(pulses),
                        ocr_speeds=ocr_speeds, ocr_gains=ocr_gains, cfg=c_cfg,
                        pulse_width_s=spec.pulse.width_s if spec.pulse.present else None,
@@ -228,5 +234,10 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     res = result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,
                  overall=overall, ppm=raw_ppm, contrast=contrast)
     res.quality.limb_lead_consistency = cons.score
-    tick("validate", t)
+    t = tick("validate", t)
+    if artifacts_dir is not None:
+        from ecgscan.artifacts import write_artifacts
+
+        res.artifacts = write_artifacts(artifacts_dir, rectified=rect.bgr, mask=mask.ink, readings=readings)
+        tick("artifacts", t)
     return res

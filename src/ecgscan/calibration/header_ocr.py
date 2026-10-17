@@ -56,7 +56,7 @@ def ocr_available() -> tuple[bool, str | None]:
 
 
 def read_bands(bgr: np.ndarray, *, header_frac: float = 0.25, footer_frac: float = 0.12,
-               tile_aspect: float = 3.0) -> HeaderReading:
+               tile_aspect: float = 3.0, min_band_px: int = 8) -> HeaderReading:
     ok, why = ocr_available()
     if not ok:
         return HeaderReading(False, why)
@@ -65,8 +65,10 @@ def read_bands(bgr: np.ndarray, *, header_frac: float = 0.25, footer_frac: float
     texts: list[str] = []
     for band in bands:
         bh = band.shape[0]
-        if bh < 8:
+        if bh < min_band_px:
             continue
+        if texts and parse_settings(texts)[0] and parse_settings(texts)[1]:
+            break                                   # the header already gave speed and gain
         step = max(64, int(bh * tile_aspect))
         x = 0
         while True:

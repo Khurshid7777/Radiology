@@ -30,6 +30,7 @@ class Rectified:
     grid: GridEstimate               # after rectification (before the final exact scaling)
     residual_mm: float | None
     tile_pitches: list[float]
+    method: str = ""
 
 
 def _fast_grid(bgr: np.ndarray) -> GridEstimate:
@@ -61,13 +62,65 @@ def tile_residual(bgr: np.ndarray, ppm: float, tiles: tuple[int, int] = (2, 3)) 
     return spread * (min(th, tw) / ppm) / 2.0, vals
 
 
-def _homography(gray: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
-    """D64 homography (with its fallbacks) as a 3x3 matrix and output size; identity if none applies."""
-    from cardiolens.layer1_ingestion.digitize import dewarp_page
+def _homography(gray: np.ndarray, px_per_mm: float, texture_px_per_mm: float = 7.0
+                ) -> tuple[np.ndarray, tuple[int, int], str]:
+    """Perspective homography (3x3, output size, method).
 
-    dewarp_page(gray)
-    hm, size = dewarp_page.last_transform  # type: ignore[attr-defined]
-    return np.asarray(hm, dtype=np.float64), (int(size[0]), int(size[1]))
+    The D64 grid-texture fit (CardioLens) is run on a copy scaled to ~7 px/mm: it
+    searches 4-9.5 px/mm grid pitches, so at the 10 px/mm working scale it always
+    missed and the slow Hough-based fallbacks (quadrilateral, vanishing points,
+    affine refine: 11+ s) ran on every page. An affine fit (rotation / scan) means no
+    perspective: the de-skew step handles it. Only when the texture fit is impossible
+    (too few grid tiles, poor residual) does the full legacy cascade run.
+    """
+    import cv2
+
+    from cardiolens.layer1_ingestion import digitize as D
+
+    h, w = gray.shape
+    f = min(1.0, texture_px_per_mm / px_per_mm)
+    small = cv2.resize(gray, None, fx=f, fy=f, interpolation=cv2.INTER_AREA) if f < 0.999 else gray
+    samples = D._local_grid_frequencies(small)
+    if len(samples) >= D.GRID_TEXTURE_MIN_TILES:
+        hm_s, p_s, rms = D._fit_grid_homography(samples)
+        if rms > D.GRID_TEXTURE_MAX_RMS:
+            # Outlier tiles (text, a trace-dominated tile, the 5-mm harmonic picked as the
+            # peak) inflate the RMS although the robust fit is fine: drop them and refit.
+            res = _tile_residuals(hm_s, p_s, samples)
+            keep = [smp for smp, r in zip(samples, res, strict=True) if r <= 3.0 * float(np.median(res))]
+            if len(keep) >= D.GRID_TEXTURE_MIN_TILES and len(keep) >= 0.6 * len(samples):
+                hm_s, p_s, rms = D._fit_grid_homography(keep)
+        if rms <= D.GRID_TEXTURE_MAX_RMS:
+            sc = np.diag([f, f, 1.0])
+            hm = np.linalg.inv(sc) @ hm_s @ sc                       # same map at full scale
+            if abs(hm[2, 0]) * w + abs(hm[2, 1]) * h < D.QUAD_MIN_PERSPECTIVE:
+                return np.eye(3), (w, h), "affine"
+            hi = np.linalg.inv(hm)
+            corners = np.array([[0, 0, 1], [w, 0, 1], [w, h, 1], [0, h, 1]], float) @ hi.T
+            corners = corners[:, :2] / corners[:, 2:3]
+            mn, mx = corners.min(axis=0), corners.max(axis=0)
+            out_w, out_h = int(round(mx[0] - mn[0])), int(round(mx[1] - mn[1]))
+            if 50 < out_w < 4 * w and 50 < out_h < 4 * h:
+                shift = np.array([[1, 0, -mn[0]], [0, 1, -mn[1]], [0, 0, 1]])
+                return shift @ hi, (out_w, out_h), "grid_texture"
+    D.dewarp_page(gray)
+    hm, size = D.dewarp_page.last_transform  # type: ignore[attr-defined]
+    return np.asarray(hm, dtype=np.float64), (int(size[0]), int(size[1])), "legacy_cascade"
+
+
+def _tile_residuals(hm: np.ndarray, p: float, samples) -> np.ndarray:
+    """Per tile: how far its two grid frequency vectors are from one square grid under ``hm``
+    (the residual of CardioLens ``_fit_grid_homography``, per tile, in units of 1/p)."""
+    from cardiolens.layer1_ingestion.digitize import _homography_jacobian
+
+    hi = np.linalg.inv(hm)
+    e1, e2 = np.array([1.0 / p, 0.0]), np.array([0.0, 1.0 / p])
+    out = []
+    for x, y, fa, fb in samples:
+        uvw = hi @ np.array([x, y, 1.0])
+        jac = _homography_jacobian(hm, uvw[0] / uvw[2], uvw[1] / uvw[2])
+        out.append(float(np.hypot(*((jac.T @ fa - e1) * p)) + np.hypot(*((jac.T @ fb - e2) * p))))
+    return np.array(out)
 
 
 def _warp(img: np.ndarray, m: np.ndarray, size: tuple[int, int], border) -> np.ndarray:
@@ -95,7 +148,7 @@ def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate
     small = cv2.resize(bgr, size, interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_CUBIC)
     gray_s = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     # Perspective (fitted at the working scale; fit_px_per_mm < working was measured to lose the traces).
-    m_h, size = _homography(gray_s)
+    m_h, size, method = _homography(gray_s, working_px_per_mm)
     gray_i = _warp(gray_s, m_h, size, 255)
     # Rotation: the texture homography steps aside for affine cases (D64), so de-skew here.
     skew = estimate_skew(gray_i)
@@ -123,4 +176,4 @@ def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate
         bgr_r = _warp(small, m, out_size, (255, 255, 255))
     gray_r = cv2.cvtColor(bgr_r, cv2.COLOR_BGR2GRAY)
     residual, tiles = tile_residual(bgr_r, working_px_per_mm)
-    return Rectified(bgr_r, gray_r, float(working_px_per_mm), raw, g, residual, tiles)
+    return Rectified(bgr_r, gray_r, float(working_px_per_mm), raw, g, residual, tiles, method)

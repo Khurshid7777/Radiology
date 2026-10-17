@@ -39,6 +39,14 @@ class GridEstimate:
         return float(np.sqrt(self.px_per_mm_x * self.px_per_mm_y))
 
 
+def _sampled(img: np.ndarray, axis: int, max_lines: int = 400) -> np.ndarray:
+    """Every k-th row (axis 1: profiles along x) or column (axis 0), before any colour maths:
+    the channel conversion of a full 12 Mpx frame cost seconds per call."""
+    if axis == 1:
+        return img[:: max(1, img.shape[0] // max_lines)]
+    return np.swapaxes(img[:, :: max(1, img.shape[1] // max_lines)], 0, 1)
+
+
 def _channels(img: np.ndarray) -> dict[str, np.ndarray]:
     if img.ndim == 2:
         return {"gray": 255.0 - img.astype(np.float32)}
@@ -216,20 +224,22 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
                   min_score: float = 0.2) -> GridEstimate:
     """Grid pitch along x and y; ``None`` where no lattice is found."""
     best: GridEstimate | None = None
-    for name, ch in _channels(img).items():
+    lines = {ax: _channels(_sampled(img, ax)) for ax in (1, 0)}     # both as [lines, samples]
+    for name in lines[1]:
         res = []
         for axis in (1, 0):
-            spec = _spectrum(ch, axis)
-            n = ch.shape[axis]
+            ch_lines = lines[axis][name]
+            spec = _spectrum(ch_lines, 1)
+            n = img.shape[axis]
             hi = min(max_px_per_mm, n / 60.0)          # at least a dozen major periods in view
             p, s = _best_pitch(spec, n, min_px_per_mm, hi) if hi > min_px_per_mm else (None, 0.0)
             res.append((p if s >= min_score else None, s))
         (px, sx), (py, sy) = res
         if px is not None and py is not None and abs(px - py) > SQUARE_TOL * max(px, py):
             # The paper grid is square: re-read the weaker axis near the stronger one's pitch.
-            specs = {1: _spectrum(ch, 1), 0: _spectrum(ch, 0)}
+            specs = {ax: _spectrum(lines[ax][name], 1) for ax in (1, 0)}
             strong_p, weak_axis = (px, 0) if sx >= sy else (py, 1)
-            n_w = ch.shape[weak_axis]
+            n_w = img.shape[weak_axis]
             grid_f = strong_p * np.linspace(0.9, 1.1, 41)
             # Raw comb here: along x the heartbeat's own periodicity adds peaks no grid explains.
             sc = comb_scores(specs[weak_axis], n_w, grid_f, explained=False)
