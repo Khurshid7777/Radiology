@@ -8,15 +8,41 @@ result (TZ §0). All outputs are in microvolts.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
 
 from cardiolens.contracts.signal import (
+    Patient,
     Provenance,
     SignalRepresentation,
     canonical_lead_name,
 )
+
+_AGE_RE = re.compile(r"\bage\s*:\s*([0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
+_SEX_RE = re.compile(r"\bsex\s*:\s*([a-z]+)", re.IGNORECASE)
+
+
+def patient_from_wfdb_comments(comments: list[str] | None) -> Patient:
+    """Age and sex from WFDB header comments (D101).
+
+    PhysioNet Challenge 2020/2021 headers carry ``# Age: 74`` / ``# Sex: Female`` lines,
+    PTBDB ``# age: 81`` / ``# sex: female``. Unknown or ``NaN`` stays None. Without this the
+    rules fell back to male thresholds (QTc 450, STEMI V2-V3, Cornell) for every woman.
+    """
+    text = " ".join(comments or [])
+    age = sex = None
+    m = _AGE_RE.search(text)
+    if m:
+        age = float(m.group(1))
+        if not 0 <= age <= 120:
+            age = None
+    m = _SEX_RE.search(text)
+    if m:
+        v = m.group(1).lower()
+        sex = "female" if v in ("female", "f", "woman") else "male" if v in ("male", "m", "man") else None
+    return Patient(age_years=age, sex=sex)
 
 
 def _mv_to_uv(x: np.ndarray) -> np.ndarray:
@@ -51,6 +77,7 @@ def load_wfdb(record_path: str | Path, *, sampto: int | None = None,
         lead_names=lead_names,
         duration_s=float(sig.shape[1] / rec.fs),
         source="wfdb",
+        patient=patient_from_wfdb_comments(getattr(rec, "comments", None)),
         provenance=Provenance(digitized=False, confidence=1.0),
     )
 

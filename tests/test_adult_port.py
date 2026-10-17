@@ -430,3 +430,17 @@ def test_fast_narrow_rhythm_with_a_sinus_p_before_every_qrs_is_sinus_tachycardia
     assert "sinus_tachycardia" in codes(p_wave_ratio=0.95, axes=Axes(p_deg=60))
     assert "supraventricular_tachycardia" in codes(p_wave_ratio=0.95, axes=Axes(p_deg=-70))
     assert "supraventricular_tachycardia" in codes(p_wave_ratio=0.5, axes=Axes(p_deg=60))
+
+
+def test_age_and_sex_are_read_from_wfdb_header_comments():
+    # D101: Challenge-format and PTBDB headers carry demographics; without them every
+    # woman was judged by male QTc / STEMI / Cornell thresholds.
+    from cardiolens.layer1_ingestion.parsers import patient_from_wfdb_comments
+
+    p = patient_from_wfdb_comments(["Age: 74", "Sex: Female", "Dx: 426783006"])
+    assert p.age_years == 74 and p.sex == "female"
+    p = patient_from_wfdb_comments(["age: 81", "sex: male"])
+    assert p.age_years == 81 and p.sex == "male"
+    p = patient_from_wfdb_comments(["Age: NaN", "Sex: Unknown"])
+    assert p.age_years is None and p.sex is None
+    assert patient_from_wfdb_comments(None).sex is None
