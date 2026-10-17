@@ -26,7 +26,7 @@ void main() {
   group('strings', () {
     test('both languages, placeholders, no silent fallback', () async {
       final ru = await Strings.load('ru'), uz = await Strings.load('uz');
-      expect(ru.t('app.uploading', {'percent': 40}), 'Отправка… 40%');
+      expect(ru.t('app.retry_in', {'seconds': 40}), 'Нет связи, повтор через 40 с');
       expect(uz.t('qc.closer'), startsWith('Yaqinroq'));
       expect(() => ru.t('no.such.key'), throwsArgumentError);
     });

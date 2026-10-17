@@ -89,9 +89,9 @@ class ScanApi {
           headers: {..._auth, 'Content-Type': 'application/json'},
           body: jsonEncode({
             'decision': decision,
-            if (paperSpeedMmS != null) 'paper_speed_mm_s': paperSpeedMmS,
-            if (gainMmMv != null) 'gain_mm_mv': gainMmMv,
-            if (comment != null) 'comment': comment,
+            'paper_speed_mm_s': ?paperSpeedMmS,
+            'gain_mm_mv': ?gainMmMv,
+            'comment': ?comment,
           })));
 
   Future<Map<String, dynamic>> analyze(String scanId) =>

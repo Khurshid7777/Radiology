@@ -73,7 +73,7 @@
   "app.gain": "Усиление",
   "app.unknown": "Не знаю",
   "app.queued": "Ожидает отправки",
-  "app.uploading": "Отправка… {percent}%",
+  "app.uploading": "Отправка…",
   "app.retry_in": "Нет связи, повтор через {seconds} с",
   "app.sent": "Отправлено, обрабатывается",
   "app.confirm_title": "Проверка оцифровки",

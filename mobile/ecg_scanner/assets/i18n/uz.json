@@ -73,7 +73,7 @@
   "app.gain": "Kuchaytirish",
   "app.unknown": "Bilmayman",
   "app.queued": "Yuborishni kutmoqda",
-  "app.uploading": "Yuborilmoqda… {percent}%",
+  "app.uploading": "Yuborilmoqda…",
   "app.retry_in": "Aloqa yo‘q, {seconds} s dan keyin qayta urinish",
   "app.sent": "Yuborildi, qayta ishlanmoqda",
   "app.confirm_title": "Raqamlashtirishni tekshirish",
