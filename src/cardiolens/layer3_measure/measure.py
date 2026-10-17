@@ -156,6 +156,8 @@ PACED_R_MAX_OFFSET_S = 0.010   # a detection this close to a pacing spike sits o
 PACED_QRS_WINDOW_S = (0.08, 0.30)   # an atrially paced QRS follows its spike after the AV delay
 PACED_QUIET_S = (0.02, 0.07)   # ... with a quiet envelope right after the spike (a ventricular
 PACED_QUIET_FRACTION = 0.3     #     spike is followed at once by its own wide QRS: left alone)
+PACED_QRS_MIN_RATIO = 2.3      # the QRS outweighs the spike point on the envelope (atrial pacing
+                               # 2.5-4.2; a late hump of a ventricular paced beat 1.1-2.0)
 
 
 def _move_off_pacing_spikes(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
@@ -184,7 +186,9 @@ def _move_off_pacing_spikes(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
             continue
         win = env[s0 + w0:s0 + w1]
         peak = s0 + w0 + int(np.argmax(win))
-        if float(env[s0 + q0:s0 + q1].max()) >= PACED_QUIET_FRACTION * float(env[peak]):
+        at_r = float(env[max(0, r - q0):r + q0].max())
+        if (float(env[s0 + q0:s0 + q1].max()) >= PACED_QUIET_FRACTION * float(env[peak])
+                or float(env[peak]) < PACED_QRS_MIN_RATIO * at_r):
             out.append(r)
             continue
         out.append(peak)

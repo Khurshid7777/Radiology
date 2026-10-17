@@ -401,7 +401,7 @@ def test_detections_on_atrial_pacing_spikes_move_to_their_qrs():
     x = np.zeros((3, tt.size))
     for s in spikes:
         i = int(s * fs)
-        x[:, i] += 1500.0
+        x[:, i] += 100.0                                         # band-passed spike remnant
         x += 80 * np.exp(-((tt - s - 0.06) / 0.03) ** 2)        # paced P wave
         x += 1000 * np.exp(-((tt - s - 0.28) / 0.012) ** 2)     # QRS after the AV delay
     det = (spikes * fs).astype(int)
