@@ -47,7 +47,9 @@ segmentation:
 vectorize:
   method: hybrid                 # dp_path | legacy_track | hybrid (DP path + D47 edge/apex detail where they agree)
   fuse_tol_pitches: 0.15         # D47 value kept where within this many row pitches of the DP path
-  fuse_margin_cols: 10           # ... and not within this many columns of a disagreement
+  fuse_margin_cols: 10           # path used this many columns around a stretch where D47 left the row
+  fuse_max_gap_pitches: 0.5      # D47 kept in a DP gap only if bounded by agreement on both sides and at most this long
+  fuse_max_short_cols: 8         # a longer disagreement than this = D47 left the row (an apex lasts a few columns)
   band_pitches: 1.3              # search band around a baseline, in row pitches (20 mm/mV traces cross rows)
   baseline_weight: 0.6           # pull to the own baseline vs continuity
   gap_cost: 2.5                  # per missing column (in stroke widths of vertical jump)

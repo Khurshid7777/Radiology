@@ -29,26 +29,54 @@ def legacy_track(ink: np.ndarray, skel: np.ndarray, p: Panel, pitch_px: float) -
 
 
 def fuse(path: np.ndarray, detail: np.ndarray, pitch_px: float, *, tol_pitches: float = 0.15,
-         margin: int = 10) -> np.ndarray:
+         margin: int = 10, max_short: int = 8, far_pitches: float = 0.35, max_gap_pitches: float = 1.0,
+         baseline: float | None = None, other_baselines: list[float] | None = None) -> np.ndarray:
     """Two methods, one trace (TZ §5.7: choose by quality, per stretch).
 
     ``path`` (the DP tracer) holds the right row through crossings and noise; ``detail``
     (the D47 tracker: skeleton edges, apex from the raw stroke) gets steep QRS edges and
-    peaks right but on photos can jump to a neighbouring row. ``detail`` is used wherever
-    it stays within ``tol_pitches`` of the path, ``path`` elsewhere (± ``margin``
-    columns around any disagreement, so a half-jump is not kept).
+    peaks right but on photos can jump to a neighbouring row. ``detail`` is kept unless it
+    *left the row*: a disagreement longer than ``max_short`` columns (a QRS apex where
+    the path is short of the tip lasts a few columns), or a stretch where ``detail`` sits
+    nearer another row's baseline than this one. Around such a stretch (± ``margin``)
+    the path is used.
     """
     n = min(len(path), len(detail))
     out = path.copy()
     if n == 0:
         return out
     a, b = path[:n], detail[:n]
-    agree = np.isfinite(a) & np.isfinite(b) & (np.abs(a - b) <= tol_pitches * pitch_px)
-    bad = np.isfinite(b) & ~agree
-    if bad.any() and margin > 0:
-        k = np.ones(2 * margin + 1)
-        bad = np.convolve(bad.astype(float), k, mode="same") > 0
-    use = agree & ~bad
+    fin = np.isfinite(a) & np.isfinite(b)
+    differ = fin & (np.abs(a - b) > tol_pitches * pitch_px)
+    left = np.zeros(n, dtype=bool)
+    if differ.any():
+        idx = np.flatnonzero(differ)
+        for seg in np.split(idx, np.flatnonzero(np.diff(idx) > 1) + 1):
+            if len(seg) > max_short:
+                left[seg] = True
+    # Far from the path at any length: with apexes read from the raw stroke the path
+    # reaches the tips itself, so a large gap means header text, a label or another row.
+    left |= fin & (np.abs(a - b) > far_pitches * pitch_px)
+    if baseline is not None and other_baselines:
+        own_d = np.abs(b - baseline)
+        oth_d = np.min(np.abs(b[:, None] - np.asarray(other_baselines)[None, :]), axis=1)
+        left |= np.isfinite(b) & (oth_d < own_d) & (oth_d < 0.2 * pitch_px)
+    # Where the path has a gap, ``detail`` has nothing to be checked against. It is kept
+    # only inside a short gap bounded on both sides by columns where the two agree (a
+    # steep QRS edge the path skipped); a gap open at a panel end, a long one, or one
+    # next to a stretch where ``detail`` left the row is header text or a label.
+    gap = ~np.isfinite(a) & np.isfinite(b)
+    if gap.any():
+        agree = fin & ~left
+        idx = np.flatnonzero(~np.isfinite(a))
+        for seg in np.split(idx, np.flatnonzero(np.diff(idx) > 1) + 1):
+            lo, hi = seg[0] - 1, seg[-1] + 1
+            bounded = lo >= 0 and hi < n and agree[lo] and agree[hi]
+            if not bounded or len(seg) > max_gap_pitches * pitch_px:
+                left[seg] = True
+    if left.any() and margin > 0:
+        left = np.convolve(left.astype(float), np.ones(2 * margin + 1), mode="same") > 0
+    use = np.isfinite(b) & ~left
     out[:n][use] = b[use]
     return out
 
@@ -83,7 +111,10 @@ def read_panels(mask: TraceMask, panels: list[Panel], *, px_per_mm: float, speed
             y = legacy_track(mask.ink, skel, p, pitch_px)
         elif method == "hybrid":
             y = fuse(y, legacy_track(mask.ink, skel, p, pitch_px), pitch_px,
-                     tol_pitches=cfg.get("fuse_tol_pitches", 0.15), margin=cfg.get("fuse_margin_cols", 10))
+                     tol_pitches=cfg.get("fuse_tol_pitches", 0.15), margin=cfg.get("fuse_margin_cols", 10),
+                     max_short=cfg.get("fuse_max_short_cols", 8),
+                     max_gap_pitches=cfg.get("fuse_max_gap_pitches", 0.5), baseline=p.baseline,
+                     other_baselines=[b for b in rows if b != p.baseline])
         n_expected = p.x1 - p.x0
         if len(y) < n_expected:          # the panel runs past the image: the rest is missing, not zero
             y = np.concatenate([y, np.full(n_expected - len(y), np.nan)])
@@ -98,7 +129,7 @@ def read_panels(mask: TraceMask, panels: list[Panel], *, px_per_mm: float, speed
         if pt.edge_contact > cfg.get("overlap_flag", 0.1):
             flags.append("LEAD_OVERLAP")
         tr = Trace.from_array(samples, start_s=p.t0_s, fs=fs_out, lead=p.lead, quality=round(q, 3),
-                              coverage=round(1.0 - miss, 4), method="dp_path",
+                              coverage=round(1.0 - miss, 4), method=method,
                               box_px=[int(p.x0), int(p.baseline - band), int(p.x1), int(p.baseline + band)], flags=flags)
         out.append(PanelReading(p, tr, y, q, pt.ambiguity, pt.edge_contact))
     return out

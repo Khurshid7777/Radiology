@@ -164,11 +164,20 @@ def trace_panel(ink: np.ndarray, darkness: np.ndarray, x0: int, x1: int, y0: int
         # peak column has the peak column's top above its own, so it stays an edge sample.
         pt, nt = _neighbour(tops, i, -1), _neighbour(tops, i, +1)
         pb, nb = _neighbour(bots, i, -1), _neighbour(bots, i, +1)
-        half = 0.0 if skeleton is not None else s / 2.0   # the skeleton already runs mid-stroke
+        # At an apex the skeleton stops short of the tip of a thick spike: read the raw
+        # stroke's extreme in this column and step back half a stroke (D47 did the same).
+        ra, re = a, e
+        if skeleton is not None:
+            col = raw_ink[:, x0 + i]
+            reach = int(np.ceil(2 * s))     # the tip is at most ~a stroke beyond the skeleton end;
+            while ra > 0 and col[ra - 1] and a - ra < reach:      # further up is a label or text
+                ra -= 1
+            while re < h and col[re] and re - e < reach:
+                re += 1
         if pt is not None and nt is not None and a < pt and a <= nt:
-            y[i] = a + half                # local maximum of the signal (top of the stroke)
+            y[i] = ra + s / 2.0            # local maximum of the signal (top of the stroke)
         elif pb is not None and nb is not None and e - 1 > pb and e - 1 >= nb:
-            y[i] = e - 1 - half            # local minimum
+            y[i] = re - 1 - s / 2.0        # local minimum
         else:
             y[i] = (a + e - 1) / 2.0
     return PanelTrace(y, competing / max(1, n), touch / max(1, valid), s)

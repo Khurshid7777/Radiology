@@ -17,7 +17,7 @@ from ecgscan import PIPELINE_VERSION, SCHEMA_VERSION
 
 Status = Literal["ok", "needs_confirmation", "rejected"]
 CalSource = Literal["calibration_pulse", "header_ocr", "format_registry", "user"] | None
-TraceMethod = Literal["dp_path", "weighted_centroid", "column_median", "onnx"]
+TraceMethod = Literal["dp_path", "legacy_track", "hybrid", "weighted_centroid", "column_median", "onnx"]
 
 REJECT_CODES = (
     "LOW_RESOLUTION", "GLARE", "BLUR", "GRID_NOT_FOUND", "CALIBRATION_MISSING", "LAYOUT_UNKNOWN",

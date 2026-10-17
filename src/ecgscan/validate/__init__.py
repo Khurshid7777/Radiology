@@ -90,3 +90,52 @@ def lead_quality(missing_fraction: float, ambiguity: float, edge_contact: float,
     w = weights or {"ambiguity": 1.0, "edge": 0.5}
     q = (1.0 - missing_fraction) * (1.0 - w["ambiguity"] * min(1.0, ambiguity)) * (1.0 - w["edge"] * min(1.0, edge_contact))
     return float(np.clip(q, 0.0, 1.0))
+
+
+def _qrs_envelope(x: np.ndarray, fs: float) -> np.ndarray:
+    """Smoothed |slope|: peaks at the QRS complexes whatever the lead's polarity."""
+    from scipy.ndimage import uniform_filter1d
+
+    d = np.abs(np.diff(np.nan_to_num(x - np.nanmedian(x)), prepend=0.0))
+    return uniform_filter1d(d, size=max(3, int(0.04 * fs)))
+
+
+def _envelope_on_axis(a: np.ndarray, fs: float) -> np.ndarray:
+    """QRS envelope over the trace's own finite stretch, NaN elsewhere."""
+    out = np.full(a.shape, np.nan)
+    ok = np.isfinite(a)
+    if ok.sum() > 3:
+        idx = np.flatnonzero(ok)
+        seg = slice(idx[0], idx[-1] + 1)
+        x = a[seg].copy()
+        x[~np.isfinite(x)] = np.nanmedian(x)
+        out[seg] = _qrs_envelope(x, fs)
+        out[~ok] = np.nan
+    return out
+
+
+def column_coherence(traces: list[tuple[str, Trace]], fs: float, *, min_len_s: float = 1.0) -> dict[str, float]:
+    """Per trace: correlation of its QRS envelope with the median envelope of the *other*
+    traces recorded at the same moments (the leads of a 3x4 or 6x2 column, all rows of a
+    12x1 strip, the panels under the rhythm strip).
+
+    All leads of one moment share the QRS timing, so a trace that skipped or invented a
+    beat, or followed a neighbour, has a low value. Keys: ``lead@start_s`` (``r`` = strip)."""
+    if not traces:
+        return {}
+    n = int(round(max(t.start_s + len(t.samples_mv) / fs for _, t in traces) * fs))
+    keys = [f"{ld}@{t.start_s:g}{'r' if len(t.samples_mv) / fs > 5.5 else ''}" for ld, t in traces]
+    envs = np.vstack([_envelope_on_axis(_on_axis(t, fs, n), fs) for _, t in traces])
+    out: dict[str, float] = {}
+    for i, key in enumerate(keys):
+        others = np.delete(envs, i, axis=0)
+        cnt = np.isfinite(others).sum(axis=0)
+        ok = np.isfinite(envs[i]) & (cnt >= 2)
+        if ok.sum() < min_len_s * fs:
+            continue
+        ref = np.nanmedian(others[:, ok], axis=0)
+        own = envs[i, ok]
+        if own.std() == 0 or ref.std() == 0:
+            continue
+        out[key] = round(float(np.corrcoef(own, ref)[0, 1]), 4)
+    return out

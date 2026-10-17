@@ -600,6 +600,8 @@
         "method": {
           "enum": [
             "dp_path",
+            "legacy_track",
+            "hybrid",
             "weighted_centroid",
             "column_median",
             "onnx",
