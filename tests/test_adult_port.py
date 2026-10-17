@@ -379,3 +379,28 @@ def test_wave_marks_missing_an_edge_beat_stay_on_their_own_beats():
     t_off = _aligned([300, 1000, 1450], r, before=False)     # no T offset for the last beat
     assert list(t_off[:3]) == [300, 1000, 1450] and np.isnan(t_off[3])
     assert list(_aligned([1, 2, 3, 4], r, before=True)) == [1, 2, 3, 4]
+
+
+def test_detections_on_atrial_pacing_spikes_move_to_their_qrs():
+    # D98: with atrial pacing the detector can sit on the spike; the QRS follows after the
+    # AV delay. With ventricular pacing the QRS starts at the spike and nothing moves.
+    from cardiolens.layer3_measure.measure import _move_off_pacing_spikes
+
+    fs = 500.0
+    tt = np.arange(5000) / fs
+    spikes = np.arange(0.5, 9.5, 1.0)
+    x = np.zeros((3, tt.size))
+    for s in spikes:
+        i = int(s * fs)
+        x[:, i] += 1500.0
+        x += 80 * np.exp(-((tt - s - 0.06) / 0.03) ** 2)        # paced P wave
+        x += 1000 * np.exp(-((tt - s - 0.28) / 0.012) ** 2)     # QRS after the AV delay
+    det = (spikes * fs).astype(int)
+    out, moved = _move_off_pacing_spikes(x, det, fs, list(spikes))
+    assert moved == len(det) and np.all(np.abs(out - det - int(0.28 * fs)) <= 5)
+    v = np.zeros((3, tt.size))
+    for s in spikes:
+        v[:, int(s * fs)] += 1500.0
+        v += 900 * (np.exp(-((tt - s - 0.03) / 0.03) ** 2) - np.exp(-((tt - s - 0.11) / 0.03) ** 2))
+    out, moved = _move_off_pacing_spikes(v, det, fs, list(spikes))
+    assert moved == 0 and list(out) == list(det)

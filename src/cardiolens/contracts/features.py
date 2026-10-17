@@ -132,6 +132,8 @@ class Measurements(BaseModel):
     # The subset of r_peaks_samples added from the multi-lead envelope (D75): marked at the
     # envelope peak, not the rhythm lead's R, so shape comparisons must allow a shift (D87).
     r_peaks_recovered: list[int] = Field(default_factory=list)
+    # Beats whose detection sat on an atrial pacing spike and was moved to its QRS (D98).
+    atrial_paced_beats: int = 0
     intervals: Intervals = Field(default_factory=Intervals)
     voltages: Voltages = Field(default_factory=Voltages)
     axes: Axes = Field(default_factory=Axes)

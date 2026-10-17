@@ -152,6 +152,53 @@ RECOVER_MAX_FLOOR = 0.25      # no recovery when the envelope between beats is t
                               # to the beats: noise, not QRS, reaches half their level (PTB-XL 15973)
 
 
+PACED_R_MAX_OFFSET_S = 0.010   # a detection this close to a pacing spike sits on the spike
+PACED_QRS_WINDOW_S = (0.08, 0.30)   # an atrially paced QRS follows its spike after the AV delay
+PACED_QUIET_S = (0.02, 0.07)   # ... with a quiet envelope right after the spike (a ventricular
+PACED_QUIET_FRACTION = 0.3     #     spike is followed at once by its own wide QRS: left alone)
+
+
+def _move_off_pacing_spikes(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
+                            spikes_s: list[float] | None) -> tuple[np.ndarray, int]:
+    """Move detections that sit on an atrial pacing spike onto the QRS that follows (D98).
+
+    With atrial pacing the single-lead detector can lock onto the spikes instead of the
+    QRS 250-300 ms later; the oversense gate then keeps some of them and HR halves
+    (Georgia E00850: 33/min at 60). A detection within PACED_R_MAX_OFFSET_S of a raw
+    pacing spike, with a quiet envelope just after the spike and an envelope peak in
+    PACED_QRS_WINDOW_S, is moved to that peak; one that lands on an already detected
+    QRS is dropped. Ventricular pacing (QRS right after the spike) is left alone.
+    """
+    if not spikes_s or len(rpeaks) == 0:
+        return rpeaks, 0
+    env = spatial_velocity(signal, fs)
+    sp = np.asarray(spikes_s, dtype=float) * fs
+    q0, q1 = (int(x * fs) for x in PACED_QUIET_S)
+    w0, w1 = (int(x * fs) for x in PACED_QRS_WINDOW_S)
+    out, moved = [], 0
+    for r in (int(x) for x in rpeaks):
+        k = int(np.argmin(np.abs(sp - r)))
+        s0 = int(round(sp[k]))
+        if abs(sp[k] - r) > PACED_R_MAX_OFFSET_S * fs or s0 + w1 >= env.size:
+            out.append(r)
+            continue
+        win = env[s0 + w0:s0 + w1]
+        peak = s0 + w0 + int(np.argmax(win))
+        if float(env[s0 + q0:s0 + q1].max()) >= PACED_QUIET_FRACTION * float(env[peak]):
+            out.append(r)
+            continue
+        out.append(peak)
+        moved += 1
+    if not moved:
+        return rpeaks, 0
+    merged = []
+    for r in sorted(out):
+        if merged and r - merged[-1] < int(0.25 * fs):
+            continue
+        merged.append(r)
+    return np.asarray(merged, dtype=rpeaks.dtype), moved
+
+
 def _recover_missed_qrs(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
                         notes: list[str] | None = None) -> tuple[np.ndarray, int]:
     """Add QRS complexes the single-lead detector missed (D75).
@@ -444,8 +491,9 @@ def _page_beats(sig: SignalRepresentation, windows: dict, rhythm_row: np.ndarray
     return pos[order], np.asarray(kept_heights)[order]
 
 
-def measure(sig: SignalRepresentation) -> Measurements:
-    """Full Layer-3 measurement pass (TZ §6)."""
+def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = None) -> Measurements:
+    """Full Layer-3 measurement pass (TZ §6). ``pacing_spikes_s``: raw-signal pacing
+    spike times (the band-pass erases them), used to keep R off atrial pacing spikes."""
     import neurokit2 as nk
 
     fs = sig.sampling_rate_hz
@@ -459,6 +507,10 @@ def measure(sig: SignalRepresentation) -> Measurements:
         rpeaks = np.asarray(info["ECG_R_Peaks"], dtype=int)
     except Exception:
         rpeaks = np.array([], dtype=int)
+    rpeaks, n_moved = _move_off_pacing_spikes(sig.signal, rpeaks, fs, pacing_spikes_s)
+    m.atrial_paced_beats = n_moved
+    if n_moved:
+        m.notes.append(f"{n_moved} R detection(s) moved off atrial pacing spikes onto the QRS (D98)")
     page_windows = getattr(sig.provenance, "lead_windows", None)
     page_confirmed = False
     if page_windows:

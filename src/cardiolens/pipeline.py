@@ -101,7 +101,7 @@ def run_pipeline(
     audit.append(f"[L2] SQI mean-ok={quality_ok}, flags={quality.flags}")
 
     # Layer 3 — measurements (TZ §6).
-    m = measure(sig)
+    m = measure(sig, pacing_spikes_s=sorted(set(spike_times) | set(ml_spike_times)))
     audit.append(
         f"[L3] HR={m.heart_rate_bpm} PR={m.intervals.pr_ms} "
         f"QRS={m.intervals.qrs_ms} QTcB={m.intervals.qtc_bazett_ms}"
@@ -138,9 +138,14 @@ def run_pipeline(
     coupling = pacing_spike_coupling(spike_times, r_times)
     ml_coupling = pacing_spike_coupling(ml_spike_times, r_times)
     single = pacing_ratio >= cfg.pacing.spike_ratio_min and coupling >= cfg.pacing.coupling_min
-    if single or ml_coupling >= cfg.pacing.multilead_coupling_min:
+    # Atrial pacing (D98): the spike precedes its QRS by the AV delay, beyond the coupling
+    # window; beats whose detection was moved off such a spike are the paced ones.
+    atrial = m.atrial_paced_beats / max(1, len(r_times))
+    if single or ml_coupling >= cfg.pacing.multilead_coupling_min or atrial >= cfg.pacing.multilead_coupling_min:
         how_ru = (f"спайк ×{pacing_ratio}, связан с QRS в {coupling:.0%} ударов" if single else
-                  f"спайк в ≥ {cfg.pacing.multilead_min_leads} отведениях, связан с QRS в {ml_coupling:.0%} ударов")
+                  f"спайк в ≥ {cfg.pacing.multilead_min_leads} отведениях, связан с QRS в {ml_coupling:.0%} ударов"
+                  if ml_coupling >= cfg.pacing.multilead_coupling_min else
+                  f"предсердная стимуляция: спайк за АВ-задержку до QRS в {atrial:.0%} ударов")
         findings.findings.append(Finding(
             code="paced_rhythm", group="rhythm",
             label_ru=f"Ритм электрокардиостимулятора ({how_ru})",
