@@ -92,3 +92,13 @@ def test_scan_records_the_server_side_frame_check(synth_mv):
     img, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=10.0, header=False))
     res = scan(cv2.imencode(".png", img)[1].tobytes(), hints=ScanHints(paper_speed_mm_s=25, gain_mm_mv=10))
     assert res.quality.sharpness > 15 and res.quality.glare_fraction == 0.0
+
+
+def test_server_path_gives_the_same_light_metrics():
+    """grid=False (the server's record of each photo) reduces the bytes first: same numbers."""
+    rgb = cv2.imread(str(FIX / "glare.jpg"))[..., ::-1]
+    full, light = check_frame(rgb), check_frame(rgb, grid=False)
+    assert (light.width, light.height) == (full.width, full.height)
+    for key in ("brightness", "glare", "sharpness"):
+        assert getattr(light, key) == pytest.approx(getattr(full, key), rel=1e-4, abs=1e-5), key
+    assert light.period_px is None and light.tilt_deg is None

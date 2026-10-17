@@ -192,19 +192,36 @@ def sheet_fraction(q: np.ndarray, period: float | None, tilt: float | None, *, b
     return paper / (hb * wb)
 
 
-def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | None = None) -> FrameQC:
-    """QC of one frame. ``scale_to_capture`` = captured photo width / this frame's width."""
+def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | None = None,
+                grid: bool = True) -> FrameQC:
+    """QC of one frame. ``scale_to_capture`` = captured photo width / this frame's width.
+
+    ``grid=False`` skips steps 5-8 (period, tilt, sheet: ~2 s on a full photo in Python):
+    the server records only brightness, glare and sharpness."""
     c = cfg or config()
     a, t = c["algorithm"], c["thresholds"]
-    g, ch = channels(rgb)
-    w, k = reduce(g, a["work_width"])
-    cr, _ = reduce(ch, a["work_width"])
+    if grid:
+        g, ch = channels(rgb)
+        w, k = reduce(g, a["work_width"])
+        cr, _ = reduce(ch, a["work_width"])
+    else:
+        # Without the grid steps chroma is not needed and grey is linear in RGB: reduce
+        # the bytes first (OpenCV's box mean, exact for an integer factor), then grey.
+        import cv2
+
+        k = max(1, math.ceil(rgb.shape[1] / a["work_width"]))
+        hh, ww = rgb.shape[0] // k, rgb.shape[1] // k
+        small = cv2.resize(np.ascontiguousarray(rgb[: hh * k, : ww * k]).astype(np.float32), (ww, hh),
+                           interpolation=cv2.INTER_AREA)
+        w, _ = channels(small)
+        g, cr = w, w
     bright = float(w.mean())
     m3 = sum(w[1 + dy: w.shape[0] - 1 + dy, 1 + dx: w.shape[1] - 1 + dx]
              for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9.0
     glare = float((m3 >= a["glare_level"]).mean())
     sharp = sharpness(w)
-    for q in (cr, np.minimum(255.0 - w, a["grey_clip"])):
+    period, prof, q = None, np.zeros((0, 0)), cr
+    for q in (cr, np.minimum(255.0 - w, a["grey_clip"])) if grid else ():
         prof = band_profiles(q, band=a["band"], detrend=a["detrend"], smooth=a["smooth"])
         period = grid_period(prof, min_lag=a["min_lag"], harmonics=a["harmonics"], comb_tol=a["comb_tol"])
         if period is not None:
@@ -225,7 +242,7 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
         hints.append("light")
     if sheet < t["min_sheet"]:
         hints.append("frame")
-    return FrameQC(width=int(g.shape[1]), height=int(g.shape[0]), factor=k, brightness=round(bright, 3),
+    return FrameQC(width=int(rgb.shape[1]), height=int(rgb.shape[0]), factor=k, brightness=round(bright, 3),
                    glare=round(glare, 5), sharpness=round(sharp, 3),
                    tilt_deg=None if tilt is None else round(tilt, 3),
                    period_px=None if period is None else round(period, 3),

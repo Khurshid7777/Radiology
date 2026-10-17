@@ -111,7 +111,7 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     if q_cfg.get("capture_qc", True):
         from ecgscan.capture_qc import check_frame
 
-        frame_qc = check_frame(img.bgr[..., ::-1])
+        frame_qc = check_frame(img.bgr[..., ::-1], grid=False)
 
     def result(status: str, *, calibration: Calibration | None = None, layout: Layout | None = None,
                leads=None, rhythm=None, overall: float = 0.0, ppm: float | None = None,
