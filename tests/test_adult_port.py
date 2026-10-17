@@ -413,3 +413,20 @@ def test_detections_on_atrial_pacing_spikes_move_to_their_qrs():
         v += 900 * (np.exp(-((tt - s - 0.03) / 0.03) ** 2) - np.exp(-((tt - s - 0.11) / 0.03) ** 2))
     out, moved = _move_off_pacing_spikes(v, det, fs, list(spikes))
     assert moved == 0 and list(out) == list(det)
+
+
+def test_fast_narrow_rhythm_with_a_sinus_p_before_every_qrs_is_sinus_tachycardia():
+    # D99: >= 140/min regular narrow is SVT unless a P of sinus axis precedes nearly every QRS.
+    from cardiolens.contracts.features import Axes
+
+    sig = SignalRepresentation(signal=np.zeros((12, 10)), sampling_rate_hz=500, lead_names=list(STANDARD_12_LEADS),
+                               duration_s=0.02, source="synthetic", patient=Patient(age_years=40, sex="male"))
+    base = dict(heart_rate_bpm=150, rhythm_regular=True,
+                intervals=Intervals(pr_ms=130, qrs_ms=86, qt_ms=280, qtc_bazett_ms=440))
+
+    def codes(**kw):
+        return detect_findings(sig, Measurements(**base, **kw), norms=load_norms("adult"),
+                               la_ra_reversed=False).codes()
+    assert "sinus_tachycardia" in codes(p_wave_ratio=0.95, axes=Axes(p_deg=60))
+    assert "supraventricular_tachycardia" in codes(p_wave_ratio=0.95, axes=Axes(p_deg=-70))
+    assert "supraventricular_tachycardia" in codes(p_wave_ratio=0.5, axes=Axes(p_deg=60))

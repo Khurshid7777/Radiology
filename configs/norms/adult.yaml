@@ -57,6 +57,11 @@ rhythm:
 # A regular narrow tachycardia at/above this rate is SVT, a wide one VT-suspect (§7.1,
 # §10; ported from claude/vibrant-curie-ro1zsz D37): resting sinus rarely exceeds ~140.
 svt_rate_min: 140
+# D99: a regular narrow tachycardia >= svt_rate_min stays sinus when a P precedes this share
+# of beats with a frontal P axis inside sinus_p_axis_deg (our P axis on PTB-XL sinus rhythm:
+# 25-80 deg, p5-p95; vs 12SL median 6 deg). SVT on PTB-XL/Georgia: P on <= 0.77 of beats.
+svt_sinus_p_ratio_min: 0.85
+sinus_p_axis_deg: [0, 90]
 
 intervals_ms:
   pr: [120, 200]
