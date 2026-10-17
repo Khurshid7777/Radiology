@@ -10,6 +10,7 @@ CLI::
 
     python -m cardiolens.validation.statement_score RUN.csv --ptbxl ptbxl_database.csv
     python -m cardiolens.validation.statement_score RUN.csv --challenge ROOT LIST.txt
+    python -m cardiolens.validation.statement_score RUN.csv --code15 exams.csv
 
 ``RUN.csv`` has ``ecg_id`` and space-separated ``codes`` columns; ``LIST.txt`` lines are
 ``<id> <record path under ROOT>``.
@@ -80,15 +81,29 @@ def _challenge_labels(root: Path, listing: Path) -> dict[str, set[str]]:
     return out
 
 
+_CODE15_COLUMNS = ("1dAVb", "RBBB", "LBBB", "SB", "ST", "AF")
+
+
+def _code15_labels(exams: Path) -> dict[str, set[str]]:
+    """CODE-15% ``exams.csv``: one boolean column per label; ids are ``exam_id``."""
+    return {str(r["exam_id"]): {c for c in _CODE15_COLUMNS if r.get(c) == "True"}
+            for r in csv.DictReader(exams.open())}
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("run", type=Path)
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--ptbxl", type=Path)
     src.add_argument("--challenge", nargs=2, type=Path, metavar=("ROOT", "LIST"))
+    src.add_argument("--code15", type=Path, metavar="EXAMS_CSV")
     a = ap.parse_args(argv)
-    labels, system = ((_ptbxl_labels(a.ptbxl), "scp") if a.ptbxl
-                      else (_challenge_labels(*a.challenge), "snomed"))
+    if a.ptbxl:
+        labels, system = _ptbxl_labels(a.ptbxl), "scp"
+    elif a.code15:
+        labels, system = _code15_labels(a.code15), "code15"
+    else:
+        labels, system = _challenge_labels(*a.challenge), "snomed"
     predicted = {r["ecg_id"]: set((r.get("codes") or "").split()) for r in csv.DictReader(a.run.open())}
     res = score(predicted, labels, system)
     print(f"records {len(set(predicted) & set(labels))} ({system})")
