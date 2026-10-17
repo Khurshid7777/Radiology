@@ -83,5 +83,7 @@
   "app.retake": "Qayta suratga olish",
   "app.analysis": "CardioLens xulosasi",
   "app.no_camera": "Kamera mavjud emas.",
-  "app.error": "Xato: {message}"
+  "app.error": "Xato: {message}",
+  "app.mask_review": "Chiziq F.I.Sh. va ID ni bo‘yaydi. Chegarani sarlavhani yopadigan, lekin EKG chiziqlarini yopmaydigan qilib suring.",
+  "app.send": "Yuborish"
 }

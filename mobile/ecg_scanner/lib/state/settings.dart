@@ -13,7 +13,7 @@ class Settings {
     this.lang = 'ru',
     this.maskHeader = true,
     this.autoCapture = true,
-    this.headerBand = 0.2,
+    this.headerBand = 0.14,
   });
 
   String serverUrl;
@@ -24,7 +24,9 @@ class Settings {
   bool maskHeader;
   bool autoCapture;
 
-  /// Share of the photo height masked from the top (TZ §6.2: mask the top band when unsure).
+  /// Default share of the photo height masked from the top (TZ §6.2: mask the top band
+  /// when unsure). Synthetic pages: name/ID end above 8.5 % of the page, the first trace
+  /// row starts below 18 % (a 20 % band cut a row in 1 of 8 photos). Adjusted per photo.
   double headerBand;
 
   bool get configured => serverUrl.isNotEmpty && apiKey.isNotEmpty;
@@ -44,7 +46,7 @@ class Settings {
         lang: j['lang'] as String? ?? 'ru',
         maskHeader: j['mask_header'] as bool? ?? true,
         autoCapture: j['auto_capture'] as bool? ?? true,
-        headerBand: (j['header_band'] as num?)?.toDouble() ?? 0.2,
+        headerBand: (j['header_band'] as num?)?.toDouble() ?? 0.14,
       );
 
   static Future<Settings> load(File f) async =>

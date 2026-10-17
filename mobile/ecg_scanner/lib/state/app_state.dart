@@ -85,9 +85,9 @@ class AppState extends ChangeNotifier {
   }
 
   /// A taken photo: header masked when set (TZ §6.2), queued, upload attempted.
-  Future<void> addPhoto(Uint8List jpeg, {double? speed, double? gain}) async {
-    final masked = settings.maskHeader;
-    final bytes = masked ? await compute(_mask, (jpeg, settings.headerBand)) : jpeg;
+  Future<void> addPhoto(Uint8List jpeg, {double? speed, double? gain, double? band}) async {
+    final masked = settings.maskHeader && (band ?? settings.headerBand) > 0;
+    final bytes = masked ? await compute(_mask, (jpeg, band ?? settings.headerBand)) : jpeg;
     await queue.add(bytes, ScanHints(paperSpeedMmS: speed, gainMmMv: gain, headerMasked: masked));
     notifyListeners();
     unawaited(tick());

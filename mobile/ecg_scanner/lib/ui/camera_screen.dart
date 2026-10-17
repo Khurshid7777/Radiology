@@ -10,6 +10,7 @@ import '../camera/frame_convert.dart';
 import '../qc/auto_capture.dart';
 import '../qc/capture_qc.dart';
 import '../state/app_state.dart';
+import 'mask_review_screen.dart';
 import 'widgets.dart';
 
 class CameraScreen extends StatefulWidget {
@@ -85,7 +86,21 @@ class _CameraScreenState extends State<CameraScreen> {
     try {
       if (cam.value.isStreamingImages) await cam.stopImageStream();
       final shot = await cam.takePicture();
-      await widget.app.addPhoto(await shot.readAsBytes(), speed: _speed, gain: _gain);
+      final bytes = await shot.readAsBytes();
+      double? band;
+      if (widget.app.settings.maskHeader) {
+        if (!mounted) return;
+        band = await Navigator.push<double>(
+            context, MaterialPageRoute(builder: (_) => MaskReviewScreen(app: widget.app, photo: bytes)));
+        if (band == null) {
+          // Retake: back to the live preview.
+          _auto.reset();
+          if (_qc != null) await cam.startImageStream(_onFrame);
+          setState(() => _taking = false);
+          return;
+        }
+      }
+      await widget.app.addPhoto(bytes, speed: _speed, gain: _gain, band: band);
       if (mounted) Navigator.pop(context);
     } on Object catch (e) {
       setState(() {

@@ -83,5 +83,7 @@
   "app.retake": "Переснять",
   "app.analysis": "Заключение CardioLens",
   "app.no_camera": "Камера недоступна.",
-  "app.error": "Ошибка: {message}"
+  "app.error": "Ошибка: {message}",
+  "app.mask_review": "Полоса закрасит ФИО и ID. Сдвиньте границу, чтобы закрыть шапку, но не трассы.",
+  "app.send": "Отправить"
 }

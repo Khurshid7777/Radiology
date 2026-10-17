@@ -1,15 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:ecg_scanner/api/scan_api.dart';
 import 'package:ecg_scanner/state/app_state.dart';
 import 'package:ecg_scanner/ui/confirm_screen.dart';
 import 'package:ecg_scanner/ui/home_screen.dart';
+import 'package:ecg_scanner/ui/mask_review_screen.dart';
 import 'package:ecg_scanner/ui/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:image/image.dart' as img;
 
 Map<String, dynamic> scanBody(String status, {double? speed = 25, List<String> warnings = const []}) => {
       'scan_id': 's1',
@@ -76,6 +79,24 @@ void main() {
     expect(jsonDecode(post.body), {'decision': 'corrected', 'paper_speed_mm_s': 25.0, 'gain_mm_mv': 10.0});
     expect(find.text('Статус ok'), findsOneWidget);
     expect(find.byKey(const Key('analysis')), findsOneWidget);
+  });
+
+  testWidgets('mask review: the band can be moved, send returns it', (tester) async {
+    final (app, _) = await tester.runAsync(() => open(() => scanBody('ok'))) as (AppState, List<http.Request>);
+    double? got = -1;
+    final photo = Uint8List.fromList(img.encodePng(img.Image(width: 40, height: 30)));
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) => TextButton(
+        onPressed: () async => got = await Navigator.push<double>(
+            context, MaterialPageRoute(builder: (_) => MaskReviewScreen(app: app, photo: photo))),
+        child: const Text('go')))));
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Slider>(find.byKey(const Key('band'))).value, 0.14);
+    await tester.drag(find.byKey(const Key('band')), const Offset(200, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('send')));
+    await tester.pumpAndSettle();
+    expect(got, greaterThan(0.14));
   });
 
   testWidgets('confirm: tablet width puts the panel beside the picture', (tester) async {
