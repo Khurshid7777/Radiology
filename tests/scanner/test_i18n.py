@@ -28,3 +28,13 @@ def test_formatting_and_unknown_language():
     assert "50" in t("result.calibration", "uz", speed=50, gain=10)
     with pytest.raises(ValueError):
         strings("en")
+
+
+def test_app_assets_are_the_same_strings():
+    """The Flutter app ships a copy (mobile/ecg_scanner/tool/sync_i18n.py); it must not drift."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    for lang in LANGS:
+        assert (root / "mobile/ecg_scanner/assets/i18n" / f"{lang}.json").read_text(encoding="utf-8") == \
+            (root / "configs/scanner/i18n" / f"{lang}.json").read_text(encoding="utf-8")
