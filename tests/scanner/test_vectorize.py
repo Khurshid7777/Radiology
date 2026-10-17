@@ -106,6 +106,18 @@ def test_tracer_follows_a_spike_and_keeps_its_peak():
     assert np.median(np.abs(pt.y[ok] - y[ok])) < 1.0
 
 
+def test_narrow_spike_drawn_with_a_thick_pen_keeps_its_tip():
+    """A pediatric R (~3 columns) with a 7-px stroke is a solid wedge; its skeleton breaks
+    up and the path ran along the base (0.87 mV read as 0.06 mV)."""
+    y = np.full(300, 150.0)
+    y[148:153] = [120.0, 90.0, 70.0, 90.0, 120.0]
+    ink = _draw(y, thick=7)
+    pt = trace_panel(ink, ink.astype(np.float32), 0, 300, 0, 200, 150.0, stroke_px=7.0, pitch_px=150.0,
+                     skeleton=thin(ink))
+    assert np.nanmin(pt.y) == pytest.approx(70.0, abs=4.0)
+    assert np.nanmedian(np.abs(pt.y[:140] - 150.0)) < 1.0
+
+
 def test_missing_ink_stays_missing():
     y = np.full(300, 100.0)
     ink = _draw(y)
@@ -184,7 +196,7 @@ def test_limb_identities_hold_for_physiological_leads(synth_mv):
 
 
 def test_swapped_leads_break_the_identities(synth_mv):
-    assert limb_consistency(_limb_traces(synth_mv, swap=True), FS).score < 0.5
+    assert limb_consistency(_limb_traces(synth_mv, swap=True), FS).score < 0.7          # validate.limb_warn
 
 
 def test_no_simultaneous_samples_no_score(synth_mv):

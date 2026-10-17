@@ -30,7 +30,7 @@ def legacy_track(ink: np.ndarray, skel: np.ndarray, p: Panel, pitch_px: float) -
 
 def fuse(path: np.ndarray, detail: np.ndarray, pitch_px: float, *, tol_pitches: float = 0.15,
          margin: int = 10, max_short: int = 8, far_pitches: float = 0.35, max_gap_pitches: float = 1.0,
-         baseline: float | None = None, other_baselines: list[float] | None = None) -> np.ndarray:
+         apex_px: float | None = None, baseline: float | None = None, other_baselines: list[float] | None = None) -> np.ndarray:
     """Two methods, one trace (TZ §5.7: choose by quality, per stretch).
 
     ``path`` (the DP tracer) holds the right row through crossings and noise; ``detail``
@@ -39,7 +39,8 @@ def fuse(path: np.ndarray, detail: np.ndarray, pitch_px: float, *, tol_pitches: 
     *left the row*: a disagreement longer than ``max_short`` columns (a QRS apex where
     the path is short of the tip lasts a few columns), or a stretch where ``detail`` sits
     nearer another row's baseline than this one. Around such a stretch (± ``margin``)
-    the path is used.
+    the path is used. Where the two differ by more than ``apex_px`` (a small R at 5 mm/mV
+    is within the row tolerance) the value further from the isoline wins.
     """
     n = min(len(path), len(detail))
     out = path.copy()
@@ -77,6 +78,12 @@ def fuse(path: np.ndarray, detail: np.ndarray, pitch_px: float, *, tol_pitches: 
     if left.any() and margin > 0:
         left = np.convolve(left.astype(float), np.ones(2 * margin + 1), mode="same") > 0
     use = np.isfinite(b) & ~left
+    # A short disagreement is an apex one method stopped short of: the value further from
+    # the isoline wins (the path itself reaches a spike the D47 tracker cut through).
+    if np.isfinite(a).any():
+        iso = float(np.nanmedian(a))
+        apart = fin & (np.abs(a - b) > (apex_px if apex_px is not None else tol_pitches * pitch_px))
+        use &= ~(apart & (np.abs(a - iso) > np.abs(b - iso)))
     out[:n][use] = b[use]
     return out
 
@@ -113,7 +120,8 @@ def read_panels(mask: TraceMask, panels: list[Panel], *, px_per_mm: float, speed
             y = fuse(y, legacy_track(mask.ink, skel, p, pitch_px), pitch_px,
                      tol_pitches=cfg.get("fuse_tol_pitches", 0.15), margin=cfg.get("fuse_margin_cols", 10),
                      max_short=cfg.get("fuse_max_short_cols", 8),
-                     max_gap_pitches=cfg.get("fuse_max_gap_pitches", 0.5), baseline=p.baseline,
+                     max_gap_pitches=cfg.get("fuse_max_gap_pitches", 0.5),
+                     apex_px=cfg.get("fuse_apex_strokes", 2.0) * stroke, baseline=p.baseline,
                      other_baselines=[b for b in rows if b != p.baseline])
         n_expected = p.x1 - p.x0
         if len(y) < n_expected:          # the panel runs past the image: the rest is missing, not zero

@@ -1,13 +1,15 @@
 """ecgscan pipeline: image -> ScanResult (TZ §5).
 
-M2 scope: intake, grid and resolution check, rectification to a known px/mm,
-calibration from pulse + header OCR with honest statuses. Layout and traces come
-from the CardioLens reader via ``ecgscan.legacy`` until M3.
+Intake, grid and resolution check, rectification to a known px/mm, calibration
+from pulse + header OCR (M2); segmentation, registry panels, vectorisation and
+physiological validation (M3).
 
 Status rules:
 * ``rejected`` — LOW_RESOLUTION, GRID_NOT_FOUND, LOW_CONTRAST, LAYOUT_UNKNOWN,
   TRACE_BROKEN, PROCESSING_ERROR (no traces are returned);
-* ``needs_confirmation`` — speed or gain not established (SD-011), or sources disagree;
+* ``needs_confirmation`` — speed or gain not established (SD-011), sources disagree,
+  layout uncertain, limb leads inconsistent, a lead largely missing, or overall
+  quality below ``validate.ok_min_overall``;
 * ``ok`` — otherwise.
 """
 
@@ -218,17 +220,19 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
                       layout=Layout(name=layout_name, confidence=layout_conf))
     cons = limb_consistency([(r.panel.lead, r.trace) for r in readings], fs_out)
     dbg.consistency = cons
-    if cons.score is not None and cons.score < val.get("limb_warn", 0.5):
+    if cons.score is not None and cons.score < val.get("limb_warn", 0.7):
         warnings.append("LIMB_LEADS_INCONSISTENT")
     if any("TRACE_GAPS" in r.trace.flags for r in readings):
         warnings.append("TRACE_GAPS")
     if any("LEAD_OVERLAP" in r.trace.flags for r in readings):
         warnings.append("LEAD_OVERLAP")
+    if min(cover) < val.get("lead_min_coverage", 0.8):
+        warnings.append("LEAD_INCOMPLETE")          # a lead is largely missing (glare, stain): the doctor looks
     lead_q = float(np.median([r.quality for r in readings]))
     cons_f = 1.0 if cons.score is None else float(np.clip(0.5 + cons.score, 0.0, 1.0))
     overall = lead_q * cons_f * raw.confidence ** 0.5 * (decision.calibration.confidence if decision.established else 0.5)
     trusted = (decision.established and overall >= val.get("ok_min_overall", 0.6)
-               and "LAYOUT_UNCERTAIN" not in warnings and "LIMB_LEADS_INCONSISTENT" not in warnings)
+               and not {"LAYOUT_UNCERTAIN", "LIMB_LEADS_INCONSISTENT", "LEAD_INCOMPLETE"} & set(warnings))
     status = "ok" if trusted else "needs_confirmation"
     layout = Layout(name=layout_name, registry_version=spec.registry_version, confidence=layout_conf)
     res = result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,

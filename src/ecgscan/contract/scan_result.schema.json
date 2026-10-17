@@ -656,6 +656,7 @@
         "LABEL_ORDER_CONFLICT",
         "LIMB_LEADS_INCONSISTENT",
         "TRACE_GAPS",
+        "LEAD_INCOMPLETE",
         "LEAD_OVERLAP",
         "LOW_RESOLUTION_MARGINAL",
         "FADED_PAPER",

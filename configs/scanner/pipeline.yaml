@@ -49,6 +49,7 @@ vectorize:
   fuse_tol_pitches: 0.15         # D47 value kept where within this many row pitches of the DP path
   fuse_margin_cols: 10           # path used this many columns around a stretch where D47 left the row
   fuse_max_gap_pitches: 0.5      # D47 kept in a DP gap only if bounded by agreement on both sides and at most this long
+  fuse_apex_strokes: 2.0         # where DP and D47 differ by more than this many strokes, the one further from the isoline wins
   fuse_max_short_cols: 8         # a longer disagreement than this = D47 left the row (an apex lasts a few columns)
   band_pitches: 1.3              # search band around a baseline, in row pitches (20 mm/mV traces cross rows)
   baseline_weight: 0.6           # pull to the own baseline vs continuity
@@ -59,5 +60,6 @@ vectorize:
 
 validate:
   min_median_coverage: 0.5       # below -> rejected TRACE_BROKEN
-  limb_warn: 0.5                 # limb-lead consistency below -> LIMB_LEADS_INCONSISTENT (needs confirmation)
+  lead_min_coverage: 0.8         # any lead with less coverage -> LEAD_INCOMPLETE (needs confirmation)
+  limb_warn: 0.7                 # PROVISIONAL: limb-lead consistency below -> LIMB_LEADS_INCONSISTENT (clean pages 0.83-0.86, I<->II swap 0.61)
   ok_min_overall: 0.6            # overall quality below -> needs_confirmation

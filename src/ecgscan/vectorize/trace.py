@@ -139,6 +139,7 @@ def trace_panel(ink: np.ndarray, darkness: np.ndarray, x0: int, x1: int, y0: int
     tops = np.array([np.nan if r is None else float(r[0]) for r in chosen])
     bots = np.array([np.nan if r is None else float(r[1] - 1) for r in chosen])
     y = np.full(n, np.nan)
+    spikes = _spike_columns(raw_ink, chosen, x0, y0, y1, s) if skeleton is not None else {}
     touch = 0
     valid = 0
     for i, r in enumerate(chosen):
@@ -148,6 +149,9 @@ def trace_panel(ink: np.ndarray, darkness: np.ndarray, x0: int, x1: int, y0: int
         a, e = r
         if a <= y0 or e >= y1:
             touch += 1
+        if i in spikes:
+            y[i] = spikes[i]
+            continue
         thin_run = (e - a <= 2) if skeleton is not None else (e - a <= 2.0 * s)
         if thin_run:
             ra, re = a, e
@@ -181,6 +185,49 @@ def trace_panel(ink: np.ndarray, darkness: np.ndarray, x0: int, x1: int, y0: int
         else:
             y[i] = (a + e - 1) / 2.0
     return PanelTrace(y, competing / max(1, n), touch / max(1, valid), s)
+
+
+def _spike_columns(raw_ink: np.ndarray, chosen: list, x0: int, y0: int, y1: int, s: float) -> dict[int, float]:
+    """A narrow spike drawn with a thick pen is a solid wedge whose skeleton breaks up, and
+    the path then runs along its base (a 0.87 mV pediatric R was read as 0.06 mV).
+
+    A column is in such a wedge when the raw stroke around the chosen skeleton run reaches
+    far beyond it on one side (a stroke end lies about half a stroke beyond the skeleton)
+    and beyond the path of the neighbouring columns.
+    Near the wedge's extreme (within a stroke of the farthest tip around) the sample is the
+    tip, half a stroke back; on its flanks the column is crossed by the steep edge, and the
+    middle of the raw run is the sample. Returns {column: y}."""
+    tips: dict[int, tuple[int, float, float]] = {}
+    k = int(np.ceil(s))
+    tops = np.array([np.inf if r is None else r[0] for r in chosen])
+    bots = np.array([-np.inf if r is None else r[1] for r in chosen])
+    for i, r in enumerate(chosen):
+        if r is None:
+            continue
+        a, e = r
+        col = raw_ink[:, x0 + i]
+        ra, re = a, e
+        while ra > y0 and col[ra - 1]:
+            ra -= 1
+        while re < y1 and col[re]:
+            re += 1
+        up, down = a - ra, re - e
+        far = max(up, down)
+        if far <= 3 * s or far < 3 * min(up, down):
+            continue
+        sign = -1 if up > down else 1
+        # On a steep thin edge the stroke's own width makes the column cut a long run, but
+        # the path in the next columns already covers it: only an unexplained reach counts.
+        lo, hi = max(0, i - k), i + k + 1
+        if (sign < 0 and ra >= tops[lo:hi].min() - 2 * s) or (sign > 0 and re <= bots[lo:hi].max() + 2 * s):
+            continue
+        tips[i] = (sign, ra + s / 2.0 if sign < 0 else re - 1 - s / 2.0, (ra + re - 1) / 2.0)
+    out = {}
+    for i, (sign, tip, mid) in tips.items():
+        near = [t for j, (sg, t, _m) in tips.items() if abs(j - i) <= 2 * k and sg == sign]
+        extreme = min(near) if sign < 0 else max(near)
+        out[i] = tip if abs(tip - extreme) <= s else mid
+    return out
 
 
 def _neighbour(centres: np.ndarray, i: int, step: int) -> float | None:
