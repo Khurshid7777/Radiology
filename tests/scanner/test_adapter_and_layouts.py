@@ -33,6 +33,19 @@ def test_adapter_bridges_gaps_only_on_cardiolens_side_and_says_so(result_factory
     assert np.isfinite(sig.lead("I")[:11]).all()
     assert any("bridged" in n and "I=3" in n for n in sig.provenance.notes)
     assert res.leads["I"].samples_mv[4] is None
+    assert sig.provenance.sample_mask == {"I": [(0.006, 0.012)]}       # samples 3..5 at 500 Hz
+
+
+def test_layer3_measures_no_beat_on_bridged_samples():
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from cardiolens.layer3_measure.measure import _lead_mask
+
+    sig = generate_synthetic_ecg(heart_rate_bpm=60, seed=1)
+    rpeaks = np.array([500, 1000, 1500, 2000])                          # 1, 2, 3, 4 s
+    assert _lead_mask(sig, "V1", rpeaks, 500.0).all()
+    sig.provenance.sample_mask = {"V1": [(2.1, 2.3)]}                  # a glare gap after the beat at 2.0 s
+    assert _lead_mask(sig, "V1", rpeaks, 500.0).tolist() == [True, False, True, True]
+    assert _lead_mask(sig, "V2", rpeaks, 500.0).all()
 
 
 def test_adapter_refuses_rejected_scans(result_factory):

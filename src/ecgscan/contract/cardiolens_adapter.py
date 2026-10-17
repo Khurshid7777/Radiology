@@ -1,15 +1,14 @@
 """``ScanResult`` -> CardioLens ``SignalRepresentation`` (REPO_AUDIT §9, SD-006).
 
-The only module of ``ecgscan`` that imports ``cardiolens``; it is imported lazily
-by callers. Mapping:
+``cardiolens`` is imported lazily, so ``ecgscan`` stays usable without it. Mapping:
 
 * mV -> µV; every trace is placed on one time axis at ``sampling_rate_hz``;
 * outside a lead's time window the samples are 0 and ``provenance.lead_windows``
   says where the lead has data (what Layer 3 already understands);
 * a rhythm strip of a lead replaces its panel and widens its window;
-* missing samples inside a window: Layer 3 has no per-sample mask yet (planned for
-  M4), so they are linearly bridged **here, on the CardioLens side**, and the count
-  is written to ``provenance.notes`` — the ``ScanResult`` itself keeps them missing.
+* missing samples inside a window are linearly bridged **on the CardioLens side**
+  only, so the filters can run; where they were goes to ``provenance.sample_mask``
+  and Layer 3 measures no beat on them (M4). The ``ScanResult`` keeps them missing.
 """
 
 from __future__ import annotations
@@ -40,6 +39,18 @@ def _bridge_gaps(x: np.ndarray) -> tuple[np.ndarray, int]:
     return out, n_bad
 
 
+def _gap_intervals(missing: np.ndarray, fs: float) -> dict[str, list[tuple[float, float]]]:
+    """Per lead, the [t0, t1) seconds of bridged samples (SD-006: a mask, not data)."""
+    out = {}
+    for row, lead in enumerate(STANDARD_LEADS):
+        m = missing[row]
+        if m.any():
+            d = np.diff(np.concatenate([[0], m.astype(np.int8), [0]]))
+            out[lead] = [(round(a / fs, 4), round(b / fs, 4))
+                         for a, b in zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1), strict=True)]
+    return out
+
+
 def to_signal_representation(result: ScanResult):
     """Build the CardioLens input signal; raises ``RejectedScanError`` when rejected."""
     from cardiolens.contracts.signal import Provenance, SignalRepresentation
@@ -55,14 +66,18 @@ def to_signal_representation(result: ScanResult):
     signal = np.zeros((len(STANDARD_LEADS), n), dtype=np.float32)
     windows: dict[str, tuple[float, float]] = {}
     bridged: dict[str, int] = {}
+    missing = np.zeros_like(signal, dtype=bool)
     # Panels first, rhythm strips after: a strip overwrites its lead's panel.
     for lead, t in [(k, v) for k, v in result.leads.items()] + [(t.lead, t) for t in result.rhythm]:
         if lead not in STANDARD_LEADS:
             continue
-        arr, n_bad = _bridge_gaps(t.array())
+        raw = t.array()
+        arr, n_bad = _bridge_gaps(raw)
         i0 = int(round(t.start_s * fs))
         seg = arr[: max(0, n - i0)]
-        signal[STANDARD_LEADS.index(lead), i0:i0 + len(seg)] = (seg * 1000.0).astype(np.float32)
+        row = STANDARD_LEADS.index(lead)
+        signal[row, i0:i0 + len(seg)] = (seg * 1000.0).astype(np.float32)
+        missing[row, i0:i0 + len(seg)] = ~np.isfinite(raw[: len(seg)])
         windows[lead] = (round(i0 / fs, 6), round((i0 + len(seg)) / fs, 6))
         if n_bad:
             bridged[lead] = n_bad
@@ -84,5 +99,5 @@ def to_signal_representation(result: ScanResult):
         signal=signal, sampling_rate_hz=fs, lead_names=list(STANDARD_LEADS), duration_s=n / fs,
         source="image",
         provenance=Provenance(digitized=True, confidence=round(float(result.quality.overall), 3),
-                              lead_windows=windows, notes=notes),
+                              lead_windows=windows, sample_mask=_gap_intervals(missing, fs) or None, notes=notes),
     )

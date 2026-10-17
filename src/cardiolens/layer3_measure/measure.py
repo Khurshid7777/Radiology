@@ -248,13 +248,18 @@ def _lead_mask(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray, fs: flo
     """
     if _lead_off(sig, lead):
         return np.zeros(len(rpeaks), dtype=bool)
-    windows = getattr(sig.provenance, "lead_windows", None)
-    if not windows or lead not in windows:
-        return np.ones(len(rpeaks), dtype=bool)
-    t0, t1 = windows[lead]
     t = np.asarray(rpeaks, dtype=float) / fs
-    pad = 0.15  # keep whole complexes away from the window edges
-    return (t >= t0 + pad) & (t <= t1 - pad)
+    keep = np.ones(len(rpeaks), dtype=bool)
+    windows = getattr(sig.provenance, "lead_windows", None)
+    if windows and lead in windows:
+        t0, t1 = windows[lead]
+        pad = 0.15  # keep whole complexes away from the window edges
+        keep &= (t >= t0 + pad) & (t <= t1 - pad)
+    # A beat whose P-QRS-T overlaps a stretch missing on the digitised page is measured
+    # on bridged samples, not data (ECG scanner SD-006): not used for this lead.
+    for g0, g1 in (getattr(sig.provenance, "sample_mask", None) or {}).get(lead, []):
+        keep &= ~((t + SAMPLE_MASK_AFTER_S > g0) & (t - SAMPLE_MASK_BEFORE_S < g1))
+    return keep
 
 
 def _aligned(values, rpeaks: np.ndarray, before: bool) -> np.ndarray:
@@ -298,6 +303,8 @@ def _delineate(cleaned: np.ndarray, rpeaks: np.ndarray, fs: float):
         return None
 
 
+SAMPLE_MASK_BEFORE_S = 0.30    # a beat's P-QRS reaches this far before its R ...
+SAMPLE_MASK_AFTER_S = 0.45     # ... and its T this far after (same spans as the page edges)
 PAGE_BEAT_MIN_FRACTION = 0.35   # envelope peak, as a fraction of its column's 90th-percentile peak
 PAGE_BEAT_MIN_RR_S = 0.24       # refractory distance between beats (250 bpm)
 PAGE_BEAT_SNAP_S = 0.06         # a beat is snapped to the column's summed-deflection apex within this window

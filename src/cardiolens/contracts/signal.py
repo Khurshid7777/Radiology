@@ -75,7 +75,10 @@ class Provenance(BaseModel):
     # For a digitised 3x4 page each lead only exists inside its 2.5-s time slot
     # (the rhythm strip covers the whole record). Per-lead measurements use only
     # the beats inside the window; outside it the samples are zero, not data.
-    lead_windows: dict[str, tuple[float, float]] | None = None   # lead -> (t0_s, t1_s)
+    lead_windows: dict[str, tuple[float, float]] | None = None
+    # Digitised input: per lead, the (t0_s, t1_s) stretches that were missing on the page
+    # and only bridged so the filters can run (ECG scanner SD-006). Not data.
+    sample_mask: dict[str, list[tuple[float, float]]] | None = None   # lead -> (t0_s, t1_s)
     notes: list[str] = Field(default_factory=list)
 
 
