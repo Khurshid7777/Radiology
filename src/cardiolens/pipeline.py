@@ -132,6 +132,15 @@ def run_pipeline(
     if pvc_idx and not runs:
         findings.findings.extend(pvc_findings(pvc_idx, len(m.r_peaks_samples)))
         audit.append(f"[L4] 12-lead PVC rule: {len(pvc_idx)} PVC beat(s)")
+        # AF read off the irregularity PVCs make (D106): the PVC rule needs a compensatory
+        # pause, which AF lacks; without the RR intervals around the PVCs a sinus rhythm is
+        # regular again, AF stays irregular.
+        cv_left = _rr_cv_without(m.r_peaks_samples, pvc_idx)
+        af_cv = norms.get("rhythm", {}).get("af_rr_cv_min", 0.10)
+        if (AF_PVC_RECHECK and cv_left is not None and cv_left <= af_cv
+                and "atrial_fibrillation" in findings.codes()):
+            findings.findings = [f for f in findings.findings if f.code != "atrial_fibrillation"]
+            audit.append(f"[L4] AF withdrawn: RR CV {cv_left:.3f} without the PVC intervals (D106)")
     # Paced rhythm (TZ §7.1): the spike must be time-locked to the QRS (an artifact
     # spike lands at random), or seen by many leads at once and QRS-locked (D75).
     r_times = [r / sig.sampling_rate_hz for r in (m.r_peaks_samples or [])]
@@ -242,6 +251,21 @@ def run_pipeline(
         signal=sig, measurements=m, findings=findings, causal_graph=causal,
         safety=safety, report=report, config=cfg, audit_log=audit, serial=serial,
     )
+
+
+AF_PVC_RECHECK = False   # experiment (D106)
+
+
+def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
+    """RR coefficient of variation leaving out the intervals into and out of each PVC."""
+    import numpy as np
+
+    rr = np.diff(np.asarray(rpeaks, dtype=float))
+    drop = {k for i in pvc_idx for k in (i - 1, i)}
+    keep = np.array([v for k, v in enumerate(rr) if k not in drop])
+    if keep.size < 4:
+        return None
+    return float(np.std(keep) / (np.mean(keep) + 1e-9))
 
 
 # A paced QRS is wide with secondary ST-T and a left axis by construction: these are not
