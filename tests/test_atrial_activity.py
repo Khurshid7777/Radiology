@@ -129,3 +129,50 @@ def test_no_complete_block_alongside_atrial_fibrillation():
 
     assert "complete_av_block" not in codes(rr_cv=0.4, p_ratio=0.1)      # AF found
     assert "complete_av_block" in codes(rr_cv=0.002, p_ratio=0.6)        # regular escape
+
+
+# --- D112: QRS-independent P train (plan step 5a) ---
+
+@pytest.fixture
+def p_train_on(monkeypatch):
+    import importlib
+
+    # The package re-exports the measure() function under the module's name.
+    meas = importlib.import_module("cardiolens.layer3_measure.measure")
+    monkeypatch.setattr(meas, "ATRIAL_P_TRAIN", True)
+
+
+@pytest.mark.parametrize("hr,atrial,seed", [(40, 90, 6), (45, 70, 5), (42, 75, 8), (38, 100, 7),
+                                            (50, 85, 10), (38, 80, 4)])
+def test_p_train_finds_complete_av_block(p_train_on, hr, atrial, seed):
+    r = _run(heart_rate_bpm=hr, dissociated_atrial_rate_bpm=atrial, seed=seed)
+    m = r.measurements
+    assert m.av_dissociation is True
+    assert m.atrial_rate_bpm == pytest.approx(atrial, rel=0.08)
+    assert "complete_av_block" in r.findings.codes()
+
+
+@pytest.mark.parametrize("kw", [
+    dict(heart_rate_bpm=75, seed=9),
+    dict(heart_rate_bpm=40, pr_ms=160, seed=20),
+    dict(heart_rate_bpm=70, rr_jitter_ms=90, seed=10),
+    dict(heart_rate_bpm=70, pr_ms=280, seed=21),
+    dict(heart_rate_bpm=70, bbb="lbbb", seed=7),
+    dict(heart_rate_bpm=95, p_amp_scale=0.0, rr_jitter_ms=180, seed=8),
+    dict(heart_rate_bpm=80, flutter_atrial_rate_bpm=250, flutter_conduction="variable", seed=2),
+])
+def test_p_train_raises_no_block_on_conducted_rhythms(p_train_on, kw):
+    r = _run(**kw)
+    assert r.measurements.av_dissociation is not True
+    assert "complete_av_block" not in r.findings.codes()
+
+
+def test_p_train_dissociated_needs_wandering_pr():
+    from cardiolens.layer3_measure.atrial import p_train_dissociated
+
+    train = dict(rate_bpm=90.0, regular=1.0, pr_iqr_s=0.25, n_p=14, n_r=7, lead="II")
+    assert p_train_dissociated(train, 40.0)
+    assert not p_train_dissociated({**train, "pr_iqr_s": 0.03}, 40.0)   # fixed PR: conducted
+    assert not p_train_dissociated({**train, "regular": 0.5}, 40.0)     # no regular train
+    assert not p_train_dissociated({**train, "rate_bpm": 45.0}, 40.0)   # atria not faster
+    assert not p_train_dissociated(None, 40.0)
