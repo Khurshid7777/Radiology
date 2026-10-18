@@ -708,6 +708,14 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
             pdur = [(p_off[i] - p_on[i]) for i in range(n_beats)
                     if np.isfinite(p_on[i]) and np.isfinite(p_off[i]) and p_off[i] > p_on[i]]
             m.p_wave_duration_ms = _median_ms(pdur, fs)
+            # Global P and PR on the 12-lead median beat (D111), like 12SL/Glasgow: the
+            # single-lead per-beat P is noisy (D103: P 28 ms short, SD 26; PR SD 15-21).
+            if P_MEDIAN_BEAT and (m.p_wave_ratio or 0.0) >= 0.5:
+                mb = _median_beat_p(sig.signal, rpeaks, qrs_on, fs, m.intervals.qt_ms)
+                if mb is not None:
+                    m.p_wave_duration_ms, mb_pr = mb
+                    if m.intervals.pr_ms is not None:
+                        m.intervals.pr_ms = mb_pr
             m.p_wave_amplitude_uv = _p_amplitude(sig, p_on, p_off)
 
         # ST measured off the envelope QRS offsets (J points), PR-segment baseline.
@@ -819,6 +827,67 @@ def _qrs_net_deflection(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray
         if seg.size:
             vals.append(float(seg.max() + seg.min()))
     return float(np.median(vals)) if vals else None
+
+
+P_MEDIAN_BEAT = False      # experiment (D111)
+P_MB_FRACTION = 0.20       # P bounds: 20 % of the P peak above the window's 10th percentile
+
+
+def _median_beat_p(signal: np.ndarray, rpeaks: np.ndarray, qrs_on: np.ndarray, fs: float,
+                   qt_ms: float | None) -> tuple[float, float] | None:
+    """(P duration, PR) in ms from the 12-lead median beat (D111).
+
+    Beats not premature (RR >= 0.8 x median) are aligned to the strip median beat by
+    +-10 ms cross-correlation (r >= 0.9 kept); on their median, the P is searched from the
+    previous T end (QRS onset + QT - RR) to 10 ms before the QRS onset: spatial magnitude
+    above the straight line joining the window ends, bounded where it falls to
+    P_MB_FRACTION of its peak above the window's 10th percentile. The QRS onset is the
+    envelope onset (median offset to R), validated against 12SL (D103).
+    """
+    rp = np.asarray(rpeaks, dtype=int)
+    if len(rp) < 4 or not np.isfinite(qrs_on).any():
+        return None
+    rr = np.diff(rp)
+    med = float(np.median(rr))
+    pre, post = int(min(0.5, 0.8 * med / fs) * fs), int(min(0.3, 0.6 * med / fs) * fs)
+    sh = int(0.01 * fs)
+    idx = [k for k in range(1, len(rp)) if rr[k - 1] >= 0.8 * med
+           and rp[k] - pre - sh >= 0 and rp[k] + post + sh < signal.shape[1]]
+    if len(idx) < 3:
+        return None
+    x = np.asarray(signal, dtype=np.float64)
+    m0 = np.median(np.stack([x[:, rp[k] - pre:rp[k] + post] for k in idx]), axis=0)
+    aligned = []
+    for k in idx:
+        best, bs = -2.0, 0
+        for d in range(-sh, sh + 1):
+            c = np.corrcoef(x[:, rp[k] - pre + d:rp[k] + post + d].ravel(), m0.ravel())[0, 1]
+            if c > best:
+                best, bs = c, d
+        if best >= 0.9:
+            aligned.append(x[:, rp[k] - pre + bs:rp[k] + post + bs])
+    mb = np.median(np.stack(aligned), axis=0) if len(aligned) >= 3 else m0
+    q = int(round(pre + float(np.nanmedian(qrs_on - rp))))
+    t_end = (qt_ms / 1000.0 * fs) if qt_ms else 0.40 * fs
+    lo = max(1, int(q + t_end - med + 0.02 * fs), int(q - 0.35 * fs))
+    hi = q - int(0.01 * fs)
+    if hi - lo < int(0.06 * fs):
+        return None
+    seg = mb[:, lo:hi]
+    line = np.linspace(seg[:, :3].mean(axis=1), seg[:, -3:].mean(axis=1), seg.shape[1]).T
+    mag = np.convolve(np.sqrt(((seg - line) ** 2).sum(axis=0)), np.ones(5) / 5, mode="same")
+    pk = int(np.argmax(mag))
+    base = float(np.percentile(mag, 10))
+    thr = base + P_MB_FRACTION * (float(mag[pk]) - base)
+    a = pk
+    while a > 0 and mag[a] > thr:
+        a -= 1
+    b = pk
+    while b < len(mag) - 1 and mag[b] > thr:
+        b += 1
+    if b - a < int(0.03 * fs):
+        return None
+    return (b - a) / fs * 1000.0, (q - (lo + a)) / fs * 1000.0
 
 
 def _p_axis(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float,
