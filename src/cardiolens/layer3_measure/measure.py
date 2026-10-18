@@ -80,8 +80,8 @@ OVERSENSE_ENV_FRACTION = 0.25
 # an AV-dissociation candidate with a stable PR is rejected.
 PR_STD_DISSOCIATION_MS = 40.0
 # D112 (plan step 5a): AV dissociation from the QRS-independent P train instead of the
-# residual autocorrelation and its PR vetoes. Experiment until the held-out check.
-ATRIAL_P_TRAIN = False
+# residual autocorrelation and its PR vetoes. Accepted on the held-out check.
+ATRIAL_P_TRAIN = True
 # ... and a dissociation candidate needs organised P waves (AF has none).
 AV_DISSOCIATION_MIN_P_RATIO = 0.3
 

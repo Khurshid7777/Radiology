@@ -77,13 +77,6 @@ def test_complete_av_block_from_dissociated_p_waves(hr, atrial, seed):
     assert "sinus_bradycardia" not in codes and "first_degree_av_block" not in codes
 
 
-def test_atrial_rate_near_twice_ventricular_is_a_documented_miss():
-    # 80/38: the atrial rate sits within 10 % of 2 x ventricular, indistinguishable from
-    # leftover QRS/T periodicity by the conservative harmonic guard (see atrial.py).
-    r = _run(heart_rate_bpm=38, dissociated_atrial_rate_bpm=80, seed=4)
-    assert r.measurements.av_dissociation is not True
-
-
 def test_fundamental_peak_with_only_negative_peaks_returns_none():
     # Regression: an autocorrelation whose local maxima are all negative used to raise
     # IndexError (threshold 0.8 x top lies above top when top < 0) and crash the pipeline.
