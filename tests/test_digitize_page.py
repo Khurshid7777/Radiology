@@ -160,3 +160,15 @@ def test_strong_perspective_is_dewarped_by_the_page_quadrilateral(page, tmp_path
     traces = digitize_page(dst)
     rs = _per_lead_r(sig, traces)
     assert np.mean(rs) > 0.85 and min(rs) > 0.75, rs
+
+
+@pytest.mark.parametrize("hr,seed", [(38, 20), (40, 6), (64, 11)])
+def test_clean_page_is_not_read_as_paced(tmp_path, hr, seed):
+    # D114: at the pixel rate a QRS upstroke is a one-sample step that the raw-signal
+    # spike detector took for a pacer spike (3 of 4 clean pages, HR 38 -> 53).
+    sig = generate_synthetic_ecg(heart_rate_bpm=hr, duration_s=10.0, seed=seed)
+    path = str(tmp_path / "p.png")
+    render_ecg_page(sig, path)
+    r = run_pipeline(digitize_page_to_signal(path), mode="A")
+    assert "paced_rhythm" not in r.findings.codes()
+    assert r.measurements.heart_rate_bpm == pytest.approx(hr, abs=3)

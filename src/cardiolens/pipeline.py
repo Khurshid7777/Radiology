@@ -80,7 +80,10 @@ def run_pipeline(
     audit: list[str] = []
 
     # Pacing spikes are erased by the Layer-2 band-pass, so measure them on the raw signal.
-    pacing_ratio = pacing_spike_ratio(sig)
+    # Not on a digitised image (D114): at the pixel rate (~150 Hz) the steep QRS upstroke
+    # is a one-sample step, the largest |diff| outlier, and it sits just before R, so the
+    # coupling check passes too: 3 of 4 clean synthetic pages were read as paced.
+    pacing_ratio = 0.0 if sig.provenance.digitized else pacing_spike_ratio(sig)
     spike_times = pacing_spike_times(sig) if pacing_ratio >= cfg.pacing.spike_ratio_min else []
     ml_spike_times = pacing_multilead_spike_times(sig, cfg.pacing.multilead_k,
                                                   cfg.pacing.multilead_min_leads)

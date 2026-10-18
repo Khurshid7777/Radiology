@@ -362,6 +362,8 @@ def _delineate(cleaned: np.ndarray, rpeaks: np.ndarray, fs: float):
 
 
 PAGE_BEAT_MIN_FRACTION = 0.35   # envelope peak, as a fraction of its column's 90th-percentile peak
+PAGE_BEAT_T_WINDOW_S = 0.45      # D114: a weak envelope peak this soon after a beat is its T wave
+PAGE_BEAT_T_FRACTION = 0.5
 PAGE_BEAT_MIN_RR_S = 0.24       # refractory distance between beats (250 bpm)
 PAGE_BEAT_SNAP_S = 0.06         # a beat is snapped to the column's summed-deflection apex within this window
 PAGE_BEAT_EDGE_START_S = 0.30   # no beat without a full P-QRS window before it
@@ -465,6 +467,16 @@ def _page_beats(sig: SignalRepresentation, windows: dict, rhythm_row: np.ndarray
     # follows (the single-lead detector skips such edge beats too).
     inside = (peaks >= int(PAGE_BEAT_EDGE_START_S * fs)) & (peaks < n - int(PAGE_BEAT_EDGE_END_S * fs))
     peaks, heights = peaks[inside], heights[inside]
+    # A tall T wave of a slow rhythm reaches the envelope threshold in the chest-lead
+    # column (D114: 0.42-0.44 at 38/min, 0.39 s after R; HR read 53). Its slope is
+    # well below the QRS it follows; a premature QRS (PVC, tachycardia) is not.
+    t_win = int(PAGE_BEAT_T_WINDOW_S * fs)
+    keep = np.ones(peaks.size, dtype=bool)
+    for k in range(1, peaks.size):
+        prev = [j for j in range(k) if keep[j] and 0 < peaks[k] - peaks[j] <= t_win]
+        if prev and heights[k] < PAGE_BEAT_T_FRACTION * max(heights[j] for j in prev):
+            keep[k] = False
+    peaks, heights = peaks[keep], heights[keep]
     if peaks.size < 2:
         return None
     # The envelope peaks on the steepest slope, not the apex: snap each beat to
