@@ -57,6 +57,36 @@ def test_onnx_segmenter_without_model_is_unavailable_not_silent():
         make_segmenter({"kind": "onnx", "onnx_model": None})
 
 
+def _committed_model() -> tuple[str, str]:
+    import json
+
+    from ecgscan.config import repo_root
+
+    card = json.loads((repo_root() / "models/segmenter/model_card.json").read_text())
+    return "models/segmenter/trace_unet.onnx", card["sha256"]
+
+
+def test_onnx_segmenter_refuses_a_model_that_is_not_its_card():
+    path, _ = _committed_model()
+    ok, why = OnnxSegmenter(path, sha256="0" * 64).available()
+    assert not ok and "sha256" in why
+
+
+def test_onnx_segmenter_finds_the_strokes_the_classic_one_finds(synth_mv):
+    pytest.importorskip("onnxruntime")
+    path, sha = _committed_model()
+    img = _page(synth_mv, header=False)
+    seg = OnnxSegmenter(path, sha256=sha, tile=512)               # several tiles and seams on one page
+    assert seg.available() == (True, None)
+    m = seg.segment(img, 10.0)
+    ref = ClassicSegmenter().segment(img, 10.0).ink
+    assert m.ink.shape == ref.shape and m.darkness.dtype == np.float32
+    inter = (m.ink & ref).sum()
+    assert inter / ref.sum() > 0.85 and inter / m.ink.sum() > 0.7  # the same strokes, not the grid
+    whole = OnnxSegmenter(path, sha256=sha, tile=4096).probability(img)
+    assert np.abs(whole - seg.probability(img)).max() < 0.05      # tiling does not show
+
+
 def test_thinning_gives_one_pixel_line():
     m = np.zeros((20, 60), bool)
     m[8:12, 5:55] = True
