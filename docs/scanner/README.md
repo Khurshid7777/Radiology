@@ -70,7 +70,9 @@
   - при сравнении исправлены ещё две вещи, для обеих версий: импульс, вложенный в импульс, и скос
     аффинного фото;
   - время скана ускорено до ≤ 9 с (SD-056): на чистой бумаге 7 из 8 критериев, не выполнен только
-    SNR ≥ 15 дБ; 2 плохих без пометки дают ширину QRS в делинеаторе CardioLens;
+    SNR ≥ 15 дБ;
+  - ширина QRS, зависящая от маленькой R′ (БПНПГ), помечается `QRS_UNSTABLE` (SD-057, D93): плохих без
+    пометки по всему набору 0 из 114 ([отчёт](../../reports/scanner/m6-final/report.md));
   - как пересобрать: `python tools/scanner/build_segmenter_data.py --out data/segmenter2`, затем
     `python tools/scanner/train_segmenter.py --data data/segmenter2 --channels 8,16,32,64` (нужен
     torch). sha256 из `model_card.json` вписать в `pipeline.yaml`.
