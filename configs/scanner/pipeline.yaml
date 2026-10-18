@@ -37,7 +37,7 @@ layout:
   pitch_tolerance: 0.1           # measured baseline pitch within this fraction of a registry pitch matches it
 
 segmentation:
-  kind: classic                  # classic | onnx (M6; unavailable without a model -> error, never a silent fallback)
+  kind: onnx                     # onnx (M6, SD-053: wins on the benchmark) | classic; no model -> error, never a silent fallback
   onnx_model: models/segmenter/trace_unet.onnx   # M6 (SD-052); sha256 below must match models/segmenter/model_card.json
   onnx:
     sha256: 607cb279e8445456b91ad3fcbcc60f063b94cb880617cdb21dc1785aef7c078f   # = models/segmenter/model_card.json

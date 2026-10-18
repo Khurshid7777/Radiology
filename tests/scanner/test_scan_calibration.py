@@ -147,3 +147,13 @@ def test_original_is_hashed_as_received(synth_mv):
     res = scan(data)
     assert res.source.original_sha256 == hashlib.sha256(data).hexdigest()
     assert res.source.original_bytes == len(data) and res.source.mime_type == "image/png"
+
+
+def test_a_piece_of_a_pulse_is_not_a_second_pulse():
+    """M6: the upper half of a pulse, its edges seen again inside it, read as a second pulse
+    5 mm above the row and became a fifth row (row_pitch_38-001, LAYOUT_UNKNOWN)."""
+    m = np.zeros((300, 200), bool)
+    m[100:205, 50:52] = m[100:205, 100:102] = True          # 10.5 mm x 5 mm pulse at 10 px/mm
+    m[100:102, 50:102] = True
+    m[100:150, 56:58] = m[100:150, 94:96] = True             # a half-height piece inside it
+    assert [p.bottom for p in find_pulses(m, 10.0)] == [205]

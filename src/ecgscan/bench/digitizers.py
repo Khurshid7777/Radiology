@@ -190,7 +190,7 @@ class ExternalCommand:
 
 class Ecgscan:
     """This module's own pipeline (``ecgscan.pipeline.scan``); ``segmentation`` overrides that
-    section of ``pipeline.yaml`` (``ecgscan-onnx``: the learned segmenter, M6)."""
+    section of ``pipeline.yaml`` (``ecgscan-classic``: the threshold segmenter the learned one replaced, M6)."""
 
     def __init__(self, name: str = "ecgscan", segmentation: dict | None = None):
         self.name = name
@@ -238,7 +238,7 @@ class Ecgscan:
 
 
 def default_digitizers(cfg: dict) -> list:
-    out: list = [Ecgscan(), Ecgscan("ecgscan-onnx", {"kind": "onnx"}), CardiolensV0(), CardiolensV0(oracle=True)]
+    out: list = [Ecgscan(), Ecgscan("ecgscan-classic", {"kind": "classic"}), CardiolensV0(), CardiolensV0(oracle=True)]
     for name, ext in (cfg.get("external") or {}).items():
         out.append(ExternalCommand(name, ext))
     return out
