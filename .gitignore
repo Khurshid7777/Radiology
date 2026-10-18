@@ -50,3 +50,4 @@ data/real/
 data/segmenter/
 # training checkpoints (the ONNX export and its model card are committed)
 models/segmenter/*.pt
+data/segmenter2/

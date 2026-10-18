@@ -5,10 +5,13 @@ samples are made in that space: a page rendered at a random scale, degraded by
 everything rectification does not undo (paper, light, optics, sensor, JPEG; a small
 residual crumple), then resampled to the working scale.
 
-The mask is exact: the same page is rendered a second time with an invisible pen
-(``trace_gray=255``, text kept by ``text_gray``) and degraded with the same seed, so
-both images share every warp, stain and noise sample; the strokes are where the two
-differ. Traces and calibration pulses are foreground; grid, text and paper are not.
+The mask is the true pen stroke: the page is rendered twice more without any
+photometric damage — once as printed, once with an invisible pen (``trace_gray=255``,
+text kept by ``text_gray``) — and both are warped by the same crumple (same seed,
+the warp draws first); the strokes are where the two differ. A mask taken after blur
+and JPEG (the first model, SD-052) taught the network the blurred, wider stroke:
+QRS came out 12 ms wide. Traces and calibration pulses are foreground; grid, text
+and paper are not.
 
 Seeds come from their own range (``SEED_BASE``) and only synthetic records are used:
 the benchmark's cases (and its PTB-XL records) never appear in training.
@@ -75,18 +78,22 @@ def sample_page(i: int, *, work_ppm: float | None = None) -> tuple[np.ndarray, n
         jpeg_quality=int(rng.choice([95, 85, 70, 55])),
     )
     shown, _ = render_page(sig.leads_mv, sig.fs, layout, spec)
-    hidden, _ = render_page(sig.leads_mv, sig.fs, layout, replace(spec, trace_gray=255, text_gray=spec.trace_gray))
+    pen = replace(spec, trace_gray=0, grid_fade=1.0)         # the stroke itself, full contrast
+    drawn, _ = render_page(sig.leads_mv, sig.fs, layout, pen)
+    hidden, _ = render_page(sig.leads_mv, sig.fs, layout, replace(pen, trace_gray=255, text_gray=0))
     a, _ = degrade(shown, deg, seed=seed, px_per_mm=ppm)
-    b, _ = degrade(hidden, deg, seed=seed, px_per_mm=ppm)
+    geom = DegradeSpec(crumple=deg.crumple)                  # the same warp, nothing else
+    d, _ = degrade(drawn, geom, seed=seed, px_per_mm=ppm)
+    b, _ = degrade(hidden, geom, seed=seed, px_per_mm=ppm)
     f = work_ppm / ppm
     size = (int(round(a.shape[1] * f)), int(round(a.shape[0] * f)))
     a = cv2.resize(a, size, interpolation=cv2.INTER_AREA)
+    d = cv2.resize(d, size, interpolation=cv2.INTER_AREA)
     b = cv2.resize(b, size, interpolation=cv2.INTER_AREA)
-    ga = cv2.cvtColor(a, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    gd = cv2.cvtColor(d, cv2.COLOR_BGR2GRAY).astype(np.float32)
     gb = cv2.cvtColor(b, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    # A stroke pixel is clearly darker than the same pixel without the pen; JPEG
-    # differences between the two encodings stay below this.
-    mask = ((gb - ga) > np.maximum(12.0, 0.18 * gb)).astype(np.uint8)
+    # Covered by at least half of a pen pixel after resampling: the pen's own width.
+    mask = ((gb - gd) > 0.5 * np.maximum(gb, 1.0)).astype(np.uint8)
     meta = {"seed": seed, "layout": layout.name, "ppm": round(ppm, 3), "render": spec.to_dict(),
             "degrade": deg.to_dict(), "ink_share": round(float(mask.mean()), 5)}
     return a, mask, meta
