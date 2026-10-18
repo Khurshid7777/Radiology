@@ -48,3 +48,5 @@ data/scanner_service/
 data/real/
 # M6 segmenter training data (generated)
 data/segmenter/
+# training checkpoints (the ONNX export and its model card are committed)
+models/segmenter/*.pt

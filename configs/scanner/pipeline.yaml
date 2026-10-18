@@ -38,7 +38,13 @@ layout:
 
 segmentation:
   kind: classic                  # classic | onnx (M6; unavailable without a model -> error, never a silent fallback)
-  onnx_model: null
+  onnx_model: models/segmenter/trace_unet.onnx   # M6 (SD-052); sha256 below must match models/segmenter/model_card.json
+  onnx:
+    sha256: null                 # set with the committed model
+    threshold: 0.5               # stroke probability above this = ink
+    tile: 1024                   # tiles with overlap: bounded memory on a 3000-px page
+    overlap: 32
+    threads: null                # onnxruntime default
   classic:
     ratio: 0.62                  # darker than this fraction of the local paper level = ink
     max_chroma: 70               # ... and neutral (the grid is coloured)
