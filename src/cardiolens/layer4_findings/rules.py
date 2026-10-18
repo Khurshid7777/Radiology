@@ -522,13 +522,32 @@ def _peaked_t_findings(m: Measurements, norms, fs: FindingSet) -> None:
         ))
 
 
+# D116 (experiment until the held-out check): left atrial enlargement from the terminal
+# negative P force in V1 instead of the P duration. On the development sets our P duration
+# carries no signal (LAE-labelled median 90 ms vs 92 unlabelled; the > 120 ms rule has a
+# lift of 0.7-0.9, worse than chance) while PTFV1 >= 8000 µV·ms lifts 3.3-3.6. Our PTFV1
+# runs about twice the textbook scale (unlabelled median ~3000), so 8000 ~ the classic 0.04 mm·s.
+LAE_BY_PTFV1 = False
+LAE_PTFV1_UV_MS = 8000.0
+
+
 def _atrial_enlargement_findings(m: Measurements, norms, fs: FindingSet) -> None:
     """Left/right atrial enlargement from P-wave duration/amplitude (TZ §7.4)."""
     if fs.codes() & _NON_SINUS_CODES:
         return  # no true P waves to measure in AF / flutter
     pw = norms.get("p_wave", {})
     dur_hi, amp_hi = pw.get("duration_upper_ms"), pw.get("amplitude_upper_uv")
-    if dur_hi and m.p_wave_duration_ms is not None and m.p_wave_duration_ms > dur_hi:
+    ptf = m.voltages.p_terminal_v1_uv_ms
+    if LAE_BY_PTFV1:
+        if ptf is not None and ptf >= LAE_PTFV1_UV_MS:
+            fs.findings.append(Finding(
+                code="left_atrial_enlargement", group="hypertrophy",
+                label_ru=f"Увеличение левого предсердия (отрицательная фаза P в V1, {ptf / 1000:.1f} мВ·мс)",
+                label_uz=f"Chap bo'lmacha kattalashuvi (V1 da P manfiy fazasi, {ptf / 1000:.1f} mV·ms)",
+                evidence=_ev(p_terminal_v1_uv_ms=ptf, threshold=LAE_PTFV1_UV_MS),
+                confidence=0.6,
+            ))
+    elif dur_hi and m.p_wave_duration_ms is not None and m.p_wave_duration_ms > dur_hi:
         fs.findings.append(Finding(
             code="left_atrial_enlargement", group="hypertrophy",
             label_ru=f"Увеличение левого предсердия (P-mitrale, {m.p_wave_duration_ms} мс)",
