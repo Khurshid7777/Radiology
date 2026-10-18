@@ -31,7 +31,6 @@ from cardiolens.layer3_measure.atrial import (
     P_TRAIN_LEADS,
     atrial_activity,
     fwave_index,
-    organised_atrial_rate,
     p_train,
     p_train_dissociated,
 )
@@ -791,8 +790,6 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                              f"{round(1000 * train['pr_iqr_s'])} ms -> AV dissociation")
         m.atrial_rate_bpm, m.av_dissociation = rate, av
         m.fwave_index = fwave_index(atrial_leads, rpeaks, fs, qrs_on=qrs_on, qrs_off=qrs_off)
-        m.organised_atrial_rate_bpm = organised_atrial_rate(
-            {ln: sig.lead(ln).astype(np.float64) for ln in sig.lead_names}, rpeaks, fs)
         m.notes.extend(notes)
 
     # --- QTc ---

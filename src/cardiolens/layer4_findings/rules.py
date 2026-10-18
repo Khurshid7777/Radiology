@@ -261,17 +261,6 @@ def detect_findings(
             label_uz=f"Bo'lmachalar titrashi (bo'lmacha chastotasi {m.atrial_rate_bpm}/daq)",
             evidence=_ev(atrial_rate_bpm=m.atrial_rate_bpm), confidence=0.65,
         ))
-    # Flutter read as AF (D113): an irregular response with organised F waves on two
-    # leads. Both findings stay ("AF / flutter"); they are managed alike (D109).
-    if (AF_ORGANISED_FLUTTER and m.organised_atrial_rate_bpm is not None
-            and "atrial_fibrillation" in fs.codes() and "atrial_flutter" not in fs.codes()):
-        fs.findings.append(Finding(
-            code="atrial_flutter", group="rhythm",
-            label_ru=f"Возможно трепетание предсердий (организованные волны F ~{m.organised_atrial_rate_bpm}/мин)",
-            label_uz=f"Bo'lmachalar titrashi ehtimoli (tartibli F to'lqinlari ~{m.organised_atrial_rate_bpm}/daq)",
-            evidence=_ev(organised_atrial_rate_bpm=m.organised_atrial_rate_bpm), confidence=0.55,
-        ))
-
     # A detected non-sinus rhythm (AF / flutter) replaces the sinus_* rate codes:
     # "sinus rhythm at 80" is wrong in AF, and the rate qualifier belongs to the
     # arrhythmia label instead (rapid/slow ventricular response).
@@ -356,8 +345,6 @@ def detect_findings(
 SVT_FLUTTER_BAND_BPM = (135.0, 165.0)
 _SVT_FLUTTER_NOTE_RU = "; исключить трепетание предсердий 2:1"
 _SVT_FLUTTER_NOTE_UZ = "; 2:1 bo'lmachalar titrashini istisno qiling"
-# D113 (experiment until the held-out check): flutter alongside AF on organised F waves.
-AF_ORGANISED_FLUTTER = False
 
 
 def _near_150(hr) -> bool:

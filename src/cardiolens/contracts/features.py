@@ -117,7 +117,6 @@ class Measurements(BaseModel):
     qrs_partner_consistency: float | None = None
     p_wave_ratio: float | None = None         # fraction of beats with an organised P (AF gate)
     fwave_index: float | None = None          # fibrillatory-wave band-power index (AF evidence, D58)
-    organised_atrial_rate_bpm: float | None = None  # organised F waves on >= 2 leads (D113)
     p_onset_ratio: float | None = None        # fraction of beats with a refined P onset (PR)
     pr_std_ms: float | None = None            # beat-to-beat PR variability (AV dissociation gate)
     qrs_v1_terminal_positive: bool | None = None  # terminal forces in V1 (R' -> RBBB)

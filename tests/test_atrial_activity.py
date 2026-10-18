@@ -171,28 +171,7 @@ def test_p_train_dissociated_needs_wandering_pr():
     assert not p_train_dissociated(None, 40.0)
 
 
-# --- D113: organised F waves; SVT near 150 ---
-
-def _organised(**kw):
-    import numpy as np
-
-    from cardiolens.layer3_measure.atrial import organised_atrial_rate
-
-    r = _run(**kw)
-    sig = generate_synthetic_ecg(**kw)
-    leads = {ln: sig.lead(ln).astype(np.float64) for ln in sig.lead_names}
-    return organised_atrial_rate(leads, np.asarray(r.measurements.r_peaks_samples), sig.sampling_rate_hz)
-
-
-def test_organised_rate_found_on_flutter_waves():
-    rate = _organised(heart_rate_bpm=90, flutter_atrial_rate_bpm=280, flutter_conduction="variable", seed=2)
-    assert rate == pytest.approx(280, rel=0.1)
-
-
-def test_no_organised_rate_on_fibrillation_or_sinus():
-    assert _organised(heart_rate_bpm=95, p_amp_scale=0.0, rr_jitter_ms=180, seed=8) is None
-    assert _organised(heart_rate_bpm=75, seed=9) is None
-
+# --- D113: SVT near 150 ---
 
 def test_svt_near_150_says_rule_out_2_to_1_flutter():
     from cardiolens.layer4_findings.rules import _near_150
