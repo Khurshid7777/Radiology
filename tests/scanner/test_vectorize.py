@@ -52,7 +52,7 @@ def test_paper_mask_excludes_a_dark_desk(synth_mv):
 
 def test_onnx_segmenter_without_model_is_unavailable_not_silent():
     ok, why = OnnxSegmenter(None).available()
-    assert not ok and "M6" in why
+    assert not ok and "no ONNX segmentation model" in why
     with pytest.raises(RuntimeError):
         make_segmenter({"kind": "onnx", "onnx_model": None})
 

@@ -189,15 +189,39 @@ class ExternalCommand:
 
 
 class Ecgscan:
-    """This module's own pipeline (``ecgscan.pipeline.scan``)."""
+    """This module's own pipeline (``ecgscan.pipeline.scan``); ``segmentation`` overrides that
+    section of ``pipeline.yaml`` (``ecgscan-onnx``: the learned segmenter, M6)."""
 
-    name = "ecgscan"
+    def __init__(self, name: str = "ecgscan", segmentation: dict | None = None):
+        self.name = name
+        self.segmentation = segmentation
+        self._config = None
+
+    def _cfg(self) -> dict | None:
+        if self.segmentation is None:
+            return None
+        if self._config is None:
+            import copy
+
+            from ecgscan.pipeline import pipeline_config
+
+            self._config = copy.deepcopy(pipeline_config())
+            self._config["segmentation"].update(self.segmentation)
+        return self._config
 
     def available(self) -> tuple[bool, str]:
         try:
             import cv2  # noqa: F401
         except ImportError as exc:
             return False, f"import failed: {exc}"
+        cfg = self._cfg()
+        if cfg is not None:
+            from ecgscan.segmentation import make_segmenter
+
+            try:
+                make_segmenter(cfg["segmentation"])
+            except RuntimeError as exc:
+                return False, str(exc)
         return True, ""
 
     def digitize(self, image: Path, *, truth_hint: dict | None = None) -> DigitizerRun:
@@ -206,7 +230,7 @@ class Ecgscan:
         dbg = ScanDebug()
         t = time.perf_counter()
         try:
-            res = scan(image, debug=dbg)
+            res = scan(image, debug=dbg, config=self._cfg())
         except Exception as exc:  # an unhandled pipeline error is a bug, but still a refusal in the numbers
             return DigitizerRun(None, f"{type(exc).__name__}: {exc}"[:200], time.perf_counter() - t)
         extra = {"timings": dbg.timings, "rows": dbg.rows, "pulses": len(dbg.pulses)}
@@ -214,7 +238,7 @@ class Ecgscan:
 
 
 def default_digitizers(cfg: dict) -> list:
-    out: list = [Ecgscan(), CardiolensV0(), CardiolensV0(oracle=True)]
+    out: list = [Ecgscan(), Ecgscan("ecgscan-onnx", {"kind": "onnx"}), CardiolensV0(), CardiolensV0(oracle=True)]
     for name, ext in (cfg.get("external") or {}).items():
         out.append(ExternalCommand(name, ext))
     return out

@@ -47,6 +47,7 @@ class RenderSpec:
     labels: bool = True
     row_pitch_mm: float | None = None   # override the layout's baseline pitch
     column_markers: bool = False    # short ticks at the column boundaries
+    text_gray: int | None = None    # header and labels; None = the pen (M6 masks: erase the pen, keep the text)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -152,6 +153,7 @@ def render_page(signals_mv: dict[str, np.ndarray], fs_in: float, layout: LayoutS
     img[:] = PAPER_BGR
     _draw_grid(img, ppm, spec.grid, spec.grid_fade)
     ink = (spec.trace_gray,) * 3
+    text_ink = ink if spec.text_gray is None else (spec.text_gray,) * 3
     thick = max(1, int(round(spec.trace_mm * ppm)))
     label_h = 2.5 * ppm
     gt = PageGT(layout=layout.name, speed_mm_s=speed, gain_mm_mv=gain, px_per_mm=ppm, fs=fs,
@@ -160,10 +162,10 @@ def render_page(signals_mv: dict[str, np.ndarray], fs_in: float, layout: LayoutS
         y0, y1 = int(layout.margin_mm * 0.5 * ppm), int((layout.margin_mm * 0.5 + header) * ppm)
         gt.header_box_px = (int(layout.margin_mm * ppm), y0, int(min(w, 140 * ppm)), y1)
         _text(img, "Name: TEST PATIENT   ID: 0000000   Age: 45   Sex: M", layout.margin_mm * ppm,
-              y0 + 5 * ppm, 3.0 * ppm, ink)
+              y0 + 5 * ppm, 3.0 * ppm, text_ink)
         if spec.header_settings:
             _text(img, f"{speed:g} mm/s   {gain:g} mm/mV   0.05-150 Hz   50 Hz", layout.margin_mm * ppm,
-                  y0 + 11 * ppm, 3.0 * ppm, ink)
+                  y0 + 11 * ppm, 3.0 * ppm, text_ink)
 
     def baseline(r: int) -> float:
         return (header + layout.margin_mm + pitch * (r + 0.5)) * ppm
@@ -179,7 +181,7 @@ def render_page(signals_mv: dict[str, np.ndarray], fs_in: float, layout: LayoutS
                                  baseline_px=baseline(row)))
         if spec.labels:
             dx, dy = layout.label_offset_mm
-            _text(img, lead, x0 + dx * ppm, baseline(row) - dy * ppm, label_h, ink)
+            _text(img, lead, x0 + dx * ppm, baseline(row) - dy * ppm, label_h, text_ink)
 
     for r, row in enumerate(layout.rows):
         for c, lead in enumerate(row):

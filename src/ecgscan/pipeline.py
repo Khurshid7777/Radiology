@@ -86,10 +86,11 @@ def trace_contrast(bgr: np.ndarray, px_per_mm: float) -> float:
 
 
 def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: float = 500.0,
-         debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None) -> ScanResult:
+         debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None,
+         config: dict | None = None) -> ScanResult:
     """Digitise one photo/scan. ``artifacts_dir``: write rectified / mask / overlay images there."""
     t_start = time.perf_counter()
-    cfg = pipeline_config()
+    cfg = config or pipeline_config()
     hints = hints or ScanHints()
     dbg = debug if debug is not None else ScanDebug()
     q_cfg, g_cfg = cfg["quality"], cfg["geometry"]

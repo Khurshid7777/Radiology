@@ -109,36 +109,109 @@ def paper_mask(bgr: np.ndarray, px_per_mm: float, *, window_mm: float = 6.0, min
 
 
 class OnnxSegmenter:
-    """Learned segmentation (M6). Without a model it is unavailable, never a silent fallback."""
+    """Learned stroke segmentation (M6, SD-052): a small U-Net run with onnxruntime.
+
+    The model was trained on rectified pages at the working scale (synthetic only,
+    ``ecgscan.segmentation.dataset``); its output probability is the darkness map
+    (sub-pixel centroids) and ``ink`` is where it exceeds ``threshold``. Pages are run
+    in overlapping tiles (memory stays bounded on a 3000-px page). The paper mask is
+    applied as in the classic segmenter: the model has never seen a desk. Without a
+    model file it is unavailable — never a silent fallback to the classic one.
+    """
 
     name = "onnx"
 
-    def __init__(self, model_path: str | None = None):
+    def __init__(self, model_path: str | None = None, *, threshold: float = 0.5, tile: int = 1024,
+                 overlap: int = 32, sha256: str | None = None, threads: int | None = None):
         self.model_path = model_path
+        self.threshold = threshold
+        self.tile = tile
+        self.overlap = overlap
+        self.sha256 = sha256
+        self.threads = threads
+        self._session = None
 
-    def available(self) -> tuple[bool, str | None]:
+    def _path(self):
         from pathlib import Path
 
-        if not self.model_path or not Path(self.model_path).exists():
-            return False, "TODO(M6): no ONNX segmentation model configured"
+        from ecgscan.config import repo_root
+
+        if not self.model_path:
+            return None
+        p = Path(self.model_path)
+        return p if p.is_absolute() else repo_root() / p
+
+    def available(self) -> tuple[bool, str | None]:
+        p = self._path()
+        if p is None or not p.exists():
+            return False, f"no ONNX segmentation model at {self.model_path!r}"
         try:
             import onnxruntime  # noqa: F401
         except ImportError:
             return False, "onnxruntime not installed"
+        if self.sha256:
+            import hashlib
+
+            if hashlib.sha256(p.read_bytes()).hexdigest() != self.sha256:
+                return False, "ONNX model does not match its sha256 (model_card.json)"
         return True, None
 
-    def segment(self, bgr: np.ndarray, px_per_mm: float) -> TraceMask:  # pragma: no cover - M6
-        _ok, why = self.available()
-        raise NotImplementedError(why or "TODO(M6): ONNX segmentation inference")
+    def _sess(self):
+        if self._session is None:
+            import onnxruntime as ort
+
+            opts = ort.SessionOptions()
+            if self.threads:
+                opts.intra_op_num_threads = self.threads
+            self._session = ort.InferenceSession(str(self._path()), opts, providers=["CPUExecutionProvider"])
+        return self._session
+
+    def probability(self, bgr: np.ndarray) -> np.ndarray:
+        """Stroke probability (float32, H×W) over the whole page, tile by tile."""
+        sess = self._sess()
+        h, w = bgr.shape[:2]
+        out = np.zeros((h, w), np.float32)
+        step = self.tile - 2 * self.overlap
+        for y in range(0, h, step):
+            for x in range(0, w, step):
+                y0, x0 = max(0, y - self.overlap), max(0, x - self.overlap)
+                y1, x1 = min(h, y + step + self.overlap), min(w, x + step + self.overlap)
+                patch = bgr[y0:y1, x0:x1].astype(np.float32) / 255.0 - 0.5
+                ph, pw = patch.shape[:2]
+                padded = np.pad(patch, ((0, -ph % 8), (0, -pw % 8), (0, 0)), mode="edge")
+                logits = sess.run(None, {"image": padded.transpose(2, 0, 1)[None]})[0][0, 0, :ph, :pw]
+                prob = 1.0 / (1.0 + np.exp(-logits))
+                # Keep the tile's centre only: the borders see half a context.
+                cy0, cx0 = y - y0, x - x0
+                cy1, cx1 = min(ph, cy0 + step), min(pw, cx0 + step)
+                out[y:y + cy1 - cy0, x:x + cx1 - cx0] = prob[cy0:cy1, cx0:cx1]
+        return out
+
+    def segment(self, bgr: np.ndarray, px_per_mm: float) -> TraceMask:
+        ok, why = self.available()
+        if not ok:
+            raise RuntimeError(f"segmenter 'onnx' unavailable: {why}")
+        prob = self.probability(bgr)
+        ink = (prob > self.threshold) & paper_mask(bgr, px_per_mm)
+        return TraceMask(ink, prob, self.name)
+
+
+_ONNX_CACHE: dict[tuple, OnnxSegmenter] = {}
 
 
 def make_segmenter(cfg: dict) -> Segmenter:
     kind = cfg.get("kind", "classic")
     if kind == "onnx":
-        seg = OnnxSegmenter(cfg.get("onnx_model"))
-        ok, why = seg.available()
-        if not ok:
-            raise RuntimeError(f"segmenter 'onnx' unavailable: {why}")
+        o = cfg.get("onnx", {})
+        key = (cfg.get("onnx_model"), o.get("threshold", 0.5), o.get("tile", 1024), o.get("overlap", 32),
+               o.get("sha256"), o.get("threads"))
+        seg = _ONNX_CACHE.get(key)
+        if seg is None:                       # one onnxruntime session per model, not per scan
+            seg = OnnxSegmenter(key[0], threshold=key[1], tile=key[2], overlap=key[3], sha256=key[4], threads=key[5])
+            ok, why = seg.available()
+            if not ok:
+                raise RuntimeError(f"segmenter 'onnx' unavailable: {why}")
+            _ONNX_CACHE[key] = seg
         return seg
     c = cfg.get("classic", {})
     return ClassicSegmenter(**c)
