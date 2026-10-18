@@ -183,15 +183,26 @@ def test_clean_page_passes_the_photo_gate(page):
     assert "photo_unreliable" not in run_pipeline(digitize_page_to_signal(path), mode="A").findings.codes()
 
 
-def test_warped_photo_withholds_alerts(tmp_path):
-    # D114: a phone-like photo of an AF record read as VT (QRS 70 -> 114 ms) because the
-    # rows sat 50-80 ms apart in time; the gate replaces findings and alerts.
+def _af_photo(tmp_path, **degrade):
     sig = generate_synthetic_ecg(heart_rate_bpm=95, p_amp_scale=0.0, rr_jitter_ms=180, duration_s=10.0, seed=8)
     path = str(tmp_path / "p.png")
     render_ecg_page(sig, path)
-    dst = degrade_image(path, tmp_path / "phone.jpg", perspective=0.02, rotation_deg=1.5, blur_px=1,
-                        jpeg_quality=60, vignette=0.3, texture=0.2, seed=1)
-    r = run_pipeline(digitize_page_to_signal(dst), mode="A")
+    return run_pipeline(digitize_page_to_signal(degrade_image(path, tmp_path / "d.jpg", seed=1, **degrade)), mode="A")
+
+
+def test_phone_photo_is_aligned_not_read_as_vt(tmp_path):
+    # D114-D115: the rows of a phone-like photo sat 50-80 ms apart in time and the AF
+    # record read as VT (QRS 70 -> 114 ms); shifting each panel onto the strip fixes it.
+    r = _af_photo(tmp_path, perspective=0.02, rotation_deg=1.5, blur_px=1, jpeg_quality=60,
+                  vignette=0.3, texture=0.2)
+    codes = r.findings.codes()
+    assert "photo_unreliable" not in codes and "atrial_fibrillation" in codes
+    assert not r.safety.alerts and r.measurements.intervals.qrs_ms < 90
+
+
+def test_wrecked_photo_withholds_alerts(tmp_path):
+    r = _af_photo(tmp_path, perspective=0.08, rotation_deg=8.0, blur_px=5, jpeg_quality=15, vignette=0.8,
+                  texture=0.8, shadow=0.7, salt_noise=0.02)
     assert r.findings.codes() == {"photo_unreliable"}
     assert not r.safety.alerts
 

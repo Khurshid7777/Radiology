@@ -32,7 +32,7 @@ from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
 from cardiolens.layer2_preprocess import assess_quality, preprocess
-from cardiolens.layer2_preprocess.photo_quality import page_consistency, page_unreliable
+from cardiolens.layer2_preprocess.photo_quality import align_panels, page_consistency, page_unreliable
 from cardiolens.layer3_measure import measure
 from cardiolens.layer3_measure.pacing import (
     pacing_multilead_spike_times,
@@ -89,8 +89,15 @@ def run_pipeline(
     ml_spike_times = pacing_multilead_spike_times(sig, cfg.pacing.multilead_k,
                                                   cfg.pacing.multilead_min_leads)
 
-    # Photo consistency on the digitised traces as read, before any filtering (D114).
+    # Photo consistency on the digitised traces as read, before any filtering (D114); the
+    # rows' time lag against the lead-II strip is then undone (D115).
     photo = page_consistency(sig)
+    photo_aligned = None
+    if photo is not None:
+        sig = align_panels(sig)
+        photo_aligned = page_consistency(sig)
+        audit.append(f"[L1] page aligned on the lead-II strip: lag {photo['panel_lag_ms']} ms, "
+                     f"Einthoven r {photo['einthoven_r']} -> {photo_aligned and photo_aligned['einthoven_r']}")
 
     # Layer 2 — preprocess + quality (TZ §5). preprocess() filters in place: work on a
     # copy so the caller's raw signal survives — a second run on the same object
@@ -207,10 +214,10 @@ def run_pipeline(
     no_ecg = _hf_amplitude_uv(sig) < cfg.quality.min_qrs_hf_uv
     # A digitised photo whose page geometry was not recovered (D114): leads shifted in
     # time widen the QRS and break the RR, so nothing read from it is trusted.
-    bad_photo = not no_ecg and page_unreliable(photo, cfg.quality.photo_max_panel_lag_ms,
+    bad_photo = not no_ecg and page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
                                                cfg.quality.photo_min_einthoven_r)
     if bad_photo:
-        lag, ein = photo["panel_lag_ms"], photo["einthoven_r"]
+        lag, ein = photo["panel_lag_ms"], (photo_aligned or photo)["einthoven_r"]
         findings.findings = [Finding(
             code="photo_unreliable", group="quality",
             label_ru="Снимок ЭКГ не распознан надёжно (отведения не совпадают по времени) — "

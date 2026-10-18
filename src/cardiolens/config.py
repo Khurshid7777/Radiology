@@ -101,10 +101,11 @@ class QualityConfig(BaseModel):
     # unattached cable or a flat line. Development: PTB-XL >= 494, Georgia >= 309, PACE
     # >= 481; CODE-15% 1969740 (baseline wander only) 25.
     min_qrs_hf_uv: float = 150.0
-    # Digitised photo consistency (D114): median panel-to-rhythm-strip QRS lag (ms) above,
-    # or r(II, I + III) below, means the page geometry is not recovered.
-    photo_max_panel_lag_ms: float = 20.0
-    photo_min_einthoven_r: float = 0.6
+    # Digitised photo consistency (D114, D115): a median panel-to-rhythm-strip QRS lag (ms)
+    # at the search limit (not found), or r(II, I + III) below after alignment, means the
+    # page geometry is not recovered.
+    photo_max_panel_lag_ms: float = 75.0
+    photo_min_einthoven_r: float = 0.8
 
 
 class AppConfig(BaseModel):
