@@ -53,6 +53,7 @@ class Settings:
     workers: int
     feedback_path: Path
     public_url: str | None
+    warm_up: bool = False
 
     @classmethod
     def load(cls) -> Settings:
@@ -64,7 +65,7 @@ class Settings:
                    retention_days=float(c["storage"]["retention_days"]),
                    max_bytes=int(c["upload"]["max_mb"] * 1024 * 1024), mime=tuple(c["upload"]["mime"]),
                    workers=int(c["queue"]["workers"]), feedback_path=fb if fb.is_absolute() else base / fb,
-                   public_url=c.get("public_url"))
+                   public_url=c.get("public_url"), warm_up=bool(c["queue"].get("warm_up", False)))
 
 
 class ScanService:
@@ -80,6 +81,10 @@ class ScanService:
         self._pool = ThreadPoolExecutor(max_workers=self.settings.workers, thread_name_prefix="ecgscan")
         self._inflight: dict[str, bytes] = {}       # originals of queued jobs when no vault keeps them
         self._lock = threading.Lock()
+        if self.settings.warm_up and scan_fn is None:
+            from ecgscan.pipeline import warm_up
+
+            self._pool.submit(warm_up)      # models loaded before the first photo arrives (SD-056)
         self._resume()
         self.purge_expired()
 

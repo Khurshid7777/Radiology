@@ -13,6 +13,7 @@ upload:
 
 queue:
   workers: 2                       # scans in parallel (OpenCV releases the GIL)
+  warm_up: true                    # scan one synthetic page at start: the first photo does not wait ~5 s for model loading
 
 feedback:
   path: data/feedback/scanner_confirmations.jsonl   # doctor confirmations / corrections for future training (TZ §12)

@@ -69,8 +69,8 @@
     пометки 3 → 2. Поэтому включён по умолчанию; классика доступна как `segmentation.kind: classic`;
   - при сравнении исправлены ещё две вещи, для обеих версий: импульс, вложенный в импульс, и скос
     аффинного фото;
-  - не выполнены SNR ≥ 15 дБ и время ≤ 10 с; 2 плохих без пометки дают ширину QRS в делинеаторе
-    CardioLens;
+  - время скана ускорено до ≤ 9 с (SD-056): на чистой бумаге 7 из 8 критериев, не выполнен только
+    SNR ≥ 15 дБ; 2 плохих без пометки дают ширину QRS в делинеаторе CardioLens;
   - как пересобрать: `python tools/scanner/build_segmenter_data.py --out data/segmenter2`, затем
     `python tools/scanner/train_segmenter.py --data data/segmenter2 --channels 8,16,32,64` (нужен
     torch). sha256 из `model_card.json` вписать в `pipeline.yaml`.

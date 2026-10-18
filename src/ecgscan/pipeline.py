@@ -262,3 +262,26 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
         res.artifacts = write_artifacts(artifacts_dir, rectified=rect.bgr, mask=mask.ink, readings=readings)
         tick("artifacts", t)
     return res
+
+
+def warm_up(config: dict | None = None) -> float:
+    """Scan one synthetic page so the first real scan does not pay for loading the
+    segmentation model, the OCR engine and the CardioLens modules (~5 s, SD-056).
+    Returns the seconds spent; never raises (a broken install shows on the real scan)."""
+    t = time.perf_counter()
+    try:
+        import cv2
+
+        from ecgscan.bench.cases import bench_config
+        from ecgscan.bench.render import RenderSpec, render_page
+        from ecgscan.bench.sources import pick_preset, synthetic_signal
+
+        rng = np.random.default_rng(0)
+        sig = synthetic_signal(pick_preset(bench_config()["sources"]["synthetic"]["adult"], rng), rng, 0)
+        img, _ = render_page(sig.leads_mv, sig.fs, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=10.0))
+        scan(cv2.imencode(".png", img)[1].tobytes(), config=config)
+    except Exception as exc:  # warm-up only: a broken install shows on the real scan
+        import logging
+
+        logging.getLogger(__name__).warning("scanner warm-up failed: %s", type(exc).__name__)
+    return time.perf_counter() - t

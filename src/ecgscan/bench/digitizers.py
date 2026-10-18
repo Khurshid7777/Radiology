@@ -222,6 +222,9 @@ class Ecgscan:
                 make_segmenter(cfg["segmentation"])
             except RuntimeError as exc:
                 return False, str(exc)
+        from ecgscan.pipeline import warm_up
+
+        warm_up(cfg)    # timed like the service, which loads its models at start (SD-056)
         return True, ""
 
     def digitize(self, image: Path, *, truth_hint: dict | None = None) -> DigitizerRun:

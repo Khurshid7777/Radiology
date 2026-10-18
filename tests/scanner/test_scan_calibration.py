@@ -180,3 +180,17 @@ def test_a_sheared_page_is_de_sheared_not_only_de_rotated(synth_mv):
         rows = estimate_skew(r.gray)
         cols = estimate_skew(np.ascontiguousarray(r.gray.T))
         assert (abs(rows + cols) < 0.3) is ok, (rows, cols)
+
+
+def test_line_angles_reads_rows_and_columns_in_one_pass():
+    import cv2
+
+    from ecgscan.geometry.rectify import line_angles
+
+    g = np.full((900, 1200), 255, np.uint8)
+    for y in range(100, 800, 50):                            # rows tilted +2 deg
+        cv2.line(g, (50, y), (1150, y + int(round(1100 * np.tan(np.radians(2))))), 0, 1)
+    for x in range(100, 1100, 50):                           # columns tilted -1 deg (dx/dy)
+        cv2.line(g, (x, 20), (x + int(round(860 * np.tan(np.radians(-1)))), 880), 0, 1)
+    rows, cols = line_angles(g)
+    assert rows == pytest.approx(2.0, abs=0.3) and cols == pytest.approx(-1.0, abs=0.3)

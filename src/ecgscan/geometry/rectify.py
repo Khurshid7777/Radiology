@@ -123,6 +123,33 @@ def _tile_residuals(hm: np.ndarray, p: float, samples) -> np.ndarray:
     return np.array(out)
 
 
+def line_angles(gray: np.ndarray) -> tuple[float, float]:
+    """Tilt (deg) of the long grid / trace lines: rows as dy/dx, columns as dx/dy.
+
+    One Hough pass for both (CardioLens ``estimate_skew`` per direction was two passes,
+    0.8 s each): the same Canny / Hough settings, rows at least a third of the width
+    long, columns a third of the height; median of each, 0 when none is found.
+    """
+    import cv2
+
+    h, w = gray.shape
+    edges = cv2.Canny(gray, 50, 150)
+    # maxLineGap small: JPEG 8x8 block edges would chain into long axis-aligned "lines".
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 720, threshold=120, minLineLength=max(50, min(h, w) // 3),
+                            maxLineGap=5)
+    rows, cols = [], []
+    for x1, y1, x2, y2 in (np.asarray(lines).reshape(-1, 4) if lines is not None else []):
+        dx, dy = float(x2 - x1), float(y2 - y1)
+        length = np.hypot(dx, dy)
+        if length >= max(50, w // 3) and abs(a := np.degrees(np.arctan2(dy, dx))) <= 15:
+            rows.append(a)
+        if dy < 0:
+            dx, dy = -dx, -dy
+        if length >= max(50, h // 3) and abs(b := np.degrees(np.arctan2(dx, dy))) <= 15:
+            cols.append(b)
+    return (float(np.median(rows)) if rows else 0.0), (float(np.median(cols)) if cols else 0.0)
+
+
 def _warp(img: np.ndarray, m: np.ndarray, size: tuple[int, int], border) -> np.ndarray:
     import cv2
 
@@ -137,8 +164,6 @@ def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate
     trace stroke loses detail at every resampling)."""
     import cv2
 
-    from cardiolens.layer1_ingestion.digitize import estimate_skew
-
     raw = raw_grid or _fast_grid(bgr)
     if raw.px_per_mm is None:
         raise ValueError("no grid")
@@ -152,22 +177,22 @@ def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate
     m_h, size, method = _homography(gray_s, working_px_per_mm)
     gray_i = _warp(gray_s, m_h, size, 255)
     # Rotation: the texture homography steps aside for affine cases (D64), so de-skew here.
-    skew = estimate_skew(gray_i)
+    # After a texture homography the grid is already square (both angles read 0 at the
+    # 0.25 deg Hough step): the 0.7-1.4 s Hough pass is skipped.
+    skew, cols = line_angles(gray_i) if method != "grid_texture" else (0.0, 0.0)
     m_r = np.eye(3)
     if abs(skew) > 0.2:
         m_r = np.vstack([cv2.getRotationMatrix2D((size[0] / 2, size[1] / 2), skew, 1.0), [0.0, 0.0, 1.0]])
-    if shear_min_deg is not None:
+    if shear_min_deg is not None and abs(skew + cols) > shear_min_deg:
         # A photo the homography leaves to the affine path can still be sheared: rows and
         # columns of the grid tilted by different angles (rows 2.7 deg, columns -1.5 deg). One
         # rotation leaves 1.2 deg, ~20 ms of time offset per row of a 3x4 page (photo_clean-002,
         # SD-054). Map both measured directions back onto the axes, lengths kept.
-        cols = estimate_skew(np.ascontiguousarray(gray_i.T))          # columns, as dx/dy
-        if abs(skew + cols) > shear_min_deg:
-            h, v = np.radians(skew), np.radians(cols)
-            a = np.linalg.inv(np.array([[np.cos(h), np.sin(v)], [np.sin(h), np.cos(v)]]))
-            c = np.array([size[0] / 2, size[1] / 2])
-            m_r = np.eye(3)
-            m_r[:2, :2], m_r[:2, 2] = a, c - a @ c
+        h, v = np.radians(skew), np.radians(cols)
+        a = np.linalg.inv(np.array([[np.cos(h), np.sin(v)], [np.sin(h), np.cos(v)]]))
+        c = np.array([size[0] / 2, size[1] / 2])
+        m_r = np.eye(3)
+        m_r[:2, :2], m_r[:2, 2] = a, c - a @ c
     bgr_i = _warp(small, m_r @ m_h, size, (255, 255, 255))
     if np.allclose(m_h, np.eye(3)) and tuple(size) == tuple(small.shape[1::-1]):
         # Scan / affine path: the area-downscale from the photo's own (precise, full-resolution)

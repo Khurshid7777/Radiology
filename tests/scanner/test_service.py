@@ -275,3 +275,12 @@ def test_real_page_end_to_end(tmp_path, env, synth_mv):
         assert all("/" not in v for v in row.result["artifacts"].values())
     finally:
         svc.close()
+
+
+def test_service_loads_its_models_at_start_by_default(tmp_path):
+    """SD-056: the deployed service scans one synthetic page at start; tests built with
+    their own Settings do not."""
+    from ecgscan_service.service import Settings
+
+    assert Settings.load().warm_up is True
+    assert _settings(tmp_path).warm_up is False
