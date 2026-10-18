@@ -99,7 +99,7 @@ def find_pulses(mask: np.ndarray, px_per_mm: float, *, min_h_mm: float = 3.0, ma
             used.update((i, j))
             break
     # A pulse inside a taller one is a piece of it (its edges broken where something crosses
-    # them), not a pulse of its own: its bottom would add a row that is not there (M6, SD-053).
+    # them), not a pulse of its own: its bottom would add a row that is not there (M6, SD-054).
     return [p for p in out if not any(q is not p and q.height_mm > p.height_mm and q.x_left - tol <= p.x_left
                                       and p.x_right <= q.x_right + tol and q.top - tol <= p.top
                                       and p.bottom <= q.bottom + tol for q in out)]
