@@ -53,8 +53,13 @@ def test_focal_st_elevation_stays_stemi():
     assert "pericarditis" not in codes
 
 
-def test_left_atrial_enlargement_from_p_duration():
+def test_left_atrial_enlargement_from_terminal_p_in_v1():
+    # D116: PTFV1, not the P duration (which carried no signal on the development sets).
+    from cardiolens.contracts.features import Voltages
+
     assert "left_atrial_enlargement" in _codes(
+        Measurements(heart_rate_bpm=70, voltages=Voltages(p_terminal_v1_uv_ms=9000), intervals=Intervals(qrs_ms=90)))
+    assert "left_atrial_enlargement" not in _codes(
         Measurements(heart_rate_bpm=70, p_wave_duration_ms=140, intervals=Intervals(qrs_ms=90)))
 
 

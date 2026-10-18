@@ -522,12 +522,12 @@ def _peaked_t_findings(m: Measurements, norms, fs: FindingSet) -> None:
         ))
 
 
-# D116 (experiment until the held-out check): left atrial enlargement from the terminal
+# D116 (accepted on the held-out check): left atrial enlargement from the terminal
 # negative P force in V1 instead of the P duration. On the development sets our P duration
 # carries no signal (LAE-labelled median 90 ms vs 92 unlabelled; the > 120 ms rule has a
 # lift of 0.7-0.9, worse than chance) while PTFV1 >= 8000 µV·ms lifts 3.3-3.6. Our PTFV1
 # runs about twice the textbook scale (unlabelled median ~3000), so 8000 ~ the classic 0.04 mm·s.
-LAE_BY_PTFV1 = False
+LAE_BY_PTFV1 = True
 LAE_PTFV1_UV_MS = 8000.0
 
 
