@@ -25,7 +25,15 @@ from cardiolens.contracts.features import (
 )
 from cardiolens.contracts.signal import SignalRepresentation
 from cardiolens.layer2_preprocess.quality import is_lead_off
-from cardiolens.layer3_measure.atrial import FLUTTER_SPECTRAL_LEADS, atrial_activity, fwave_index
+from cardiolens.layer3_measure.atrial import (
+    FLUTTER_BAND_BPM,
+    FLUTTER_SPECTRAL_LEADS,
+    P_TRAIN_LEADS,
+    atrial_activity,
+    fwave_index,
+    p_train,
+    p_train_dissociated,
+)
 from cardiolens.layer3_measure.delineation import (
     P_ONSET_MIN_FRACTION,
     P_ONSET_MIN_UV,
@@ -71,6 +79,9 @@ OVERSENSE_ENV_FRACTION = 0.25
 # Beat-to-beat PR standard deviation below this = a fixed PR = conducted rhythm;
 # an AV-dissociation candidate with a stable PR is rejected.
 PR_STD_DISSOCIATION_MS = 40.0
+# D112 (plan step 5a): AV dissociation from the QRS-independent P train instead of the
+# residual autocorrelation and its PR vetoes. Experiment until the held-out check.
+ATRIAL_P_TRAIN = False
 # ... and a dissociation candidate needs organised P waves (AF has none).
 AV_DISSOCIATION_MIN_P_RATIO = 0.3
 
@@ -756,6 +767,15 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                 and (m.p_onset_ratio or 0.0) < 0.5):
             av = False
             notes.append("atrial activity: no organised P waves -> not AV dissociation")
+        if ATRIAL_P_TRAIN:
+            train = p_train({ln: sig.lead(ln).astype(np.float64)
+                             for ln in P_TRAIN_LEADS if ln in sig.lead_names}, rpeaks, fs)
+            flutter = rate is not None and FLUTTER_BAND_BPM[0] <= rate <= FLUTTER_BAND_BPM[1]
+            av = p_train_dissociated(train, m.heart_rate_bpm) and not flutter
+            if av:
+                rate = round(train["rate_bpm"], 1)
+                notes.append(f"atrial activity: P train {rate}/min, PR spread "
+                             f"{round(1000 * train['pr_iqr_s'])} ms -> AV dissociation")
         m.atrial_rate_bpm, m.av_dissociation = rate, av
         m.fwave_index = fwave_index(atrial_leads, rpeaks, fs, qrs_on=qrs_on, qrs_off=qrs_off)
         m.notes.extend(notes)
