@@ -1,0 +1,152 @@
+{
+ "model": "trace_unet.onnx",
+ "sha256": "6e4a990409e885de9bc3b306b2bef4aaf6e6903c1e3804af3dac66e02212d126",
+ "params": 122465,
+ "channels": "8,16,32,64",
+ "input": "N\u00d73\u00d7H\u00d7W BGR/255-0.5, H,W % 8 == 0",
+ "output": "stroke logits N\u00d71\u00d7H\u00d7W",
+ "train_crops": 3840,
+ "val_crops": 384,
+ "iters": 4000,
+ "batch": 16,
+ "lr": 0.002,
+ "best_val": {
+  "iter": 4000,
+  "loss": 0.0361,
+  "precision": 0.9767,
+  "recall": 0.9898,
+  "f1": 0.9832,
+  "min": 61.2
+ },
+ "history": [
+  {
+   "iter": 250,
+   "loss": 1.218,
+   "precision": 0.7957,
+   "recall": 0.9806,
+   "f1": 0.8785,
+   "min": 3.9
+  },
+  {
+   "iter": 500,
+   "loss": 0.3678,
+   "precision": 0.8935,
+   "recall": 0.98,
+   "f1": 0.9348,
+   "min": 7.7
+  },
+  {
+   "iter": 750,
+   "loss": 0.1108,
+   "precision": 0.8956,
+   "recall": 0.9815,
+   "f1": 0.9366,
+   "min": 11.5
+  },
+  {
+   "iter": 1000,
+   "loss": 0.1405,
+   "precision": 0.9312,
+   "recall": 0.9913,
+   "f1": 0.9603,
+   "min": 15.3
+  },
+  {
+   "iter": 1250,
+   "loss": 0.0573,
+   "precision": 0.9832,
+   "recall": 0.9613,
+   "f1": 0.9722,
+   "min": 19.2
+  },
+  {
+   "iter": 1500,
+   "loss": 0.0483,
+   "precision": 0.9786,
+   "recall": 0.9783,
+   "f1": 0.9784,
+   "min": 23.0
+  },
+  {
+   "iter": 1750,
+   "loss": 0.0609,
+   "precision": 0.9556,
+   "recall": 0.991,
+   "f1": 0.973,
+   "min": 26.8
+  },
+  {
+   "iter": 2000,
+   "loss": 0.0688,
+   "precision": 0.974,
+   "recall": 0.9844,
+   "f1": 0.9792,
+   "min": 30.7
+  },
+  {
+   "iter": 2250,
+   "loss": 0.033,
+   "precision": 0.9705,
+   "recall": 0.9898,
+   "f1": 0.98,
+   "min": 34.5
+  },
+  {
+   "iter": 2500,
+   "loss": 0.0502,
+   "precision": 0.9732,
+   "recall": 0.9894,
+   "f1": 0.9813,
+   "min": 38.4
+  },
+  {
+   "iter": 2750,
+   "loss": 0.0368,
+   "precision": 0.9724,
+   "recall": 0.9907,
+   "f1": 0.9815,
+   "min": 42.3
+  },
+  {
+   "iter": 3000,
+   "loss": 0.0435,
+   "precision": 0.9757,
+   "recall": 0.9894,
+   "f1": 0.9825,
+   "min": 46.1
+  },
+  {
+   "iter": 3250,
+   "loss": 0.0374,
+   "precision": 0.9769,
+   "recall": 0.9887,
+   "f1": 0.9828,
+   "min": 50.3
+  },
+  {
+   "iter": 3500,
+   "loss": 0.0309,
+   "precision": 0.9731,
+   "recall": 0.9915,
+   "f1": 0.9822,
+   "min": 54.1
+  },
+  {
+   "iter": 3750,
+   "loss": 0.0411,
+   "precision": 0.9767,
+   "recall": 0.9896,
+   "f1": 0.9831,
+   "min": 57.7
+  },
+  {
+   "iter": 4000,
+   "loss": 0.0361,
+   "precision": 0.9767,
+   "recall": 0.9898,
+   "f1": 0.9832,
+   "min": 61.2
+  }
+ ],
+ "data": "synthetic only (ecgscan.segmentation.dataset, SEED_BASE range)"
+}
