@@ -172,3 +172,31 @@ def test_clean_page_is_not_read_as_paced(tmp_path, hr, seed):
     r = run_pipeline(digitize_page_to_signal(path), mode="A")
     assert "paced_rhythm" not in r.findings.codes()
     assert r.measurements.heart_rate_bpm == pytest.approx(hr, abs=3)
+
+
+def test_clean_page_passes_the_photo_gate(page):
+    from cardiolens.layer2_preprocess.photo_quality import page_consistency
+
+    sig, path = page
+    c = page_consistency(digitize_page_to_signal(path))
+    assert c["panel_lag_ms"] <= 10 and c["einthoven_r"] >= 0.85
+    assert "photo_unreliable" not in run_pipeline(digitize_page_to_signal(path), mode="A").findings.codes()
+
+
+def test_warped_photo_withholds_alerts(tmp_path):
+    # D114: a phone-like photo of an AF record read as VT (QRS 70 -> 114 ms) because the
+    # rows sat 50-80 ms apart in time; the gate replaces findings and alerts.
+    sig = generate_synthetic_ecg(heart_rate_bpm=95, p_amp_scale=0.0, rr_jitter_ms=180, duration_s=10.0, seed=8)
+    path = str(tmp_path / "p.png")
+    render_ecg_page(sig, path)
+    dst = degrade_image(path, tmp_path / "phone.jpg", perspective=0.02, rotation_deg=1.5, blur_px=1,
+                        jpeg_quality=60, vignette=0.3, texture=0.2, seed=1)
+    r = run_pipeline(digitize_page_to_signal(dst), mode="A")
+    assert r.findings.codes() == {"photo_unreliable"}
+    assert not r.safety.alerts
+
+
+def test_digital_record_has_no_photo_check():
+    from cardiolens.layer2_preprocess.photo_quality import page_consistency
+
+    assert page_consistency(generate_synthetic_ecg(heart_rate_bpm=70, seed=1)) is None

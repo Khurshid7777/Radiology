@@ -32,6 +32,7 @@ from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
 from cardiolens.layer2_preprocess import assess_quality, preprocess
+from cardiolens.layer2_preprocess.photo_quality import page_consistency, page_unreliable
 from cardiolens.layer3_measure import measure
 from cardiolens.layer3_measure.pacing import (
     pacing_multilead_spike_times,
@@ -87,6 +88,9 @@ def run_pipeline(
     spike_times = pacing_spike_times(sig) if pacing_ratio >= cfg.pacing.spike_ratio_min else []
     ml_spike_times = pacing_multilead_spike_times(sig, cfg.pacing.multilead_k,
                                                   cfg.pacing.multilead_min_leads)
+
+    # Photo consistency on the digitised traces as read, before any filtering (D114).
+    photo = page_consistency(sig)
 
     # Layer 2 — preprocess + quality (TZ §5). preprocess() filters in place: work on a
     # copy so the caller's raw signal survives — a second run on the same object
@@ -201,6 +205,23 @@ def run_pipeline(
     # No ECG at all (D108): neither a rhythm nor an alert can be read from a flat line or
     # baseline wander; the disorganisation gate above needs beats to judge.
     no_ecg = _hf_amplitude_uv(sig) < cfg.quality.min_qrs_hf_uv
+    # A digitised photo whose page geometry was not recovered (D114): leads shifted in
+    # time widen the QRS and break the RR, so nothing read from it is trusted.
+    bad_photo = not no_ecg and page_unreliable(photo, cfg.quality.photo_max_panel_lag_ms,
+                                               cfg.quality.photo_min_einthoven_r)
+    if bad_photo:
+        lag, ein = photo["panel_lag_ms"], photo["einthoven_r"]
+        findings.findings = [Finding(
+            code="photo_unreliable", group="quality",
+            label_ru="Снимок ЭКГ не распознан надёжно (отведения не совпадают по времени) — "
+                     "переснимите лист ровно, без перекоса и тени",
+            label_uz="EKG surati ishonchli o'qilmadi (tarmoqlar vaqt bo'yicha mos emas) — "
+                     "varaqni tekis, qiyshaymasdan va soyasiz qayta suratga oling",
+            evidence=[Evidence(feature="panel_lag_ms", value=f"{lag:.0f}" if lag is not None else "—"),
+                      Evidence(feature="einthoven_r", value=f"{ein:.2f}" if ein is not None else "—")],
+            confidence=0.9)]
+        quality_ok = False
+        audit.append(f"[L2] digitised page inconsistent (lag {lag} ms, Einthoven r {ein}) — findings and alerts withheld")
     if no_ecg:
         findings.findings = [Finding(
             code="no_ecg_signal", group="quality",
@@ -227,7 +248,7 @@ def run_pipeline(
                      f"qtcΔ={serial.qtc_delta_ms}")
 
     # Safety scan (TZ §10) — before interpretation, independent of LLM.
-    safety = scan_critical(findings, Measurements() if no_ecg else m)
+    safety = scan_critical(findings, Measurements() if no_ecg or bad_photo else m)
     # New critical dynamics on serial comparison force escalation (TZ §8.4, §10).
     if serial is not None:
         for d in serial.deltas:
