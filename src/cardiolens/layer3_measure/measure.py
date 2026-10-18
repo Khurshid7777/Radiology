@@ -713,8 +713,12 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
             if P_MEDIAN_BEAT and (m.p_wave_ratio or 0.0) >= 0.5:
                 mb = _median_beat_p(sig.signal, rpeaks, qrs_on, fs, m.intervals.qt_ms)
                 if mb is not None:
-                    m.p_wave_duration_ms, mb_pr = mb
-                    if m.intervals.pr_ms is not None:
+                    mb_pd, mb_pr = mb
+                    if not P_MB_CONSENSUS or (m.p_wave_duration_ms is not None
+                                              and abs(mb_pd - m.p_wave_duration_ms) <= 40.0):
+                        m.p_wave_duration_ms = mb_pd
+                    if m.intervals.pr_ms is not None and (
+                            not P_MB_CONSENSUS or abs(mb_pr - m.intervals.pr_ms) <= 20.0):
                         m.intervals.pr_ms = mb_pr
             m.p_wave_amplitude_uv = _p_amplitude(sig, p_on, p_off)
 
@@ -831,6 +835,7 @@ def _qrs_net_deflection(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray
 
 P_MEDIAN_BEAT = False      # experiment (D111)
 P_MB_FRACTION = 0.20       # P bounds: 20 % of the P peak above the window's 10th percentile
+P_MB_CONSENSUS = 0         # experiment: use the median-beat value only near the per-beat one
 
 
 def _median_beat_p(signal: np.ndarray, rpeaks: np.ndarray, qrs_on: np.ndarray, fs: float,
