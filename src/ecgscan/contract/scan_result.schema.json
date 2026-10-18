@@ -661,6 +661,7 @@
         "TRACE_GAPS",
         "LEAD_INCOMPLETE",
         "BEATS_INCONSISTENT",
+        "QRS_UNSTABLE",
         "LEAD_OVERLAP",
         "LOW_RESOLUTION_MARGINAL",
         "FADED_PAPER",

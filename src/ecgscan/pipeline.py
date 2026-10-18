@@ -37,7 +37,7 @@ from ecgscan.layout.detect import detect_layout
 from ecgscan.layout.panels import frame_page, panels
 from ecgscan.layout.rows import long_stroke_mask
 from ecgscan.segmentation import make_segmenter
-from ecgscan.validate import beats_agree, limb_consistency
+from ecgscan.validate import limb_consistency, measurement_check
 from ecgscan.vectorize import read_panels
 
 
@@ -250,11 +250,19 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     res = result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,
                  overall=overall, ppm=raw_ppm, contrast=contrast)
     res.quality.limb_lead_consistency = cons.score
-    if status == "ok" and val.get("beat_check", True) and beats_agree(res) is False:
-        # Accurate traces can still give a wrong rhythm downstream (CardioLens D92): the
-        # beats the measurement keeps disagree with the beats the page columns show.
-        res.warnings = sorted({*res.warnings, "BEATS_INCONSISTENT"})
-        res.status = "needs_confirmation"
+    hump_scale = val.get("qrs_hump_scale")
+    if status == "ok" and (val.get("beat_check", True) or hump_scale):
+        check = measurement_check(res, hump_scale=hump_scale)
+        if val.get("beat_check", True) and check.beats_agree is False:
+            # Accurate traces can still give a wrong rhythm downstream (CardioLens D92): the
+            # beats the measurement keeps disagree with the beats the page columns show.
+            res.warnings = sorted({*res.warnings, "BEATS_INCONSISTENT"})
+            res.status = "needs_confirmation"
+        if (check.qrs_ms is not None and check.qrs_ms_low_hump is not None
+                and abs(check.qrs_ms_low_hump - check.qrs_ms) > val.get("qrs_unstable_ms", 20.0)):
+            # The QRS end hinges on a small terminal R' (SD-057): exact traces, unstable width.
+            res.warnings = sorted({*res.warnings, "QRS_UNSTABLE"})
+            res.status = "needs_confirmation"
     t = tick("validate", t)
     if artifacts_dir is not None:
         from ecgscan.artifacts import write_artifacts

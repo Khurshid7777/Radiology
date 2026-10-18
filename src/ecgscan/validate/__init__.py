@@ -96,21 +96,48 @@ def lead_quality(missing_fraction: float, ambiguity: float, edge_contact: float,
     return float(np.clip(q, 0.0, 1.0))
 
 
-def beats_agree(result) -> bool | None:
-    """The CardioLens measurement on this result: do its final beats match the page
-    columns' (D92)? ``None`` when there is nothing to compare (no page columns, too few
-    beats) or CardioLens cannot measure it."""
+@dataclass
+class MeasurementCheck:
+    """What the CardioLens measurement says about a digitised result (D92, D93)."""
+
+    beats_agree: bool | None = None          # its final beats match the page columns'
+    qrs_ms: float | None = None              # its QRS width
+    qrs_ms_low_hump: float | None = None     # the same with the R' hump threshold lowered
+
+
+def measurement_check(result, *, hump_scale: float | None = None) -> MeasurementCheck:
+    """Run CardioLens on this result (once, or twice with ``hump_scale``).
+
+    ``hump_scale``: measure again with the terminal-hump threshold of the QRS end
+    (``QRS_HUMP_FRACTION``) scaled by this. A wide QRS whose R' sits near that threshold
+    (right bundle branch block) reads 50 ms shorter or longer on a fraction of a pixel:
+    the amplitude of a small R' is within the digitisation error, so a width that
+    depends on the threshold is not a measurement to return as ``ok`` (SD-057).
+    """
     from cardiolens.config import load_app_config
     from cardiolens.layer2_preprocess import preprocess
     from cardiolens.layer3_measure import measure
+    from cardiolens.layer3_measure.delineation import QRS_HUMP_FRACTION
     from ecgscan.contract.cardiolens_adapter import to_signal_representation
 
     cfg = load_app_config()
     pp = cfg.preprocessing
+    out = MeasurementCheck()
     try:
         sig = preprocess(to_signal_representation(result), mains_frequency_hz=cfg.mains_frequency_hz,
                          bandpass_low_hz=pp.bandpass_low_hz, bandpass_high_hz=pp.bandpass_high_hz,
                          target_sampling_rate_hz=pp.target_sampling_rate_hz)
-        return measure(sig).page_beat_agreement
+        m = measure(sig)
+        out.beats_agree, out.qrs_ms = m.page_beat_agreement, m.intervals.qrs_ms
+        if hump_scale is not None and out.qrs_ms is not None:
+            out.qrs_ms_low_hump = measure(sig, qrs_hump_fraction=QRS_HUMP_FRACTION * hump_scale).intervals.qrs_ms
     except ValueError:
-        return None
+        pass
+    return out
+
+
+def beats_agree(result) -> bool | None:
+    """The CardioLens measurement on this result: do its final beats match the page
+    columns' (D92)? ``None`` when there is nothing to compare (no page columns, too few
+    beats) or CardioLens cannot measure it."""
+    return measurement_check(result).beats_agree

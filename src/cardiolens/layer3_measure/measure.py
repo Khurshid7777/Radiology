@@ -484,8 +484,9 @@ def _page_beats(sig: SignalRepresentation, windows: dict, rhythm_row: np.ndarray
     return pos[order], np.asarray(kept_heights)[order]
 
 
-def measure(sig: SignalRepresentation) -> Measurements:
-    """Full Layer-3 measurement pass (TZ §6)."""
+def measure(sig: SignalRepresentation, *, qrs_hump_fraction: float | None = None) -> Measurements:
+    """Full Layer-3 measurement pass (TZ §6). ``qrs_hump_fraction`` overrides the QRS-end
+    terminal-hump threshold for this call only (D93: the scanner's stability check)."""
     import neurokit2 as nk
 
     fs = sig.sampling_rate_hz
@@ -629,7 +630,7 @@ def measure(sig: SignalRepresentation) -> Measurements:
     qrs_off = np.full(n_beats, np.nan)
     t_off: np.ndarray | None = None
     if n_beats >= 3:
-        qrs_on, qrs_off = qrs_bounds_envelope(sig.signal, rpeaks, fs)
+        qrs_on, qrs_off = qrs_bounds_envelope(sig.signal, rpeaks, fs, hump_fraction=qrs_hump_fraction)
         p_on = p_off = None
         waves = _delineate(cleaned, rpeaks, fs)
         if waves is not None:

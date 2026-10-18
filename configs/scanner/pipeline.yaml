@@ -71,4 +71,6 @@ validate:
   lead_min_coverage: 0.8         # any lead with less coverage -> LEAD_INCOMPLETE (needs confirmation)
   limb_warn: 0.7                 # PROVISIONAL: limb-lead consistency below -> LIMB_LEADS_INCONSISTENT (clean pages 0.83-0.86, I<->II swap 0.61)
   beat_check: true               # CardioLens beats vs page columns (D92) disagree -> BEATS_INCONSISTENT (needs confirmation)
+  qrs_hump_scale: 0.667          # QRS also measured with the R' hump threshold x this (SD-057); null = off
+  qrs_unstable_ms: 20            # ... and a width that moves more than this -> QRS_UNSTABLE (needs confirmation)
   ok_min_overall: 0.6            # overall quality below -> needs_confirmation

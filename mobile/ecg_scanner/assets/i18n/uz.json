@@ -28,6 +28,7 @@
   "warning.TRACE_GAPS": "Ba’zi chiziqlarda bo‘shliqlar bor — ular to‘ldirilmagan.",
   "warning.LEAD_INCOMPLETE": "Bir yoki bir nechta ulanish 80 % dan kam o‘qildi (yaltirash, dog‘, buklanish).",
   "warning.BEATS_INCONSISTENT": "Bitta ulanish bo‘yicha ritm butun sahifa bo‘yicha ritmga mos emas — YuQS va intervallarni tekshiring.",
+  "warning.QRS_UNSTABLE": "QRS kengligi kichik oxirgi R′ to‘lqiniga bog‘liq (masalan, o‘ng oyoqcha blokadasi) — rasm bo‘yicha o‘lchov beqaror, QRSni tekshiring.",
   "warning.LEAD_OVERLAP": "Qo‘shni qatorlar chiziqlari kesishadi — ustma-ustlikni tekshiring.",
   "warning.LOW_RESOLUTION_MARGINAL": "Ruxsat quyi chegarada — aniqlik pasayishi mumkin.",
   "warning.FADED_PAPER": "Qog‘oz o‘chgan — aniqlik pasayishi mumkin.",
