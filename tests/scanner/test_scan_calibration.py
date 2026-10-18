@@ -157,3 +157,26 @@ def test_a_piece_of_a_pulse_is_not_a_second_pulse():
     m[100:102, 50:102] = True
     m[100:150, 56:58] = m[100:150, 94:96] = True             # a half-height piece inside it
     assert [p.bottom for p in find_pulses(m, 10.0)] == [205]
+
+
+def test_a_sheared_page_is_de_sheared_not_only_de_rotated(synth_mv):
+    """M6: rows tilted 2.7 deg, columns -1.5 deg (an affine photo); one rotation left 1.2 deg
+    of shear, ~20 ms of time offset per row, and the page was misread (photo_clean-002)."""
+    import cv2
+
+    from cardiolens.layer1_ingestion.digitize import estimate_skew
+    from ecgscan.geometry.rectify import rectify
+
+    img, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=10.0, header=False))
+    h, v = np.radians(2.7), np.radians(-1.5)
+    a = np.array([[np.cos(h), np.sin(v)], [np.sin(h), np.cos(v)]])
+    pad = 150
+    canvas = cv2.copyMakeBorder(img, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    c = np.array(canvas.shape[1::-1]) / 2
+    sheared = cv2.warpAffine(canvas, np.hstack([a, (c - a @ c)[:, None]]), canvas.shape[1::-1],
+                             flags=cv2.INTER_LINEAR, borderValue=(255, 255, 255))
+    for shear_min, ok in ((None, False), (0.3, True)):
+        r = rectify(sheared, working_px_per_mm=10.0, shear_min_deg=shear_min)
+        rows = estimate_skew(r.gray)
+        cols = estimate_skew(np.ascontiguousarray(r.gray.T))
+        assert (abs(rows + cols) < 0.3) is ok, (rows, cols)

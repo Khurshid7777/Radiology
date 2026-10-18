@@ -12,6 +12,7 @@ geometry:
   max_upscale: 1.25              # 8..10 px/mm photos are brought up to 10: the M2 (legacy) trace reader
                                  # rounds px/mm to an integer (a 9.3 page would be timed 3 % wrong); M3 lifts this
   fit_px_per_mm: null            # fit the perspective homography at the working scale (6 px/mm was 2x faster but lost the traces: photo r 0.94 -> 0.30)
+  shear_min_deg: 0.3             # grid rows and columns tilted apart by more than this: de-shear, not just de-rotate (SD-054)
 
 calibration:
   speeds_mm_s: [25, 50]

@@ -130,7 +130,8 @@ def _warp(img: np.ndarray, m: np.ndarray, size: tuple[int, int], border) -> np.n
 
 
 def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate | None = None,
-            max_upscale: float = 1.0, fit_px_per_mm: float | None = None) -> Rectified:
+            max_upscale: float = 1.0, fit_px_per_mm: float | None = None,
+            shear_min_deg: float | None = None) -> Rectified:
     """Area-downscale to the working scale once, then every step only *measures* on an
     intermediate image; the result is one warp by the composed matrix F * R * H (a 2-3 px
     trace stroke loses detail at every resampling)."""
@@ -155,6 +156,18 @@ def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate
     m_r = np.eye(3)
     if abs(skew) > 0.2:
         m_r = np.vstack([cv2.getRotationMatrix2D((size[0] / 2, size[1] / 2), skew, 1.0), [0.0, 0.0, 1.0]])
+    if shear_min_deg is not None:
+        # A photo the homography leaves to the affine path can still be sheared: rows and
+        # columns of the grid tilted by different angles (rows 2.7 deg, columns -1.5 deg). One
+        # rotation leaves 1.2 deg, ~20 ms of time offset per row of a 3x4 page (photo_clean-002,
+        # SD-054). Map both measured directions back onto the axes, lengths kept.
+        cols = estimate_skew(np.ascontiguousarray(gray_i.T))          # columns, as dx/dy
+        if abs(skew + cols) > shear_min_deg:
+            h, v = np.radians(skew), np.radians(cols)
+            a = np.linalg.inv(np.array([[np.cos(h), np.sin(v)], [np.sin(h), np.cos(v)]]))
+            c = np.array([size[0] / 2, size[1] / 2])
+            m_r = np.eye(3)
+            m_r[:2, :2], m_r[:2, 2] = a, c - a @ c
     bgr_i = _warp(small, m_r @ m_h, size, (255, 255, 255))
     if np.allclose(m_h, np.eye(3)) and tuple(size) == tuple(small.shape[1::-1]):
         # Scan / affine path: the area-downscale from the photo's own (precise, full-resolution)

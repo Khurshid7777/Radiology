@@ -145,7 +145,8 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     # 2. Rectify to the working scale.
     try:
         rect = rectify(img.bgr, working_px_per_mm=float(g_cfg["working_px_per_mm"]), raw_grid=raw,
-                       max_upscale=float(g_cfg["max_upscale"]), fit_px_per_mm=g_cfg.get("fit_px_per_mm"))
+                       max_upscale=float(g_cfg["max_upscale"]), fit_px_per_mm=g_cfg.get("fit_px_per_mm"),
+                       shear_min_deg=g_cfg.get("shear_min_deg"))
     except Exception:
         reasons.append("GRID_NOT_FOUND")
         return result("rejected", ppm=raw_ppm)
