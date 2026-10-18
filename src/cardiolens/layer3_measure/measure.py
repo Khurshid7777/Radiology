@@ -833,9 +833,9 @@ def _qrs_net_deflection(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray
     return float(np.median(vals)) if vals else None
 
 
-P_MEDIAN_BEAT = False      # experiment (D111)
+P_MEDIAN_BEAT = True       # D111: accepted on the held-out check (fold 10)
 P_MB_FRACTION = 0.20       # P bounds: 20 % of the P peak above the window's 10th percentile
-P_MB_CONSENSUS = 0         # experiment: use the median-beat value only near the per-beat one
+P_MB_CONSENSUS = 1         # use the median-beat value only near the per-beat one (D111)
 
 
 def _median_beat_p(signal: np.ndarray, rpeaks: np.ndarray, qrs_on: np.ndarray, fs: float,

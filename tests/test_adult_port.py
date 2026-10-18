@@ -494,3 +494,17 @@ def test_flat_line_or_baseline_wander_is_no_ecg_signal_without_alerts():
     res = run_pipeline(sig, mode="A")
     assert res.findings.codes() == {"no_ecg_signal"} and not res.safety.alerts
     assert "no_ecg_signal" not in run_pipeline(generate_synthetic_ecg(heart_rate_bpm=70), mode="A").findings.codes()
+
+
+def test_median_beat_p_duration_and_pr_are_plausible_on_a_clean_ecg():
+    # D111: global P and PR on the 12-lead median beat.
+    from cardiolens.layer3_measure.delineation import qrs_bounds_envelope
+    from cardiolens.layer3_measure.measure import _median_beat_p
+
+    res = run_pipeline(generate_synthetic_ecg(heart_rate_bpm=70), mode="A")
+    s, m = res.signal, res.measurements
+    rp = np.asarray(m.r_peaks_samples)
+    on, _ = qrs_bounds_envelope(s.signal, rp, s.sampling_rate_hz)
+    pd, pr = _median_beat_p(s.signal, rp, on, s.sampling_rate_hz, m.intervals.qt_ms)
+    assert 60 <= pd <= 160 and 100 <= pr <= 260
+    assert _median_beat_p(s.signal, rp[:3], on[:3], s.sampling_rate_hz, None) is None
