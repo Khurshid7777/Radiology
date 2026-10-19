@@ -10,8 +10,10 @@ from cardiolens.layer1_ingestion.digitize import (
     render_ecg_page,
 )
 from cardiolens.layer1_ingestion.parsers import (
+    is_dicom,
     load,
     load_csv,
+    load_dicom,
     load_edf,
     load_from_image,
     load_wfdb,
@@ -36,8 +38,10 @@ __all__ = [
     "digitize_strip",
     "digitize_strip_to_signal",
     "generate_synthetic_ecg",
+    "is_dicom",
     "load",
     "load_csv",
+    "load_dicom",
     "load_edf",
     "load_from_image",
     "load_ptbxl_record",

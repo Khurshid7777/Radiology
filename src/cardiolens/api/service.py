@@ -14,7 +14,9 @@ from pathlib import Path
 
 from cardiolens.layer1_ingestion import (
     generate_synthetic_ecg,
+    is_dicom,
     load_csv,
+    load_dicom,
     load_edf,
     load_wfdb,
 )
@@ -55,7 +57,8 @@ def signal_from_uploads(
 ):
     """Persist uploaded files to a temp dir and dispatch to a parser.
 
-    Supports WFDB (.hea + .dat), EDF (.edf/.bdf), and CSV (.csv/.txt).
+    Supports WFDB (.hea + .dat), EDF (.edf/.bdf), CSV (.csv/.txt) and DICOM waveform
+    ECG (.dcm, or any file with the DICOM magic: devices export without an extension).
     """
     if not files:
         raise ValueError("no files uploaded")
@@ -71,6 +74,10 @@ def signal_from_uploads(
             p.write_bytes(f.content)
             saved.append(p)
 
+        dcm = next((p for p, f in zip(saved, files, strict=True)
+                    if p.suffix.lower() == ".dcm" or is_dicom(f.content)), None)
+        if dcm is not None:
+            return load_dicom(dcm)
         hea = next((p for p in saved if p.suffix.lower() == ".hea"), None)
         if hea is not None:
             return load_wfdb(hea.with_suffix(""))
@@ -82,7 +89,7 @@ def signal_from_uploads(
             if sampling_rate_hz is None:
                 raise ValueError("sampling_rate_hz is required for CSV input")
             return load_csv(csv, sampling_rate_hz=sampling_rate_hz, unit=unit)
-        raise ValueError("unsupported upload; expected WFDB(.hea+.dat), EDF, or CSV")
+        raise ValueError("unsupported upload; expected WFDB(.hea+.dat), EDF, CSV or DICOM ECG")
     finally:
         # Parsers read the raw signal into memory, so the temp files are no
         # longer needed once parsing returns (or raises) — never leak them.
