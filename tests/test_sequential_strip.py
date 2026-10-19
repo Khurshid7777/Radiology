@@ -66,5 +66,6 @@ def test_two_photos_of_one_strip_combine(sig, tmp_path):
     a = digitize_sequential_to_signal(render_sequential_strip(sig, tmp_path / "a.png", groups=2, first=0))
     b = digitize_sequential_to_signal(render_sequential_strip(sig, tmp_path / "b.png", groups=3, first=1))
     s = combine_screen_signals([a, b], drop_repeats=True)
-    assert set(s.provenance.lead_windows) == set(sum(SEQ_GROUPS, []))
-    assert len(s.provenance.discontinuities_s) == 3      # every group is its own window
+    assert set(s.provenance.lead_windows) == {ln for g in SEQ_GROUPS for ln in g}
+    # every group stays its own window: 1 cut inside a, 1 between the photos, 2 inside b
+    assert len(s.provenance.discontinuities_s) == 4

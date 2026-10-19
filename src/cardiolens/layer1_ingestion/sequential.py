@@ -59,7 +59,7 @@ def find_paper(bgr: np.ndarray) -> tuple[np.ndarray, tuple[int, int, int, int]] 
     if st[i, cv2.CC_STAT_AREA] < 0.05 * paper.size:
         return None
     pts = np.column_stack(np.nonzero(lab == i)[::-1]).astype(np.float32)
-    (cx, cy), (w, h), ang = cv2.minAreaRect(pts)
+    (cx, cy), _size, ang = cv2.minAreaRect(pts)
     # Turn by the rectangle's small residual angle only; quarter turns are chosen later.
     if ang > 45:
         ang -= 90
