@@ -264,3 +264,29 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
         if best is None or min(sx, sy) > min(best.score_x, best.score_y):
             best = est
     return best  # type: ignore[return-value]
+
+
+def estimate_grid_tiled(img: np.ndarray, *, tiles: int = 3, **kw) -> GridEstimate | None:
+    """The grid of a long strip, read on ``tiles`` pieces along its long side (SD-059).
+
+    Over 6000 px a 2 % perspective moves the pitch from 11.8 to 12.4 px/mm and smears the
+    comb peaks: the whole-frame score drops below the threshold (0.13 on a strip whose
+    thirds score 1.0). Each piece sees one pitch; the estimate is the median of the pieces
+    that found a lattice, its confidence their median. None when fewer than two did.
+    """
+    h, w = img.shape[:2]
+    along_x = w >= h
+    n = w if along_x else h
+    found = []
+    for k in range(tiles):
+        a, b = k * n // tiles, (k + 1) * n // tiles
+        g = estimate_grid(img[:, a:b] if along_x else img[a:b], **kw)
+        if g.px_per_mm_x is not None and g.px_per_mm_y is not None:
+            found.append(g)
+    if len(found) < 2:
+        return None
+    def med(attr: str) -> float:
+        return float(np.median([getattr(g, attr) for g in found]))
+
+    return GridEstimate(med("px_per_mm_x"), med("px_per_mm_y"), med("score_x"), med("score_y"), found[0].channel,
+                        round(med("confidence"), 3))

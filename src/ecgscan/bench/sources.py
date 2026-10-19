@@ -21,14 +21,16 @@ class SourceSignal:
     meta: dict
 
 
-def synthetic_signal(preset: dict, rng: np.random.Generator, case_seed: int) -> SourceSignal:
-    """One record from a preset (``configs/scanner/bench.yaml: sources.synthetic``)."""
+def synthetic_signal(preset: dict, rng: np.random.Generator, case_seed: int, *,
+                     duration_s: float = 10.0) -> SourceSignal:
+    """One record from a preset (``configs/scanner/bench.yaml: sources.synthetic``); a strip of
+    four 4-s groups needs 16 s (SD-059), every other layout 10."""
     from cardiolens.layer1_ingestion import generate_synthetic_ecg
 
     kw = {k: v for k, v in preset.items() if k not in ("name", "heart_rate_bpm", "weight")}
     hr = preset.get("heart_rate_bpm", 72)
     hr = float(rng.uniform(*hr)) if isinstance(hr, list | tuple) else float(hr)
-    sig = generate_synthetic_ecg(heart_rate_bpm=hr, duration_s=10.0, sampling_rate_hz=500.0,
+    sig = generate_synthetic_ecg(heart_rate_bpm=hr, duration_s=duration_s, sampling_rate_hz=500.0,
                                  seed=case_seed, **kw)
     leads = derive_limb_leads({n: sig.lead(n).astype(np.float64) / 1000.0 for n in sig.lead_names})
     return SourceSignal(source_id=f"synthetic:{preset['name']}:{case_seed}", fs=sig.sampling_rate_hz,

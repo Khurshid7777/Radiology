@@ -103,3 +103,20 @@ def test_a_pulse_floating_below_its_row_is_not_another_row(strip):
     row2 = sorted({t.baseline_px for t in gt.traces})[1]
     guess = detect_layout(ink, 10.0, pulse_bottoms=[int(row2 + 41)], stroke_min_height_mm=2.0)
     assert guess.name == STRIP and len(guess.baselines) == 3
+
+
+def test_tiled_grid_reads_a_strip_whose_comb_is_smeared_by_perspective(strip):
+    """Over 4300 px a perspective that shrinks the far end by 12 % smears the whole-frame
+    comb below any threshold; each third still sees one pitch."""
+    from ecgscan.geometry.grid import estimate_grid, estimate_grid_tiled
+
+    img, _ = strip
+    h, w = img.shape[:2]
+    src = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
+    dst = np.float32([[0, 0], [w, 0.06 * h], [w, 0.94 * h], [0, h]])
+    warped = cv2.warpPerspective(img, cv2.getPerspectiveTransform(src, dst), (w, h), borderValue=(255, 255, 255))
+    assert estimate_grid(warped).confidence < 0.1
+    tiled = estimate_grid_tiled(warped, tiles=3)
+    assert tiled is not None and tiled.confidence > 0.9
+    assert tiled.px_per_mm_x == pytest.approx(10.0, rel=0.02)
+    assert estimate_grid_tiled(img[:, : w // 3], tiles=3).confidence == pytest.approx(1.0)   # still a lattice

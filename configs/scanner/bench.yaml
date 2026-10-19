@@ -50,6 +50,7 @@ slices:
   row_pitch_38:    {render: {row_pitch_mm: 38}, degrade: *photo}   # printer geometry differs from the default
   layout_6x2:      {layout: "6x2", degrade: *photo}
   layout_12x1:     {layout: "12x1", degrade: *photo}
+  layout_strip:    {layout: "3x4 strip", render: {header: false}, degrade: *photo}   # 3-channel recorder strip (SD-059); no printed speed
   low_res_6ppm:    {render: {px_per_mm: 6.0}, degrade: *photo}   # below the 8 px/mm floor: should be refused
   ptbxl_photo:     {source: ptbxl, degrade: *photo}
 

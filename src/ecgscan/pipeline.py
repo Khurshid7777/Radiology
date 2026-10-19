@@ -29,7 +29,7 @@ from ecgscan.calibration.pulse import find_pulses, summarize_pulses, widen_strok
 from ecgscan.calibration.resolve import resolve
 from ecgscan.config import load_yaml
 from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, Source
-from ecgscan.geometry.grid import estimate_grid
+from ecgscan.geometry.grid import estimate_grid, estimate_grid_tiled
 from ecgscan.geometry.rectify import Rectified, rectify
 from ecgscan.io import load_image
 from ecgscan.layout import get_layout
@@ -131,6 +131,12 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     # 1. Grid and resolution on the photo as taken (TZ §5.3).
     t = time.perf_counter()
     raw = estimate_grid(img.bgr)
+    h_img, w_img = img.bgr.shape[:2]
+    if raw.confidence < q_cfg["min_grid_confidence"] and max(h_img, w_img) > g_cfg.get("tile_aspect", 2.0) * min(h_img, w_img):
+        # A long strip: perspective smears the whole-frame comb; read it piece by piece (SD-059).
+        tiled = estimate_grid_tiled(img.bgr, tiles=int(g_cfg.get("grid_tiles", 3)))
+        if tiled is not None and tiled.confidence > raw.confidence:
+            raw = tiled
     t = tick("grid", t)
     raw_ppm = raw.px_per_mm
     if raw_ppm is None or raw.confidence < q_cfg["min_grid_confidence"]:

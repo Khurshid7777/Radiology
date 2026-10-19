@@ -13,6 +13,8 @@ geometry:
                                  # rounds px/mm to an integer (a 9.3 page would be timed 3 % wrong); M3 lifts this
   fit_px_per_mm: null            # fit the perspective homography at the working scale (6 px/mm was 2x faster but lost the traces: photo r 0.94 -> 0.30)
   shear_min_deg: 0.3             # grid rows and columns tilted apart by more than this: de-shear, not just de-rotate (SD-054)
+  tile_aspect: 2.0               # a frame longer than this x its width: if the whole-frame grid is weak, read it in pieces (a strip, SD-059)
+  grid_tiles: 3
 
 calibration:
   speeds_mm_s: [25, 50]

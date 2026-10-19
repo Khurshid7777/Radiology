@@ -66,12 +66,13 @@ def case_seed(base: int, slice_name: str, i: int) -> int:
     return int(h[:8], 16)
 
 
-def _source(cfg: dict, kind: str, rng: np.random.Generator, seed: int, i: int) -> SourceSignal | None:
+def _source(cfg: dict, kind: str, rng: np.random.Generator, seed: int, i: int,
+            duration_s: float = 10.0) -> SourceSignal | None:
     if kind == "ptbxl":
         recs = ptbxl_records(repo_root() / cfg["sources"]["ptbxl_dir"])
         return ptbxl_signal(recs[(seed + i) % len(recs)]) if recs else None
     presets = cfg["sources"]["synthetic"][kind]
-    return synthetic_signal(pick_preset(presets, rng), rng, seed % 100000)
+    return synthetic_signal(pick_preset(presets, rng), rng, seed % 100000, duration_s=duration_s)
 
 
 def generate_suite(suite_name: str, out_dir: str | Path, *, cases_per_slice: int | None = None,
@@ -92,7 +93,7 @@ def generate_suite(suite_name: str, out_dir: str | Path, *, cases_per_slice: int
         for i in range(n_per):
             seed = case_seed(int(cfg["seed"]), name, i)
             rng = np.random.default_rng(seed)
-            src = _source(cfg, st["source"], rng, seed, i)
+            src = _source(cfg, st["source"], rng, seed, i, duration_s=max(10.0, layout.record_s))
             if src is None:
                 skipped[name] = f"source '{st['source']}' not available ({cfg['sources']['ptbxl_dir']} is empty)"
                 break
