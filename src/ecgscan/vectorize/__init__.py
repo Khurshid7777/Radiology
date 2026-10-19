@@ -10,7 +10,7 @@ from ecgscan.contract import Trace
 from ecgscan.layout.panels import Panel
 from ecgscan.segmentation import TraceMask, thin
 from ecgscan.validate import lead_quality
-from ecgscan.vectorize.trace import estimate_stroke, resample_nan, trace_panel
+from ecgscan.vectorize.trace import estimate_stroke, refine_steep, resample_nan, trace_panel
 
 
 def legacy_track(ink: np.ndarray, skel: np.ndarray, p: Panel, pitch_px: float) -> np.ndarray:
@@ -123,6 +123,10 @@ def read_panels(mask: TraceMask, panels: list[Panel], *, px_per_mm: float, speed
                      max_gap_pitches=cfg.get("fuse_max_gap_pitches", 0.5),
                      apex_px=cfg.get("fuse_apex_strokes", 2.0) * stroke, baseline=p.baseline,
                      other_baselines=[b for b in rows if b != p.baseline])
+        if cfg.get("steep_rows", False):
+            y = refine_steep(y, mask.ink, p.x0, stroke, min_slope_strokes=cfg.get("steep_min_slope_strokes", 1.0),
+                             max_run_strokes=cfg.get("steep_max_run_strokes", 4.0),
+                             tip_cols=cfg.get("steep_tip_cols", 3))
         n_expected = p.x1 - p.x0
         if len(y) < n_expected:          # the panel runs past the image: the rest is missing, not zero
             y = np.concatenate([y, np.full(n_expected - len(y), np.nan)])

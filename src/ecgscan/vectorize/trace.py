@@ -239,6 +239,105 @@ def _neighbour(centres: np.ndarray, i: int, step: int) -> float | None:
     return None
 
 
+def _steep_segments(y: np.ndarray, d: np.ndarray, steep: np.ndarray) -> list[tuple[int, int, int]]:
+    """Monotone runs of steep columns: (first, last, sign of dy/dx)."""
+    out, c, n = [], 0, len(y)
+    while c < n:
+        if not steep[c]:
+            c += 1
+            continue
+        sign, e = int(np.sign(d[c])), c
+        while e + 1 < n and steep[e + 1] and np.sign(d[e + 1]) == sign:
+            e += 1
+        out.append((c, e, sign))
+        c = e + 1
+    return out
+
+
+def _row_run(ink: np.ndarray, r: int, xi: int, limit: float) -> tuple[int, int] | None:
+    h, w = ink.shape
+    if not (0 <= r < h and 0 <= xi < w and ink[r, xi]):
+        return None
+    left = xi
+    while left > 0 and ink[r, left - 1] and xi - left < limit:
+        left -= 1
+    right = xi
+    while right < w - 1 and ink[r, right + 1] and right - xi < limit:
+        right += 1
+    if left == 0 or right == w - 1 or right - left + 1 > limit:
+        return None
+    return left, right
+
+
+def refine_steep(y: np.ndarray, ink: np.ndarray, x0: int, stroke: float, *, min_slope_strokes: float = 1.0,
+                 max_run_strokes: float = 4.0, tip_cols: int = 3) -> np.ndarray:
+    """Steep stretches of a column path re-read from the rows (SD-058).
+
+    A column's ink run on a steep QRS flank is the curve over the pen's width (two to
+    three columns at 10 px/mm), not at the column: its middle lies between the lowest
+    and highest value in that window, ~0.2 mV low on the flank of a narrow R. Across a
+    near-vertical stroke the pen is horizontal and symmetric about the curve, so each
+    row gives the curve's x. Near a tip the two flanks merge into one blob; the curve is
+    then half a flank width inside the blob's outer edge: the left edge for the flank
+    that runs into a tip on its right, the right edge for the flank leaving a tip on
+    its left. The flank width is the narrow quartile of the panel's steep row runs.
+    """
+    n = len(y)
+    out = y.copy()
+    if n < 3 or stroke <= 0:
+        return out
+    d = np.gradient(y)
+    steep = np.isfinite(d) & (np.abs(d) > min_slope_strokes * stroke)
+    segs = _steep_segments(y, d, steep)
+    limit = max_run_strokes * stroke
+    plan = []
+    widths = []
+    for c, e, sign in segs:
+        a, b = max(0, c - 1), min(n - 1, e + 1)
+        seg = y[a:b + 1]
+        if not np.isfinite(seg).all() or b - a < 2:
+            continue
+        cols = np.arange(a, b + 1)
+        ys, xs = (seg, cols) if sign > 0 else (seg[::-1], cols[::-1])
+        rows = []
+        for r in range(int(np.ceil(seg.min())) + 1, int(np.floor(seg.max()))):
+            run = _row_run(ink, r, int(round(x0 + float(np.interp(r, ys, xs)))), limit)
+            if run is not None:
+                rows.append((r, run))
+                widths.append(run[1] - run[0] + 1)
+        # Which side is the tip: the path turns back within a few columns after / before.
+        after = d[e + 1:e + 1 + tip_cols]
+        before = d[max(0, c - tip_cols):c]
+        tip_right = bool(np.any(np.sign(after[np.isfinite(after)]) == -sign))
+        tip_left = bool(np.any(np.sign(before[np.isfinite(before)]) == -sign))
+        plan.append((c, e, rows, tip_right, tip_left))
+    if not widths:
+        return out
+    wf = float(np.percentile(widths, 25))                      # one flank, not a merged blob
+    for c, e, rows, tip_right, tip_left in plan:
+        xs, rs = [], []
+        for r, (left, right) in rows:
+            if tip_right and not tip_left:
+                x = left + (wf - 1) / 2.0
+            elif tip_left and not tip_right:
+                x = right - (wf - 1) / 2.0
+            elif right - left + 1 <= 1.3 * wf:
+                x = (left + right) / 2.0
+            else:
+                continue
+            xs.append(x - x0)
+            rs.append(float(r))
+        if len(xs) >= 3:
+            xa, ra = np.asarray(xs), np.asarray(rs)
+            o = np.argsort(xa)
+            xa, ra = xa[o], ra[o]
+            if np.all(np.diff(xa) >= -0.5):                      # still a function of x
+                cols = np.arange(c, e + 1)
+                inside = (cols >= xa[0]) & (cols <= xa[-1])
+                out[cols[inside]] = np.interp(cols[inside], xa, ra)
+    return out
+
+
 def resample_nan(values: np.ndarray, fs_in: float, fs_out: float, t_len_s: float) -> np.ndarray:
     """Linear resampling that never bridges a gap: an output sample is NaN unless both
     neighbouring input samples are valid."""

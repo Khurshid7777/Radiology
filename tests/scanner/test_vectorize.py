@@ -258,3 +258,26 @@ def test_layouts_are_read_and_match_the_truth(synth_mv, layout, tmp_path):
     assert res.quality.limb_lead_consistency is None or res.quality.limb_lead_consistency > 0.7
     for name in ("rectified.png", "overlay.png", "mask.png", "overlay_preview.jpg"):
         assert (tmp_path / name).exists()
+
+
+def test_steep_flanks_are_read_across_the_pen_not_down_the_column():
+    """SD-058: a narrow R drawn with a 5-px pen merges into a blob near the tip; column-run
+    middles sat ~0.2 mV low on the flanks (the tip itself comes from the spike rule)."""
+    from ecgscan.vectorize.trace import column_runs, refine_steep
+
+    xs = np.linspace(0, 120, 4801)
+    curve = 150 - 110 * np.exp(-0.5 * ((xs - 60) / 3.5) ** 2)     # 110 px tall, flanks ~6 columns apart
+    img = np.zeros((200, 121), np.uint8)
+    pts = np.stack([xs * 16, curve * 16], 1).astype(np.int32).reshape(-1, 1, 2)
+    cv2.polylines(img, [pts], False, 255, 5, lineType=cv2.LINE_AA, shift=4)
+    ink = img > 127
+    runs = [column_runs(ink[:, c]) for c in range(121)]
+    mid = np.array([(r[0][0] + r[0][1] - 1) / 2 if r else np.nan for r in runs])
+    truth = 150 - 110 * np.exp(-0.5 * ((np.arange(121) - 60) / 3.5) ** 2)
+    mid[60] = truth[60]                                            # the tip, as _spike_columns gives it
+    refined = refine_steep(mid, ink, 0, 5.0)
+    flank = np.r_[54:60, 61:67]
+    err_mid = np.sqrt(np.mean((mid[flank] - truth[flank]) ** 2))
+    err_ref = np.sqrt(np.mean((refined[flank] - truth[flank]) ** 2))
+    assert err_ref < 0.4 * err_mid, (err_mid, err_ref)            # 19 -> 5 px
+    assert np.array_equal(refined[:40], mid[:40])                  # flat stretches untouched
