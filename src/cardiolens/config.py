@@ -101,6 +101,9 @@ class QualityConfig(BaseModel):
     # unattached cable or a flat line. Development: PTB-XL >= 494, Georgia >= 309, PACE
     # >= 481; CODE-15% 1969740 (baseline wander only) 25.
     min_qrs_hf_uv: float = 150.0
+    # Implausible amplitude (D119): 8-40 Hz peak-to-peak above this (µV) is no ECG — a units
+    # error (µV read as mV gives ~1.8 V). Development maximum 19 756 (Georgia), PTB-XL 7 456.
+    max_qrs_hf_uv: float = 100000.0
     # Digitised photo consistency (D114, D115): a median panel-to-rhythm-strip QRS lag (ms)
     # at the search limit (not found), or r(II, I + III) below after alignment, means the
     # page geometry is not recovered.

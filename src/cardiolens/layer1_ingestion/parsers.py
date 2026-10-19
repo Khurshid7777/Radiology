@@ -45,6 +45,10 @@ def patient_from_wfdb_comments(comments: list[str] | None) -> Patient:
     return Patient(age_years=age, sex=sex)
 
 
+# Physical dimension -> µV factor (EDF, D119).
+_UV_PER_UNIT = {"uv": 1.0, "mv": 1000.0, "v": 1e6}
+
+
 def _mv_to_uv(x: np.ndarray) -> np.ndarray:
     return (np.asarray(x, dtype=np.float32) * 1000.0).astype(np.float32)
 
@@ -83,7 +87,8 @@ def load_wfdb(record_path: str | Path, *, sampto: int | None = None,
 
 
 def load_edf(path: str | Path) -> SignalRepresentation:
-    """Parse an EDF/EDF+ file (TZ §4). Assumes signals in mV -> µV."""
+    """Parse an EDF/EDF+ file (TZ §4), scaled to µV by each channel's declared physical
+    dimension (uV / mV / V); an empty or unknown dimension is taken as mV (D119)."""
     import pyedflib
 
     path = str(path)
@@ -92,9 +97,11 @@ def load_edf(path: str | Path) -> SignalRepresentation:
         labels = f.getSignalLabels()
         fs = float(f.getSampleFrequency(0))
         data = [f.readSignal(i) for i in range(n)]
+        dims = [f.getPhysicalDimension(i) for i in range(n)]
     min_len = min(len(d) for d in data)
     sig = np.vstack([d[:min_len] for d in data]).astype(np.float32)
-    sig = _mv_to_uv(sig)
+    for i, dim in enumerate(dims):
+        sig[i] *= _UV_PER_UNIT.get(str(dim).strip().lower().replace("µ", "u"), 1000.0)
     return SignalRepresentation(
         signal=sig,
         sampling_rate_hz=fs,

@@ -211,10 +211,23 @@ def run_pipeline(
         audit.append(f"[L2] signal disorganized (beat consistency {tc}) — R-peak findings withheld")
     # No ECG at all (D108): neither a rhythm nor an alert can be read from a flat line or
     # baseline wander; the disorganisation gate above needs beats to judge.
-    no_ecg = _hf_amplitude_uv(sig) < cfg.quality.min_qrs_hf_uv
+    hf_uv = _hf_amplitude_uv(sig)
+    no_ecg = hf_uv < cfg.quality.min_qrs_hf_uv
+    # A units error (D119): no ECG reaches 100 mV; every voltage, ST and alert read off
+    # such a file is off by the same factor.
+    bad_units = hf_uv > cfg.quality.max_qrs_hf_uv
+    if bad_units:
+        findings.findings = [Finding(
+            code="amplitude_implausible", group="quality",
+            label_ru=f"Амплитуда сигнала {hf_uv / 1000:.0f} мВ невозможна для ЭКГ — проверьте единицы файла (мкВ / мВ)",
+            label_uz=f"Signal amplitudasi {hf_uv / 1000:.0f} mV EKG uchun imkonsiz — fayl birliklarini tekshiring (µV / mV)",
+            evidence=[Evidence(feature="hf_peak_to_peak_uv", value=f"{hf_uv:.0f}")],
+            confidence=0.95)]
+        quality_ok = False
+        audit.append(f"[L2] amplitude {hf_uv:.0f} µV is not an ECG (units?) — all findings and alerts withheld")
     # A digitised photo whose page geometry was not recovered (D114): leads shifted in
     # time widen the QRS and break the RR, so nothing read from it is trusted.
-    bad_photo = not no_ecg and page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
+    bad_photo = not no_ecg and not bad_units and page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
                                                cfg.quality.photo_min_einthoven_r)
     if bad_photo:
         lag, ein = photo["panel_lag_ms"], (photo_aligned or photo)["einthoven_r"]
@@ -232,9 +245,11 @@ def run_pipeline(
     if no_ecg:
         findings.findings = [Finding(
             code="no_ecg_signal", group="quality",
-            label_ru="ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении) — проверьте электроды",
-            label_uz="EKG signali aniqlanmadi (hech bir tarmoqda QRS yo'q) — elektrodlarni tekshiring",
-            evidence=[Evidence(feature="hf_peak_to_peak_uv", value=f"{_hf_amplitude_uv(sig):.0f}")],
+            label_ru="ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении) — проверьте электроды"
+                     + (_UNITS_HINT_RU if sig.source in _FILE_SOURCES else ""),
+            label_uz="EKG signali aniqlanmadi (hech bir tarmoqda QRS yo'q) — elektrodlarni tekshiring"
+                     + (_UNITS_HINT_UZ if sig.source in _FILE_SOURCES else ""),
+            evidence=[Evidence(feature="hf_peak_to_peak_uv", value=f"{hf_uv:.0f}")],
             confidence=0.95)]
         quality_ok = False
         audit.append("[L2] no ECG signal (8-40 Hz below threshold in every lead) — all findings and alerts withheld")
@@ -255,7 +270,7 @@ def run_pipeline(
                      f"qtcΔ={serial.qtc_delta_ms}")
 
     # Safety scan (TZ §10) — before interpretation, independent of LLM.
-    safety = scan_critical(findings, Measurements() if no_ecg or bad_photo else m)
+    safety = scan_critical(findings, Measurements() if no_ecg or bad_photo or bad_units else m)
     # New critical dynamics on serial comparison force escalation (TZ §8.4, §10).
     if serial is not None:
         for d in serial.deltas:
@@ -294,6 +309,12 @@ def run_pipeline(
         signal=sig, measurements=m, findings=findings, causal_graph=causal,
         safety=safety, report=report, config=cfg, audit_log=audit, serial=serial,
     )
+
+
+# A file in mV read as µV is 1000x too small and looks like no ECG at all (D119).
+_FILE_SOURCES = {"csv", "edf"}
+_UNITS_HINT_RU = "; для файла — проверьте единицы (мВ вместо мкВ)"
+_UNITS_HINT_UZ = "; fayl uchun birliklarni tekshiring (µV o'rniga mV)"
 
 
 def _hf_amplitude_uv(sig: SignalRepresentation) -> float:

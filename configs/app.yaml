@@ -69,6 +69,8 @@ quality:
   # D108: no ECG at all — 8-40 Hz peak-to-peak (µV) in the best lead below this; PTB-XL >= 494,
   # Georgia >= 309, a cable with only baseline wander 25.
   min_qrs_hf_uv: 150
+  # D119: above this (µV, 8-40 Hz peak-to-peak) the amplitude is a units error, not an ECG; development max 19 756.
+  max_qrs_hf_uv: 100000
   # D114-D115: a digitised photo's panels are shifted onto the lead-II strip; one whose lag hits
   # the search limit (median, ms) or that breaks II = I + III after the shift gets no findings or
   # alerts — "retake the photo". Synthetic: clean/phone r >= 0.84 after alignment.
