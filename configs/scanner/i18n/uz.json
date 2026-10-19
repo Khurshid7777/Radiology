@@ -8,7 +8,7 @@
   "reject.LOW_RESOLUTION": "Ruxsat juda past (to‘rning 1 mm ga 8 pikseldan kam). Yaqinroqdan suratga oling yoki suratni siqmasdan, fayl sifatida yuboring.",
   "reject.GLARE": "Yaltirash chiziqlarni yopib qo‘ygan. Chaqnoqsiz, telefonni yorug‘lik manbasiga nisbatan qiyalatib qayta suratga oling.",
   "reject.BLUR": "Surat xira. Telefonni qimirlatmay ushlang va fokuslanishini kuting.",
-  "reject.GRID_NOT_FOUND": "EKG millimetrli to‘ri topilmadi. Varaqni to‘liq, tekis va yaxshi yorug‘likda suratga oling.",
+  "reject.GRID_NOT_FOUND": "EKG millimetrli to‘ri topilmadi. Qog‘oz varaqni to‘liq, tekis va yaxshi yorug‘likda suratga oling. Asbob ekranining surati yaramaydi: yozuv faylini (DICOM, SCP-ECG, EDF) yoki chop etilgan nusxani yuklang.",
   "reject.CALIBRATION_MISSING": "Kalibrovkani aniqlab bo‘lmadi. Tezlik va kuchaytirishni qo‘lda kiriting.",
   "reject.LAYOUT_UNKNOWN": "Ulanishlar joylashuvi aniqlanmadi. 3×4+ritm, 6×2, 12×1 qo‘llab-quvvatlanadi.",
   "reject.TRACE_BROKEN": "Chiziqlar varaqning katta qismida uzilgan. Bir tekis yorug‘likda qayta suratga oling.",
