@@ -57,3 +57,46 @@ def test_paper_page_is_not_a_screen(sig, tmp_path):
     path = str(tmp_path / "page.png")
     render_ecg_page(sig, path)
     assert not is_device_screen(cv2.imread(path))
+
+
+# --- D121: dark screens (bright trace on black), 6x2 displays, turned photos ---
+
+@pytest.mark.parametrize("kw,layout", [
+    (dict(dark=True), "screen 6x1"),
+    (dict(dark=True, columns=2, seconds=5.0, row_pitch_mm=12, px_per_mm=6), "screen 6x2"),
+    (dict(columns=2, seconds=5.0, row_pitch_mm=12, px_per_mm=6), "screen 6x2"),
+])
+def test_dark_and_two_column_screens(tmp_path, kw, layout):
+    from cardiolens.layer1_ingestion.screen import digitize_screen_to_signal
+
+    s = generate_synthetic_ecg(heart_rate_bpm=75, duration_s=10.0, seed=3)
+    path = render_device_screen(s, tmp_path / "d.png", **kw)
+    sig = digitize_screen_to_signal(path)
+    calib = digitize_screen.last_calibration
+    assert calib["layout"] == layout and calib["mode"] == ("dark" if kw.get("dark") else "light")
+    if kw.get("columns") == 2:
+        assert calib["columns"] == [LIMB_6, CHEST_6]
+        assert sig.provenance.lead_windows["II"][1] <= sig.provenance.lead_windows["V1"][0] + 1e-6   # one after the other
+    r = run_pipeline(sig, mode="A")
+    assert r.measurements.heart_rate_bpm == pytest.approx(75, rel=0.1)
+
+
+def test_turned_screen_photo_is_rotated_back(tmp_path):
+    import cv2
+
+    s = generate_synthetic_ecg(heart_rate_bpm=75, duration_s=10.0, seed=3)
+    path = render_device_screen(s, tmp_path / "w.png", dark=True, columns=2, seconds=5.0, row_pitch_mm=12, px_per_mm=6)
+    cv2.imwrite(str(tmp_path / "turned.png"), cv2.rotate(cv2.imread(path), cv2.ROTATE_90_COUNTERCLOCKWISE))
+    digitize_screen(str(tmp_path / "turned.png"))
+    assert digitize_screen.last_calibration["rotated_deg"] in (90, 270)
+    assert digitize_screen.last_calibration["layout"] == "screen 6x2"
+
+
+def test_white_box_on_a_dark_device_is_not_a_lit_panel(tmp_path):
+    import cv2
+
+    from cardiolens.layer1_ingestion.screen import screen_view
+
+    s = generate_synthetic_ecg(heart_rate_bpm=75, duration_s=10.0, seed=3)
+    view = screen_view(cv2.imread(render_device_screen(s, tmp_path / "b.png", dark=True)))
+    assert view is not None and view[0] == "dark"
