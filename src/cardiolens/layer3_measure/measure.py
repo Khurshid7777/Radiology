@@ -79,6 +79,10 @@ OVERSENSE_ENV_FRACTION = 0.25
 # Beat-to-beat PR standard deviation below this = a fixed PR = conducted rhythm;
 # an AV-dissociation candidate with a stable PR is rejected.
 PR_STD_DISSOCIATION_MS = 40.0
+SHORT_RECORD_S = 3.0          # shorter (a device-screen photo, D122): delineate from two beats
+SHORT_RECORD_MIN_BEATS = 2
+# QRS upstroke ~30 mV/s; P and T waves 1-3 mV/s. Kept below by a 2x scale error (D122).
+SHORT_RECORD_MIN_SLOPE_UV_S = 8000.0
 # D112 (plan step 5a): AV dissociation from the QRS-independent P train instead of the
 # residual autocorrelation and its PR vetoes. Accepted on the held-out check.
 ATRIAL_P_TRAIN = True
@@ -97,6 +101,20 @@ def _lacks_organised_p(p_wave_ratio: float | None, n_beats: int) -> bool:
     """
     n_p = round((p_wave_ratio or 0.0) * n_beats)
     return (n_p + 1) / (n_beats + 1) < AV_DISSOCIATION_MIN_P_RATIO
+
+
+def _keep_steep_beats(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float) -> np.ndarray:
+    """Beats whose steepest slope over the leads with a signal (+-40 ms) reaches a QRS's."""
+    windows = getattr(sig.provenance, "lead_windows", None)
+    rows = [i for i, n in enumerate(sig.lead_names)
+            if not is_lead_off(sig.lead(n)) and (not windows or n in windows)]
+    if not rows:
+        return rpeaks
+    d = np.abs(np.diff(sig.signal[rows].astype(np.float64), axis=1)) * fs
+    w = max(1, int(0.04 * fs))
+    keep = [r for r in rpeaks
+            if d[:, max(0, int(r) - w):int(r) + w].max(initial=0.0) >= SHORT_RECORD_MIN_SLOPE_UV_S]
+    return np.asarray(keep, dtype=int)
 
 
 def _pick_rhythm_lead(sig: SignalRepresentation) -> int:
@@ -616,12 +634,19 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
             if n_rec:
                 m.notes.append(f"{n_rec} QRS recovered from the multi-lead envelope (D75)")
                 m.r_peaks_recovered = sorted(int(r) for r in rpeaks if int(r) not in before)
+    # A ~2-s window may hold no QRS at all; the detector then marks P/T waves (D122: a
+    # 35/min record read as 105/min). On so short a record a beat needs a QRS slope.
+    if sig.duration_s < SHORT_RECORD_S and len(rpeaks):
+        rpeaks = _keep_steep_beats(sig, rpeaks, fs)
     m.r_peaks_samples = rpeaks.tolist()
     m.qrs_template_consistency = _qrs_template_consistency(sig, rpeaks, fs)
     m.qrs_partner_consistency = _qrs_partner_consistency(sig, rpeaks, fs)
     # Median-beat Q waves and right-precordial ST (ported from claude/vibrant-curie-ro1zsz
     # D36, D89, D90): pathological Q and the Brugada type-1 pattern.
-    if len(rpeaks) >= 3:
+    # A ~2-s device-screen preview (D120) holds two or three beats; a 10-s record has
+    # fewer than three only below 18/min, so two suffice when the record is that short.
+    min_beats = SHORT_RECORD_MIN_BEATS if sig.duration_s < SHORT_RECORD_S else 3
+    if len(rpeaks) >= min_beats:
         names = list(sig.lead_names)
         m.morphology.q_waves = global_q_waves(sig.signal, rpeaks, fs, names)
         m.morphology.right_precordial_st = global_right_precordial_st(sig.signal, rpeaks, fs, names)
@@ -659,7 +684,7 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
     qrs_off = np.full(n_beats, np.nan)
     t_off: np.ndarray | None = None
     p_on = p_off = None
-    if n_beats >= 3:
+    if n_beats >= min_beats:
         qrs_on, qrs_off = qrs_bounds_envelope(sig.signal, rpeaks, fs)
         p_on = p_off = None
         waves = _delineate(cleaned, rpeaks, fs)

@@ -242,6 +242,28 @@ def run_pipeline(
             confidence=0.9)]
         quality_ok = False
         audit.append(f"[L2] digitised page inconsistent (lag {lag} ms, Einthoven r {ein}) — findings and alerts withheld")
+    # A ~2-s window with one QRS (D122): no RR to measure, but the neighbouring beats lie
+    # outside the window (or at its undetected edges), so the rate is below
+    # 60 / (the larger gap to an edge - 0.5 s). A severe
+    # bradycardia on a device preview would otherwise pass as "no rhythm findings".
+    n_rp = len(m.r_peaks_samples or [])
+    if (not (no_ecg or bad_units or bad_photo) and sig.duration_s < SHORT_WINDOW_S and n_rp <= 1):
+        # Beats within ~0.5 s of an edge are not detected (truncated), so the gap is shortened by that.
+        if n_rp == 1:
+            t_beat = m.r_peaks_samples[0] / sig.sampling_rate_hz
+            gap = max(t_beat, sig.duration_s - t_beat) - SHORT_WINDOW_EDGE_S
+        else:
+            gap = sig.duration_s - 2 * SHORT_WINDOW_EDGE_S
+        bound = 60.0 / max(0.5, gap)
+        seen = "виден один комплекс" if n_rp == 1 else "нет ни одного комплекса"
+        seen_uz = "bitta kompleks" if n_rp == 1 else "birorta ham kompleks yo'q"
+        findings.findings.append(Finding(
+            code="rate_unmeasurable_short", group="quality",
+            label_ru=f"В окне {sig.duration_s:.1f} с {seen}: ЧСС не измерить, вероятно ниже "
+                     f"{bound:.0f}/мин (возможна брадикардия) — запишите не менее 10 с",
+            label_uz=f"{sig.duration_s:.1f} s oynada {seen_uz}: YUT o'lchab bo'lmaydi, ehtimol "
+                     f"{bound:.0f}/daq dan past (bradikardiya bo'lishi mumkin) — kamida 10 s yozing",
+            evidence=[Evidence(feature="max_rate_bpm", value=f"{bound:.0f}")], confidence=0.8))
     # A device-screen photo (D120): the scale is assumed, only the leads on the screen
     # exist and the window is ~2 s. Findings stay, the limitation is said in the report.
     screen = next((n for n in sig.provenance.notes if n.startswith("device screen photo")), None)
@@ -323,6 +345,8 @@ def run_pipeline(
 
 
 # A file in mV read as µV is 1000x too small and looks like no ECG at all (D119).
+SHORT_WINDOW_S = 4.0     # D122: below this, one visible QRS bounds the rate instead of measuring it
+SHORT_WINDOW_EDGE_S = 0.5
 _FILE_SOURCES = {"csv", "edf"}
 _UNITS_HINT_RU = "; для файла — проверьте единицы (мВ вместо мкВ)"
 _UNITS_HINT_UZ = "; fayl uchun birliklarni tekshiring (µV o'rniga mV)"

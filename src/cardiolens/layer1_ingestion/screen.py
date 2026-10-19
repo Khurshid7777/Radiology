@@ -57,8 +57,11 @@ SCREEN_DARK_CLUSTER_FRACTION = 0.1   # ink clusters this large (of the largest) 
 SCREEN_TWO_COLUMN_ASPECT = 1.45   # panel width / height above this = a 6x2 display
 SCREEN_6X2_COLUMN_S = 5.0         # each column of a 6x2 display: 5 s, one after the other
 SCREEN_COLUMN_LABEL_FRACTION = 0.08
+SCREEN_BOX_PITCHES = 0.75        # tracker box around a baseline, in row pitches each way
 SCREEN_SPAN_FRACTION = 0.3        # a column's traces run where long-stroke ink reaches this of its median
 SCREEN_PORTRAIT_RATIO = 1.3       # panel height / width above this = turned photo
+SCREEN_STROKE_KERNEL = 0.06       # ... if long vertical strokes then outweigh horizontal ones
+SCREEN_BAR_MIN_FRACTION = 0.03    # the blue button bar of a dark recorder, of the photo
 SCREEN_UPRIGHT_MIN = 0.35         # fewer upright QRS than this: the photo is upside down
 LIMB_6 = ["I", "II", "III", "aVR", "aVL", "aVF"]
 CHEST_6 = ["V1", "V2", "V3", "V4", "V5", "V6"]
@@ -179,9 +182,17 @@ def _major_pitch_px(g: np.ndarray, ink: np.ndarray) -> float | None:
     loc = [i for i in idx if f[i] >= f[i - 1] and f[i] >= f[min(i + 1, f.size - 1)]]
     if not loc:
         return None
-    top = max(f[i] for i in loc)
-    k = min(i for i in loc if f[i] >= SCREEN_FUNDAMENTAL_FRACTION * top)   # the fundamental, not a harmonic
-    return float(1.0 / fr[k])
+    top_i = max(loc, key=lambda i: f[i])
+    # The fundamental, not a harmonic: the longest period among the strongest line's
+    # sub-harmonics (2x, 3x, 4x its period) that still carries half its power. Any lower
+    # line is not the grid (a narrow panel has labels and a few beats at low frequency).
+    best = top_i
+    for m in (2, 3, 4):
+        j = int(round(top_i / m))
+        near = [i for i in loc if abs(i - j) <= 1 and fr[i] >= 1.0 / SCREEN_GRID_PERIOD_PX[1]]
+        if near and f[max(near, key=lambda i: f[i])] >= SCREEN_FUNDAMENTAL_FRACTION * f[top_i]:
+            best = max(near, key=lambda i: f[i])
+    return float(1.0 / fr[best])
 
 
 def _ink(gray: np.ndarray, mode: str = "light") -> tuple[np.ndarray, np.ndarray]:
@@ -199,11 +210,44 @@ def _ink(gray: np.ndarray, mode: str = "light") -> tuple[np.ndarray, np.ndarray]
 
 
 def _rows_horizontal(mask: np.ndarray) -> bool:
-    """A device display is landscape: a panel clearly taller than wide is a photo taken
-    with the screen turned by 90 degrees. (The ink itself does not tell: QRS strokes of
-    overlapping rows join into vertical lines across the whole panel.)"""
+    """False for a photo taken with the screen turned by 90 degrees: the panel is clearly
+    taller than wide *and* the baselines run vertically (more long vertical than long
+    horizontal strokes). Neither alone: TeleECG is a portrait device with a ~1:1 preview,
+    a 1.8-s window renders taller than wide, and QRS strokes of overlapping rows join into
+    vertical lines across a landscape panel."""
+    import cv2
+
     h, w = mask.shape
-    return bool(h <= SCREEN_PORTRAIT_RATIO * w)
+    if h <= SCREEN_PORTRAIT_RATIO * w:
+        return True
+    m = mask.astype(np.uint8)
+    k = max(5, int(SCREEN_STROKE_KERNEL * max(h, w)))
+    horiz = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((1, k), np.uint8)).sum()
+    vert = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((k, 1), np.uint8)).sum()
+    return bool(horiz >= vert)
+
+
+def _bar_side(bgr: np.ndarray, box: tuple[int, int, int, int]) -> str | None:
+    """Where the device's blue button bar sits relative to the panel ("left", "right",
+    "below", "above"), or None. On the dark 6x2 recorders it runs along the bottom of the
+    display, so a bar beside the traces means the photo was taken turned by 90 degrees —
+    and says which way (the ink cannot: on a turned photo the QRS strokes of all rows
+    join into lines along the time axis)."""
+    import cv2
+
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    blue = ((hsv[..., 0] >= 95) & (hsv[..., 0] <= 130) & (hsv[..., 1] > 120) & (hsv[..., 2] > 120)).astype(np.uint8)
+    n, _, st, cen = cv2.connectedComponentsWithStats(cv2.morphologyEx(blue, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8)))
+    if n < 2:
+        return None
+    j = 1 + int(np.argmax(st[1:, 4]))
+    if st[j, 4] < SCREEN_BAR_MIN_FRACTION * bgr.shape[0] * bgr.shape[1]:
+        return None
+    x0, y0, x1, y1 = box
+    dx, dy = cen[j][0] - (x0 + x1) / 2.0, cen[j][1] - (y0 + y1) / 2.0
+    if abs(dx) > abs(dy):
+        return "left" if dx < 0 else "right"
+    return "below" if dy > 0 else "above"
 
 
 def _long_strokes(mask: np.ndarray) -> np.ndarray:
@@ -264,7 +308,7 @@ def _read_rows(mask: np.ndarray, x_left: int, x_right: int, n_rows: int | None,
     base = np.sort(pk[np.argsort(-prof[pk])[:n_rows]])
     row_pitch = float(np.median(np.diff(base)))
     half = int(1.5 * row_pitch)
-    t0, t1 = half - int(0.75 * row_pitch), half + int(0.75 * row_pitch)
+    t0, t1 = half - int(SCREEN_BOX_PITCHES * row_pitch), half + int(SCREEN_BOX_PITCHES * row_pitch)
     rows, coverages = [], []
     for b in base:
         band = straighten(mask, np.full(mask.shape[1], float(b)), half)
@@ -300,9 +344,31 @@ def digitize_screen(path: str | Path, *, lead_order: list[str] | None = None,
     mode, gray, box = view
     ratio, mask = _ink(gray, mode)
     turns = 0
-    if not _rows_horizontal(mask):
+    side = _bar_side(bgr, box) if mode == "dark" else None
+    if side in ("left", "right"):          # the display's bottom points that way
+        gray = cv2.rotate(gray, cv2.ROTATE_90_COUNTERCLOCKWISE if side == "left" else cv2.ROTATE_90_CLOCKWISE)
+        turns = 3 if side == "left" else 1
+        ratio, mask = _ink(gray, mode)
+    elif mode == "dark" and side is None and not _rows_horizontal(mask):
         gray, turns = cv2.rotate(gray, cv2.ROTATE_90_CLOCKWISE), 1
         ratio, mask = _ink(gray, mode)
+    # A lit preview (TeleECG) is read as photographed; turned only if no rows are found
+    # that way and the panel is taller than wide (D122: the stroke test turned a narrow
+    # 1.8-s window).
+    if mode == "light" and turns == 0:
+        try:
+            return _digitize_view(gray, mode, box, 0, lead_order, mm_per_s, mm_per_mv, grid_mm)
+        except ValueError:
+            if gray.shape[0] <= SCREEN_PORTRAIT_RATIO * gray.shape[1]:
+                raise
+            gray, turns = cv2.rotate(gray, cv2.ROTATE_90_CLOCKWISE), 1
+    return _digitize_view(gray, mode, box, turns, lead_order, mm_per_s, mm_per_mv, grid_mm)
+
+
+def _digitize_view(gray: np.ndarray, mode: str, box: tuple[int, int, int, int], turns: int,
+                   lead_order: list[str] | None, mm_per_s: float, mm_per_mv: float,
+                   grid_mm: float) -> dict[str, np.ndarray]:
+    ratio, mask = _ink(gray, mode)
     cols = _columns(mask)
 
     def spans_of(m: np.ndarray, cs: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -346,7 +412,7 @@ def digitize_screen(path: str | Path, *, lead_order: list[str] | None = None,
         cols = [(w - c1, w - c0) for c0, c1 in reversed(cols)]
         spans = spans_of(mask, cols)
         rows, coverages = read(mask, spans)
-        turns += 2
+        turns = (turns + 2) % 4
     if lead_order is None:
         lead_order = (LIMB_6 + CHEST_6) if len(cols) == 2 and len(rows) == 12 else _guess_lead_order(rows)
     if len(lead_order) != len(rows):
@@ -439,6 +505,9 @@ def render_device_screen(sig: SignalRepresentation, path: str | Path, *, leads: 
             cv2.polylines(panel, [np.stack([xs, ys], axis=1).astype(np.int32)], False, ink, 2)
     img = np.full((height_px + 260, width_px + 120, 3), (40, 32, 30), np.uint8)   # bezel and room
     img[60:60 + height_px, 60:60 + width_px] = panel
-    cv2.rectangle(img, (60, 60 + height_px + 20), (60 + width_px // 2, 60 + height_px + 150), (235, 235, 235), -1)
+    if dark:   # the recorders' blue button bar along the bottom of the display (D122)
+        cv2.rectangle(img, (60, 60 + height_px + 10), (60 + width_px, 60 + height_px + 90), (200, 110, 30), -1)
+    else:
+        cv2.rectangle(img, (60, 60 + height_px + 20), (60 + width_px // 2, 60 + height_px + 150), (235, 235, 235), -1)
     cv2.imwrite(str(path), img)
     return str(path)

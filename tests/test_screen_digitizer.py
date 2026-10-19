@@ -100,3 +100,30 @@ def test_white_box_on_a_dark_device_is_not_a_lit_panel(tmp_path):
     s = generate_synthetic_ecg(heart_rate_bpm=75, duration_s=10.0, seed=3)
     view = screen_view(cv2.imread(render_device_screen(s, tmp_path / "b.png", dark=True)))
     assert view is not None and view[0] == "dark"
+
+
+# --- D122: ~2-s windows (TeleECG preview) ---
+
+@pytest.mark.parametrize("hr,seed", [(30, 7), (35, 4), (40, 20), (50, 12), (75, 3)])
+def test_short_window_never_overstates_a_slow_rate(tmp_path, hr, seed):
+    # One or no QRS in 1.8 s: the rate is not measured but bounded from above, and P/T
+    # waves are not taken for beats (a 35/min record had been read as 105/min).
+    from cardiolens.layer1_ingestion.screen import digitize_screen_to_signal
+
+    s = generate_synthetic_ecg(heart_rate_bpm=hr, duration_s=10.0, seed=seed)
+    r = run_pipeline(digitize_screen_to_signal(render_device_screen(s, tmp_path / "w.png", seconds=1.8),
+                                               lead_order=CHEST_6), mode="A")
+    measured = r.measurements.heart_rate_bpm
+    bound = next((float(f.evidence[0].value) for f in r.findings.findings if f.code == "rate_unmeasurable_short"), None)
+    assert (measured is not None and measured == pytest.approx(hr, rel=0.1)) or (bound is not None and bound >= hr)
+
+
+@pytest.mark.parametrize("kw,code", [(dict(heart_rate_bpm=70, bbb="rbbb", seed=6), "rbbb"),
+                                     (dict(heart_rate_bpm=70, bbb="lbbb", seed=7), "lbbb")])
+def test_two_beats_suffice_for_qrs_on_a_short_window(tmp_path, kw, code):
+    from cardiolens.layer1_ingestion.screen import digitize_screen_to_signal
+
+    s = generate_synthetic_ecg(duration_s=10.0, **kw)
+    r = run_pipeline(digitize_screen_to_signal(render_device_screen(s, tmp_path / "b.png"), lead_order=CHEST_6),
+                     mode="A")
+    assert code in r.findings.codes()
