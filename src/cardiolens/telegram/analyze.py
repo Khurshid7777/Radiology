@@ -79,7 +79,7 @@ def analyse_photos(paths: list[str | Path], *, mode: str = "A",
     for p in paths:
         try:
             sigs.append(digitize_auto_to_signal(p))
-        except Exception as e:  # noqa: BLE001 — a page that does not digitise is data too
+        except Exception as e:
             errors.append(f"{Path(p).name}: {type(e).__name__}: {e}")
     screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]
     try:
@@ -93,7 +93,7 @@ def analyse_photos(paths: list[str | Path], *, mode: str = "A",
         sig = sigs[0]
     try:
         return run_pipeline(sig, mode=mode, provider=provider or StubProvider()), None
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return None, f"{type(e).__name__}: {e}"
 
 

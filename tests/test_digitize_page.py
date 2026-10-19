@@ -177,7 +177,7 @@ def test_clean_page_is_not_read_as_paced(tmp_path, hr, seed):
 def test_clean_page_passes_the_photo_gate(page):
     from cardiolens.layer2_preprocess.photo_quality import page_consistency
 
-    sig, path = page
+    _sig, path = page
     c = page_consistency(digitize_page_to_signal(path))
     assert c["panel_lag_ms"] <= 10 and c["einthoven_r"] >= 0.85
     assert "photo_unreliable" not in run_pipeline(digitize_page_to_signal(path), mode="A").findings.codes()

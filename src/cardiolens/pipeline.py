@@ -9,6 +9,7 @@ traceability (TZ §11.1, §12). Output rendering (JSON/SVG/graph/PDF) lives in
 from __future__ import annotations
 
 import functools
+import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -32,7 +33,11 @@ from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
 from cardiolens.layer2_preprocess import assess_quality, preprocess
-from cardiolens.layer2_preprocess.photo_quality import align_panels, page_consistency, page_unreliable
+from cardiolens.layer2_preprocess.photo_quality import (
+    align_panels,
+    page_consistency,
+    page_unreliable,
+)
 from cardiolens.layer3_measure import measure
 from cardiolens.layer3_measure.pacing import (
     pacing_multilead_spike_times,
@@ -249,7 +254,7 @@ def run_pipeline(
     # Pages joined from several photos (D123) are separate windows: the gaps are measured
     # within the beat's own page.
     edges = [0.0, *(sig.provenance.discontinuities_s or []), sig.duration_s]
-    pages = list(zip(edges[:-1], edges[1:], strict=True))
+    pages = list(itertools.pairwise(edges))
     longest = max(b - a for a, b in pages)
     n_rp = len(m.r_peaks_samples or [])
     if not (no_ecg or bad_units or bad_photo) and longest < SHORT_WINDOW_S and n_rp <= 1 and not m.heart_rate_bpm:

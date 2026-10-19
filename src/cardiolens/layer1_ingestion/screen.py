@@ -48,6 +48,8 @@ SCREEN_RIM_CONTRAST = 80          # panel minus its frame (see _rim_contrast)
 SCREEN_LIGHT_MIN_INK = 0.005      # a lit panel with less trace ink is a button or an info box
 SCREEN_DARK_INK_RATIO = 1.35      # dark screens: brighter than this x the local background ...
 SCREEN_DARK_TRACE_RATIO = 1.6     # ... and for reading the trace (the grid lines reach ~1.3)
+SCREEN_DARK_TRACE_MAX_HUE = 90    # ... and green (the header text is teal-tinted, hue ~92)
+SCREEN_DARK_TRACE_MIN_S = 22      # ... and coloured (glare is near-white)
 SCREEN_DARK_MIN_S = 70            # ... coloured (white text and glare are not) ...
 SCREEN_DARK_MIN_V = 110
 SCREEN_DARK_HUE = (20, 95)        # ... green to yellow (the blue header bar is not a trace)
@@ -74,7 +76,7 @@ def find_screen_panel(bgr: np.ndarray) -> tuple[int, int, int, int] | None:
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     bright = ((hsv[..., 2] > SCREEN_BRIGHT_V) & (hsv[..., 1] < SCREEN_BRIGHT_MAX_S)).astype(np.uint8)
     bright = cv2.morphologyEx(bright, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
-    n, lab, st, _ = cv2.connectedComponentsWithStats(bright)
+    _n, lab, st, _ = cv2.connectedComponentsWithStats(bright)
     area = bgr.shape[0] * bgr.shape[1]
     order = [k for k in np.argsort(-st[1:, 4]) + 1
              if SCREEN_MIN_PANEL_FRACTION * area <= st[k, 2] * st[k, 3] <= SCREEN_MAX_PANEL_FRACTION * area]
@@ -119,7 +121,7 @@ def find_dark_panel(bgr: np.ndarray) -> tuple[int, int, int, int] | None:
     ink = ((g / bg > SCREEN_DARK_INK_RATIO) & (hsv[..., 1] > SCREEN_DARK_MIN_S) & (hsv[..., 2] > SCREEN_DARK_MIN_V)
            & (hue >= SCREEN_DARK_HUE[0]) & (hue <= SCREEN_DARK_HUE[1])).astype(np.uint8)
     k = max(9, int(0.03 * max(bgr.shape[:2])))
-    n, lab, st, _ = cv2.connectedComponentsWithStats(cv2.dilate(ink, np.ones((k, k), np.uint8)))
+    n, _lab, st, _ = cv2.connectedComponentsWithStats(cv2.dilate(ink, np.ones((k, k), np.uint8)))
     if n < 2:
         return None
     # Rows far apart (a tall display) stay separate clusters: the panel spans all of the
@@ -302,7 +304,7 @@ def _read_rows(mask: np.ndarray, x_left: int, x_right: int, n_rows: int | None,
     pk, _ = find_peaks(prof, distance=max(3, int(0.6 * mask.shape[0] / guess)),
                        height=0.05 * (x_right - x_left))
     if n_rows is None:
-        n_rows = len(pk) if len(pk) in (3, 6, 12) else (6 if len(pk) >= 6 else len(pk))
+        n_rows = len(pk) if len(pk) in (3, 6, 12) else (min(6, len(pk)))
     if len(pk) < n_rows or n_rows < 3:
         raise ValueError(f"screen: expected {n_rows} rows, found {len(pk)}")
     base = np.sort(pk[np.argsort(-prof[pk])[:n_rows]])
@@ -342,16 +344,28 @@ def digitize_screen(path: str | Path, *, lead_order: list[str] | None = None,
     if view is None:
         raise ValueError("screen: no device screen found")
     mode, gray, box = view
-    ratio, mask = _ink(gray, mode)
+    colour = None
+    if mode == "dark":
+        # Text and glare are white, the trace is green (D124: on photo 6 the header text sits
+        # at hue ~92, tinted by the teal background, and the glare at saturation ~16; the
+        # traces at hue 73-82, saturation 45-51).
+        x0, y0, x1, y1 = box
+        hsv = cv2.cvtColor(bgr[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+        colour = ((hsv[..., 0] <= SCREEN_DARK_TRACE_MAX_HUE) & (hsv[..., 1] >= SCREEN_DARK_TRACE_MIN_S)).astype(np.uint8)
+    _ratio, mask = _ink(gray, mode)
+    if colour is not None:
+        mask &= colour > 0
     turns = 0
     side = _bar_side(bgr, box) if mode == "dark" else None
     if side in ("left", "right"):          # the display's bottom points that way
-        gray = cv2.rotate(gray, cv2.ROTATE_90_COUNTERCLOCKWISE if side == "left" else cv2.ROTATE_90_CLOCKWISE)
+        rot = cv2.ROTATE_90_COUNTERCLOCKWISE if side == "left" else cv2.ROTATE_90_CLOCKWISE
+        gray = cv2.rotate(gray, rot)
+        colour = cv2.rotate(colour, rot) if colour is not None else None
         turns = 3 if side == "left" else 1
-        ratio, mask = _ink(gray, mode)
+        _ratio, mask = _ink(gray, mode)
     elif mode == "dark" and side is None and not _rows_horizontal(mask):
         gray, turns = cv2.rotate(gray, cv2.ROTATE_90_CLOCKWISE), 1
-        ratio, mask = _ink(gray, mode)
+        colour = cv2.rotate(colour, cv2.ROTATE_90_CLOCKWISE) if colour is not None else None
     # A lit preview (TeleECG) is read as photographed; turned only if no rows are found
     # that way and the panel is taller than wide (D122: the stroke test turned a narrow
     # 1.8-s window).
@@ -362,13 +376,18 @@ def digitize_screen(path: str | Path, *, lead_order: list[str] | None = None,
             if gray.shape[0] <= SCREEN_PORTRAIT_RATIO * gray.shape[1]:
                 raise
             gray, turns = cv2.rotate(gray, cv2.ROTATE_90_CLOCKWISE), 1
-    return _digitize_view(gray, mode, box, turns, lead_order, mm_per_s, mm_per_mv, grid_mm)
+    # The button bar fixes the orientation; without it the QRS directions decide 180 degrees.
+    return _digitize_view(gray, mode, box, turns, lead_order, mm_per_s, mm_per_mv, grid_mm,
+                          orientation_known=side is not None, colour=colour)
 
 
 def _digitize_view(gray: np.ndarray, mode: str, box: tuple[int, int, int, int], turns: int,
                    lead_order: list[str] | None, mm_per_s: float, mm_per_mv: float,
-                   grid_mm: float) -> dict[str, np.ndarray]:
+                   grid_mm: float, orientation_known: bool = False,
+                   colour: np.ndarray | None = None) -> dict[str, np.ndarray]:
     ratio, mask = _ink(gray, mode)
+    if colour is not None:
+        mask &= colour > 0
     cols = _columns(mask)
 
     def spans_of(m: np.ndarray, cs: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -406,7 +425,7 @@ def _digitize_view(gray: np.ndarray, mode: str, box: tuple[int, int, int, int], 
         return rows, covs
 
     rows, coverages = read(mask, spans)
-    if _upright_fraction(rows) < SCREEN_UPRIGHT_MIN:          # upside down: turn by 180
+    if not orientation_known and _upright_fraction(rows) < SCREEN_UPRIGHT_MIN:   # upside down: turn by 180
         mask = mask[::-1, ::-1]
         w = mask.shape[1]
         cols = [(w - c1, w - c0) for c0, c1 in reversed(cols)]
