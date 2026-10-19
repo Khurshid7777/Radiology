@@ -127,3 +127,22 @@ def test_two_beats_suffice_for_qrs_on_a_short_window(tmp_path, kw, code):
     r = run_pipeline(digitize_screen_to_signal(render_device_screen(s, tmp_path / "b.png"), lead_order=CHEST_6),
                      mode="A")
     assert code in r.findings.codes()
+
+
+# --- D123: TeleECG limb page + chest page sent together ---
+
+def test_two_screen_pages_combine_into_twelve_leads(tmp_path):
+    from cardiolens.layer1_ingestion.screen import combine_screen_signals, digitize_screen_to_signal
+    from cardiolens.telegram.analyze import analyse_photos
+
+    s = generate_synthetic_ecg(heart_rate_bpm=80, duration_s=10.0, seed=5)
+    limb = render_device_screen(s, tmp_path / "limb.png", leads=LIMB_6)
+    chest = render_device_screen(s, tmp_path / "chest.png", leads=CHEST_6)
+    sig = combine_screen_signals([digitize_screen_to_signal(limb, lead_order=LIMB_6),
+                                  digitize_screen_to_signal(chest, lead_order=CHEST_6)])
+    w = sig.provenance.lead_windows
+    assert set(w) == set(LIMB_6 + CHEST_6) and w["II"][1] <= w["V1"][0] + 1e-6
+    result, error = analyse_photos([limb, chest])
+    assert error is None and result.measurements.heart_rate_bpm == pytest.approx(80, rel=0.1)
+    with pytest.raises(ValueError):
+        combine_screen_signals([sig, sig])            # the same page twice

@@ -511,3 +511,48 @@ def render_device_screen(sig: SignalRepresentation, path: str | Path, *, leads: 
         cv2.rectangle(img, (60, 60 + height_px + 20), (60 + width_px // 2, 60 + height_px + 150), (235, 235, 235), -1)
     cv2.imwrite(str(path), img)
     return str(path)
+
+
+def combine_screen_signals(signals: list[SignalRepresentation]) -> SignalRepresentation:
+    """One record from two or more photos of one device's pages (D123): TeleECG's "6x2"
+    display shows the limb page and the chest page in turn. The pages were recorded at
+    different moments, so each page keeps its own time window, one after the other (as
+    the columns of a 6x2 display); the later pages are resampled to the first one's rate.
+    Raises ValueError when two pages carry the same lead."""
+    from cardiolens.contracts.signal import STANDARD_12_LEADS, Provenance
+    from cardiolens.layer2_preprocess import resample_signal
+
+    if not signals:
+        raise ValueError("no pages")
+    if len(signals) == 1:
+        return signals[0]
+    seen: set[str] = set()
+    for s in signals:
+        leads = set((s.provenance.lead_windows or {}).keys())
+        if leads & seen:
+            raise ValueError(f"pages repeat leads: {sorted(leads & seen)}")
+        seen |= leads
+    fs = signals[0].sampling_rate_hz
+    pages = [s if abs(s.sampling_rate_hz - fs) < 1e-6 else resample_signal(s, fs) for s in signals]
+    total = sum(p.signal.shape[1] for p in pages)
+    out = np.zeros((12, total), dtype=np.float32)
+    windows: dict[str, tuple[float, float]] = {}
+    notes: list[str] = []
+    cuts: list[float] = []
+    start = 0
+    for p in pages:
+        if start:
+            cuts.append(start / fs)
+        n = p.signal.shape[1]
+        for ln, (t0, t1) in (p.provenance.lead_windows or {}).items():
+            if ln in STANDARD_12_LEADS:
+                out[STANDARD_12_LEADS.index(ln), start:start + n] = p.lead(ln)
+                windows[ln] = (start / fs + t0, start / fs + t1)
+        notes += p.provenance.notes
+        start += n
+    conf = [p.provenance.confidence for p in pages if p.provenance.confidence is not None]
+    notes.append(f"device screen photo: {len(pages)} pages combined, one after the other")
+    return SignalRepresentation(
+        signal=out, sampling_rate_hz=fs, lead_names=list(STANDARD_12_LEADS), duration_s=total / fs,
+        source="image", provenance=Provenance(digitized=True, confidence=min(conf) if conf else None,
+                                              lead_windows=windows, discontinuities_s=cuts, notes=notes))

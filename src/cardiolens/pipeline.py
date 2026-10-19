@@ -246,22 +246,28 @@ def run_pipeline(
     # outside the window (or at its undetected edges), so the rate is below
     # 60 / (the larger gap to an edge - 0.5 s). A severe
     # bradycardia on a device preview would otherwise pass as "no rhythm findings".
+    # Pages joined from several photos (D123) are separate windows: the gaps are measured
+    # within the beat's own page.
+    edges = [0.0, *(sig.provenance.discontinuities_s or []), sig.duration_s]
+    pages = list(zip(edges[:-1], edges[1:], strict=True))
+    longest = max(b - a for a, b in pages)
     n_rp = len(m.r_peaks_samples or [])
-    if (not (no_ecg or bad_units or bad_photo) and sig.duration_s < SHORT_WINDOW_S and n_rp <= 1):
+    if not (no_ecg or bad_units or bad_photo) and longest < SHORT_WINDOW_S and n_rp <= 1 and not m.heart_rate_bpm:
         # Beats within ~0.5 s of an edge are not detected (truncated), so the gap is shortened by that.
         if n_rp == 1:
             t_beat = m.r_peaks_samples[0] / sig.sampling_rate_hz
-            gap = max(t_beat, sig.duration_s - t_beat) - SHORT_WINDOW_EDGE_S
+            a, b = next(((a, b) for a, b in pages if a <= t_beat <= b), (0.0, sig.duration_s))
+            gap = max(t_beat - a, b - t_beat) - SHORT_WINDOW_EDGE_S
         else:
-            gap = sig.duration_s - 2 * SHORT_WINDOW_EDGE_S
+            gap = longest - 2 * SHORT_WINDOW_EDGE_S
         bound = 60.0 / max(0.5, gap)
         seen = "виден один комплекс" if n_rp == 1 else "нет ни одного комплекса"
         seen_uz = "bitta kompleks" if n_rp == 1 else "birorta ham kompleks yo'q"
         findings.findings.append(Finding(
             code="rate_unmeasurable_short", group="quality",
-            label_ru=f"В окне {sig.duration_s:.1f} с {seen}: ЧСС не измерить, вероятно ниже "
+            label_ru=f"В окне {longest:.1f} с {seen}: ЧСС не измерить, вероятно ниже "
                      f"{bound:.0f}/мин (возможна брадикардия) — запишите не менее 10 с",
-            label_uz=f"{sig.duration_s:.1f} s oynada {seen_uz}: YUT o'lchab bo'lmaydi, ehtimol "
+            label_uz=f"{longest:.1f} s oynada {seen_uz}: YUT o'lchab bo'lmaydi, ehtimol "
                      f"{bound:.0f}/daq dan past (bradikardiya bo'lishi mumkin) — kamida 10 s yozing",
             evidence=[Evidence(feature="max_rate_bpm", value=f"{bound:.0f}")], confidence=0.8))
     # A device-screen photo (D120): the scale is assumed, only the leads on the screen

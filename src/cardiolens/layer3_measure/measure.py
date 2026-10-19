@@ -654,8 +654,13 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
     m.n_beats = len(rpeaks)
 
     rr_s_mean = None
-    if len(rpeaks) >= 2:
-        rr = np.diff(rpeaks) / fs  # seconds
+    # RR intervals across a jump between pages recorded at different moments are not RR
+    # (D123: two photos of a recorder's screen joined into one record).
+    cuts = getattr(sig.provenance, "discontinuities_s", None) or []
+    spans_cut = (lambda a, b: any(a / fs < c <= b / fs for c in cuts)) if cuts else (lambda a, b: False)
+    rr_ok = [(a, b) for a, b in pairwise(rpeaks) if not spans_cut(a, b)]
+    if len(rpeaks) >= 2 and rr_ok:
+        rr = np.array([b - a for a, b in rr_ok], dtype=float) / fs  # seconds
         rr_s_mean = float(np.mean(rr))
         m.heart_rate_bpm = round(60.0 / rr_s_mean, 1)
         m.rr_std_ms = round(float(np.std(rr) * 1000.0), 1)

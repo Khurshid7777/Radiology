@@ -76,6 +76,9 @@ class Provenance(BaseModel):
     # (the rhythm strip covers the whole record). Per-lead measurements use only
     # the beats inside the window; outside it the samples are zero, not data.
     lead_windows: dict[str, tuple[float, float]] | None = None   # lead -> (t0_s, t1_s)
+    # Times (s) where the record jumps between pages recorded at different moments
+    # (two photos of a device's screen, D123): no RR interval spans one.
+    discontinuities_s: list[float] | None = None
     notes: list[str] = Field(default_factory=list)
 
 

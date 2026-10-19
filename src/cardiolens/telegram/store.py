@@ -24,7 +24,7 @@ class Record(BaseModel):
     photo_path: str = ""
     signal_path: str | None = None
     review_png: str | None = None
-    status: str = "new"           # not_ecg | digitise_failed | analysed
+    status: str = "new"           # not_ecg | digitise_failed | analysed | merged (another album photo's record)
     grid_pitch_px: float | None = None
     error: str | None = None
     predicted: list[str] = Field(default_factory=list)
@@ -99,7 +99,7 @@ class DatasetStore:
             "not_ecg": status.get("not_ecg", 0),
             "digitise_failed": status.get("digitise_failed", 0),
             "analysed": status.get("analysed", 0),
-            "awaiting_review": sum(1 for r in recs if r.status != "not_ecg" and r.verdict is None),
+            "awaiting_review": sum(1 for r in recs if r.status not in ("not_ecg", "merged") and r.verdict is None),
             "confirmed": verdict.get("confirmed", 0),
             "rejected": verdict.get("rejected", 0),
             "partial": verdict.get("partial", 0),

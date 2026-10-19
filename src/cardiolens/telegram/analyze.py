@@ -42,14 +42,18 @@ def save_photo(data: bytes, dest: str | Path) -> Path:
 
 
 def is_ecg_photo(path: str | Path, min_pitch_px: float = 3.0) -> tuple[bool, float | None]:
-    """An image is an ECG candidate when the digitiser finds a millimetre grid in it."""
+    """An image is an ECG candidate when the digitiser finds a millimetre grid in it, or
+    when it is a photo of a recorder's own screen (D120-D121: its grid is not paper)."""
     import cv2
 
-    gray = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-    if gray is None:
+    from cardiolens.layer1_ingestion.screen import is_device_screen
+
+    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if bgr is None:
         return False, None
-    pitch = estimate_grid_pitch(gray)
-    return bool(pitch is not None and pitch >= min_pitch_px), None if pitch is None else float(pitch)
+    pitch = estimate_grid_pitch(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY))
+    ok = (pitch is not None and pitch >= min_pitch_px) or is_device_screen(bgr)
+    return bool(ok), None if pitch is None else float(pitch)
 
 
 def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[PipelineResult | None, str | None]:
@@ -59,6 +63,37 @@ def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[
         sig = digitize_auto_to_signal(path)
         return run_pipeline(sig, mode=mode, provider=provider or StubProvider()), None
     except Exception as e:  # digitiser raises on pages it cannot read — that is data too
+        return None, f"{type(e).__name__}: {e}"
+
+
+def analyse_photos(paths: list[str | Path], *, mode: str = "A",
+                   provider=None) -> tuple[PipelineResult | None, str | None]:
+    """Several photos sent together (a Telegram album). Photos of one recorder's pages —
+    TeleECG's limb page and chest page — become one record (D123); anything else is
+    analysed from the first photo that digitises."""
+    if len(paths) == 1:
+        return analyse_photo(paths[0], mode=mode, provider=provider)
+    from cardiolens.layer1_ingestion.screen import combine_screen_signals
+
+    sigs, errors = [], []
+    for p in paths:
+        try:
+            sigs.append(digitize_auto_to_signal(p))
+        except Exception as e:  # noqa: BLE001 — a page that does not digitise is data too
+            errors.append(f"{Path(p).name}: {type(e).__name__}: {e}")
+    screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]
+    try:
+        if len(screens) >= 2:
+            sig = combine_screen_signals(screens)
+        elif sigs:
+            sig = sigs[0]
+        else:
+            return None, "; ".join(errors)
+    except ValueError:            # the pages repeat leads: two photos of the same page
+        sig = sigs[0]
+    try:
+        return run_pipeline(sig, mode=mode, provider=provider or StubProvider()), None
+    except Exception as e:  # noqa: BLE001
         return None, f"{type(e).__name__}: {e}"
 
 

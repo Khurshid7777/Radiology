@@ -4,6 +4,7 @@ dataset store, feedback entries, export to the harness — and the collector wit
 import asyncio
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -225,3 +226,24 @@ def test_collector_end_to_end_with_a_fake_client(page, tmp_path, monkeypatch):
     cv2.imwrite(str(blank), np.full((300, 300), 230, dtype=np.uint8))
     skipped = asyncio.run(col.handle_photo(_FakeMessage(14, data=blank.read_bytes()), chat))
     assert skipped.status == "not_ecg" and len(client.sent) == 1
+
+
+def test_album_of_two_screen_pages_gives_one_card(tmp_path):
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from cardiolens.layer1_ingestion.screen import CHEST_6, LIMB_6, render_device_screen
+    from cardiolens.telegram.agent import Collector
+
+    s = generate_synthetic_ecg(heart_rate_bpm=80, duration_s=10.0, seed=5)
+    limb = render_device_screen(s, tmp_path / "limb.png", leads=LIMB_6)
+    chest = render_device_screen(s, tmp_path / "chest.png", leads=CHEST_6)
+    cfg = TelegramConfig(store_dir=str(tmp_path / "tg"), feedback_path=str(tmp_path / "fb.jsonl"))
+    store = DatasetStore(cfg.store_dir)
+    client = _FakeClient()
+    col = Collector(client, cfg, store, "me")
+    chat = SimpleNamespace(id=1, title="ЭКГ группа")
+    msgs = [_FakeMessage(20, data=Path(limb).read_bytes()), _FakeMessage(21, data=Path(chest).read_bytes())]
+    rec = asyncio.run(col.handle_album(msgs, chat))
+    assert rec.status == "analysed" and len(client.sent) == 1 and len(client.sent[0][1]) == 3   # 2 photos + review
+    other = store.get(DatasetStore.record_id(1, 21))
+    assert other.status == "merged" and rec.id in other.error
+    assert store.stats()["awaiting_review"] == 1

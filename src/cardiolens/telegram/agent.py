@@ -20,7 +20,7 @@ from cardiolens.layer6_interpret import default_provider
 from cardiolens.layer6_interpret.stub import StubProvider
 from cardiolens.telegram.analyze import (
     VERDICT_HELP,
-    analyse_photo,
+    analyse_photos,
     apply_verdict,
     feedback_from_verdict,
     format_card,
@@ -50,32 +50,45 @@ class Collector:
         self.provider = default_provider(llm=load_app_config().llm) if cfg.narrative else StubProvider()
 
     async def handle_photo(self, msg, chat) -> Record | None:
-        chat_id = int(getattr(chat, "id", msg.chat_id))
-        if self.store.has(chat_id, msg.id):
-            return None
-        rec_id = DatasetStore.record_id(chat_id, msg.id)
-        data = await msg.download_media(bytes)
-        if not data:
-            return None
-        photo = save_photo(data, self.store.photos / f"{rec_id}.jpg")
-        sender = str(msg.sender_id or "")
-        rec = Record(
-            id=rec_id, chat_id=chat_id, msg_id=msg.id,
-            chat_title=getattr(chat, "title", "") or "",
-            date=msg.date.strftime("%Y-%m-%dT%H:%M:%S") if msg.date else "",
-            sender_hash=hashlib.sha256(sender.encode()).hexdigest()[:12] if sender else "",
-            caption=(msg.message or "")[:1000], photo_path=str(photo),
-        )
-        ok, pitch = await asyncio.to_thread(is_ecg_photo, photo, self.cfg.min_grid_pitch_px)
-        rec.grid_pitch_px = pitch
-        if not ok:
-            rec.status = "not_ecg"
-            self.store.upsert(rec)
-            log.info("%s: no ECG grid (pitch %s) — skipped", rec_id, pitch)
-            return rec
+        return await self.handle_album([msg], chat)
 
-        result, error = await asyncio.to_thread(analyse_photo, photo, mode=self.cfg.mode, provider=self.provider)
-        files = [str(photo)]
+    async def handle_album(self, msgs, chat) -> Record | None:
+        """One card for the photos of one message or album (D123): the pages of a recorder's
+        screen (TeleECG: limb page + chest page) are read as one record; the first ECG
+        photo's record carries the analysis, the others are marked merged into it."""
+        chat_id = int(getattr(chat, "id", msgs[0].chat_id))
+        recs = []
+        for msg in msgs:
+            if self.store.has(chat_id, msg.id):
+                continue
+            rec_id = DatasetStore.record_id(chat_id, msg.id)
+            data = await msg.download_media(bytes)
+            if not data:
+                continue
+            photo = save_photo(data, self.store.photos / f"{rec_id}.jpg")
+            sender = str(msg.sender_id or "")
+            rec = Record(
+                id=rec_id, chat_id=chat_id, msg_id=msg.id,
+                chat_title=getattr(chat, "title", "") or "",
+                date=msg.date.strftime("%Y-%m-%dT%H:%M:%S") if msg.date else "",
+                sender_hash=hashlib.sha256(sender.encode()).hexdigest()[:12] if sender else "",
+                caption=(msg.message or "")[:1000], photo_path=str(photo),
+            )
+            ok, pitch = await asyncio.to_thread(is_ecg_photo, photo, self.cfg.min_grid_pitch_px)
+            rec.grid_pitch_px = pitch
+            if not ok:
+                rec.status = "not_ecg"
+                self.store.upsert(rec)
+                log.info("%s: no ECG grid (pitch %s) — skipped", rec_id, pitch)
+            recs.append(rec)
+        ecg = [r for r in recs if r.status != "not_ecg"]
+        if not ecg:
+            return recs[0] if recs else None
+
+        rec = ecg[0]
+        photos = [r.photo_path for r in ecg]
+        result, error = await asyncio.to_thread(analyse_photos, photos, mode=self.cfg.mode, provider=self.provider)
+        files = list(photos)
         if result is None:
             rec.status = "digitise_failed"
             rec.error = error
@@ -87,15 +100,18 @@ class Collector:
             rec.measurements = summarize(result)
             rec.analysis_mode = result.report.mode
             rec.provider = result.report.provider
-            rec.signal_path = str(save_signal(result.signal, self.store.signals / f"{rec_id}.npz"))
+            rec.signal_path = str(save_signal(result.signal, self.store.signals / f"{rec.id}.npz"))
             rec.review_png = str(await asyncio.to_thread(
-                render_review_png, result, self.store.reviews / f"{rec_id}.png"))
+                render_review_png, result, self.store.reviews / f"{rec.id}.png"))
             files.append(rec.review_png)
         caption = format_card(rec, result, error)
         sent = await self._send(files, caption)
         rec.review_msg_ids = [m.id for m in sent]
         self.store.upsert(rec)
-        log.info("%s: %s -> review message(s) %s", rec_id, rec.status, rec.review_msg_ids)
+        for other in ecg[1:]:
+            other.status, other.error = "merged", f"merged into {rec.id}"
+            self.store.upsert(other)
+        log.info("%s: %s (%d photo(s)) -> review message(s) %s", rec.id, rec.status, len(ecg), rec.review_msg_ids)
         return rec
 
     async def _send(self, files: list[str], caption: str):
@@ -209,9 +225,18 @@ async def run_agent(cfg: TelegramConfig, *, backfill_only: bool = False) -> None
         await client.disconnect()
         return
 
+    @client.on(events.Album(chats=groups))
+    async def on_group_album(event):
+        msgs = [m for m in event.messages if m.photo]
+        if msgs:
+            try:
+                await collector.handle_album(msgs, await event.get_chat())
+            except Exception:
+                log.exception("album %s/%s failed", event.chat_id, msgs[0].id)
+
     @client.on(events.NewMessage(chats=groups))
     async def on_group_message(event):
-        if event.message.photo:
+        if event.message.photo and not getattr(event.message, "grouped_id", None):   # albums: above
             try:
                 await collector.handle_photo(event.message, await event.get_chat())
             except Exception:
