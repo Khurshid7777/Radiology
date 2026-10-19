@@ -532,12 +532,16 @@ def render_device_screen(sig: SignalRepresentation, path: str | Path, *, leads: 
     return str(path)
 
 
-def combine_screen_signals(signals: list[SignalRepresentation]) -> SignalRepresentation:
+def combine_screen_signals(signals: list[SignalRepresentation], *,
+                           drop_repeats: bool = False) -> SignalRepresentation:
     """One record from two or more photos of one device's pages (D123): TeleECG's "6x2"
     display shows the limb page and the chest page in turn. The pages were recorded at
     different moments, so each page keeps its own time window, one after the other (as
     the columns of a 6x2 display); the later pages are resampled to the first one's rate.
-    Raises ValueError when two pages carry the same lead."""
+    Raises ValueError when two pages carry the same lead, unless ``drop_repeats``: then a
+    later page's repeated leads are left out, and a page with nothing new is skipped (two
+    overlapping photos of one three-channel strip, D125). A page's own discontinuities
+    are kept."""
     from cardiolens.contracts.signal import STANDARD_12_LEADS, Provenance
     from cardiolens.layer2_preprocess import resample_signal
 
@@ -546,25 +550,33 @@ def combine_screen_signals(signals: list[SignalRepresentation]) -> SignalReprese
     if len(signals) == 1:
         return signals[0]
     seen: set[str] = set()
+    keep: list[tuple[SignalRepresentation, set[str]]] = []
     for s in signals:
         leads = set((s.provenance.lead_windows or {}).keys())
-        if leads & seen:
+        if leads & seen and not drop_repeats:
             raise ValueError(f"pages repeat leads: {sorted(leads & seen)}")
+        if leads - seen:
+            keep.append((s, leads - seen))
         seen |= leads
+    signals = [s for s, _ in keep]
+    if len(signals) == 1:
+        return signals[0]
     fs = signals[0].sampling_rate_hz
     pages = [s if abs(s.sampling_rate_hz - fs) < 1e-6 else resample_signal(s, fs) for s in signals]
+    new = [leads for _, leads in keep]
     total = sum(p.signal.shape[1] for p in pages)
     out = np.zeros((12, total), dtype=np.float32)
     windows: dict[str, tuple[float, float]] = {}
     notes: list[str] = []
     cuts: list[float] = []
     start = 0
-    for p in pages:
+    for p, leads in zip(pages, new, strict=True):
         if start:
             cuts.append(start / fs)
+        cuts += [start / fs + c for c in (p.provenance.discontinuities_s or [])]
         n = p.signal.shape[1]
         for ln, (t0, t1) in (p.provenance.lead_windows or {}).items():
-            if ln in STANDARD_12_LEADS:
+            if ln in STANDARD_12_LEADS and ln in leads:
                 out[STANDARD_12_LEADS.index(ln), start:start + n] = p.lead(ln)
                 windows[ln] = (start / fs + t0, start / fs + t1)
         notes += p.provenance.notes

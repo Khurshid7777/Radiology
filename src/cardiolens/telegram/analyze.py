@@ -43,16 +43,18 @@ def save_photo(data: bytes, dest: str | Path) -> Path:
 
 def is_ecg_photo(path: str | Path, min_pitch_px: float = 3.0) -> tuple[bool, float | None]:
     """An image is an ECG candidate when the digitiser finds a millimetre grid in it, or
-    when it is a photo of a recorder's own screen (D120-D121: its grid is not paper)."""
+    when it is a photo of a recorder's own screen (D120-D121: its grid is not paper) or
+    of a three-channel strip on a patterned desk (D125)."""
     import cv2
 
     from cardiolens.layer1_ingestion.screen import is_device_screen
+    from cardiolens.layer1_ingestion.sequential import is_sequential_strip
 
     bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if bgr is None:
         return False, None
     pitch = estimate_grid_pitch(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY))
-    ok = (pitch is not None and pitch >= min_pitch_px) or is_device_screen(bgr)
+    ok = (pitch is not None and pitch >= min_pitch_px) or is_device_screen(bgr) or is_sequential_strip(bgr)
     return bool(ok), None if pitch is None else float(pitch)
 
 
@@ -69,7 +71,8 @@ def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[
 def analyse_photos(paths: list[str | Path], *, mode: str = "A",
                    provider=None) -> tuple[PipelineResult | None, str | None]:
     """Several photos sent together (a Telegram album). Photos of one recorder's pages —
-    TeleECG's limb page and chest page — become one record (D123); anything else is
+    TeleECG's limb page and chest page — become one record (D123), as do photos of
+    the parts of one three-channel strip (D125); anything else is
     analysed from the first photo that digitises."""
     if len(paths) == 1:
         return analyse_photo(paths[0], mode=mode, provider=provider)
@@ -82,9 +85,12 @@ def analyse_photos(paths: list[str | Path], *, mode: str = "A",
         except Exception as e:
             errors.append(f"{Path(p).name}: {type(e).__name__}: {e}")
     screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]
+    strips = [s for s in sigs if any(n.startswith("three-channel strip photo") for n in s.provenance.notes)]
     try:
         if len(screens) >= 2:
             sig = combine_screen_signals(screens)
+        elif len(strips) >= 2:     # parts of one strip, in the order sent (D125)
+            sig = combine_screen_signals(strips, drop_repeats=True)
         elif sigs:
             sig = sigs[0]
         else:

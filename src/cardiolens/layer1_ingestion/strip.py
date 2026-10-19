@@ -76,11 +76,12 @@ STRIP_GLYPH_MAX_MM = 4.0          # printed text: glyph height at most this, wid
 STRIP_TEXT_MIN_GLYPHS = 5         # ... at least this many on one line
 STRIP_TEXT_MIN_SPAN_MM = 40.0     # ... spanning at least this much
 STRIP_TEXT_MIN_BASELINE_PITCHES = 0.3   # ... and not on a row baseline
+STRIP_LABEL_GLYPH_MM = 5.0      # a lead label's letter: a component at most this wide and high (D125)
 STRIP_ROW_PITCH_MM = 18.0     # renderer default
 STRIP_LABEL_MM = 10.0         # renderer: left margin for labels / pulse
 
 
-def ink_mask_colour(bgr: np.ndarray, px_per_mm: float = 4.0) -> np.ndarray:
+def ink_mask_colour(bgr: np.ndarray, px_per_mm: float = 4.0, ratio: float = STRIP_INK_RATIO) -> np.ndarray:
     """Ink = dark relative to the local paper brightness, unsaturated, not blue pen,
     not a large dark region (the desk around the paper)."""
     import cv2
@@ -94,7 +95,7 @@ def ink_mask_colour(bgr: np.ndarray, px_per_mm: float = 4.0) -> np.ndarray:
     # and would cut the trace to pieces; the red grid's heavy lines keep a
     # chroma of several tens, a ballpoint stroke a clear b > r.
     chroma = bgr.max(axis=2).astype(np.int16) - bgr.min(axis=2).astype(np.int16)
-    ink = (v < STRIP_INK_RATIO * local) & (chroma <= STRIP_INK_MAX_CHROMA)
+    ink = (v < ratio * local) & (chroma <= STRIP_INK_MAX_CHROMA)
     pen = ((b - r) >= STRIP_PEN_MIN_BR) & ((b - g) >= STRIP_PEN_MIN_BR // 3)
     pen = cv2.dilate(pen.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
     ink &= ~pen
@@ -421,6 +422,17 @@ def _drop_line_crossings(trace: np.ndarray, pitch: float, heights: np.ndarray, s
     return out
 
 
+def _drop_glyphs(band: np.ndarray, px_per_mm: float) -> np.ndarray:
+    """The band without components at most STRIP_LABEL_GLYPH_MM in both directions."""
+    import cv2
+
+    n, lab, st, _ = cv2.connectedComponentsWithStats(band.astype(np.uint8), connectivity=8)
+    lim = STRIP_LABEL_GLYPH_MM * px_per_mm
+    small = np.zeros(n, dtype=bool)
+    small[1:] = (st[1:, cv2.CC_STAT_WIDTH] <= lim) & (st[1:, cv2.CC_STAT_HEIGHT] <= lim)
+    return band & ~small[lab]
+
+
 def straighten(mask: np.ndarray, baseline: np.ndarray, half: int) -> np.ndarray:
     """Band of height ``2*half`` whose middle row is the row's baseline at every column."""
     h, w = mask.shape
@@ -435,9 +447,9 @@ def straighten(mask: np.ndarray, baseline: np.ndarray, half: int) -> np.ndarray:
 
 
 def digitize_strip(
-    path: str | Path, *, rows: int = 12, lead_order: list[str] | None = None,
+    path: str | Path | np.ndarray, *, rows: int = 12, lead_order: list[str] | None = None,
     px_per_mm: float | None = None, mm_per_s: float = 25.0, mm_per_mv: float | None = None,
-    dewarp: bool = True,
+    dewarp: bool = True, ink_ratio: float = STRIP_INK_RATIO,
 ) -> dict[str, np.ndarray]:
     """``{lead: trace_uv}`` at ``px_per_s`` Hz for a rows x 1 strip photo;
     ``digitize_strip.last_calibration`` / ``last_coverage`` hold the provenance."""
@@ -446,13 +458,13 @@ def digitize_strip(
     lead_order = lead_order or STRIP_12_ROWS
     if len(lead_order) != rows:
         raise ValueError("lead_order must name one lead per row")
-    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    bgr = path if isinstance(path, np.ndarray) else cv2.imread(str(path), cv2.IMREAD_COLOR)
     if bgr is None:
         raise FileNotFoundError(f"cannot read image: {path}")
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     clean = paint_pen(gray, bgr)
     est0 = estimate_grid_pitch(clean)
-    mask = ink_mask_colour(bgr, est0 or 4.0)
+    mask = ink_mask_colour(bgr, est0 or 4.0, ink_ratio)
     if dewarp:
         clean = dewarp_page(clean)
         mask = apply_dewarp(mask, nearest=True)
@@ -531,6 +543,11 @@ def digitize_strip(
                  pulse_found=bool(pulse_heights), pulses=len(pulse_heights), trace_x=(int(x_left), int(x_right)))
     out: dict[str, np.ndarray] = {}
     coverages = []
+    # Ink close to each baseline per column (x_left..x_right): a sequential layout's
+    # group boundaries are where every row has none (D125).
+    # Lead labels printed on the baseline are glyph-sized components and do not count.
+    digitize_strip.last_near_ink = np.array(  # type: ignore[attr-defined]
+        [_drop_glyphs(band, px_per_mm)[near_band, x_left:x_right].any(axis=0) for band in bands])
     for lead, band in zip(lead_order, bands, strict=True):
         thin = thin_mask(band)
         raw = _trace_rows_tracked(band, thin, x_left, x_right, y0, y1, baseline_weight=STRIP_BASELINE_WEIGHT)
@@ -600,17 +617,27 @@ def count_rows(path: str | Path) -> int:
 
 
 def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
-    """Pick the layout: a device screen photo -> screen reader (D120); ~12 rows -> strip,
-    otherwise the 3x4 page digitiser, with the other one as the fallback."""
+    """Pick the layout: a device screen photo -> screen reader (D120); a narrow strip of
+    paper -> three-channel reader (D125); ~12 rows -> strip, otherwise the 3x4 page
+    digitiser, with the other one as the fallback."""
     import cv2
 
     from cardiolens.layer1_ingestion.digitize import digitize_page_to_signal
     from cardiolens.layer1_ingestion.screen import digitize_screen_to_signal, is_device_screen
+    from cardiolens.layer1_ingestion.sequential import (
+        digitize_sequential_to_signal,
+        is_sequential_strip,
+    )
 
     bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if bgr is not None and is_device_screen(bgr):     # a device's own display (D120)
         try:
             return digitize_screen_to_signal(path)
+        except ValueError:
+            pass
+    if bgr is not None and is_sequential_strip(bgr):  # three rows, lead groups in turn (D125)
+        try:
+            return digitize_sequential_to_signal(path)
         except ValueError:
             pass
     rows = count_rows(path)
