@@ -1,7 +1,7 @@
 """Layer 1 — file parsers to the unified representation (TZ §4).
 
-Working parsers for WFDB, EDF/EDF+, CSV and DICOM waveform ECG (D94).
-SCP-ECG / GE-MUSE / Philips / HL7-aECG are declared as interfaces with explicit
+Working parsers for WFDB, EDF/EDF+, CSV, DICOM waveform ECG (D94) and SCP-ECG
+rhythm data (D95). GE-MUSE / Philips / HL7-aECG are declared as interfaces with explicit
 ``NotImplementedError`` + TODO — we never fabricate a result (TZ §0). All
 outputs are in microvolts.
 """
@@ -223,8 +223,11 @@ def load_dicom(path: str | Path) -> SignalRepresentation:
 # --- Interfaces declared but not implemented in this increment (TZ §0, §17) ---
 
 
-def load_scp(path: str | Path) -> SignalRepresentation:  # pragma: no cover
-    raise NotImplementedError("TODO(v2): SCP-ECG parsing (TZ §4).")
+def load_scp(path: str | Path) -> SignalRepresentation:
+    """SCP-ECG rhythm data (D95; ``cardiolens.layer1_ingestion.scp``)."""
+    from cardiolens.layer1_ingestion.scp import load_scp as _load_scp
+
+    return _load_scp(path)
 
 
 def load_from_image(path: str | Path, **kwargs) -> SignalRepresentation:
@@ -250,6 +253,8 @@ def load(path: str | Path, **kwargs) -> SignalRepresentation:
         return load_csv(p, **kwargs)
     if ext in (".dcm",):
         return load_dicom(p)
+    if ext in (".scp",):
+        return load_scp(p)
     if ext in (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"):
         return load_from_image(p, **kwargs)
     raise ValueError(f"Unsupported extension: {ext}")

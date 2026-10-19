@@ -15,9 +15,11 @@ from pathlib import Path
 from cardiolens.layer1_ingestion import (
     generate_synthetic_ecg,
     is_dicom,
+    is_scp,
     load_csv,
     load_dicom,
     load_edf,
+    load_scp,
     load_wfdb,
 )
 from cardiolens.pipeline import PipelineResult, run_pipeline
@@ -58,7 +60,8 @@ def signal_from_uploads(
     """Persist uploaded files to a temp dir and dispatch to a parser.
 
     Supports WFDB (.hea + .dat), EDF (.edf/.bdf), CSV (.csv/.txt) and DICOM waveform
-    ECG (.dcm, or any file with the DICOM magic: devices export without an extension).
+    ECG (.dcm, or any file with the DICOM magic: devices export without an extension) and
+    SCP-ECG (.scp, or a record whose CRC and section-0 mark hold).
     """
     if not files:
         raise ValueError("no files uploaded")
@@ -78,6 +81,10 @@ def signal_from_uploads(
                     if p.suffix.lower() == ".dcm" or is_dicom(f.content)), None)
         if dcm is not None:
             return load_dicom(dcm)
+        scp = next((p for p, f in zip(saved, files, strict=True)
+                    if p.suffix.lower() == ".scp" or is_scp(f.content)), None)
+        if scp is not None:
+            return load_scp(scp)
         hea = next((p for p in saved if p.suffix.lower() == ".hea"), None)
         if hea is not None:
             return load_wfdb(hea.with_suffix(""))
@@ -89,7 +96,7 @@ def signal_from_uploads(
             if sampling_rate_hz is None:
                 raise ValueError("sampling_rate_hz is required for CSV input")
             return load_csv(csv, sampling_rate_hz=sampling_rate_hz, unit=unit)
-        raise ValueError("unsupported upload; expected WFDB(.hea+.dat), EDF, CSV or DICOM ECG")
+        raise ValueError("unsupported upload; expected WFDB(.hea+.dat), EDF, CSV, DICOM ECG or SCP-ECG")
     finally:
         # Parsers read the raw signal into memory, so the temp files are no
         # longer needed once parsing returns (or raises) — never leak them.
