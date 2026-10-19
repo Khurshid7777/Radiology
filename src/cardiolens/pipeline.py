@@ -242,6 +242,17 @@ def run_pipeline(
             confidence=0.9)]
         quality_ok = False
         audit.append(f"[L2] digitised page inconsistent (lag {lag} ms, Einthoven r {ein}) — findings and alerts withheld")
+    # A device-screen photo (D120): the scale is assumed, only the leads on the screen
+    # exist and the window is ~2 s. Findings stay, the limitation is said in the report.
+    screen = next((n for n in sig.provenance.notes if n.startswith("device screen photo")), None)
+    if screen and not (no_ecg or bad_units or bad_photo):
+        findings.findings.append(Finding(
+            code="screen_photo_limited", group="quality",
+            label_ru="Фото экрана прибора: масштаб принят по умолчанию (25 мм/с, 10 мм/мВ), видны не все отведения, "
+                     "запись короткая — амплитуды и ST ориентировочны; для заключения нужна полная запись 12 отведений",
+            label_uz="Qurilma ekrani surati: masshtab taxminiy (25 mm/s, 10 mm/mV), barcha tarmoqlar ko'rinmaydi, "
+                     "yozuv qisqa — amplituda va ST taxminiy; xulosa uchun to'liq 12 tarmoqli yozuv kerak",
+            evidence=[Evidence(feature="screen", value=screen)], confidence=0.9))
     if no_ecg:
         findings.findings = [Finding(
             code="no_ecg_signal", group="quality",

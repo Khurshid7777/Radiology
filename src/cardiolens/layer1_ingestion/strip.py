@@ -600,10 +600,19 @@ def count_rows(path: str | Path) -> int:
 
 
 def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
-    """Pick the layout from the ink: ~12 rows -> strip, otherwise the 3x4 page
-    digitiser, with the other one as the fallback."""
-    from cardiolens.layer1_ingestion.digitize import digitize_page_to_signal
+    """Pick the layout: a device screen photo -> screen reader (D120); ~12 rows -> strip,
+    otherwise the 3x4 page digitiser, with the other one as the fallback."""
+    import cv2
 
+    from cardiolens.layer1_ingestion.digitize import digitize_page_to_signal
+    from cardiolens.layer1_ingestion.screen import digitize_screen_to_signal, is_device_screen
+
+    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if bgr is not None and is_device_screen(bgr):     # a device's own display (D120)
+        try:
+            return digitize_screen_to_signal(path)
+        except ValueError:
+            pass
     rows = count_rows(path)
     first, second = (digitize_strip_to_signal, digitize_page_to_signal) if rows >= 8 else \
         (digitize_page_to_signal, digitize_strip_to_signal)

@@ -100,10 +100,15 @@ def _lacks_organised_p(p_wave_ratio: float | None, n_beats: int) -> bool:
 
 
 def _pick_rhythm_lead(sig: SignalRepresentation) -> int:
+    """First preferred lead that carries a signal. A lead missing from a digitised
+    screen (its row is not on the photo, D120) or detached is flat and has no beats."""
+    windows = getattr(sig.provenance, "lead_windows", None)
+    usable = [n for n in sig.lead_names
+              if not is_lead_off(sig.lead(n)) and (not windows or n in windows)]
     for name in _RHYTHM_LEAD_PREFERENCE:
-        if name in sig.lead_names:
+        if name in usable:
             return sig.lead_names.index(name)
-    return 0
+    return sig.lead_names.index(usable[0]) if usable else 0
 
 
 def _reject_non_qrs_detections(
@@ -1252,8 +1257,7 @@ def _qrs_partner_consistency(sig: SignalRepresentation, rpeaks: np.ndarray, fs: 
     """
     if len(rpeaks) < 3:
         return None
-    li = sig.lead_names.index("II") if "II" in sig.lead_names else 0
-    row = sig.signal[li].astype(np.float64)
+    row = sig.signal[_pick_rhythm_lead(sig)].astype(np.float64)
     w = int(0.09 * fs)
     beats = [row[int(r) - w:int(r) + w] for r in rpeaks
              if int(r) - w >= 0 and int(r) + w < len(row)]
@@ -1281,8 +1285,7 @@ def _qrs_template_consistency(
     """
     if len(rpeaks) < 3:
         return None
-    li = sig.lead_names.index("II") if "II" in sig.lead_names else 0
-    row = sig.signal[li].astype(np.float64)
+    row = sig.signal[_pick_rhythm_lead(sig)].astype(np.float64)   # II, or the first lead with a signal (D120)
     # +-90 ms captures the full QRS even for wide (BBB/paced) complexes, and the
     # wider window also drives noise correlation down (a random signal decorrelates
     # over a longer span) — sharpening the separation from real ECG.
