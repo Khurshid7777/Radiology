@@ -121,6 +121,7 @@ DICOM_ECG_SOP_CLASSES = {
     "1.2.840.10008.5.1.4.1.1.9.1.1": "12-lead ECG",
     "1.2.840.10008.5.1.4.1.1.9.1.2": "general ECG",
     "1.2.840.10008.5.1.4.1.1.9.1.3": "ambulatory ECG",
+    "1.2.840.10008.5.1.4.1.1.9.1.4": "general 32-bit ECG",
 }
 _DICOM_DTYPES = {("SS", 8): np.int8, ("SB", 8): np.int8, ("UB", 8): np.uint8, ("US", 8): np.uint8,
                  ("SS", 16): np.int16, ("US", 16): np.uint16, ("SL", 32): np.int32, ("UL", 32): np.uint32}

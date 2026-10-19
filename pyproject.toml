@@ -28,13 +28,13 @@ llm = ["anthropic"]
 validation = ["pandas"]
 digitize = ["opencv-python-headless"]
 telegram = ["telethon", "opencv-python-headless"]
-# DICOM waveform ECG input (D94; MIT).
-dicom = ["pydicom>=2.4"]
+# DICOM waveform ECG input (D94) and network receiver (D96); MIT.
+dicom = ["pydicom>=2.4", "pynetdicom>=2", "httpx"]
 # ECG scanner (src/ecgscan, docs/scanner): image I/O, ScanResult schema check, header OCR (Apache-2.0).
 scanner = ["opencv-python-headless", "jsonschema", "rapidocr-onnxruntime", "cryptography"]
 bot = ["aiogram>=3", "httpx"]
 dev = ["pytest", "ruff", "httpx", "opencv-python-headless", "jsonschema", "rapidocr-onnxruntime", "cryptography",
-       "pydicom>=2.4"]
+       "pydicom>=2.4", "pynetdicom>=2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
