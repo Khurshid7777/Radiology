@@ -145,7 +145,7 @@ def render_page(signals_mv: dict[str, np.ndarray], fs_in: float, layout: LayoutS
     pulse_area = layout.pulse.area_mm if layout.pulse.present else 0.0
     header = layout.header_mm if spec.header else 0.0
     trace_x0_mm = layout.margin_mm + pulse_area
-    width_mm = trace_x0_mm + layout.record_s * speed + layout.margin_mm
+    width_mm = trace_x0_mm + layout.width_mm(speed) + layout.margin_mm
     n_rows = layout.n_trace_rows
     height_mm = header + 2 * layout.margin_mm + pitch * n_rows
     w, h = int(np.ceil(width_mm * ppm)), int(np.ceil(height_mm * ppm))
@@ -170,10 +170,10 @@ def render_page(signals_mv: dict[str, np.ndarray], fs_in: float, layout: LayoutS
     def baseline(r: int) -> float:
         return (header + layout.margin_mm + pitch * (r + 0.5)) * ppm
 
-    def draw_trace(lead: str, kind: str, t0: float, t1: float, row: int) -> None:
+    def draw_trace(lead: str, kind: str, t0: float, t1: float, row: int, x_mm: float | None = None) -> None:
         i0, i1 = int(round(t0 * fs)), int(round(t1 * fs))
         seg = sig[lead][i0:i1]
-        x0 = (trace_x0_mm + t0 * speed) * ppm
+        x0 = (trace_x0_mm + (t0 * speed if x_mm is None else x_mm)) * ppm
         xs = x0 + np.arange(len(seg)) / fs * speed * ppm
         ys = baseline(row) - seg * gain * ppm
         _polyline(img, xs, ys, ink, thick)
@@ -185,10 +185,11 @@ def render_page(signals_mv: dict[str, np.ndarray], fs_in: float, layout: LayoutS
 
     for r, row in enumerate(layout.rows):
         for c, lead in enumerate(row):
-            draw_trace(lead, "panel", c * layout.panel_s, (c + 1) * layout.panel_s, r)
+            draw_trace(lead, "panel", c * layout.panel_s, (c + 1) * layout.panel_s, r,
+                       x_mm=layout.column_offset_mm(c, speed))
         if spec.column_markers:
             for c in range(1, len(row)):
-                x = (trace_x0_mm + c * layout.panel_s * speed) * ppm
+                x = (trace_x0_mm + layout.column_offset_mm(c, speed)) * ppm
                 _polyline(img, np.array([x, x]), np.array([baseline(r) - 2 * ppm, baseline(r) + 2 * ppm]), ink, thick)
     for k, lead in enumerate(layout.rhythm):
         draw_trace(lead, "rhythm", 0.0, layout.record_s, len(layout.rows) + k)
@@ -196,7 +197,7 @@ def render_page(signals_mv: dict[str, np.ndarray], fs_in: float, layout: LayoutS
         pw = min(layout.pulse.width_s * speed, pulse_area - 2.0) * ppm
         ph = 1.0 * gain * ppm
         for r in range(n_rows):
-            if r % max(1, layout.pulse.every_n_rows):
+            if r % max(1, layout.pulse.every_n_rows) or (layout.pulse.rows is not None and r not in layout.pulse.rows):
                 continue
             xa, yb = (layout.margin_mm + 1.0) * ppm, baseline(r)
             _polyline(img, np.array([xa - 1.0 * ppm, xa, xa, xa + pw, xa + pw, xa + pw + 1.0 * ppm]),

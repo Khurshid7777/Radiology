@@ -25,7 +25,7 @@ import numpy as np
 
 from ecgscan import PIPELINE_VERSION
 from ecgscan.calibration.header_ocr import read_bands
-from ecgscan.calibration.pulse import find_pulses, summarize_pulses
+from ecgscan.calibration.pulse import find_pulses, summarize_pulses, widen_strokes
 from ecgscan.calibration.resolve import resolve
 from ecgscan.config import load_yaml
 from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, Source
@@ -163,11 +163,22 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     mask = make_segmenter(cfg.get("segmentation", {})).segment(rect.bgr, ppm)
     ink = mask.ink
     pulses = find_pulses(ink, ppm)
+    p_cfg = c_cfg.get("pulse", {})
+    if not pulses and p_cfg.get("retry_widen_px"):
+        # A real strip's pulse: a thin line, slanted by the paper's curl, broken by the mask
+        # into short pieces over two or three columns. Found again on a gap-tolerant copy;
+        # only when nothing was found, so pages that already worked are unchanged (SD-059).
+        pulses = find_pulses(widen_strokes(ink, int(p_cfg["retry_widen_px"]), int(p_cfg.get("retry_close_px", 5))), ppm)
     dbg.pulses = pulses
     t = tick("segment+pulse", t)
 
     # 4. Layout: trace rows + registry; the page frame (rows, time origin, ink extent).
-    guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses])
+    stroke_h = cfg["layout"].get("stroke_min_height_mm", 3.0)
+    bridge = cfg["layout"].get("stroke_bridge_mm", 0.0)
+    m2 = int(round(2.0 * ppm))       # a pulse's feet: about 1 mm on each side
+    pulse_boxes = [(p.x_left - m2, p.top - m2, p.x_right + m2, p.bottom + m2) for p in pulses]
+    guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses],
+                          stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
     dbg.rows = guess.rows
     if hints.layout:
         layout_name, layout_conf = hints.layout, 1.0
@@ -178,7 +189,9 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     frame = None
     if layout_name is not None:
         spec = get_layout(layout_name)
-        frame = frame_page(spec, guess.baselines, long_stroke_mask(ink, ppm), ppm, [p.x_right for p in pulses])
+        frame = frame_page(spec, guess.baselines, long_stroke_mask(ink, ppm, min_height_mm=stroke_h, bridge_mm=bridge,
+                                                            exclude_boxes=pulse_boxes), ppm,
+                           [p.x_right for p in pulses])
     dbg.frame = frame
     if (frame is not None and not hints.layout and "LAYOUT_UNCERTAIN" in warnings
             and abs(frame.pitch_px / ppm - spec.row_pitch_mm) <= cfg["layout"]["pitch_tolerance"] * spec.row_pitch_mm):
@@ -186,6 +199,13 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
         warnings.remove("LAYOUT_UNCERTAIN")
         layout_conf = max(layout_conf, 0.8)
     t = tick("layout", t)
+    if (frame is not None and spec.start_pulse_required
+            and (frame.column_x0 is None or not any(p.x_right <= frame.x0 + ppm for p in pulses))):
+        # A strip names its groups by position from the start pulse: without the pulse, or
+        # with groups missing, the photo does not show the whole strip (SD-059).
+        reasons.append("PAGE_INCOMPLETE")
+        return result("rejected", ppm=raw_ppm, contrast=contrast,
+                      layout=Layout(name=layout_name, confidence=layout_conf))
     if layout_name is None or frame is None:
         reasons.append("LAYOUT_UNKNOWN")
         return result("rejected", ppm=raw_ppm, contrast=contrast,

@@ -24,6 +24,8 @@ calibration:
     gain_conf_single: 0.75
     gain_conf_multi: 0.95
     speed_conf: 0.35             # SD-011: pulse width is a weak speed hint
+    retry_widen_px: 5            # no pulse found: retry on the mask widened this much across and
+    retry_close_px: 7            # ... with vertical gaps up to this closed (a thin, slightly slanted real pulse, SD-059)
   ocr:
     enabled: true
     header_frac: 0.25
@@ -36,6 +38,8 @@ calibration:
 
 layout:
   pitch_tolerance: 0.1           # measured baseline pitch within this fraction of a registry pitch matches it
+  stroke_min_height_mm: 2.0      # a trace row needs a complex this tall somewhere (a paper edge is <1 mm in every column); 3 lost lead III of a real strip (SD-059)
+  stroke_bridge_mm: 1.0          # trace pieces the mask split are joined across gaps this long when judging a row (SD-059)
 
 segmentation:
   kind: onnx                     # onnx (M6, SD-053: wins on the benchmark) | classic; no model -> error, never a silent fallback

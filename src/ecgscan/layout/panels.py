@@ -13,6 +13,11 @@
   column — M1, SD-019).
 * The ink extent is still measured: its length in mm over the record length is an
   independent paper-speed estimate (``implied_speed``), offered as a candidate.
+* **Strips** (``panel_gap_mm`` > 0, SD-059): the groups are separated by blank paper, so
+  each column's start is read from the page — the first trace ink after a blank stretch
+  of at least half the nominal gap — and the speed estimate is the median group width
+  over ``panel_s``. Fewer groups than the layout has means the photo does not show the
+  whole strip (``column_x0`` stays None).
 """
 
 from __future__ import annotations
@@ -44,6 +49,8 @@ class PageFrame:
     ink_x1: float | None
     implied_speed_mm_s: float | None
     pitch_px: float
+    column_x0: list[float] | None = None     # strips: each group's start read from the page
+    groups_found: int | None = None          # strips: groups of trace ink between blank gaps
 
 
 def pick_rows(baselines: list[int], n: int, pitch_px: float | None) -> list[int] | None:
@@ -125,10 +132,39 @@ def frame_page(layout: LayoutSpec, baselines: list[int], strokes: np.ndarray, px
         return None
     x0, x_end = trace_start(strokes, rows, px_per_mm, pulse_right)
     implied = None
+    pitch = float(np.median(np.diff(rows))) if len(rows) > 1 else layout.row_pitch_mm * px_per_mm
+    if layout.panel_gap_mm > 0:
+        groups = strip_groups(strokes, rows, pitch, x0, x_end, px_per_mm, layout.panel_gap_mm)
+        complete = len(groups) == layout.n_columns
+        if groups:
+            implied = float(np.median([b - a for a, b in groups])) / px_per_mm / layout.panel_s
+        return PageFrame([float(r) for r in rows], x0, x_end, implied, pitch,
+                         column_x0=[float(a) for a, _ in groups] if complete else None, groups_found=len(groups))
     if x_end is not None and x_end > x0:
         implied = (x_end - x0) / px_per_mm / layout.record_s
-    pitch = float(np.median(np.diff(rows))) if len(rows) > 1 else layout.row_pitch_mm * px_per_mm
     return PageFrame([float(r) for r in rows], x0, x_end, implied, pitch)
+
+
+def strip_groups(strokes: np.ndarray, rows: list[int], pitch_px: float, x0: float, x_end: float | None,
+                 px_per_mm: float, gap_mm: float) -> list[tuple[float, float]]:
+    """(start, end) of each run of trace ink across the rows, split where the paper is blank
+    for at least half the nominal gap (the labels printed in a gap are not long strokes)."""
+    if x_end is None or x_end <= x0:
+        return []
+    h, w = strokes.shape
+    half = int(0.45 * pitch_px)
+    cols = np.zeros(w, dtype=bool)
+    for yb in rows:
+        cols |= strokes[max(0, int(yb) - half):min(h, int(yb) + half + 1)].any(axis=0)
+    a, b = int(round(x0)), int(round(x_end)) + 1
+    ink = np.flatnonzero(cols[a:b]) + a
+    if ink.size == 0:
+        return []
+    min_gap = 0.5 * gap_mm * px_per_mm
+    breaks = np.flatnonzero(np.diff(ink) > min_gap)
+    starts = [ink[0], *ink[breaks + 1]]
+    ends = [*ink[breaks], ink[-1]]
+    return [(float(s0), float(e0)) for s0, e0 in zip(starts, ends, strict=True)]
 
 
 def panels(layout: LayoutSpec, frame: PageFrame, px_per_mm: float, speed_mm_s: float) -> list[Panel]:
@@ -137,8 +173,10 @@ def panels(layout: LayoutSpec, frame: PageFrame, px_per_mm: float, speed_mm_s: f
     for r, row in enumerate(layout.rows):
         for c, lead in enumerate(row):
             t0, t1 = c * layout.panel_s, (c + 1) * layout.panel_s
-            out.append(Panel(lead, "panel", r, t0, t1, int(round(frame.x0 + t0 * px_s)),
-                             int(round(frame.x0 + t1 * px_s)), frame.baselines[r]))
+            xs = (frame.column_x0[c] if frame.column_x0 is not None
+                  else frame.x0 + layout.column_offset_mm(c, speed_mm_s) * px_per_mm)
+            out.append(Panel(lead, "panel", r, t0, t1, int(round(xs)), int(round(xs + layout.panel_s * px_s)),
+                             frame.baselines[r]))
     for k, lead in enumerate(layout.rhythm):
         r = len(layout.rows) + k
         out.append(Panel(lead, "rhythm", r, 0.0, layout.record_s, int(round(frame.x0)),

@@ -114,3 +114,13 @@ def summarize_pulses(pulses: list[Pulse], *, agree: float = 0.08) -> dict | None
     grp = [p for p in pulses if abs(p.height_mm - hs[best]) <= agree * hs[best]]
     return {"height_mm": float(np.median([p.height_mm for p in grp])),
             "width_mm": float(np.median([p.width_mm for p in grp])), "n_agree": len(grp), "n_found": len(pulses)}
+
+
+def widen_strokes(mask: np.ndarray, widen_px: int, close_px: int) -> np.ndarray:
+    """A gap-tolerant copy of a mask for the pulse search: widened ``widen_px`` across (a
+    slanted line spread over neighbouring columns) and with vertical gaps up to ``close_px``
+    closed (a line the mask broke into pieces)."""
+    import cv2
+
+    m = cv2.dilate(mask.astype(np.uint8), np.ones((1, max(1, widen_px)), np.uint8))
+    return cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((max(1, close_px), 1), np.uint8)).astype(bool)

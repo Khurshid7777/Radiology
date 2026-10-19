@@ -44,8 +44,15 @@ def merge_baselines(projection: list[int], pulse_bottoms: list[int], px_per_mm: 
 
 
 def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
-                  pulse_bottoms: list[int] | None = None) -> LayoutGuess:
-    base = merge_baselines(row_baselines(ink, px_per_mm), pulse_bottoms or [], px_per_mm)
+                  pulse_bottoms: list[int] | None = None, stroke_min_height_mm: float = 3.0,
+                  stroke_bridge_mm: float = 0.0, exclude_boxes: list | None = None) -> LayoutGuess:
+    # A pulse bottom near a found row is that row's pulse, even when the printer floats it a
+    # few mm off the baseline (a real strip: 4.1 mm below row II, read as a 4th row and a
+    # 3x4+rhythm page, SD-059): no two rows are closer than the smallest registry pitch.
+    near_mm = 0.35 * min(spec.row_pitch_mm for spec in available_layouts().values())
+    base = merge_baselines(row_baselines(ink, px_per_mm, min_height_mm=stroke_min_height_mm, bridge_mm=stroke_bridge_mm,
+                                         exclude_boxes=exclude_boxes),
+                           pulse_bottoms or [], px_per_mm, tol_mm=max(4.0, near_mm))
     n = len(base)
     pitch = float(np.median(np.diff(base))) / px_per_mm if n > 1 else None
     by_count, by_pitch = [], []
