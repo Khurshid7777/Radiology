@@ -67,6 +67,12 @@ STRIP_NEIGHBOUR_PITCHES = (0.85, 1.3)   # a run of STRIP_NEIGHBOUR_MIN_COLUMNS a
 STRIP_NEIGHBOUR_MIN_COLUMNS = 4
 STRIP_JUMP_MAX_COLUMNS = 3        # a shorter excursion to a neighbour's baseline between agreeing columns is a bridge
 STRIP_FLAT_STROKES = 3.0          # an ink run at most this many stroke widths high is flat trace, not a QRS stroke
+ALIGN_WINDOW_S = 1.5             # rows of one window are aligned per window this long (D127) ...
+ALIGN_MAX_LAG_S = 0.12           # ... within this lag
+ALIGN_MIN_CORR = 0.5             # ... on windows whose QRS envelopes correlate at least this
+ALIGN_MIN_WINDOWS = 2            # ... and at least this many of them
+ALIGN_MAX_STRETCH = 0.05         # a fitted time stretch beyond this is not a camera angle
+STRIP_PULL_NEAREST = True        # the baseline pull from a run's nearest point (D127)
 STRIP_BASELINE_WEIGHT = 1.0       # tracker pull to the own (straightened) baseline; the page's 0.25 lets the path ride a neighbour
 STRIP_LINE_MIN_PITCHES = 0.6      # an ink run this tall in one column, between two short columns, is a grid line
 STRIP_LINE_MAX_COLUMNS = 3
@@ -469,6 +475,59 @@ def _shift_off_text(mask: np.ndarray, base: np.ndarray, pitch: float, px_per_mm:
     return base + k * pitch
 
 
+def align_rows(rows: list[np.ndarray], fs: float, ref: int) -> tuple[list[np.ndarray], list[tuple[float, float]]]:
+    """Rows of one time window, each warped onto ``rows[ref]``'s time axis (D127).
+
+    A photo taken at an angle shortens the paper's far side: rows printed in step drift
+    apart along the strip (img2: RR 2-3 % longer in II than in I, the R peaks 15-30 ms
+    apart at the ends), which a shift cannot undo. Per window of ALIGN_WINDOW_S the lag
+    of a row's QRS envelope against the reference is found by cross-correlation; a line
+    ``lag(t) = a + b t`` fitted to the confident windows is the row's time warp. A fit
+    outside ALIGN_MAX_LAG_S / ALIGN_MAX_STRETCH, or on fewer than ALIGN_MIN_WINDOWS
+    windows, leaves the row as it is. Returns the rows and each row's ``(a, b)``."""
+    def env(x: np.ndarray) -> np.ndarray:
+        e = np.abs(np.diff(x, prepend=x[:1]))
+        k = max(1, int(0.02 * fs))
+        return np.convolve(e, np.ones(k) / k, mode="same")
+
+    out, fits = [], []
+    e_ref = env(rows[ref].astype(np.float64))
+    n = min(len(r) for r in rows)
+    win, step = int(ALIGN_WINDOW_S * fs), int(ALIGN_WINDOW_S * fs / 2)
+    lim = int(ALIGN_MAX_LAG_S * fs)
+    t = np.arange(n) / fs
+    for i, row in enumerate(rows):
+        if i == ref or n < win:
+            out.append(row)
+            fits.append((0.0, 0.0))
+            continue
+        e = env(row.astype(np.float64))
+        centres, lags = [], []
+        for a in range(lim, n - win - lim, step):
+            r = e_ref[a:a + win] - e_ref[a:a + win].mean()
+            if r.std() == 0:
+                continue
+            cc = [float(np.dot(r, e[a + k:a + k + win] - e[a + k:a + k + win].mean())) for k in range(-lim, lim + 1)]
+            k = int(np.argmax(cc))
+            norm = r.std() * win * max(1e-9, float(e[a + k - lim:a + k - lim + win].std()))
+            if cc[k] / norm >= ALIGN_MIN_CORR:
+                centres.append((a + win / 2) / fs)
+                lags.append((k - lim) / fs)
+        if len(lags) < ALIGN_MIN_WINDOWS:
+            out.append(row)
+            fits.append((0.0, 0.0))
+            continue
+        b, a0 = np.polyfit(centres, lags, 1)
+        if abs(b) > ALIGN_MAX_STRETCH or np.abs(a0 + b * t[[0, -1]]).max() > ALIGN_MAX_LAG_S:
+            out.append(row)
+            fits.append((0.0, 0.0))
+            continue
+        warped = np.interp(np.clip(t + a0 + b * t, 0, t[-1]), t, row[:n].astype(np.float64)).astype(row.dtype)
+        out.append(np.concatenate([warped, row[n:]]) if len(row) > n else warped)
+        fits.append((float(a0), float(b)))
+    return out, fits
+
+
 def straighten(mask: np.ndarray, baseline: np.ndarray, half: int) -> np.ndarray:
     """Band of height ``2*half`` whose middle row is the row's baseline at every column."""
     h, w = mask.shape
@@ -632,7 +691,8 @@ def digitize_strip(
         [_drop_glyphs(band, px_per_mm)[near_band, x_left:x_right].any(axis=0) for band in bands])
     for lead, band in zip(lead_order, bands, strict=True):
         thin = thin_mask(band)
-        raw = _trace_rows_tracked(band, thin, x_left, x_right, y0, y1, baseline_weight=STRIP_BASELINE_WEIGHT)
+        raw = _trace_rows_tracked(band, thin, x_left, x_right, y0, y1, baseline_weight=STRIP_BASELINE_WEIGHT,
+                                  pull_nearest=STRIP_PULL_NEAREST)
         heights, stroke = _run_heights(band[:, x_left:x_right], raw)
         raw = _drop_foreign_plateaus(raw, half, pitch, heights, stroke)
         raw = _drop_short_jumps(raw, half, pitch, heights, stroke)

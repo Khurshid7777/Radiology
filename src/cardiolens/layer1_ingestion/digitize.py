@@ -171,7 +171,7 @@ TRACK_FLANK = 2                # columns on each side of an apex read from the r
 
 
 def _trace_rows_tracked(mask: np.ndarray, thin: np.ndarray, x0: int, x1: int, y0: int, y1: int,
-                        baseline_weight: float = TRACK_BASELINE_WEIGHT) -> np.ndarray:
+                        baseline_weight: float = TRACK_BASELINE_WEIGHT, pull_nearest: bool = False) -> np.ndarray:
     """Per-column trace row by tracking, not by the median of all ink (D47).
 
     * The box is extended by ``TRACK_EXTEND`` of its height above and below, so
@@ -185,7 +185,9 @@ def _trace_rows_tracked(mask: np.ndarray, thin: np.ndarray, x0: int, x1: int, y0
     * A Viterbi pass picks one run per column minimising continuity cost
       (distance from the previous column's value to the run) plus a weak pull
       towards the panel's own baseline, so a neighbouring lead's trace crossing
-      the box loses even where it is the closest ink; forced choices (a run
+      the box loses even where it is the closest ink (``pull_nearest``: from the
+      run's nearest point, not its middle — a tall QRS stroke rising from the
+      baseline is then not pulled off, D127); forced choices (a run
       far from the trace on both sides, or at a panel end) are dropped.
     * The skeleton's apex is off-centre on a thick spike and stops short of the
       tip; the raw ink is symmetric, so a turning column is where the raw run
@@ -222,7 +224,11 @@ def _trace_rows_tracked(mask: np.ndarray, thin: np.ndarray, x0: int, x1: int, y0
             back.append(None)
             continue
         mids = [(a + b) / 2.0 for a, b in runs]
-        cost = [baseline_weight * abs(m - centre) / h for m in mids]
+        if pull_nearest:
+            cost = [baseline_weight * (0.0 if a <= centre <= b else min(abs(a - centre), abs(b - centre))) / h
+                    for a, b in runs]
+        else:
+            cost = [baseline_weight * abs(m - centre) / h for m in mids]
         bp = [-1] * len(runs)
         if prev_cost is not None:
             gap = float(i - last)

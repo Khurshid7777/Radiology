@@ -164,7 +164,7 @@ def digitize_sequential(path: str | Path, *, mm_per_s: float = 25.0, mm_per_mv: 
     holds the provenance (``fs``, the groups' leads, the turn)."""
     import cv2
 
-    from cardiolens.layer1_ingestion.strip import digitize_strip
+    from cardiolens.layer1_ingestion.strip import align_rows, digitize_strip
 
     bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if bgr is None:
@@ -200,12 +200,17 @@ def digitize_sequential(path: str | Path, *, mm_per_s: float = 25.0, mm_per_mv: 
         raise ValueError("three-channel strip: no three-row groups found")
     score, t, first, groups, bounds, calib, cov = best
     out = []
+    fs = float(calib["px_per_mm"] * mm_per_s)
+    warps = []
     for j, g in enumerate(groups):
         leads = SEQ_GROUPS[first + j]
+        g, fits = align_rows(list(g), fs, ref=1)     # the camera angle stretches the rows apart (D127)
+        warps.append([(round(a * 1000, 1), round(b * 100, 2)) for a, b in fits])
         out.append({ln: (tr - float(np.median(tr))).astype(np.float32) for ln, tr in zip(leads, g, strict=True)})
+    calib["row_warps_ms_pct"] = warps
     calib.update(layout="3-channel sequential", rotated_deg=90 * t, groups=[list(o) for o in out],
                  group_px=[list(b) for b in bounds], match_score=round(score, 3),
-                 fs=float(calib["px_per_mm"] * mm_per_s), mm_per_s=mm_per_s)
+                 fs=fs, mm_per_s=mm_per_s)
     digitize_sequential.last_calibration = calib  # type: ignore[attr-defined]
     digitize_sequential.last_coverage = cov  # type: ignore[attr-defined]
     return out
