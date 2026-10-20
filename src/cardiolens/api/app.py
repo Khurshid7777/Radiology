@@ -10,6 +10,10 @@ Endpoints:
   GET  /api/analysis/{id}/graph.png
   GET  /api/analysis/{id}/conclusion?lang=ru|uz
 
+Everything under /api/analyze and /api/analysis needs an API key (``X-API-Key``, the same
+keys as /scans in ``$ECGSCAN_API_KEYS``); a key sees only its own analyses (D98). The web
+UI, /health and the demo case list stay open.
+
 Core layers (1-5) run locally; the Layer-6 narrative comes from a local
 OpenAI-compatible model, from Claude, or from the deterministic stub (TZ §12).
 """
@@ -21,11 +25,12 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from starlette.background import BackgroundTask
 
 from cardiolens.api import service
+from cardiolens.api.guard import RequestGuard
 from cardiolens.calibration import TemperatureScaler, expected_calibration_error
 from cardiolens.config import load_app_config
 from cardiolens.feedback import DEFAULT_FEEDBACK_PATH, Feedback, FeedbackStore
@@ -37,9 +42,12 @@ from cardiolens.outputs import (
     result_to_dict,
     write_pdf,
 )
+from ecgscan_service.router import actor
 from ecgscan_service.router import router as scans_router
 
 app = FastAPI(title="CardioLens", version="0.1.0")
+# Key check and body cap before any multipart parsing (D98); uploads are 64 MB at most.
+app.add_middleware(RequestGuard, max_body_bytes=service.MAX_UPLOAD_BYTES + 1024 * 1024)
 # ECG scanner (photo/scan input, TZ scanner §4, SD-004): /scans, own API-key auth.
 app.include_router(scans_router)
 
@@ -87,13 +95,18 @@ async def analyze(
     calcium: float | None = Form(default=None),
     prior_ecg_id: str | None = Form(default=None),
     files: list[UploadFile] = File(default=[]),
+    who: str = Depends(actor),
 ) -> JSONResponse:
     try:
         if files:
-            uploads = [
-                service.UploadFile(filename=f.filename or "upload", content=await f.read())
-                for f in files
-            ]
+            uploads, budget = [], service.MAX_UPLOAD_BYTES
+            for f in files:
+                # A running byte budget: never more than the limit in memory (D98).
+                content = await f.read(budget + 1)
+                budget -= len(content)
+                if budget < 0:
+                    raise ValueError(f"upload too large (> {service.MAX_UPLOAD_BYTES} bytes)")
+                uploads.append(service.UploadFile(filename=f.filename or "upload", content=content))
             sig = service.signal_from_uploads(
                 uploads, sampling_rate_hz=sampling_rate_hz, unit=unit
             )
@@ -106,7 +119,7 @@ async def analyze(
             sig, age_years=age_years, age_days=age_days, sex=sex,
             potassium=potassium, calcium=calcium,
         )
-        analysis_id, result = service.run_and_store(sig, mode=mode, prior_id=prior_ecg_id)
+        analysis_id, result = service.run_and_store(sig, mode=mode, prior_id=prior_ecg_id, owner=who)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -117,16 +130,16 @@ async def analyze(
     return JSONResponse(payload)
 
 
-def _require(analysis_id: str):
-    result = service.get_analysis(analysis_id)
+def _require(analysis_id: str, who: str):
+    result = service.get_analysis(analysis_id, owner=who)
     if result is None:
         raise HTTPException(status_code=404, detail="analysis not found")
     return result
 
 
 @app.get("/api/analysis/{analysis_id}/report.pdf")
-def report_pdf(analysis_id: str) -> FileResponse:
-    result = _require(analysis_id)
+def report_pdf(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
+    result = _require(analysis_id, who)
     tmp = tempfile.mkdtemp()
     path = str(Path(tmp) / f"{analysis_id}.pdf")
     write_pdf(result, path)
@@ -136,8 +149,8 @@ def report_pdf(analysis_id: str) -> FileResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/waveform.svg")
-def waveform_svg(analysis_id: str) -> FileResponse:
-    result = _require(analysis_id)
+def waveform_svg(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
+    result = _require(analysis_id, who)
     tmp = tempfile.mkdtemp()
     path = str(Path(tmp) / f"{analysis_id}.svg")
     render_waveform(result, path)
@@ -145,8 +158,8 @@ def waveform_svg(analysis_id: str) -> FileResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/graph.png")
-def graph_png(analysis_id: str) -> FileResponse:
-    result = _require(analysis_id)
+def graph_png(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
+    result = _require(analysis_id, who)
     tmp = tempfile.mkdtemp()
     path = str(Path(tmp) / f"{analysis_id}.png")
     render_causal_graph(result, path)
@@ -154,16 +167,16 @@ def graph_png(analysis_id: str) -> FileResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/conclusion", response_class=PlainTextResponse)
-def conclusion(analysis_id: str, lang: str = "ru") -> str:
-    result = _require(analysis_id)
+def conclusion(analysis_id: str, lang: str = "ru", who: str = Depends(actor)) -> str:
+    result = _require(analysis_id, who)
     return format_conclusion(result, "uz" if lang == "uz" else "ru")
 
 
 @app.post("/api/analysis/{analysis_id}/feedback")
-def submit_feedback(analysis_id: str, fb: Feedback) -> dict:
+def submit_feedback(analysis_id: str, fb: Feedback, who: str = Depends(actor)) -> dict:
     """Capture physician corrections for future fine-tuning/calibration (TZ §13)."""
     fb.analysis_id = analysis_id
-    result = service.get_analysis(analysis_id)
+    result = _require(analysis_id, who)
     if result is not None and fb.mode is None:
         fb.mode = result.report.mode
     _feedback_store().append(fb)
@@ -172,7 +185,7 @@ def submit_feedback(analysis_id: str, fb: Feedback) -> dict:
 
 
 @app.post("/api/calibration/fit")
-def fit_calibration() -> dict:
+def fit_calibration(who: str = Depends(actor)) -> dict:
     """Fit the confidence calibrator from accumulated feedback (TZ §13, §16)."""
     samples = _feedback_store().calibration_dataset()
     scaler = TemperatureScaler().fit(samples)

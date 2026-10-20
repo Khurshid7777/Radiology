@@ -136,23 +136,29 @@ def apply_patient_overrides(
 # LRU-evicting so a long-running server can't grow without bound. Swap for a DB
 # / object store in production (see DECISIONS.md).
 _STORE: OrderedDict[str, PipelineResult] = OrderedDict()
+_OWNERS: dict[str, str | None] = {}      # analysis id -> API key name that created it (D98)
 
 
-def run_and_store(sig, *, mode: str | None,
-                  prior_id: str | None = None) -> tuple[str, PipelineResult]:
-    prior = get_analysis(prior_id) if prior_id else None
+def run_and_store(sig, *, mode: str | None, prior_id: str | None = None,
+                  owner: str | None = None) -> tuple[str, PipelineResult]:
+    prior = get_analysis(prior_id, owner=owner) if prior_id else None
     if prior_id:
         sig.context.prior_ecg_id = prior_id
     result = run_pipeline(sig, mode=mode, prior=prior)
     analysis_id = uuid.uuid4().hex[:12]
     _STORE[analysis_id] = result
+    _OWNERS[analysis_id] = owner
     _STORE.move_to_end(analysis_id)
     while len(_STORE) > STORE_MAX_ENTRIES:
-        _STORE.popitem(last=False)  # evict least-recently-used
+        old_id, _ = _STORE.popitem(last=False)  # evict least-recently-used
+        _OWNERS.pop(old_id, None)
     return analysis_id, result
 
 
-def get_analysis(analysis_id: str) -> PipelineResult | None:
+def get_analysis(analysis_id: str, *, owner: str | None = None) -> PipelineResult | None:
+    """``owner``: the caller's key name; another key's analysis reads as absent (D98)."""
+    if owner is not None and _OWNERS.get(analysis_id) not in (None, owner):
+        return None
     result = _STORE.get(analysis_id)
     if result is not None:
         _STORE.move_to_end(analysis_id)  # mark as recently used

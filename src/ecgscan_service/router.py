@@ -1,8 +1,10 @@
 """``/scans`` endpoints (TZ §4, SD-004).
 
 All endpoints need an API key (``X-API-Key``; keys in ``$ECGSCAN_API_KEYS`` as
-``name:key,name2:key2``). The key's name is the actor written to the audit log.
-With no keys configured the API refuses every request — it never runs open.
+``name:key,name2:key2``; the same keys guard CardioLens ``/api``). The key's name is the
+actor written to the audit log, and a key sees only the scans it submitted unless it is
+listed in ``access.admins`` (D98). With no keys configured the API refuses every request
+— it never runs open.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from functools import lru_cache
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ecgscan.i18n import LANGS, t
@@ -39,14 +41,25 @@ def _keys() -> dict[str, str]:
     return out
 
 
-def actor(x_api_key: str | None = Header(default=None)) -> str:
+def key_name(x_api_key: str | None) -> str | int:
+    """The key's name, or the HTTP status refusing it (503: no keys configured, 401)."""
     keys = _keys()
     if not keys:
-        raise HTTPException(503, "scanner API keys are not configured")
-    for key, name in keys.items():
+        return 503
+    found = None
+    for key, name in keys.items():      # every key compared: no early exit on a match
         if x_api_key is not None and hmac.compare_digest(x_api_key.encode(), key.encode()):
-            return name
-    raise HTTPException(401, "invalid or missing X-API-Key")
+            found = name
+    return found if found is not None else 401
+
+
+def actor(x_api_key: str | None = Header(default=None)) -> str:
+    who = key_name(x_api_key)
+    if who == 503:
+        raise HTTPException(503, "API keys are not configured")
+    if isinstance(who, int):
+        raise HTTPException(401, "invalid or missing X-API-Key")
+    return who
 
 
 def _http(exc: ScanError) -> HTTPException:
@@ -102,7 +115,7 @@ def capture_qc_config(who: str = Depends(actor)) -> dict:
 @router.get("/{scan_id}")
 def get_scan(scan_id: str, who: str = Depends(actor), svc: ScanService = Depends(get_service)) -> dict:
     try:
-        return view(svc.get(scan_id))
+        return view(svc.get(scan_id, who))
     except ScanError as exc:
         raise _http(exc) from exc
 
@@ -140,7 +153,7 @@ def analyze_scan(scan_id: str, body: AnalyzeBody | None = None, who: str = Depen
 @router.get("/{scan_id}/audit")
 def scan_audit(scan_id: str, who: str = Depends(actor), svc: ScanService = Depends(get_service)) -> list[dict]:
     try:
-        svc.get(scan_id)
+        svc.get(scan_id, who)
     except ScanError as exc:
         raise _http(exc) from exc
     return svc.store.audit_log(scan_id)
@@ -148,9 +161,9 @@ def scan_audit(scan_id: str, who: str = Depends(actor), svc: ScanService = Depen
 
 @router.get("/{scan_id}/artifacts/{name}")
 def scan_artifact(scan_id: str, name: str, who: str = Depends(actor),
-                  svc: ScanService = Depends(get_service)) -> FileResponse:
+                  svc: ScanService = Depends(get_service)) -> Response:
     try:
-        path = svc.artifact_path(scan_id, name)
-        return FileResponse(path, media_type="image/jpeg" if path.suffix == ".jpg" else "image/png")
+        data, media = svc.artifact(scan_id, name, who)
     except ScanError as exc:
         raise _http(exc) from exc
+    return Response(data, media_type=media, headers={"Cache-Control": "no-store"})

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from cardiolens.api import service
 from cardiolens.api.app import app
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": "test-key"})
 
 
 def test_store_is_bounded_lru():

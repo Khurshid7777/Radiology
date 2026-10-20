@@ -111,6 +111,12 @@ class ScanStore:
     def older_than(self, iso: str) -> list[str]:
         return [r[0] for r in self._exec("SELECT id FROM scans WHERE created_at < ?", (iso,))]
 
+    def scrub_comments(self, ids: list[str]) -> None:
+        """Free-text doctor comments of expired scans are removed with the images (D98)."""
+        for scan_id in ids:
+            self._exec("UPDATE audit SET details = json_remove(details, '$.comment') "
+                       "WHERE scan_id = ? AND details IS NOT NULL AND json_valid(details)", (scan_id,))
+
     def audit(self, scan_id: str, actor: str, action: str, details: dict | None = None) -> None:
         self._exec("INSERT INTO audit (scan_id, at, actor, action, details) VALUES (?,?,?,?,?)",
                    (scan_id, now(), actor, action, json.dumps(details, ensure_ascii=False) if details else None))

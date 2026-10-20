@@ -646,7 +646,8 @@
         "SCREEN_PHOTO",
         "NOT_AN_ECG",
         "PAGE_INCOMPLETE",
-        "PROCESSING_ERROR"
+        "PROCESSING_ERROR",
+        "IMAGE_TOO_LARGE"
       ]
     },
     "warning_code": {

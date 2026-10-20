@@ -40,8 +40,10 @@ def lang_of(language_code: str | None) -> str:
     return "uz" if (language_code or "").lower().startswith("uz") else "ru"
 
 
-def allowed(cfg: BotConfig, user_id: int | None) -> bool:
-    return user_id is not None and user_id in cfg.allowed
+def allowed(cfg: BotConfig, user_id: int | None, chat_type: str | None = "private") -> bool:
+    """A whitelisted user in a private chat: in a group the verdict (and the overlay)
+    would reach every member (D98)."""
+    return user_id is not None and user_id in cfg.allowed and chat_type == "private"
 
 
 def intake(cfg: BotConfig, *, kind: str, mime: str | None, size: int | None, lang: str) -> str | None:

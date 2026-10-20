@@ -203,7 +203,7 @@ def test_malformed_upload_is_a_400_not_a_500():
 
     from cardiolens.api.app import app
 
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(app, headers={"X-API-Key": "test-key"}, raise_server_exceptions=False)
     for name, data in (("ecg.edf", b"0" * 300), ("ecg.dcm", b"junk" * 50), ("ecg.csv", b"I,II\n1,2\n")):
         r = client.post("/api/analyze", data={"sampling_rate_hz": "500"}, files=[("files", (name, data, "x"))])
         assert r.status_code == 400, (name, r.status_code, r.text[:200])

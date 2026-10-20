@@ -8,7 +8,9 @@
 * ``overlay_preview.jpg`` — the same, at most ``preview_width`` px wide (the full
   PNG of a 3000-px page is ~8 MB; a phone screen and the bot need ~0.3 MB).
 
-Artifacts are derived from the working copy only: never the unmasked original.
+Artifacts are derived from the working copy only: never the unmasked original. The
+header and footer bands (name, ID, date) are blanked on the server whatever the client
+did (D98, ``artifacts.mask_bands``).
 """
 
 from __future__ import annotations
@@ -53,10 +55,27 @@ def render_overlay(bgr: np.ndarray, readings) -> np.ndarray:
     return out
 
 
+def blank_outside(img: np.ndarray, keep_rows: tuple[int, int] | None, fill=255) -> np.ndarray:
+    """``img`` with every row outside [top, bottom) set to ``fill`` (the page header/footer)."""
+    if keep_rows is None:
+        return img
+    top, bottom = keep_rows
+    out = img.copy()
+    out[:max(0, top)] = fill
+    out[max(0, bottom):] = fill
+    return out
+
+
 def write_artifacts(out_dir: str | Path, *, rectified: np.ndarray, mask: np.ndarray | None, readings,
-                    preview_width: int = 1600, preview_quality: int = 85) -> dict[str, str]:
+                    preview_width: int = 1600, preview_quality: int = 85,
+                    keep_rows: tuple[int, int] | None = None) -> dict[str, str]:
+    """``keep_rows``: (top, bottom) of the trace rows; everything above and below — the header
+    and footer with the patient's name, ID and date — is blanked in every image (D98)."""
     import cv2
 
+    rectified = blank_outside(rectified, keep_rows)
+    if mask is not None:
+        mask = blank_outside(mask, keep_rows, fill=0)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = {"rectified_image": out_dir / "rectified.png", "trace_overlay": out_dir / "overlay.png",

@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -44,6 +45,12 @@ class ListenerConfig(BaseModel):
     api_url: str = "http://127.0.0.1:8000"
     api_timeout_s: float = 60.0
     log_path: str = "data/dicom_inbox/received.jsonl"
+    # D98. An AE title is a plaintext name any client can claim: on a network the
+    # source address is checked too (empty = any), and the receive is capped.
+    allowed_ips: list[str] = Field(default_factory=list)
+    max_associations: int = 4
+    max_pdu_bytes: int = 65536
+    api_key_env: str = "CARDIOLENS_LISTENER_API_KEY"   # the X-API-Key it sends to /api/analyze
 
 
 def load_listener_config(path: str | Path | None = None) -> ListenerConfig:
@@ -55,8 +62,13 @@ def api_analyzer(cfg: ListenerConfig) -> Callable[[bytes], dict]:
     """POST the Part-10 bytes to ``/api/analyze``; the analysis id and summary come back."""
     import httpx
 
+    key = os.environ.get(cfg.api_key_env)
+    if not key:
+        raise ValueError(f"dicom_listener: ${cfg.api_key_env} is not set - the API needs a key (D98)")
+
     def analyze(data: bytes) -> dict:
         r = httpx.post(f"{cfg.api_url.rstrip('/')}/api/analyze", timeout=cfg.api_timeout_s,
+                       headers={"X-API-Key": key},
                        files=[("files", ("ecg.dcm", data, "application/dicom"))])
         if r.status_code != 200:
             raise ValueError(f"API {r.status_code}: {r.text[:200]}")
@@ -80,6 +92,7 @@ class EcgListener:
         self.log_path = root if root.is_absolute() else _repo_root() / root
         self._lock = threading.Lock()
         self._server = None
+        self._received: dict[int, int] = {}     # association -> bytes received so far
 
     def _record(self, entry: dict) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +125,32 @@ class EcgListener:
         self._record(entry)
         return STATUS_OK
 
+    def handle_requested(self, event) -> None:
+        """A device outside ``allowed_ips`` is cut off before it can send anything."""
+        ip = str(event.assoc.requestor.address)
+        if self.cfg.allowed_ips and ip not in self.cfg.allowed_ips:
+            self._record({"time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "status": "refused",
+                          "error": "address not allowed"})
+            log.warning("DICOM association from a non-allowed address refused")
+            event.assoc.abort()
+
+    def handle_data(self, event) -> None:
+        """Abort an association past ``max_bytes``: pynetdicom holds the whole dataset in
+        memory until C-STORE, so the size check there came after any amount was received."""
+        key = id(event.assoc)
+        with self._lock:
+            n = self._received.get(key, 0) + len(event.data)
+            self._received[key] = n
+        if n > self.cfg.max_bytes + self.cfg.max_pdu_bytes:
+            self._record({"time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "status": "refused",
+                          "device_ae": str(event.assoc.requestor.ae_title).strip(),
+                          "error": f"over {self.cfg.max_bytes} bytes; association aborted"})
+            event.assoc.abort()
+
+    def handle_released(self, event) -> None:
+        with self._lock:
+            self._received.pop(id(event.assoc), None)
+
     def _ae(self):
         from pynetdicom import AE, evt, sop_class
         from pynetdicom.sop_class import Verification
@@ -121,8 +160,11 @@ class EcgListener:
             ae.add_supported_context(getattr(sop_class, name))
         ae.add_supported_context(Verification)
         ae.require_calling_aet = list(self.cfg.allowed_calling_aes)
-        ae.maximum_pdu_size = 0
-        return ae, [(evt.EVT_C_STORE, self.handle_store)]
+        ae.maximum_pdu_size = self.cfg.max_pdu_bytes
+        ae.maximum_associations = self.cfg.max_associations
+        return ae, [(evt.EVT_C_STORE, self.handle_store), (evt.EVT_REQUESTED, self.handle_requested),
+                    (evt.EVT_DATA_RECV, self.handle_data), (evt.EVT_RELEASED, self.handle_released),
+                    (evt.EVT_ABORTED, self.handle_released)]
 
     def start(self) -> None:
         ae, handlers = self._ae()

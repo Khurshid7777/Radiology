@@ -271,9 +271,18 @@ python -m cardiolens.ml.train --train data/ecg-arrhythmia-train data/ecg-arrhyth
 
 ```bash
 pip install -e ".[dev]"
+export ECGSCAN_API_KEYS="doctor:$(python -c 'import secrets; print(secrets.token_urlsafe(18))')"
 uvicorn cardiolens.api.app:app --reload      # → http://127.0.0.1:8000
 # или с локальной LLM за одну команду: scripts/run_local.sh / docker compose up
 ```
+
+**Доступ только по ключу (D98).** `/api/analyze`, `/api/analysis/…`, `/api/calibration/…` и
+`/scans` требуют заголовок `X-API-Key`; ключи — в `$ECGSCAN_API_KEYS` (`имя:ключ,имя2:ключ2`).
+Без ключей API отвечает 503 и не работает открытым. Ключ видит только свои анализы и сканы
+(`access.admins` в `configs/scanner/service.yaml` — исключения). Веб-страница спрашивает ключ
+в поле «Ключ доступа API» и хранит его только во вкладке. `scripts/run_local.sh` без ключа
+создаёт ключ на сеанс и печатает его; `docker compose up` требует `ECGSCAN_API_KEYS`. Открыты
+только `/`, `/health` и `/api/cases`.
 
 Эндпоинты:
 
@@ -313,7 +322,9 @@ curl -s -F files=@data/samples/sample_ecg.csv -F sampling_rate_hz=500 -F unit=uv
 
    ```bash
    pip install -e ".[dicom]"
-   # configs/dicom_listener.yaml: allowed_calling_aes: ["<AE title аппарата>"], host/port
+   # configs/dicom_listener.yaml: allowed_calling_aes: ["<AE title аппарата>"], host/port,
+   # allowed_ips: ["<IP аппарата>"] при приёме из сети
+   export ECGSCAN_API_KEYS="dicom:<ключ>" CARDIOLENS_LISTENER_API_KEY="<ключ>"
    uvicorn cardiolens.api.app:app --port 8000 &
    python -m cardiolens.dicom_listener
    ```

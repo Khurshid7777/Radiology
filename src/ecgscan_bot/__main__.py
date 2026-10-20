@@ -32,7 +32,8 @@ async def main() -> None:
 
     def guard(message: Message) -> str | None:
         user = message.from_user
-        return lang_of(user.language_code) if user and allowed(cfg, user.id) else None
+        ok = user is not None and allowed(cfg, user.id, message.chat.type)
+        return lang_of(user.language_code) if ok else None
 
     @dp.message(CommandStart())
     async def start(message: Message) -> None:

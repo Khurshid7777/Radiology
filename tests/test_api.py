@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from cardiolens.api.app import app
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": "test-key"})
 _SAMPLES = os.path.join(os.path.dirname(__file__), "..", "data", "samples")
 
 

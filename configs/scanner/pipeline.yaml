@@ -2,6 +2,8 @@
 
 quality:
   min_px_per_mm: 8.0             # TZ §5.3: below this -> rejected LOW_RESOLUTION
+  max_megapixels: 60             # D98: checked from the file header before decoding -> rejected IMAGE_TOO_LARGE
+  min_side_px: 200               # D98: a smaller image -> rejected LOW_RESOLUTION before any check runs
   marginal_px_per_mm: 10.0       # below this -> warning LOW_RESOLUTION_MARGINAL
   min_grid_confidence: 0.3       # grid read below this -> rejected GRID_NOT_FOUND (bench: 113/114 correct reads are above, no wrong one is)
   capture_qc: true               # repeat the phone's frame checks on the photo (quality.sharpness / glare_fraction)
@@ -84,3 +86,6 @@ validate:
   qrs_hump_scale: 0.667          # QRS also measured with the R' hump threshold x this (SD-057); null = off
   qrs_unstable_ms: 20            # ... and a width that moves more than this -> QRS_UNSTABLE (needs confirmation)
   ok_min_overall: 0.6            # overall quality below -> needs_confirmation
+
+artifacts:
+  mask_bands: true               # D98: blank the header / footer bands (name, ID, date) in every saved or sent image

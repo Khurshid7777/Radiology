@@ -48,3 +48,16 @@ class Vault:
 
     def delete(self, scan_id: str) -> None:
         self._path(scan_id).unlink(missing_ok=True)
+
+    # -- artifact images (D98): encrypted beside their scan, read back on request --------------
+
+    def seal_file(self, path: Path) -> Path:
+        """Encrypt ``path`` to ``path.enc`` and remove the plaintext."""
+        path = Path(path)
+        sealed = path.with_name(path.name + ".enc")
+        sealed.write_bytes(self._fernet.encrypt(path.read_bytes()))
+        path.unlink()
+        return sealed
+
+    def open_file(self, sealed: Path) -> bytes:
+        return self._fernet.decrypt(Path(sealed).read_bytes())

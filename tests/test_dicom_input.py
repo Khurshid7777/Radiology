@@ -81,7 +81,7 @@ def test_api_accepts_a_device_export_without_extension(tmp_path, ecg):
 
     f = tmp_path / "ecg.dcm"
     _write(f, [_group(ecg.signal, ecg.lead_names, ecg.sampling_rate_hz)])
-    r = TestClient(app).post("/api/analyze", files=[("files", ("00000017", f.read_bytes(), "application/octet-stream"))])
+    r = TestClient(app, headers={"X-API-Key": "test-key"}).post("/api/analyze", files=[("files", ("00000017", f.read_bytes(), "application/octet-stream"))])
     assert r.status_code == 200, r.text
     hr = r.json()["measurements"]["heart_rate_bpm"]
     assert hr == pytest.approx(72, abs=3)

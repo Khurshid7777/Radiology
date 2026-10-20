@@ -105,7 +105,7 @@ def test_end_to_end_through_the_api(tmp_path, ecg_ds):
 
     from cardiolens.api.app import app
 
-    client = TestClient(app)
+    client = TestClient(app, headers={"X-API-Key": "test-key"})
 
     def analyze(data: bytes) -> dict:
         r = client.post("/api/analyze", files=[("files", ("ecg.dcm", data, "application/dicom"))])

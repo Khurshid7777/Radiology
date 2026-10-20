@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from ecgscan_service.app import app
 from ecgscan_service.router import KEYS_ENV, get_service
-from ecgscan_service.service import ScanService, Settings
+from ecgscan_service.service import ScanError, ScanService, Settings
 from ecgscan_service.vault import KEY_ENV
 
 KEY = {"X-API-Key": "secret-1"}
@@ -270,9 +270,15 @@ def test_real_page_end_to_end(tmp_path, env, synth_mv):
         assert row.result["calibration"]["speed_source"] == "user"
         assert set(row.result["artifacts"]) == {"rectified_image", "trace_overlay", "trace_mask",
                                                 "trace_overlay_preview"}
-        preview = svc.artifact_path(sid, "trace_overlay_preview")
-        assert preview.suffix == ".jpg" and preview.stat().st_size < 1_000_000
+        data, media = svc.artifact(sid, "trace_overlay_preview", "bot")
+        assert media == "image/jpeg" and data[:3] == b"\xff\xd8\xff" and len(data) < 1_000_000
         assert all("/" not in v for v in row.result["artifacts"].values())
+        # D98: with a storage key the images are kept encrypted, never as plaintext files.
+        on_disk = sorted(p.name for p in (svc.artifacts_root / sid).iterdir())
+        assert on_disk and all(n.endswith(".enc") for n in on_disk)
+        with pytest.raises(ScanError) as other:
+            svc.artifact(sid, "trace_overlay_preview", "dr_karimova")      # another key's scan
+        assert other.value.code == 404
     finally:
         svc.close()
 

@@ -75,6 +75,8 @@
 <div class="wrap">
   <div class="card">
     <h2>Входные данные</h2>
+    <label>Ключ доступа API (X-API-Key)</label>
+    <input id="apikey" type="password" autocomplete="off" placeholder="выдаёт администратор">
     <label>Демо-случай (синтетика)</label>
     <select id="case"></select>
 
@@ -142,6 +144,21 @@
 <script>
 const $ = id => document.getElementById(id);
 
+// Every /api/analyze and /api/analysis call carries the key (D98). It lives only in this
+// tab (sessionStorage), never in a URL: images and the PDF are fetched and shown as blobs.
+try { $('apikey').value = sessionStorage.getItem('apikey') || ''; } catch (e) {}
+$('apikey').addEventListener('change', () => {
+  try { sessionStorage.setItem('apikey', $('apikey').value); } catch (e) {}
+});
+function authed(url, opts = {}) {
+  return fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-API-Key': $('apikey').value } });
+}
+async function blobUrl(url) {
+  const r = await authed(url);
+  if (!r.ok) throw new Error(r.status + ' ' + url);
+  return URL.createObjectURL(await r.blob());
+}
+
 async function loadCases() {
   const r = await fetch('/api/cases'); const d = await r.json();
   $('case').innerHTML = '<option value="">—</option>' +
@@ -183,7 +200,7 @@ $('run').addEventListener('click', async () => {
 
   $('run').disabled = true; $('run').textContent = 'Анализ…';
   try {
-    const r = await fetch('/api/analyze', { method:'POST', body: fd });
+    const r = await authed('/api/analyze', { method:'POST', body: fd });
     if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
     render(await r.json());
   } catch (e) { $('err').textContent = 'Ошибка: ' + e.message; }
@@ -215,15 +232,18 @@ function render(d) {
   $('findings').innerHTML = (d.findings || [])
     .map(f => `<span class="chip ${f.critical?'crit':''}">${f.label_ru}</span>`).join('') || '<span class="muted">—</span>';
 
-  $('wave').src = `/api/analysis/${d.analysis_id}/waveform.svg`;
-  $('graph').src = `/api/analysis/${d.analysis_id}/graph.png`;
+  blobUrl(`/api/analysis/${d.analysis_id}/waveform.svg`).then(u => { $('wave').src = u; }).catch(() => {});
+  blobUrl(`/api/analysis/${d.analysis_id}/graph.png`).then(u => { $('graph').src = u; }).catch(() => {});
   $('concl_ru').textContent = d.conclusion_ru;
   $('concl_uz').textContent = d.conclusion_uz;
   const it = d.interpretation;
   $('narr_src').textContent = 'Нарратив: ' + providerLabel(it.provider, it.provider_model) +
     ' · все утверждения проверены заземлением (ungrounded — отброшены)';
   $('trace').innerHTML = (it.reasoning_trace || []).map(t => `<li>${esc(t)}</li>`).join('');
-  $('pdf').href = `/api/analysis/${d.analysis_id}/report.pdf`;
+  $('pdf').removeAttribute('href');
+  blobUrl(`/api/analysis/${d.analysis_id}/report.pdf`).then(u => {
+    $('pdf').href = u; $('pdf').download = `cardiolens_${d.analysis_id}.pdf`;
+  }).catch(() => {});
   $('disc').textContent = it.disclaimer.ru;
 }
 

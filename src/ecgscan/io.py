@@ -8,6 +8,7 @@ returns an upright BGR working copy. No enhancement of any kind is applied here
 from __future__ import annotations
 
 import hashlib
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,15 +61,58 @@ def exif_orientation(data: bytes) -> int | None:
     return None
 
 
-def load_image(source: str | Path | bytes) -> ImageInput:
+class ImageRefused(ValueError):
+    """An image the pipeline will not decode; ``code`` is its reject reason."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def image_size(data: bytes) -> tuple[int, int] | None:
+    """(width, height) from the file header, without decoding the pixels; None if unknown."""
+    import io
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(data)) as im:   # reads the header only
+                return int(im.width), int(im.height)
+    except Image.DecompressionBombError:
+        return 1 << 20, 1 << 20      # over PIL's own ceiling: certainly too large
+    except (UnidentifiedImageError, OSError, ValueError):
+        return None
+
+
+def check_image(data: bytes, *, max_megapixels: float, min_side_px: int) -> None:
+    """Refuse before decoding: a 1-MB PNG can declare 32000 x 32000 px and decode to 3 GB
+    (D98); an empty or 1-px image crashed the frame checks."""
+    if not data:
+        raise ImageRefused("NOT_AN_ECG", "empty file")
+    size = image_size(data)
+    if size is None:
+        return                       # not readable from the header: the decoder decides
+    w, h = size
+    if w * h > max_megapixels * 1e6:
+        raise ImageRefused("IMAGE_TOO_LARGE", f"{w} x {h} px is over {max_megapixels:g} MP")
+    if min(w, h) < min_side_px:
+        raise ImageRefused("LOW_RESOLUTION", f"{w} x {h} px is below {min_side_px} px on a side")
+
+
+def load_image(source: str | Path | bytes, *, max_megapixels: float = 60.0, min_side_px: int = 200) -> ImageInput:
     import cv2
 
     data = source if isinstance(source, bytes) else Path(source).read_bytes()
+    check_image(data, max_megapixels=max_megapixels, min_side_px=min_side_px)
     arr = np.frombuffer(data, dtype=np.uint8)
     # IMREAD_COLOR applies the EXIF orientation (OpenCV >= 3.1): the copy is upright.
     bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if bgr is None:
-        raise ValueError("not a decodable image")
+        raise ImageRefused("NOT_AN_ECG", "not a decodable image")
+    if min(bgr.shape[:2]) < min_side_px:
+        raise ImageRefused("LOW_RESOLUTION", f"image is below {min_side_px} px on a side")
     return ImageInput(original_sha256=hashlib.sha256(data).hexdigest(), original_bytes=len(data),
                       mime_type=_mime(data), exif_orientation=exif_orientation(data),
                       width_px=int(bgr.shape[1]), height_px=int(bgr.shape[0]), bgr=bgr)

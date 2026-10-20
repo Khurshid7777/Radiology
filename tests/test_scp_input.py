@@ -145,6 +145,6 @@ def test_dispatch_and_api_without_extension(tmp_path, ecg):
     f = tmp_path / "ecg.scp"
     f.write_bytes(data)
     assert load(f).source == "scp" and is_scp(data) and not is_scp(b"\0" * 64)
-    r = TestClient(app).post("/api/analyze", files=[("files", ("ECG0001", data, "application/octet-stream"))])
+    r = TestClient(app, headers={"X-API-Key": "test-key"}).post("/api/analyze", files=[("files", ("ECG0001", data, "application/octet-stream"))])
     assert r.status_code == 200, r.text
     assert r.json()["measurements"]["heart_rate_bpm"] == pytest.approx(66, abs=3)

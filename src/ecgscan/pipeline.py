@@ -16,6 +16,7 @@ Status rules:
 
 from __future__ import annotations
 
+import hashlib
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -31,7 +32,7 @@ from ecgscan.config import load_yaml
 from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, Source
 from ecgscan.geometry.grid import estimate_grid, estimate_grid_tiled
 from ecgscan.geometry.rectify import Rectified, rectify
-from ecgscan.io import load_image
+from ecgscan.io import ImageRefused, _mime, load_image
 from ecgscan.layout import get_layout
 from ecgscan.layout.detect import detect_layout
 from ecgscan.layout.panels import frame_page, panels
@@ -99,7 +100,19 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
         dbg.timings[name] = round(time.perf_counter() - t0, 3)
         return time.perf_counter()
 
-    img = load_image(image)
+    try:
+        img = load_image(image, max_megapixels=float(q_cfg.get("max_megapixels", 60)),
+                         min_side_px=int(q_cfg.get("min_side_px", 200)))
+    except ImageRefused as exc:
+        # Refused before decoding (D98): nothing of the picture was looked at.
+        data = image if isinstance(image, bytes) else Path(image).read_bytes()
+        return ScanResult(
+            scan_id=str(uuid.uuid4()), status="rejected", reject_reasons=[exc.code],
+            source=Source(modality="photo", original_sha256=hashlib.sha256(data).hexdigest(),
+                          original_bytes=len(data), mime_type=_mime(data), client=hints.client,
+                          device=hints.device, header_masked=hints.header_masked, pipeline_version=PIPELINE_VERSION),
+            calibration=Calibration(confidence=0.0), layout=Layout(confidence=0.0), sampling_rate_hz=fs_out,
+            quality=QualitySummary(overall=0.0, processing_ms=int((time.perf_counter() - t_start) * 1000)))
     source = Source(modality="photo", original_sha256=img.original_sha256, original_bytes=img.original_bytes,
                     mime_type=img.mime_type, width_px=img.width_px, height_px=img.height_px,
                     exif_orientation=img.exif_orientation, client=hints.client, device=hints.device,
@@ -219,10 +232,10 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     # Header / footer OCR only outside the trace rows (TZ §5.4: never on the trace).
     ocr_speeds: list[float] = []
     ocr_gains: list[float] = []
+    h_img = rect.bgr.shape[0]
+    top = int(max(0.0, frame.baselines[0] - 0.6 * frame.pitch_px))
+    bottom = int(min(h_img, frame.baselines[-1] + 0.6 * frame.pitch_px))
     if c_cfg["ocr"]["enabled"]:
-        h_img = rect.bgr.shape[0]
-        top = int(max(0.0, frame.baselines[0] - 0.6 * frame.pitch_px))
-        bottom = int(min(h_img, frame.baselines[-1] + 0.6 * frame.pitch_px))
         reading = read_bands(rect.bgr, header_frac=top / h_img, footer_frac=(h_img - bottom) / h_img,
                              min_band_px=int(4 * ppm))
         dbg.ocr_texts = reading.texts
@@ -293,7 +306,11 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     if artifacts_dir is not None:
         from ecgscan.artifacts import write_artifacts
 
-        res.artifacts = write_artifacts(artifacts_dir, rectified=rect.bgr, mask=mask.ink, readings=readings)
+        # The header and footer bands carry the patient's name, ID and date: blanked in every
+        # image the service keeps or sends, whatever the client masked (D98).
+        bands = (top, bottom) if cfg.get("artifacts", {}).get("mask_bands", True) else None
+        res.artifacts = write_artifacts(artifacts_dir, rectified=rect.bgr, mask=mask.ink, readings=readings,
+                                        keep_rows=bands)
         tick("artifacts", t)
     return res
 
