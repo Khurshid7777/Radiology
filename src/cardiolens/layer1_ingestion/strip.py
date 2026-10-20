@@ -76,6 +76,10 @@ STRIP_GLYPH_MAX_MM = 4.0          # printed text: glyph height at most this, wid
 STRIP_TEXT_MIN_GLYPHS = 5         # ... at least this many on one line
 STRIP_TEXT_MIN_SPAN_MM = 40.0     # ... spanning at least this much
 STRIP_TEXT_MIN_BASELINE_PITCHES = 0.3   # ... and not on a row baseline
+STRIP_BLOCK_MIN_S = 1.0         # a sheet's row block is at least this long (at 25 mm/s) (D126)
+STRIP_BLOCK_FIT_MARGIN = 0.15   # ... its rows are fitted over the block without this fraction at each end
+STRIP_BLOCK_DROP = 0.55         # ... and ends where its row count falls below this fraction
+STRIP_SHIFT_MIN_ROWS = 0.5      # the row lattice moves when that gains this many rows' worth of trace ink (D126)
 STRIP_LABEL_GLYPH_MM = 5.0      # a lead label's letter: a component at most this wide and high (D125)
 STRIP_ROW_PITCH_MM = 18.0     # renderer default
 STRIP_LABEL_MM = 10.0         # renderer: left margin for labels / pulse
@@ -185,12 +189,16 @@ def row_baselines(mask: np.ndarray, px_per_mm: float, n_rows: int,
         if len(p) != n_rows:
             continue
         d = np.diff(p)
-        cv = float(d.std() / d.mean()) if d.mean() > 0 else np.inf
+        if n_rows == 1:          # a single trace (a rhythm strip, D126): any tile with one peak
+            cv = 0.0
+        else:
+            cv = float(d.std() / d.mean()) if d.mean() > 0 else np.inf
         if cv < best_cv:
             best, best_cv = i, cv
     if best is None:
         raise ValueError(f"strip: no tile shows {n_rows} evenly spaced rows")
-    pitch = float(np.median(np.diff(peaks[best])))
+    pitch = (float(np.median(np.diff(peaks[best]))) if n_rows > 1
+             else min(STRIP_ROW_PITCH_MM * px_per_mm, (y1 - y0) / 2.0))
     # Rows are a lattice of known pitch: per tile, choose the lattice offset that
     # matches most peaks (a T-wave top or a label makes a stray peak, a shadow
     # loses one — neither moves the lattice), staying close to the neighbouring
@@ -433,6 +441,34 @@ def _drop_glyphs(band: np.ndarray, px_per_mm: float) -> np.ndarray:
     return band & ~small[lab]
 
 
+def _shift_off_text(mask: np.ndarray, base: np.ndarray, pitch: float, px_per_mm: float,
+                    box: tuple[int, int, int, int]) -> np.ndarray:
+    """The row lattice moved by -1, 0 or +1 pitch, whichever puts the most trace ink near the
+    baselines. A header line above the first row (a sheet's title) can take the lattice's
+    first place and push the last row off it (D126); its glyphs do not count."""
+    import cv2
+
+    n, lab, st, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+    lim = STRIP_LABEL_GLYPH_MM * px_per_mm
+    small = np.zeros(n, dtype=bool)
+    small[1:] = (st[1:, cv2.CC_STAT_WIDTH] <= lim) & (st[1:, cv2.CC_STAT_HEIGHT] <= lim)
+    trace = mask & ~small[lab]
+    ys = np.arange(mask.shape[0])[:, None]
+
+    def score(b: np.ndarray) -> float:
+        if b.min() < box[1] or b.max() > box[3] - 1:
+            return -1.0
+        return float(sum((trace & (np.abs(ys - row[None, :]) <= 0.3 * pitch)).any(axis=0).mean() for row in b))
+
+    shifts = {k: score(base + k * pitch) for k in (-1, 0, 1)}
+    k = max(shifts, key=shifts.get)
+    # Move only on a clear gain: one row's worth of trace ink.
+    if shifts[k] - shifts[0] < STRIP_SHIFT_MIN_ROWS * (shifts[0] / len(base)):
+        k = 0
+    _shift_off_text.last_shift = k  # type: ignore[attr-defined]
+    return base + k * pitch
+
+
 def straighten(mask: np.ndarray, baseline: np.ndarray, half: int) -> np.ndarray:
     """Band of height ``2*half`` whose middle row is the row's baseline at every column."""
     h, w = mask.shape
@@ -449,7 +485,7 @@ def straighten(mask: np.ndarray, baseline: np.ndarray, half: int) -> np.ndarray:
 def digitize_strip(
     path: str | Path | np.ndarray, *, rows: int = 12, lead_order: list[str] | None = None,
     px_per_mm: float | None = None, mm_per_s: float = 25.0, mm_per_mv: float | None = None,
-    dewarp: bool = True, ink_ratio: float = STRIP_INK_RATIO,
+    dewarp: bool = True, ink_ratio: float = STRIP_INK_RATIO, block_fraction: float | None = None,
 ) -> dict[str, np.ndarray]:
     """``{lead: trace_uv}`` at ``px_per_s`` Hz for a rows x 1 strip photo;
     ``digitize_strip.last_calibration`` / ``last_coverage`` hold the provenance."""
@@ -481,6 +517,9 @@ def digitize_strip(
     mask[outside] = False
     mask = _keep_long_components(mask, int(2 * px_per_mm))
     base, pitch = row_baselines(mask, px_per_mm, rows, box)
+    if block_fraction is not None:
+        base = _shift_off_text(mask, base, pitch, px_per_mm, box)
+        calib["row_shift"] = getattr(_shift_off_text, "last_shift", 0)
     calib["row_pitch_mm"] = round(pitch / px_per_mm, 2)
     # Header and footer text: lines of glyphs off every baseline, and anything far
     # outside the first/last baseline.
@@ -501,7 +540,50 @@ def digitize_strip(
     for r in mid:
         near += (mask & (np.abs(ys_all - base[r][None, :]) <= 0.3 * pitch)).any(axis=0)
     cols_ink = np.flatnonzero(near >= max(1, len(mid) // 2))
+    if block_fraction is not None:
+        # A sheet with the rows in one block and text beside it (Cardipia, D126): the
+        # block is where at least this fraction of all rows carries ink near its
+        # baseline over a sliding 5 mm (text sits beside a few rows only).
+        every = np.zeros(mask.shape[1])
+        for r in range(rows):
+            every += (mask & (np.abs(ys_all - base[r][None, :]) <= 0.3 * pitch)).any(axis=0)
+        k = max(1, int(5 * px_per_mm))
+        every = np.convolve(np.minimum(every, rows), np.ones(k) / k, mode="same")
+        cols_ink = np.flatnonzero(every >= block_fraction * rows)
+        # The block ends where the count steps down (text beside it reaches a few rows,
+        # a rhythm strip one): the first column where the mean over the next
+        # STRIP_BLOCK_MIN_S falls below STRIP_BLOCK_DROP of the mean so far.
+        if cols_ink.size:
+            a, b = int(cols_ink[0]), int(box[2])
+            seg = every[a:b]
+            csum = np.concatenate([[0.0], np.cumsum(seg)])
+            n = len(seg)
+            lo = min(n - 1, int(STRIP_BLOCK_MIN_S * 25.0 * px_per_mm))
+            xs_split = np.arange(max(1, lo), n - lo)
+            if xs_split.size:
+                left = csum[xs_split] / xs_split
+                right = (csum[xs_split + lo] - csum[xs_split]) / lo
+                drop = np.flatnonzero(right < STRIP_BLOCK_DROP * left)
+                if drop.size:
+                    # The window ahead reaches past the edge before the column does:
+                    # the edge is the last column within that window still at half
+                    # the block's mean count.
+                    x_d = int(xs_split[drop[0]])
+                    win = seg[x_d:x_d + lo]
+                    keep = np.flatnonzero(win >= 0.5 * left[drop[0]])
+                    cut = a + x_d + (int(keep[-1]) + 1 if keep.size else 0)
+                    cols_ink = cols_ink[cols_ink < cut]
     x_right = min(box[2], int(cols_ink[-1]) + int(px_per_mm)) if cols_ink.size else box[2] - int(px_per_mm)
+    if block_fraction is not None and cols_ink.size:
+        # On a sheet the rows are straight once de-warped, but the tiles over the label
+        # margin and the text beside the block pull the linked baselines off them:
+        # each row becomes the line fitted over the middle of the block.
+        a, b = int(cols_ink[0]), x_right
+        a, b = a + int(STRIP_BLOCK_FIT_MARGIN * (b - a)), b - int(STRIP_BLOCK_FIT_MARGIN * (b - a))
+        xs = np.arange(mask.shape[1])
+        for r in range(rows):
+            k, c = np.polyfit(xs[a:b], base[r, a:b], 1)
+            base[r] = k * xs + c
     # Calibration pulses (searched from the paper's left edge, before the traces
     # begin): 1 mV -> px; each row's trace starts where its own ink begins after
     # its pulse (rows without a pulse start a little earlier on some printers),
@@ -560,6 +642,9 @@ def digitize_strip(
         coverages.append(cov)
     digitize_strip.last_coverage = float(np.mean(coverages))  # type: ignore[attr-defined]
     digitize_strip.last_calibration = calib  # type: ignore[attr-defined]
+    # The rectified photo and the rows, for readers of what lies beside them (D126).
+    digitize_strip.last_geometry = {"bgr": bgr, "base": base, "pitch": pitch, "box": box,  # type: ignore[attr-defined]
+                                    "trace_x": (int(x_left), int(x_right))}
     return out
 
 
@@ -618,8 +703,9 @@ def count_rows(path: str | Path) -> int:
 
 def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
     """Pick the layout: a device screen photo -> screen reader (D120); a narrow strip of
-    paper -> three-channel reader (D125); ~12 rows -> strip, otherwise the 3x4 page
-    digitiser, with the other one as the fallback."""
+    paper -> three-channel reader (D125); ~12 rows -> a report sheet (rows beside text
+    with a rhythm strip, D126), then a strip; otherwise the 3x4 page digitiser; the
+    others are the fallbacks in that order."""
     import cv2
 
     from cardiolens.layer1_ingestion.digitize import digitize_page_to_signal
@@ -628,6 +714,7 @@ def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
         digitize_sequential_to_signal,
         is_sequential_strip,
     )
+    from cardiolens.layer1_ingestion.sheet import digitize_sheet_to_signal
 
     bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if bgr is not None and is_device_screen(bgr):     # a device's own display (D120)
@@ -641,15 +728,15 @@ def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
         except ValueError:
             pass
     rows = count_rows(path)
-    first, second = (digitize_strip_to_signal, digitize_page_to_signal) if rows >= 8 else \
-        (digitize_page_to_signal, digitize_strip_to_signal)
-    try:
-        return first(path, **kw)
-    except ValueError as err:
+    order = ([digitize_sheet_to_signal, digitize_strip_to_signal, digitize_page_to_signal] if rows >= 8 else
+             [digitize_page_to_signal, digitize_strip_to_signal, digitize_sheet_to_signal])
+    first_err = None
+    for reader in order:
         try:
-            return second(path, **kw)
-        except ValueError:
-            raise err from None
+            return reader(path) if reader is digitize_sheet_to_signal else reader(path, **kw)
+        except ValueError as err:
+            first_err = first_err or err
+    raise first_err
 
 
 def render_ecg_strip(sig: SignalRepresentation, path: str | Path, *, px_per_mm: int = 6,
