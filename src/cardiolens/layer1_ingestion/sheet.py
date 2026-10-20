@@ -102,7 +102,7 @@ def digitize_sheet(path: str | Path, *, mm_per_s: float = 25.0) -> tuple[dict[st
     holds the provenance (``fs`` of the block, ``rhythm_fs``, the turn)."""
     import cv2
 
-    from cardiolens.layer1_ingestion.strip import align_rows, digitize_strip
+    from cardiolens.layer1_ingestion.strip import digitize_strip
 
     bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if bgr is None:
@@ -138,11 +138,6 @@ def digitize_sheet(path: str | Path, *, mm_per_s: float = 25.0) -> tuple[dict[st
         raise ValueError("sheet: no twelve-row block with a rhythm strip beside it found")
     score, t, ratio, traces, calib, rhythm, cov = best
     ppm = calib["px_per_mm"]
-    # The rows of the block share one window: a camera angle stretches them apart (D127).
-    leads = list(traces)
-    rows, fits = align_rows([traces[ln] for ln in leads], float(ppm * mm_per_s), ref=leads.index("II"))
-    traces = dict(zip(leads, rows, strict=True))
-    calib["row_warps_ms_pct"] = [(round(a * 1000, 1), round(b * 100, 2)) for a, b in fits]
     uv_per_px = 1000.0 / (ppm * calib["mm_per_mv"])
     rhythm_uv = None
     if rhythm is not None:
