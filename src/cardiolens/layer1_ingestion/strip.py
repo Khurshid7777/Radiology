@@ -69,10 +69,10 @@ STRIP_JUMP_MAX_COLUMNS = 3        # a shorter excursion to a neighbour's baselin
 STRIP_FLAT_STROKES = 3.0          # an ink run at most this many stroke widths high is flat trace, not a QRS stroke
 ALIGN_WINDOW_S = 1.5             # rows of one window are aligned per window this long (D127) ...
 ALIGN_MAX_LAG_S = 0.12           # ... within this lag
+ALIGN_MIN_LAG_S = 0.03           # ... and applied only when the warp reaches this somewhere in the window
 ALIGN_MIN_CORR = 0.5             # ... on windows whose QRS envelopes correlate at least this
 ALIGN_MIN_WINDOWS = 2            # ... and at least this many of them
 ALIGN_MAX_STRETCH = 0.05         # a fitted time stretch beyond this is not a camera angle
-STRIP_PULL_NEAREST = True        # the baseline pull from a run's nearest point (D127)
 STRIP_BASELINE_WEIGHT = 1.0       # tracker pull to the own (straightened) baseline; the page's 0.25 lets the path ride a neighbour
 STRIP_LINE_MIN_PITCHES = 0.6      # an ink run this tall in one column, between two short columns, is a grid line
 STRIP_LINE_MAX_COLUMNS = 3
@@ -518,7 +518,10 @@ def align_rows(rows: list[np.ndarray], fs: float, ref: int) -> tuple[list[np.nda
             fits.append((0.0, 0.0))
             continue
         b, a0 = np.polyfit(centres, lags, 1)
-        if abs(b) > ALIGN_MAX_STRETCH or np.abs(a0 + b * t[[0, -1]]).max() > ALIGN_MAX_LAG_S:
+        reach = float(np.abs(a0 + b * t[[0, -1]]).max())
+        # Below ALIGN_MIN_LAG_S the fit is the envelope's own jitter: leads of different
+        # shape put their envelope peaks a sample or two apart (D127, attempt 1).
+        if abs(b) > ALIGN_MAX_STRETCH or reach > ALIGN_MAX_LAG_S or reach < ALIGN_MIN_LAG_S:
             out.append(row)
             fits.append((0.0, 0.0))
             continue
@@ -691,8 +694,7 @@ def digitize_strip(
         [_drop_glyphs(band, px_per_mm)[near_band, x_left:x_right].any(axis=0) for band in bands])
     for lead, band in zip(lead_order, bands, strict=True):
         thin = thin_mask(band)
-        raw = _trace_rows_tracked(band, thin, x_left, x_right, y0, y1, baseline_weight=STRIP_BASELINE_WEIGHT,
-                                  pull_nearest=STRIP_PULL_NEAREST)
+        raw = _trace_rows_tracked(band, thin, x_left, x_right, y0, y1, baseline_weight=STRIP_BASELINE_WEIGHT)
         heights, stroke = _run_heights(band[:, x_left:x_right], raw)
         raw = _drop_foreign_plateaus(raw, half, pitch, heights, stroke)
         raw = _drop_short_jumps(raw, half, pitch, heights, stroke)
