@@ -88,8 +88,8 @@ def paper_mask(bgr: np.ndarray, px_per_mm: float, *, window_mm: float = 6.0, min
     k = max(5, int(round(window_mm * px_per_mm)) | 1)
     ratio = None
     for ax in (0, 1):
-        half = np.abs(g - np.roll(g, p // 2, axis=ax))
-        full = np.abs(g - np.roll(g, p, axis=ax))
+        half = cv2.absdiff(g, np.roll(g, p // 2, axis=ax))       # = |g - roll|, without temporaries
+        full = cv2.absdiff(g, np.roll(g, p, axis=ax))
         r = cv2.blur(half, (k, k)) / (cv2.blur(full, (k, k)) + 1.0)
         ratio = r if ratio is None else np.maximum(ratio, r)
     paper = (ratio > min_ratio).astype(np.uint8)

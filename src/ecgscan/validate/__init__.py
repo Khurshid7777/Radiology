@@ -88,6 +88,38 @@ def rhythm_agreement(panel: Trace, rhythm: Trace, fs: float) -> float | None:
     return float(np.corrcoef(a[ok], b[ok])[0, 1])
 
 
+def _residual(a: np.ndarray, b: np.ndarray, fs: float) -> float | None:
+    """RMS(a - b) relative to RMS of the two together, after each loses its median:
+    0 = the same signal, ~1 = unrelated signals, ~1.4 = opposite."""
+    ok = np.isfinite(a) & np.isfinite(b)
+    if ok.sum() < 0.5 * fs:
+        return None
+    a, b = a[ok] - np.median(a[ok]), b[ok] - np.median(b[ok])
+    scale = max(float(np.sqrt(np.mean(a ** 2) + np.mean(b ** 2))), 0.05)
+    return float(np.sqrt(np.mean((a - b) ** 2)) / scale)
+
+
+def rhythm_check(panels: dict[str, Trace], rhythm: Trace, fs: float) -> dict[str, float]:
+    """The rhythm strip of lead II against what the panels say it must be, where they
+    were recorded at the same time (SD-060): panel II itself, and (aVF - aVR) / 1.5 from
+    Goldberger's identities (aVF = II - I/2, aVR = -(I + II)/2). Name -> residual."""
+    if rhythm.lead != "II":
+        return {}
+    n = int(round(max([rhythm.start_s + len(rhythm.samples_mv) / fs]
+                      + [t.start_s + len(t.samples_mv) / fs for t in panels.values()]) * fs))
+    r = _on_axis(rhythm, fs, n)
+    out = {}
+    if "II" in panels:
+        v = _residual(r, _on_axis(panels["II"], fs, n), fs)
+        if v is not None:
+            out["panel_II"] = round(v, 4)
+    if "aVR" in panels and "aVF" in panels:
+        v = _residual(r, (_on_axis(panels["aVF"], fs, n) - _on_axis(panels["aVR"], fs, n)) / 1.5, fs)
+        if v is not None:
+            out["aVF_aVR"] = round(v, 4)
+    return out
+
+
 def lead_quality(missing_fraction: float, ambiguity: float, edge_contact: float, *,
                  weights: dict | None = None) -> float:
     """0..1 from what the tracer saw: coverage, competing ink, contact with the band edge."""

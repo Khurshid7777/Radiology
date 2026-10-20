@@ -5,7 +5,8 @@
 * mV -> µV; every trace is placed on one time axis at ``sampling_rate_hz``;
 * outside a lead's time window the samples are 0 and ``provenance.lead_windows``
   says where the lead has data (what Layer 3 already understands);
-* a rhythm strip of a lead replaces its panel and widens its window;
+* a rhythm strip of a lead replaces its panel and widens its window — unless it is
+  flagged ``RHYTHM_MISMATCH`` (it disagrees with every panel recorded with it, SD-060);
 * missing samples inside a window are linearly bridged **on the CardioLens side**
   only, so the filters can run; where they were goes to ``provenance.sample_mask``
   and Layer 3 measures no beat on them (M4). The ``ScanResult`` keeps them missing.
@@ -15,7 +16,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ecgscan.contract.models import DIGITIZED_FLAG, STANDARD_LEADS, ScanResult
+from ecgscan.contract.models import DIGITIZED_FLAG, RHYTHM_MISMATCH, STANDARD_LEADS, ScanResult
 
 
 class RejectedScanError(ValueError):
@@ -68,7 +69,9 @@ def to_signal_representation(result: ScanResult):
     bridged: dict[str, int] = {}
     missing = np.zeros_like(signal, dtype=bool)
     # Panels first, rhythm strips after: a strip overwrites its lead's panel.
-    for lead, t in [(k, v) for k, v in result.leads.items()] + [(t.lead, t) for t in result.rhythm]:
+    # A strip flagged RHYTHM_MISMATCH (unrelated to its panels, SD-060) is not measured.
+    strips = [(t.lead, t) for t in result.rhythm if RHYTHM_MISMATCH not in t.flags]
+    for lead, t in [(k, v) for k, v in result.leads.items()] + strips:
         if lead not in STANDARD_LEADS:
             continue
         raw = t.array()

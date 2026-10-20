@@ -663,6 +663,7 @@
         "LEAD_INCOMPLETE",
         "BEATS_INCONSISTENT",
         "QRS_UNSTABLE",
+        "RHYTHM_INCONSISTENT",
         "LEAD_OVERLAP",
         "LOW_RESOLUTION_MARGINAL",
         "FADED_PAPER",

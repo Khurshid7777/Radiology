@@ -79,6 +79,8 @@ vectorize:
   overlap_flag: 0.1              # band-edge contact above this -> LEAD_OVERLAP
 
 validate:
+  rhythm_warn: 0.5                # SD-060: rhythm strip vs panel II / (aVF - aVR)/1.5 residual above -> RHYTHM_INCONSISTENT
+  rhythm_unrelated: 0.9           # SD-060: every check at least this (~1 = unrelated) -> strip flagged, not measured
   min_median_coverage: 0.5       # below -> rejected TRACE_BROKEN
   lead_min_coverage: 0.8         # any lead with less coverage -> LEAD_INCOMPLETE (needs confirmation)
   limb_warn: 0.7                 # PROVISIONAL: limb-lead consistency below -> LIMB_LEADS_INCONSISTENT (clean pages 0.83-0.86, I<->II swap 0.61)

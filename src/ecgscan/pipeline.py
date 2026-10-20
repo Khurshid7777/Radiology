@@ -30,6 +30,7 @@ from ecgscan.calibration.pulse import find_pulses, summarize_pulses, widen_strok
 from ecgscan.calibration.resolve import resolve
 from ecgscan.config import load_yaml
 from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, Source
+from ecgscan.contract.models import RHYTHM_MISMATCH
 from ecgscan.geometry.grid import estimate_grid, estimate_grid_tiled
 from ecgscan.geometry.rectify import Rectified, rectify
 from ecgscan.io import ImageRefused, _mime, load_image
@@ -38,7 +39,7 @@ from ecgscan.layout.detect import detect_layout
 from ecgscan.layout.panels import frame_page, panels
 from ecgscan.layout.rows import long_stroke_mask
 from ecgscan.segmentation import make_segmenter
-from ecgscan.validate import limb_consistency, measurement_check
+from ecgscan.validate import limb_consistency, measurement_check, rhythm_check
 from ecgscan.vectorize import read_panels
 
 
@@ -65,6 +66,7 @@ class ScanDebug:
     frame: object | None = None
     readings: list = field(default_factory=list)
     consistency: object | None = None
+    rhythm_checks: dict[str, dict[str, float]] = field(default_factory=dict)
     timings: dict[str, float] = field(default_factory=dict)
 
 
@@ -76,8 +78,10 @@ def trace_contrast(bgr: np.ndarray, px_per_mm: float) -> float:
     """1 - (darkest neutral ink / paper): ~0.9 for a fresh print, low for faded thermal paper."""
     import cv2
 
-    g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    chroma = bgr.max(axis=2).astype(np.int16) - bgr.min(axis=2).astype(np.int16)
+    # uint8 throughout (the same percentiles, ~3x faster than on float copies; SD-060).
+    g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    b, gr, r = cv2.split(bgr)
+    chroma = cv2.subtract(cv2.max(cv2.max(b, gr), r), cv2.min(cv2.min(b, gr), r))
     neutral = g[chroma < 40]
     if neutral.size < 100:
         return 0.0
@@ -273,6 +277,18 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     dbg.consistency = cons
     if cons.score is not None and cons.score < val.get("limb_warn", 0.7):
         warnings.append("LIMB_LEADS_INCONSISTENT")
+    # The rhythm strip against the panels recorded with it (SD-060). Disagreement means one
+    # of them is misread: the doctor looks. A strip unrelated to every panel it overlaps
+    # (glare, a stain on the strip) stays in the result for the doctor but is flagged and
+    # left out of the measurements: it gave HR 49 for 64 and 56 for 78.
+    for rt in rhythm:
+        checks = rhythm_check(leads, rt, fs_out)
+        dbg.rhythm_checks[rt.lead] = checks
+        if checks and max(checks.values()) > val.get("rhythm_warn", 0.5):
+            warnings.append("RHYTHM_INCONSISTENT")
+        if checks and min(checks.values()) >= val.get("rhythm_unrelated", 0.9):
+            rt.flags = sorted({*rt.flags, RHYTHM_MISMATCH})
+            rt.quality = 0.0
     if any("TRACE_GAPS" in r.trace.flags for r in readings):
         warnings.append("TRACE_GAPS")
     if any("LEAD_OVERLAP" in r.trace.flags for r in readings):
@@ -283,7 +299,8 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     cons_f = 1.0 if cons.score is None else float(np.clip(0.5 + cons.score, 0.0, 1.0))
     overall = lead_q * cons_f * raw.confidence ** 0.5 * (decision.calibration.confidence if decision.established else 0.5)
     trusted = (decision.established and overall >= val.get("ok_min_overall", 0.6)
-               and not {"LAYOUT_UNCERTAIN", "LIMB_LEADS_INCONSISTENT", "LEAD_INCOMPLETE"} & set(warnings))
+               and not {"LAYOUT_UNCERTAIN", "LIMB_LEADS_INCONSISTENT", "LEAD_INCOMPLETE",
+                        "RHYTHM_INCONSISTENT"} & set(warnings))
     status = "ok" if trusted else "needs_confirmation"
     layout = Layout(name=layout_name, registry_version=spec.registry_version, confidence=layout_conf)
     res = result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,

@@ -50,8 +50,14 @@ def _sampled(img: np.ndarray, axis: int, max_lines: int = 400) -> np.ndarray:
 def _channels(img: np.ndarray) -> dict[str, np.ndarray]:
     if img.ndim == 2:
         return {"gray": 255.0 - img.astype(np.float32)}
-    f = img.astype(np.float32)
-    return {"chroma": f.max(axis=2) - f.min(axis=2), "gray": 255.0 - f.mean(axis=2)}
+    import cv2
+
+    # The same values as max - min and the mean over float32 channels, in integer maths
+    # first: ~35x faster, 1.3 s of a 10-s scan went here (SD-060).
+    b, g, r = cv2.split(np.ascontiguousarray(img))
+    chroma = cv2.subtract(cv2.max(cv2.max(b, g), r), cv2.min(cv2.min(b, g), r)).astype(np.float32)
+    total = b.astype(np.uint16) + g + r
+    return {"chroma": chroma, "gray": 255.0 - total.astype(np.float32) / np.float32(3.0)}
 
 
 def _spectrum(ch: np.ndarray, axis: int, max_rows: int = 400) -> np.ndarray:

@@ -19,6 +19,9 @@ Status = Literal["ok", "needs_confirmation", "rejected"]
 CalSource = Literal["calibration_pulse", "header_ocr", "format_registry", "user"] | None
 TraceMethod = Literal["dp_path", "legacy_track", "hybrid", "weighted_centroid", "column_median", "onnx"]
 
+# Trace flag: a rhythm strip unrelated to every panel recorded with it (SD-060).
+RHYTHM_MISMATCH = "RHYTHM_MISMATCH"
+
 REJECT_CODES = (
     "LOW_RESOLUTION", "GLARE", "BLUR", "GRID_NOT_FOUND", "CALIBRATION_MISSING", "LAYOUT_UNKNOWN",
     "TRACE_BROKEN", "LIMB_LEADS_INCONSISTENT", "LOW_CONTRAST", "SCREEN_PHOTO", "NOT_AN_ECG",
@@ -27,7 +30,7 @@ REJECT_CODES = (
 WARNING_CODES = (
     "SPEED_UNCERTAIN", "GAIN_UNCERTAIN", "SPEED_SOURCES_DISAGREE", "GAIN_SOURCES_DISAGREE",
     "LAYOUT_UNCERTAIN", "LABEL_ORDER_CONFLICT", "LIMB_LEADS_INCONSISTENT", "TRACE_GAPS",
-    "LEAD_INCOMPLETE", "BEATS_INCONSISTENT", "QRS_UNSTABLE", "LEAD_OVERLAP", "LOW_RESOLUTION_MARGINAL", "FADED_PAPER", "STITCHED",
+    "LEAD_INCOMPLETE", "BEATS_INCONSISTENT", "QRS_UNSTABLE", "RHYTHM_INCONSISTENT", "LEAD_OVERLAP", "LOW_RESOLUTION_MARGINAL", "FADED_PAPER", "STITCHED",
 )
 DIGITIZED_FLAG = "digitized_from_image"
 STANDARD_LEADS = ("I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6")
