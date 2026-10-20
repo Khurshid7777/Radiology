@@ -48,3 +48,21 @@ def test_sharp_strip_has_no_conflict(sig, tmp_path):
     assert abs(r.measurements.heart_rate_bpm - 60) <= 2
     assert "photo_unreliable" not in r.findings.codes()
     assert "(по ненадёжному снимку)" not in _card(r)
+
+
+def test_narrative_model_gets_no_numbers_from_an_unreliable_photo(sig, tmp_path):
+    from cardiolens.layer6_interpret.claude import ClaudeProvider
+    from cardiolens.layer6_interpret.stub import StubProvider
+
+    class Capture(ClaudeProvider):
+        def generate(self, data):
+            self.sent = self._payload(data)
+            return StubProvider().generate(data)
+
+    blurred = degrade_image(render_ecg_strip(sig, tmp_path / "s.png", px_per_mm=4), tmp_path / "b.png", blur_px=3)
+    cap = Capture()
+    run_pipeline(digitize_strip_to_signal(blurred), mode="A", provider=cap)
+    assert set(cap.sent["measurements"]) == {"withheld"}
+    sharp = Capture()
+    run_pipeline(sig, mode="A", provider=sharp)
+    assert abs(sharp.sent["measurements"]["heart_rate_bpm"] - 60) <= 2
