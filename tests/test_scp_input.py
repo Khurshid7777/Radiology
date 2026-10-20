@@ -60,18 +60,19 @@ def _section(sid: int, body: bytes) -> bytes:
 
 
 def _record(units: np.ndarray, names: list[str], *, avm_nv=5000, interval_us=2000, diff=1, huffman=True,
-            flags=0x04, bimodal=0, tables=None, age=(52, 1), sex=2) -> bytes:
+            flags=0x04, bimodal=0, tables=None, age=(52, 1), sex=2, ranges=None, sizes=None) -> bytes:
     n = units.shape[1]
     s1 = (bytes([0]) + struct.pack("<H", 7) + b"Ivanov\0"            # last name
           + bytes([2]) + struct.pack("<H", 6) + b"ID-42\0"           # patient ID
           + bytes([4]) + struct.pack("<HHB", 3, *age)
           + bytes([8]) + struct.pack("<HB", 1, sex) + bytes([255]) + struct.pack("<H", 0))
+    ranges = ranges or [(1, n)] * len(names)
     s3 = struct.pack("<BB", len(names), flags) + b"".join(
-        struct.pack("<IIB", 1, n, LEAD_IDS[nm]) for nm in names)
+        struct.pack("<IIB", a, b, LEAD_IDS[nm]) for (a, b), nm in zip(ranges, names, strict=True))
     coded = [(_huff(_difference(u, diff)) if huffman else _difference(u, diff).astype("<i2").tobytes())
              for u in units]
     s6 = struct.pack("<HHBB", avm_nv, interval_us, diff, bimodal) + b"".join(
-        struct.pack("<H", len(c)) for c in coded) + b"".join(coded)
+        struct.pack("<H", k) for k in (sizes or [len(c) for c in coded])) + b"".join(coded)
     body = {1: s1, 3: s3, 6: s6}
     if huffman or tables is not None:
         body[2] = struct.pack("<H", 19999 if tables is None else tables)

@@ -77,26 +77,33 @@ def signal_from_uploads(
             p.write_bytes(f.content)
             saved.append(p)
 
-        dcm = next((p for p, f in zip(saved, files, strict=True)
-                    if p.suffix.lower() == ".dcm" or is_dicom(f.content)), None)
-        if dcm is not None:
-            return load_dicom(dcm)
-        scp = next((p for p, f in zip(saved, files, strict=True)
-                    if p.suffix.lower() == ".scp" or is_scp(f.content)), None)
-        if scp is not None:
-            return load_scp(scp)
-        hea = next((p for p in saved if p.suffix.lower() == ".hea"), None)
-        if hea is not None:
-            return load_wfdb(hea.with_suffix(""))
-        edf = next((p for p in saved if p.suffix.lower() in (".edf", ".bdf")), None)
-        if edf is not None:
-            return load_edf(edf)
-        csv = next((p for p in saved if p.suffix.lower() in (".csv", ".txt")), None)
-        if csv is not None:
-            if sampling_rate_hz is None:
-                raise ValueError("sampling_rate_hz is required for CSV input")
-            return load_csv(csv, sampling_rate_hz=sampling_rate_hz, unit=unit)
-        raise ValueError("unsupported upload; expected WFDB(.hea+.dat), EDF, CSV, DICOM ECG or SCP-ECG")
+        # A malformed file is the sender's error (400 with the reason), whatever the
+        # parser raised underneath: truncated SCP sections, junk EDF, a 0-d CSV (D97).
+        try:
+            dcm = next((p for p, f in zip(saved, files, strict=True)
+                        if p.suffix.lower() == ".dcm" or is_dicom(f.content)), None)
+            if dcm is not None:
+                return load_dicom(dcm)
+            scp = next((p for p, f in zip(saved, files, strict=True)
+                        if p.suffix.lower() == ".scp" or is_scp(f.content)), None)
+            if scp is not None:
+                return load_scp(scp)
+            hea = next((p for p in saved if p.suffix.lower() == ".hea"), None)
+            if hea is not None:
+                return load_wfdb(hea.with_suffix(""))
+            edf = next((p for p in saved if p.suffix.lower() in (".edf", ".bdf")), None)
+            if edf is not None:
+                return load_edf(edf)
+            csv = next((p for p in saved if p.suffix.lower() in (".csv", ".txt")), None)
+            if csv is not None:
+                if sampling_rate_hz is None:
+                    raise ValueError("sampling_rate_hz is required for CSV input")
+                return load_csv(csv, sampling_rate_hz=sampling_rate_hz, unit=unit)
+            raise ValueError("unsupported upload; expected WFDB(.hea+.dat), EDF, CSV, DICOM ECG or SCP-ECG")
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError(f"could not read the uploaded ECG file ({type(exc).__name__})") from exc
     finally:
         # Parsers read the raw signal into memory, so the temp files are no
         # longer needed once parsing returns (or raises) — never leak them.

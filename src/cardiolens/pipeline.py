@@ -31,6 +31,7 @@ from cardiolens.contracts.features import Measurements
 from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
+from cardiolens.layer1_ingestion.checks import check_record
 from cardiolens.layer2_preprocess import assess_quality, preprocess
 from cardiolens.layer3_measure import measure
 from cardiolens.layer3_measure.pacing import (
@@ -78,6 +79,10 @@ def run_pipeline(
     if calibrator is None:
         calibrator = TemperatureScaler.load(configs_dir() / "calibrator.json")
     audit: list[str] = []
+    # A record that cannot be measured is refused here, whatever route it came by (D97).
+    n_notes = len(sig.provenance.notes)
+    sig = check_record(sig, cfg.ingestion)
+    audit.extend(f"[L1] {n}" for n in sig.provenance.notes[n_notes:])
 
     # Pacing spikes are erased by the Layer-2 band-pass, so measure them on the raw signal.
     pacing_ratio = pacing_spike_ratio(sig)
@@ -170,17 +175,25 @@ def run_pipeline(
     # withhold the findings and report poor quality; mode B escalates.
     tc = m.qrs_template_consistency
     pc = m.qrs_partner_consistency
-    if (tc is not None and tc < cfg.quality.beat_consistency_min
-            and not (pc is not None and pc >= cfg.quality.beat_partner_min)):
+    # Too few complexes to judge (fewer than 3 away from the edges) is not "consistent":
+    # band-limited noise with 3 such "beats" read as AF and HR 32 with SQI 0.8 (D97).
+    unjudged = tc is None and len(m.r_peaks_samples or []) > 0
+    if unjudged or (tc is not None and tc < cfg.quality.beat_consistency_min
+                    and not (pc is not None and pc >= cfg.quality.beat_partner_min)):
+        why = ("too few QRS complexes to check their consistency" if unjudged
+               else f"QRS consistency {tc} < {cfg.quality.beat_consistency_min}")
         findings.findings = [Finding(
             code="poor_quality_signal", group="quality",
-            label_ru=f"Сигнал непригоден для надёжной интерпретации "
-                     f"(консистентность QRS {tc} < {cfg.quality.beat_consistency_min})",
-            label_uz=f"Signal ishonchli talqin uchun yaroqsiz (QRS konsistentligi {tc})",
+            label_ru=("Сигнал непригоден для надёжной интерпретации ("
+                      + ("слишком мало комплексов QRS для проверки)" if unjudged
+                         else f"консистентность QRS {tc} < {cfg.quality.beat_consistency_min})")),
+            label_uz=("Signal ishonchli talqin uchun yaroqsiz ("
+                      + ("tekshirish uchun QRS komplekslari juda kam)" if unjudged
+                         else f"QRS konsistentligi {tc})")),
             evidence=[Evidence(feature="qrs_template_consistency", value=str(tc))],
             confidence=0.9)]
         quality_ok = False
-        audit.append(f"[L2] signal disorganized (beat consistency {tc}) — R-peak findings withheld")
+        audit.append(f"[L2] signal disorganized ({why}) — R-peak findings withheld")
     # Digitised page: the final beats disagree with the page's column detector (D92).
     if m.page_beat_agreement is False:
         quality_ok = False
@@ -203,6 +216,13 @@ def run_pipeline(
 
     # Safety scan (TZ §10) — before interpretation, independent of LLM.
     safety = scan_critical(findings, m)
+    if not quality_ok:
+        # Alerts are never withheld (recall first, TZ §10), but one raised on a signal that
+        # failed the quality gates says so: the doctor checks it against the tracing (D97).
+        for a in safety.alerts:
+            a.unverified = True
+            a.label_ru += " — сигнал низкого качества, проверить по записи"
+            a.label_uz += " — signal sifati past, yozuv bo'yicha tekshiring"
     # New critical dynamics on serial comparison force escalation (TZ §8.4, §10).
     if serial is not None:
         for d in serial.deltas:

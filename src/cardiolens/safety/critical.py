@@ -36,6 +36,7 @@ class CriticalAlert:
     label_uz: str
     reason: str
     log_id: str = ""
+    unverified: bool = False     # raised on a signal that failed the quality gates (D97)
 
 
 @dataclass

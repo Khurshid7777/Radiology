@@ -16,6 +16,15 @@ preprocessing:
   # Signal Quality Index below this marks a lead as low-quality (0..1).
   sqi_accept_threshold: 0.5
 
+# What a digital record must be before it is measured (D97). A record that fails is
+# refused with the reason, never measured on guesses (TZ §0).
+ingestion:
+  min_sampling_rate_hz: 100     # 50 Hz gave QRS 178 ms and false LBBB / short QT
+  low_sampling_rate_hz: 250     # 100-250 Hz: measured, with a note on the coarse QRS edges
+  min_duration_s: 2.0
+  max_gap_s: 0.2                # invalid (NaN/inf) samples: shorter runs bridged and masked
+  max_invalid_fraction: 0.05
+
 # Layer-6 narrative provider (TZ §12). The core (Layers 1-5) is always offline.
 #   auto   = Claude if ANTHROPIC_API_KEY is set, else a local OpenAI-compatible server
 #            if one answers at local_base_url, else the deterministic stub.

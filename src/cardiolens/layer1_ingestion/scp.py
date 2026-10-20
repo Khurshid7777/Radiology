@@ -18,7 +18,9 @@ ones then 0/1 escape to an 8/16-bit two's-complement original value.
 
 Refused, never guessed (TZ §0): a bad CRC, reference-beat subtraction (section 3 flag),
 bimodal compression and custom Huffman tables — each needs a real device file to
-verify against before it is supported.
+verify against before it is supported. Also refused (D97): a lead range outside
+1 <= start <= end, leads over different ranges, lead data past section 6, more
+samples than coded bits, and sections shorter than their fields.
 """
 
 from __future__ import annotations
@@ -137,7 +139,13 @@ def is_scp(content: bytes) -> bool:
 
 def load_scp(path: str | Path) -> SignalRepresentation:
     """SCP-ECG rhythm data (section 6) in microvolts; see the module docstring for scope."""
-    buf = Path(path).read_bytes()
+    try:
+        return _load(Path(path).read_bytes())
+    except struct.error:                 # a section shorter than its own fields
+        raise ValueError("SCP-ECG record truncated: a section is shorter than its fields") from None
+
+
+def _load(buf: bytes) -> SignalRepresentation:
     sec = _sections(buf)
     if 3 not in sec or 6 not in sec:
         raise ValueError("SCP-ECG record without lead definitions (3) or rhythm data (6)")
@@ -146,6 +154,14 @@ def load_scp(path: str | Path) -> SignalRepresentation:
     if flags & 0x1:
         raise ValueError("SCP-ECG reference-beat subtraction is not supported yet (needs a sample file)")
     leads = [struct.unpack_from("<IIB", s3, 2 + 9 * i) for i in range(n_leads)]
+    # All leads must span the same samples (simultaneous recording): leads starting at
+    # different samples would be laid side by side out of time (D97).
+    if not leads:
+        raise ValueError("SCP-ECG record without leads")
+    if any(not 1 <= start <= end for start, end, _ in leads):
+        raise ValueError("SCP-ECG lead with an invalid sample range (start > end or 0)")
+    if len({(start, end) for start, end, _ in leads}) > 1:
+        raise ValueError("SCP-ECG leads span different samples (non-simultaneous leads are not supported)")
     tables = struct.unpack_from("<H", sec[2], 0)[0] if 2 in sec and len(sec[2]) >= 2 else 0
     if tables not in (0, DEFAULT_HUFFMAN):
         raise ValueError("SCP-ECG custom Huffman tables are not supported yet (needs a sample file)")
@@ -162,9 +178,13 @@ def load_scp(path: str | Path) -> SignalRepresentation:
     names, rows = [], []
     for (start, end, lead_id), size in zip(leads, sizes, strict=True):
         n = end - start + 1
+        if p + size > len(s6):
+            raise ValueError("SCP-ECG lead data runs past the end of section 6")
         data = s6[p:p + size]
         p += size
         if tables == DEFAULT_HUFFMAN:
+            if n > 8 * size:             # every value takes at least one bit
+                raise ValueError(f"SCP-ECG lead declares {n} samples in {size} bytes")
             v = decode_default_huffman(data, n)
         else:
             if size < 2 * n:

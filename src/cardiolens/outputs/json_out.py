@@ -35,7 +35,7 @@ def result_to_dict(result: PipelineResult) -> dict[str, Any]:
         "critical_flags": result.causal_graph.critical_flags,
         "critical_alerts": [
             {"code": a.code, "label_ru": a.label_ru, "label_uz": a.label_uz,
-             "reason": a.reason, "log_id": a.log_id}
+             "reason": a.reason, "log_id": a.log_id, "unverified": a.unverified}
             for a in result.safety.alerts
         ],
         "serial_comparison": result.serial.to_dict() if result.serial else None,

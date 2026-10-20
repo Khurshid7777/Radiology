@@ -13,11 +13,15 @@ from pathlib import Path
 import numpy as np
 
 from cardiolens.contracts.signal import (
+    STANDARD_12_LEADS,
     Patient,
     Provenance,
     SignalRepresentation,
     canonical_lead_name,
 )
+
+# Physical units to microvolts (EDF / WFDB / CSV).
+_UNITS_UV = {"uv": 1.0, "µv": 1.0, "μv": 1.0, "mv": 1000.0, "v": 1e6}
 
 
 def _mv_to_uv(x: np.ndarray) -> np.ndarray:
@@ -38,12 +42,15 @@ def load_wfdb(record_path: str | Path, *, sampto: int | None = None,
     rec = wfdb.rdrecord(record_path, sampto=sampto, channels=channels)
     sig = np.asarray(rec.p_signal, dtype=np.float32).T  # -> [leads, samples]
 
-    units = [u.lower() if u else "mv" for u in (rec.units or [])]
-    # Convert per-lead to µV based on declared units.
+    units = [u.strip().lower() if u else "mv" for u in (rec.units or [])]
+    # Convert per-lead to µV based on declared units; an unknown unit is refused (D97).
     out = np.empty_like(sig)
     for i in range(sig.shape[0]):
         unit = units[i] if i < len(units) else "mv"
-        out[i] = sig[i] * 1000.0 if unit in ("mv", "millivolt") else sig[i]
+        unit = "mv" if unit == "millivolt" else unit
+        if unit not in _UNITS_UV:
+            raise ValueError(f"WFDB signal {rec.sig_name[i] if rec.sig_name else i}: unknown unit '{unit}'")
+        out[i] = sig[i] * _UNITS_UV[unit]
 
     lead_names = [canonical_lead_name(n) for n in rec.sig_name] if rec.sig_name else [f"ch{i}" for i in range(sig.shape[0])]
     return SignalRepresentation(
@@ -57,25 +64,44 @@ def load_wfdb(record_path: str | Path, *, sampto: int | None = None,
 
 
 def load_edf(path: str | Path) -> SignalRepresentation:
-    """Parse an EDF/EDF+ file (TZ §4). Assumes signals in mV -> µV."""
+    """Parse an EDF/EDF+ file (TZ §4) to microvolts, each signal by its own physical
+    dimension (uV / mV / V) (D97).
+
+    The ECG leads are the signals labelled as standard leads (all signals when none
+    is). Every ECG lead must share one sampling rate and a known unit — otherwise the
+    file is refused: a 250-Hz lead read as 500 Hz plays twice as fast, a uV lead read
+    as mV is 1000x too large (false ST elevation). Other signals (respiration, SpO2)
+    are left out with a note.
+    """
     import pyedflib
 
-    path = str(path)
-    with pyedflib.EdfReader(path) as f:
+    with pyedflib.EdfReader(str(path)) as f:
         n = f.signals_in_file
-        labels = f.getSignalLabels()
-        fs = float(f.getSampleFrequency(0))
-        data = [f.readSignal(i) for i in range(n)]
+        labels = [canonical_lead_name(x) for x in f.getSignalLabels()]
+        rates = [float(f.getSampleFrequency(i)) for i in range(n)]
+        dims = [str(f.getPhysicalDimension(i)).strip().lower() for i in range(n)]
+        ecg = [i for i in range(n) if labels[i] in STANDARD_12_LEADS] or list(range(n))
+        if not ecg:
+            raise ValueError("EDF file has no signals")
+        if len({rates[i] for i in ecg}) > 1:
+            raise ValueError("EDF ECG leads have different sampling rates: "
+                             + ", ".join(f"{labels[i]} {rates[i]:g} Hz" for i in ecg))
+        unknown = [f"{labels[i]} '{dims[i] or 'none'}'" for i in ecg if dims[i] not in _UNITS_UV]
+        if unknown:
+            raise ValueError("EDF ECG leads in unknown units (expected uV/mV/V): " + ", ".join(unknown))
+        data = [f.readSignal(i) * _UNITS_UV[dims[i]] for i in ecg]
+    fs = rates[ecg[0]]
     min_len = min(len(d) for d in data)
     sig = np.vstack([d[:min_len] for d in data]).astype(np.float32)
-    sig = _mv_to_uv(sig)
+    left = [labels[i] for i in range(n) if i not in ecg]
     return SignalRepresentation(
         signal=sig,
         sampling_rate_hz=fs,
-        lead_names=[canonical_lead_name(n) for n in labels],
+        lead_names=[labels[i] for i in ecg],
         duration_s=float(min_len / fs),
         source="edf",
-        provenance=Provenance(digitized=False, confidence=1.0),
+        provenance=Provenance(digitized=False, confidence=1.0,
+                              notes=[f"EDF signals left out (not ECG leads): {', '.join(left)}"] if left else []),
     )
 
 
@@ -91,20 +117,23 @@ def load_csv(
     """Parse a CSV of samples (columns = leads) (TZ §4).
 
     Sampling rate is REQUIRED (not stored in CSV) — never guessed (TZ §0).
-    ``unit`` in {'uv','mv'} controls scaling to microvolts.
+    ``unit`` in {'uv','mv','v'} controls scaling to microvolts; any other is refused.
     """
     path = Path(path)
+    if not sampling_rate_hz or float(sampling_rate_hz) <= 0:
+        raise ValueError("CSV sampling_rate_hz must be positive")
+    if unit.lower() not in _UNITS_UV:
+        raise ValueError(f"CSV unit '{unit}' is not one of uv / mv / v")
     header_names: list[str] | None = None
     skip = 0
     if has_header:
-        header_names = path.read_text(encoding="utf-8").splitlines()[0].split(delimiter)
+        lines = path.read_text(encoding="utf-8-sig").splitlines()       # a BOM made lead I '\ufeffI'
+        if not lines:
+            raise ValueError("CSV file is empty")
+        header_names = [h.strip() for h in lines[0].split(delimiter)]
         skip = 1
-    arr = np.loadtxt(path, delimiter=delimiter, skiprows=skip, dtype=np.float32)
-    if arr.ndim == 1:
-        arr = arr[:, None]
-    sig = arr.T  # [leads, samples]
-    if unit.lower() == "mv":
-        sig = _mv_to_uv(sig)
+    arr = np.loadtxt(path, delimiter=delimiter, skiprows=skip, dtype=np.float32, encoding="utf-8-sig", ndmin=2)
+    sig = arr.T * np.float32(_UNITS_UV[unit.lower()])   # [leads, samples]
     names = lead_names or header_names or [f"ch{i}" for i in range(sig.shape[0])]
     return SignalRepresentation(
         signal=sig.astype(np.float32),
@@ -172,14 +201,32 @@ def load_dicom(path: str | Path) -> SignalRepresentation:
     sex leave the file; name, IDs and dates are not read into the representation.
     """
     import pydicom
+    from pydicom.errors import InvalidDicomError
 
-    ds = pydicom.dcmread(str(path))
+    try:
+        ds = pydicom.dcmread(str(path))
+    except InvalidDicomError as exc:
+        raise ValueError(f"not a readable DICOM file: {exc}") from None
     sop = str(ds.get("SOPClassUID", ""))
     if sop not in DICOM_ECG_SOP_CLASSES:
         raise ValueError(f"DICOM file is not an ECG waveform (SOP class {sop or 'missing'})")
     groups = list(ds.get("WaveformSequence") or [])
     if not groups:
         raise ValueError("DICOM ECG without a waveform sequence")
+
+    def usable(g) -> bool:
+        # The header and the channel list must describe the same multiplex; a mismatch
+        # used to scramble the interleaving into leads with no error (D97).
+        chans = g.get("ChannelDefinitionSequence") or []
+        try:
+            n_ch, n_s, fs = int(g.NumberOfWaveformChannels), int(g.NumberOfWaveformSamples), float(g.SamplingFrequency)
+        except (AttributeError, TypeError, ValueError):
+            return False
+        return n_ch > 0 and n_ch == len(chans) and n_s > 0 and fs > 0 and "WaveformData" in g
+
+    groups = [g for g in groups if usable(g)]
+    if not groups:
+        raise ValueError("DICOM ECG has no consistent waveform group (channels, samples, rate, data)")
 
     def rank(g):
         names = [_dicom_lead_name(c) for c in g.ChannelDefinitionSequence]
@@ -189,24 +236,36 @@ def load_dicom(path: str | Path) -> SignalRepresentation:
     g = max(groups, key=rank)
     n_ch, n_s = int(g.NumberOfWaveformChannels), int(g.NumberOfWaveformSamples)
     fs = float(g.SamplingFrequency)
-    key = (str(g.WaveformSampleInterpretation), int(g.WaveformBitsAllocated))
+    key = (str(g.get("WaveformSampleInterpretation", "")), int(g.get("WaveformBitsAllocated", 0) or 0))
     if key not in _DICOM_DTYPES:
         raise ValueError(f"unsupported DICOM waveform sample interpretation {key}")
     raw = np.frombuffer(g.WaveformData, dtype=np.dtype(_DICOM_DTYPES[key]).newbyteorder("<"))
     if raw.size < n_ch * n_s:
         raise ValueError("DICOM waveform data shorter than its declared size")
     raw = raw[:n_ch * n_s].reshape(n_s, n_ch).T.astype(np.float64)   # interleaved by sample
+    # Samples equal to WaveformPaddingValue are not data (PS3.3 C.10.9.1.4): the -32768 of
+    # a padded tail read as -82 mV and a false LVH. They become NaN for check_record.
+    pad = g.get("WaveformPaddingValue")
+    if pad is not None:
+        pad_val = np.frombuffer(bytes(pad) if isinstance(pad, (bytes, bytearray)) else
+                                np.asarray(pad).astype(_DICOM_DTYPES[key]).tobytes(),
+                                dtype=np.dtype(_DICOM_DTYPES[key]).newbyteorder("<"))[:1]
+        padded = raw == float(pad_val[0]) if pad_val.size else np.zeros_like(raw, bool)
+    else:
+        padded = np.zeros_like(raw, bool)
     names, rows = [], []
     for i, ch in enumerate(g.ChannelDefinitionSequence):
         if ch.get("ChannelSensitivity") in (None, ""):
             raise ValueError(f"DICOM channel {i + 1} has no sensitivity: no physical scale")
+        if float(ch.ChannelSensitivity) == 0:
+            raise ValueError(f"DICOM channel {i + 1} has a zero sensitivity")
         unit_seq = ch.get("ChannelSensitivityUnitsSequence") or []
         unit = str(unit_seq[0].get("CodeValue", "")).lower() if unit_seq else ""
         if unit not in _DICOM_UNITS_UV:
             raise ValueError(f"DICOM channel {i + 1}: unsupported unit {unit or 'missing'}")
         sens = float(ch.ChannelSensitivity) * float(ch.get("ChannelSensitivityCorrectionFactor", 1.0) or 1.0)
         base = float(ch.get("ChannelBaseline", 0.0) or 0.0)
-        rows.append((raw[i] + base) * sens * _DICOM_UNITS_UV[unit])
+        rows.append(np.where(padded[i], np.nan, (raw[i] + base) * sens * _DICOM_UNITS_UV[unit]))
         names.append(_dicom_lead_name(ch))
     sex = {"M": "male", "F": "female"}.get(str(ds.get("PatientSex", "")).upper())
     return SignalRepresentation(
@@ -217,7 +276,8 @@ def load_dicom(path: str | Path) -> SignalRepresentation:
         source="dicom",
         patient=Patient(age_years=_dicom_age(ds.get("PatientAge")), sex=sex),
         provenance=Provenance(digitized=False, confidence=1.0,
-                              notes=[f"DICOM {DICOM_ECG_SOP_CLASSES[sop]}, group of {n_ch} channels"]),
+                              notes=[f"DICOM {DICOM_ECG_SOP_CLASSES[sop]}, group of {n_ch} channels"]
+                              + ([f"{int(padded.sum())} padding samples marked invalid"] if padded.any() else [])),
     )
 
 
