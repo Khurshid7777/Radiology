@@ -50,7 +50,7 @@ segmentation:
   onnx_model: models/segmenter/trace_unet.onnx   # M6 (SD-052); sha256 below must match models/segmenter/model_card.json
   onnx:
     sha256: 607cb279e8445456b91ad3fcbcc60f063b94cb880617cdb21dc1785aef7c078f   # = models/segmenter/model_card.json
-    threshold: 0.5               # stroke probability above this = ink
+    threshold: 0.7               # stroke probability above this = ink (SD-061: 0.5 -> 0.7, a thinner mask centres flanks better)
     tile: 1024                   # tiles with overlap: bounded memory on a 3000-px page
     overlap: 32
     threads: null                # onnxruntime default
@@ -72,7 +72,7 @@ vectorize:
   gap_cost: 2.5                  # per missing column (in stroke widths of vertical jump)
   neighbour_cost: 4.0            # per column riding a flat run on another row's baseline (> gap_cost)
   steep_rows: true               # steep flanks re-read from the rows / the blob's outer edge (SD-058)
-  steep_min_slope_strokes: 1.0   # a column is steep when the path moves more than this many strokes per column
+  steep_min_slope_strokes: 0.5   # a column is steep when the path moves more than this many strokes per column (SD-061: 1.0 -> 0.5)
   steep_max_run_strokes: 4.0     # row runs longer than this are not the flank (flat stroke, page edge)
   steep_tip_cols: 3              # the path turning back within this many columns = a tip on that side
   gap_flag: 0.05                 # missing share above this -> TRACE_GAPS
