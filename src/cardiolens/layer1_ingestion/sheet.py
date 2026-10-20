@@ -121,7 +121,10 @@ def digitize_sheet(path: str | Path, *, mm_per_s: float = 25.0) -> tuple[dict[st
             geom = digitize_strip.last_geometry  # type: ignore[attr-defined]
             x_left, x_right = calib["trace_x"]
             width = geom["box"][2] - geom["box"][0]
-            if (x_right - x_left) > SHEET_MAX_BLOCK_WIDTH * width or x_left > SHEET_MAX_BLOCK_START * width:
+            if (x_right - x_left) > SHEET_MAX_BLOCK_WIDTH * width:
+                # Rows over the whole width: a plain strip, at the opposite turn too.
+                raise ValueError("sheet: the rows span the whole paper (a plain strip)")
+            if x_left > SHEET_MAX_BLOCK_START * width:
                 continue
             ppm = calib["px_per_mm"]
             rhythm = _read_rhythm(geom, ppm, ratio)

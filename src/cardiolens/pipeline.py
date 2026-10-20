@@ -84,6 +84,7 @@ def run_pipeline(
     if calibrator is None:
         calibrator = TemperatureScaler.load(configs_dir() / "calibrator.json")
     audit: list[str] = []
+    fs_in = sig.sampling_rate_hz     # a digitised photo's px/mm x 25 mm/s, before resampling
 
     # Pacing spikes are erased by the Layer-2 band-pass, so measure them on the raw signal.
     # Not on a digitised image (D114): at the pixel rate (~150 Hz) the steep QRS upstroke
@@ -236,14 +237,26 @@ def run_pipeline(
                                                cfg.quality.photo_min_einthoven_r)
     if bad_photo:
         lag, ein = photo["panel_lag_ms"], (photo_aligned or photo)["einthoven_r"]
+        # A digitised record's rate is the photo's px/mm x 25 mm/s: below ~6 px/mm a QRS
+        # is a few pixels wide and the rows cannot be told apart where they cross (D126).
+        # Messengers shrink photos to ~1280 px; sent as a file the photo keeps its size.
+        px_mm = fs_in / 25.0
+        low_res = px_mm < PHOTO_LOW_RES_PX_PER_MM
+        on_screen = any(n.startswith("device screen photo") for n in sig.provenance.notes)
+        what_ru, what_uz = ("экран", "ekran") if on_screen else ("лист", "varaq")
         findings.findings = [Finding(
             code="photo_unreliable", group="quality",
             label_ru="Снимок ЭКГ не распознан надёжно (отведения не совпадают по времени) — "
-                     "переснимите лист ровно, без перекоса и тени",
+                     + (f"снимок мелкий (~{px_mm:.1f} пикс/мм, нужно от {PHOTO_LOW_RES_PX_PER_MM:.0f}): "
+                        f"снимите ближе, чтобы {what_ru} занял весь кадр, и отправьте как файл, а не как фото"
+                        if low_res else "переснимите лист ровно, без перекоса и тени"),
             label_uz="EKG surati ishonchli o'qilmadi (tarmoqlar vaqt bo'yicha mos emas) — "
-                     "varaqni tekis, qiyshaymasdan va soyasiz qayta suratga oling",
+                     + (f"surat kichik (~{px_mm:.1f} piksel/mm, kamida {PHOTO_LOW_RES_PX_PER_MM:.0f} kerak): "
+                        f"yaqinroqdan, {what_uz} butun kadrni egallaydigan qilib oling va rasm emas, fayl sifatida yuboring"
+                        if low_res else "varaqni tekis, qiyshaymasdan va soyasiz qayta suratga oling"),
             evidence=[Evidence(feature="panel_lag_ms", value=f"{lag:.0f}" if lag is not None else "—"),
-                      Evidence(feature="einthoven_r", value=f"{ein:.2f}" if ein is not None else "—")],
+                      Evidence(feature="einthoven_r", value=f"{ein:.2f}" if ein is not None else "—"),
+                      Evidence(feature="px_per_mm", value=f"{px_mm:.1f}")],
             confidence=0.9)]
         quality_ok = False
         audit.append(f"[L2] digitised page inconsistent (lag {lag} ms, Einthoven r {ein}) — findings and alerts withheld")
@@ -356,6 +369,7 @@ def run_pipeline(
 
 
 # A file in mV read as µV is 1000x too small and looks like no ECG at all (D119).
+PHOTO_LOW_RES_PX_PER_MM = 6.0   # D126: an unreliable photo below this asks for a closer shot sent as a file
 SHORT_WINDOW_S = 4.0     # D122: below this, one visible QRS bounds the rate instead of measuring it
 SHORT_WINDOW_EDGE_S = 0.5
 _FILE_SOURCES = {"csv", "edf"}

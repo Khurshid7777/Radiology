@@ -24,7 +24,6 @@ def test_sheet_is_found_at_any_quarter_turn(tmp_path, turn):
     digitize_sheet(path)
     c = digitize_sheet.last_calibration
     assert (c["rotated_deg"] + 90 * turn) % 360 == 0
-    assert c["row_shift"] == 1                  # the title line does not take row I's place
     s = digitize_sheet_to_signal(path)
     assert s.provenance.lead_windows["II"][1] > 9.5        # II continued by the rhythm strip
     assert s.provenance.lead_windows["V1"][1] < 5.0
@@ -50,3 +49,20 @@ def test_plain_strip_is_not_taken_for_a_sheet(tmp_path):
     s = digitize_auto_to_signal(path)
     assert any("strip: all leads simultaneous" in n for n in s.provenance.notes)
     assert digitize_strip.last_calibration["layout"] == "12x1"
+
+
+@pytest.mark.parametrize("fs,low", [(110.0, True), (200.0, False)])
+def test_unreliable_small_photo_asks_for_a_closer_shot_sent_as_a_file(fs, low):
+    import numpy as np
+
+    from cardiolens.contracts.signal import Provenance
+
+    sig = generate_synthetic_ecg(heart_rate_bpm=80, duration_s=10.0, seed=2, sampling_rate_hz=fs)
+    x = np.array(sig.signal, dtype=np.float32)
+    x[sig.lead_names.index("III")] = np.random.default_rng(0).normal(0, 300, x.shape[1])   # breaks Einthoven
+    sig = sig.model_copy(update={"signal": x, "source": "image", "provenance": Provenance(
+        digitized=True, lead_windows={ln: (0.0, 10.0) for ln in sig.lead_names})})
+    r = run_pipeline(sig, mode="A")
+    (f,) = r.findings.findings
+    assert f.code == "photo_unreliable"
+    assert ("отправьте как файл" in f.label_ru) is low

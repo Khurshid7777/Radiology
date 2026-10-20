@@ -680,12 +680,12 @@ def digitize_strip_to_signal(path: str | Path, **kw) -> SignalRepresentation:
                            calibration=getattr(digitize_strip, "last_calibration", None))
 
 
-def count_rows(path: str | Path) -> int:
+def count_rows(path: str | Path | np.ndarray) -> int:
     """Modal number of trace rows across the strip's tiles (12 for a 12L strip,
     4 for a 3x4 page with a rhythm strip) — the layout switch for ``digitize_auto``."""
     import cv2
 
-    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    bgr = path if isinstance(path, np.ndarray) else cv2.imread(str(path), cv2.IMREAD_COLOR)
     if bgr is None:
         raise FileNotFoundError(f"cannot read image: {path}")
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
@@ -728,6 +728,9 @@ def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
         except ValueError:
             pass
     rows = count_rows(path)
+    if bgr is not None and bgr.shape[0] > bgr.shape[1]:
+        # A portrait photo of a landscape sheet (D126): its rows run across the turned frame.
+        rows = max(rows, count_rows(np.ascontiguousarray(np.rot90(bgr))))
     order = ([digitize_sheet_to_signal, digitize_strip_to_signal, digitize_page_to_signal] if rows >= 8 else
              [digitize_page_to_signal, digitize_strip_to_signal, digitize_sheet_to_signal])
     first_err = None
