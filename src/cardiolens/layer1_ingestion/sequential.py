@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from cardiolens.contracts.signal import STANDARD_12_LEADS, Provenance, SignalRepresentation
+from cardiolens.layer1_ingestion.strip import SCALE_CONFLICT_NOTE
 
 SEQ_GROUPS = [["I", "II", "III"], ["aVR", "aVL", "aVF"], ["V1", "V2", "V3"], ["V4", "V5", "V6"]]
 SEQ_MIN_ASPECT = 2.2         # paper long side / short side at least this: a strip, not a page
@@ -238,7 +239,8 @@ def digitize_sequential_to_signal(path: str | Path, **kw) -> SignalRepresentatio
         source="image",
         provenance=Provenance(digitized=True, confidence=round(digitize_sequential.last_coverage, 3),  # type: ignore[attr-defined]
                               lead_windows=windows, discontinuities_s=cuts,
-                              notes=[f"calibration: {calib}", note]))
+                              notes=[f"calibration: {calib}", note]
+                                    + ([SCALE_CONFLICT_NOTE] if calib.get("scale_conflict") else [])))
 
 
 def render_sequential_strip(sig: SignalRepresentation, path: str | Path, *, groups: int = 2, first: int = 0,

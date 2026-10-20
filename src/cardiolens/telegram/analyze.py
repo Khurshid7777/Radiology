@@ -210,8 +210,15 @@ def format_card(rec: Record, result: PipelineResult | None, error: str | None = 
     lines = [head, ""]
     if alerts:
         lines.append("🚨 КРИТИЧЕСКОЕ: " + "; ".join(alerts))
-    lines.append(f"ЧСС {_fmt(s['heart_rate_bpm'])} /мин · PR {_fmt(s['pr_ms'])} · QRS {_fmt(s['qrs_ms'])} · "
-                 f"QTc {_fmt(s['qtc_bazett_ms'])} мс · ось {_fmt(s['qrs_axis_deg'], '°')}")
+    unreliable = next((f for f in result.findings.findings if f.code == "photo_unreliable"), None)
+    scale_unknown = unreliable is not None and any(e.feature == "scale_conflict" and e.value == "yes"
+                                                    for e in unreliable.evidence)
+    if scale_unknown:      # D128: the time scale is not known, so no number read from it is
+        lines.append("ЧСС и интервалы не измерены: масштаб снимка не определён")
+    else:
+        lines.append(f"ЧСС {_fmt(s['heart_rate_bpm'])} /мин · PR {_fmt(s['pr_ms'])} · QRS {_fmt(s['qrs_ms'])} · "
+                     f"QTc {_fmt(s['qtc_bazett_ms'])} мс · ось {_fmt(s['qrs_axis_deg'], '°')}"
+                     + (" (по ненадёжному снимку)" if unreliable is not None else ""))
     lines.append("Находки: " + "; ".join(findings))
     lines.append("Коды: " + (", ".join(sorted(result.findings.codes())) or "—"))
     lines.append(f"Уверенность {s['confidence']:.2f} · оцифровка {_fmt(s['digitiser_coverage'], '', 2)}"

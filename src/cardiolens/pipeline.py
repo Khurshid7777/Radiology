@@ -32,6 +32,7 @@ from cardiolens.contracts.features import Measurements
 from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
+from cardiolens.layer1_ingestion.strip import SCALE_CONFLICT_NOTE
 from cardiolens.layer2_preprocess import assess_quality, preprocess
 from cardiolens.layer2_preprocess.photo_quality import (
     align_panels,
@@ -233,10 +234,18 @@ def run_pipeline(
         audit.append(f"[L2] amplitude {hf_uv:.0f} µV is not an ECG (units?) — all findings and alerts withheld")
     # A digitised photo whose page geometry was not recovered (D114): leads shifted in
     # time widen the QRS and break the RR, so nothing read from it is trusted.
-    bad_photo = not no_ecg and not bad_units and page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
-                                               cfg.quality.photo_min_einthoven_r)
+    # The grid pitch and the calibration pulses disagree (D128): the time scale is not
+    # known, so neither is the rate — Einthoven holds on a uniformly stretched record.
+    scale_conflict = sig.provenance.digitized and SCALE_CONFLICT_NOTE in sig.provenance.notes
+    bad_photo = not no_ecg and not bad_units and (
+        scale_conflict or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
+                                          cfg.quality.photo_min_einthoven_r))
     if bad_photo:
-        lag, ein = photo["panel_lag_ms"], (photo_aligned or photo)["einthoven_r"]
+        lag = photo["panel_lag_ms"] if photo else None
+        ein = (photo_aligned or photo)["einthoven_r"] if photo else None
+        why_ru, why_uz = (("масштаб не определён: сетка и калибровочный импульс расходятся",
+                           "masshtab aniqlanmadi: to'r va kalibrlash impulsi mos emas") if scale_conflict else
+                          ("отведения не совпадают по времени", "tarmoqlar vaqt bo'yicha mos emas"))
         # A digitised record's rate is the photo's px/mm x 25 mm/s: below ~6 px/mm a QRS
         # is a few pixels wide and the rows cannot be told apart where they cross (D126).
         # Messengers shrink photos to ~1280 px; sent as a file the photo keeps its size.
@@ -246,20 +255,22 @@ def run_pipeline(
         what_ru, what_uz = ("экран", "ekran") if on_screen else ("лист", "varaq")
         findings.findings = [Finding(
             code="photo_unreliable", group="quality",
-            label_ru="Снимок ЭКГ не распознан надёжно (отведения не совпадают по времени) — "
+            label_ru=f"Снимок ЭКГ не распознан надёжно ({why_ru}) — "
                      + (f"снимок мелкий (~{px_mm:.1f} пикс/мм, нужно от {PHOTO_LOW_RES_PX_PER_MM:.0f}): "
                         f"снимите ближе, чтобы {what_ru} занял весь кадр, и отправьте как файл, а не как фото"
                         if low_res else "переснимите лист ровно, без перекоса и тени"),
-            label_uz="EKG surati ishonchli o'qilmadi (tarmoqlar vaqt bo'yicha mos emas) — "
+            label_uz=f"EKG surati ishonchli o'qilmadi ({why_uz}) — "
                      + (f"surat kichik (~{px_mm:.1f} piksel/mm, kamida {PHOTO_LOW_RES_PX_PER_MM:.0f} kerak): "
                         f"yaqinroqdan, {what_uz} butun kadrni egallaydigan qilib oling va rasm emas, fayl sifatida yuboring"
                         if low_res else "varaqni tekis, qiyshaymasdan va soyasiz qayta suratga oling"),
             evidence=[Evidence(feature="panel_lag_ms", value=f"{lag:.0f}" if lag is not None else "—"),
                       Evidence(feature="einthoven_r", value=f"{ein:.2f}" if ein is not None else "—"),
-                      Evidence(feature="px_per_mm", value=f"{px_mm:.1f}")],
+                      Evidence(feature="px_per_mm", value=f"{px_mm:.1f}"),
+                      Evidence(feature="scale_conflict", value="yes" if scale_conflict else "no")],
             confidence=0.9)]
         quality_ok = False
-        audit.append(f"[L2] digitised page inconsistent (lag {lag} ms, Einthoven r {ein}) — findings and alerts withheld")
+        audit.append(f"[L2] digitised page inconsistent (lag {lag} ms, Einthoven r {ein}, scale conflict "
+                     f"{scale_conflict}) — findings and alerts withheld")
     # A ~2-s window with one QRS (D122): no RR to measure, but the neighbouring beats lie
     # outside the window (or at its undetected edges), so the rate is below
     # 60 / (the larger gap to an edge - 0.5 s). A severe

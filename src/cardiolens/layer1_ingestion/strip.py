@@ -80,6 +80,9 @@ STRIP_BLOCK_MIN_S = 1.0         # a sheet's row block is at least this long (at 
 STRIP_BLOCK_FIT_MARGIN = 0.15   # ... its rows are fitted over the block without this fraction at each end
 STRIP_BLOCK_DROP = 0.55         # ... and ends where its row count falls below this fraction
 STRIP_SHIFT_MIN_ROWS = 0.5      # the row lattice moves when that gains this many rows' worth of trace ink (D126)
+STRIP_STANDARD_MM_PER_MV = (5.0, 10.0, 20.0)   # the gains recorders print (D128)
+STRIP_SCALE_CONFLICT_TOL = 0.05  # pulses implying none of them within this: scale conflict
+SCALE_CONFLICT_NOTE = "scale conflict: the grid pitch and the calibration pulses disagree"
 STRIP_LABEL_GLYPH_MM = 5.0      # a lead label's letter: a component at most this wide and high (D125)
 STRIP_ROW_PITCH_MM = 18.0     # renderer default
 STRIP_LABEL_MM = 10.0         # renderer: left margin for labels / pulse
@@ -612,6 +615,14 @@ def digitize_strip(
         if mm_per_mv is None:
             mm_per_mv = float(np.median(agreed)) / px_per_mm / PULSE_HEIGHT_MV
         calib["mm_per_mv_from_pulse"] = round(float(np.median(agreed)) / px_per_mm, 2)
+        implied = float(np.median(agreed)) / px_per_mm / PULSE_HEIGHT_MV
+        if (calib["px_per_mm_given"] is None and calib["mm_per_mv_given"] is None
+                and min(abs(implied / g - 1.0) for g in STRIP_STANDARD_MM_PER_MV) > STRIP_SCALE_CONFLICT_TOL):
+            # No recorder prints 5.5 mm/mV: the grid pitch and the pulses disagree. At
+            # ~4 px/mm a blur merges the 1-mm lines and the grid estimate lands between
+            # harmonics (6.88 for 4.0): a 60/min record read at 103/min that Einthoven
+            # does not notice. Which one is right is not known, so it is flagged (D128).
+            calib["scale_conflict"] = True
     pulse_heights = agreed if len(agreed) >= 2 else []
     if row_starts:
         x_left = int(np.percentile(row_starts, 75))
@@ -669,7 +680,8 @@ def strip_to_signal(traces: dict[str, np.ndarray], *, px_per_mm: float | None = 
         provenance=Provenance(digitized=True, confidence=None if cov is None else round(cov, 3),
                               lead_windows=windows,
                               notes=[f"{calibration.get('layout', '12x1')} strip: all leads simultaneous"]
-                                    + ([f"calibration: {calibration}"] if calibration else [])),
+                                    + ([f"calibration: {calibration}"] if calibration else [])
+                                    + ([SCALE_CONFLICT_NOTE] if calibration.get("scale_conflict") else [])),
     )
 
 

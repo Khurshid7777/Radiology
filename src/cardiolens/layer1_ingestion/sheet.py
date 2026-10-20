@@ -27,6 +27,7 @@ from pathlib import Path
 import numpy as np
 
 from cardiolens.contracts.signal import STANDARD_12_LEADS, Provenance, SignalRepresentation
+from cardiolens.layer1_ingestion.strip import SCALE_CONFLICT_NOTE
 
 SHEET_BLOCK_FRACTION = 0.5     # of all rows carrying ink near their baselines: the block
 SHEET_INK_RATIOS = (0.78, 0.7)
@@ -187,7 +188,8 @@ def digitize_sheet_to_signal(path: str | Path, **kw) -> SignalRepresentation:
         signal=signal, sampling_rate_hz=fs, lead_names=list(STANDARD_12_LEADS), duration_s=n / fs, source="image",
         provenance=Provenance(digitized=True, confidence=round(digitize_sheet.last_coverage, 3),  # type: ignore[attr-defined]
                               lead_windows=windows, discontinuities_s=cuts or None,
-                              notes=[f"calibration: {calib}", note]))
+                              notes=[f"calibration: {calib}", note]
+                                    + ([SCALE_CONFLICT_NOTE] if calib.get("scale_conflict") else [])))
 
 
 def render_report_sheet(sig: SignalRepresentation, path: str | Path, *, px_per_mm: int = 5,
