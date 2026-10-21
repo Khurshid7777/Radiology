@@ -212,7 +212,11 @@ def run_pipeline(
     pc = m.qrs_partner_consistency
     # Too few complexes to judge (fewer than 3 away from the edges) is not "consistent":
     # band-limited noise with 3 such "beats" read as AF and HR 32 with SQI 0.8 (D135).
-    unjudged = tc is None and len(m.r_peaks_samples or []) > 0
+    # A device screen's ~2-s window (D122) holds two beats by design and is read from
+    # them; the rule is for records long enough to hold more (merge of the scanner branch).
+    page_edges = [0.0, *(sig.provenance.discontinuities_s or []), sig.duration_s]
+    longest_page = max(b - a for a, b in itertools.pairwise(page_edges))
+    unjudged = tc is None and len(m.r_peaks_samples or []) > 0 and longest_page >= SHORT_WINDOW_S
     if unjudged or (tc is not None and tc < cfg.quality.beat_consistency_min
                     and not (pc is not None and pc >= cfg.quality.beat_partner_min)):
         why = ("too few QRS complexes to check their consistency" if unjudged
