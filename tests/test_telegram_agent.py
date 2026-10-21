@@ -247,3 +247,25 @@ def test_album_of_two_screen_pages_gives_one_card(tmp_path):
     other = store.get(DatasetStore.record_id(1, 21))
     assert other.status == "merged" and rec.id in other.error
     assert store.stats()["awaiting_review"] == 1
+
+
+def test_image_sent_as_a_file_is_read_like_a_photo(page, tmp_path):
+    from cardiolens.telegram.agent import IMAGE_DOC_MAX_BYTES, Collector, is_image_message
+
+    doc = SimpleNamespace(photo=None, document=SimpleNamespace(mime_type="image/jpeg", size=3_000_000))
+    pdf = SimpleNamespace(photo=None, document=SimpleNamespace(mime_type="application/pdf", size=100_000))
+    huge = SimpleNamespace(photo=None, document=SimpleNamespace(mime_type="image/png", size=IMAGE_DOC_MAX_BYTES + 1))
+    assert is_image_message(doc) and not is_image_message(pdf) and not is_image_message(huge)
+    assert not is_image_message(SimpleNamespace(photo=None, document=None))
+
+    cfg = TelegramConfig(store_dir=str(tmp_path / "tg"), feedback_path=str(tmp_path / "fb.jsonl"))
+    client = _FakeClient()
+    col = Collector(client, cfg, DatasetStore(cfg.store_dir), "me")
+    chat = SimpleNamespace(id=1, title="ЭКГ группа")
+    msg = _FakeMessage(30, data=page.read_bytes())
+    msg.photo, msg.document = None, SimpleNamespace(mime_type="image/png", size=len(page.read_bytes()))
+    assert is_image_message(msg)
+    rec = asyncio.run(col.handle_photo(msg, chat))
+    assert rec.status == "analysed" and len(client.sent) == 1
+    broken = _FakeMessage(31, data=b"not an image at all")
+    assert asyncio.run(col.handle_photo(broken, chat)) is None and len(client.sent) == 1

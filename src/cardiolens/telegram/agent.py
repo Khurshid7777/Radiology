@@ -38,6 +38,21 @@ from cardiolens.validation.harness import SCORED_LABELS
 log = logging.getLogger("cardiolens.telegram")
 
 
+IMAGE_DOC_MAX_BYTES = 20 * 1024 * 1024   # a phone photo sent as a file is a few MB
+
+
+def is_image_message(msg) -> bool:
+    """A photo, or an image sent as a file (D129): Telegram shrinks photos to ~1280 px,
+    and the bot asks for small, unreliable photos to be sent again as files — those
+    arrive as documents with an image MIME type, not as ``photo``."""
+    if getattr(msg, "photo", None):
+        return True
+    doc = getattr(msg, "document", None)
+    mime = (getattr(doc, "mime_type", "") or "") if doc is not None else ""
+    size = getattr(doc, "size", 0) or 0
+    return mime.startswith("image/") and size <= IMAGE_DOC_MAX_BYTES
+
+
 class Collector:
     """Everything the agent does with one message; the Telethon client is injected."""
 
@@ -65,7 +80,11 @@ class Collector:
             data = await msg.download_media(bytes)
             if not data:
                 continue
-            photo = save_photo(data, self.store.photos / f"{rec_id}.jpg")
+            try:
+                photo = save_photo(data, self.store.photos / f"{rec_id}.jpg")
+            except ValueError:        # a file the decoder cannot read (HEIC, a broken upload)
+                log.info("%s: not a readable image — skipped", rec_id)
+                continue
             sender = str(msg.sender_id or "")
             rec = Record(
                 id=rec_id, chat_id=chat_id, msg_id=msg.id,
@@ -217,7 +236,7 @@ async def run_agent(cfg: TelegramConfig, *, backfill_only: bool = False) -> None
         for g in groups:
             n = 0
             async for m in client.iter_messages(g, limit=limit):
-                if m.photo:
+                if is_image_message(m):
                     await collector.handle_photo(m, g)
                     n += 1
             log.info("backfill %s: %d photos seen", getattr(g, "title", g), n)
@@ -227,7 +246,7 @@ async def run_agent(cfg: TelegramConfig, *, backfill_only: bool = False) -> None
 
     @client.on(events.Album(chats=groups))
     async def on_group_album(event):
-        msgs = [m for m in event.messages if m.photo]
+        msgs = [m for m in event.messages if is_image_message(m)]
         if msgs:
             try:
                 await collector.handle_album(msgs, await event.get_chat())
@@ -236,7 +255,7 @@ async def run_agent(cfg: TelegramConfig, *, backfill_only: bool = False) -> None
 
     @client.on(events.NewMessage(chats=groups))
     async def on_group_message(event):
-        if event.message.photo and not getattr(event.message, "grouped_id", None):   # albums: above
+        if is_image_message(event.message) and not getattr(event.message, "grouped_id", None):   # albums: above
             try:
                 await collector.handle_photo(event.message, await event.get_chat())
             except Exception:
