@@ -33,7 +33,7 @@ from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, So
 from ecgscan.contract.models import RHYTHM_MISMATCH
 from ecgscan.geometry.grid import estimate_grid, estimate_grid_tiled
 from ecgscan.geometry.rectify import Rectified, rectify
-from ecgscan.io import ImageRefused, _mime, load_image
+from ecgscan.io import ImageRefused, _mime, flat_field, load_image, paper_level
 from ecgscan.layout import get_layout
 from ecgscan.layout.detect import detect_layout
 from ecgscan.layout.panels import frame_page, panels
@@ -145,13 +145,27 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
                                    glare_fraction=None if frame_qc is None else frame_qc.glare,
                                    processing_ms=int((time.perf_counter() - t_start) * 1000)))
 
+    # 0. A dark photo (indoor light): the working copy is divided by the local paper level so
+    # the segmenter, trained on lit pages, sees paper as paper (SD-062). Deterministic
+    # photometry of the copy only; the original is hashed and kept as received (TZ §10).
+    work = img.bgr
+    paper = paper_level(img.bgr)
+    if paper < q_cfg.get("flatfield_below", 0):
+        work = flat_field(img.bgr, target=float(q_cfg.get("flatfield_target", 235)))
+        warnings.append("LOW_LIGHT")
+
     # 1. Grid and resolution on the photo as taken (TZ §5.3).
     t = time.perf_counter()
-    raw = estimate_grid(img.bgr)
-    h_img, w_img = img.bgr.shape[:2]
+    raw = estimate_grid(work)
+    if work is not img.bgr:
+        # Flattening can weaken a faint grid as well: the better of the two reads is kept.
+        plain = estimate_grid(img.bgr)
+        if plain.confidence > raw.confidence:
+            raw = plain
+    h_img, w_img = work.shape[:2]
     if raw.confidence < q_cfg["min_grid_confidence"] and max(h_img, w_img) > g_cfg.get("tile_aspect", 2.0) * min(h_img, w_img):
         # A long strip: perspective smears the whole-frame comb; read it piece by piece (SD-059).
-        tiled = estimate_grid_tiled(img.bgr, tiles=int(g_cfg.get("grid_tiles", 3)))
+        tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
         if tiled is not None and tiled.confidence > raw.confidence:
             raw = tiled
     t = tick("grid", t)
@@ -167,7 +181,7 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
 
     # 2. Rectify to the working scale.
     try:
-        rect = rectify(img.bgr, working_px_per_mm=float(g_cfg["working_px_per_mm"]), raw_grid=raw,
+        rect = rectify(work, working_px_per_mm=float(g_cfg["working_px_per_mm"]), raw_grid=raw,
                        max_upscale=float(g_cfg["max_upscale"]), fit_px_per_mm=g_cfg.get("fit_px_per_mm"),
                        shear_min_deg=g_cfg.get("shear_min_deg"))
     except Exception:
@@ -300,7 +314,9 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     overall = lead_q * cons_f * raw.confidence ** 0.5 * (decision.calibration.confidence if decision.established else 0.5)
     trusted = (decision.established and overall >= val.get("ok_min_overall", 0.6)
                and not {"LAYOUT_UNCERTAIN", "LIMB_LEADS_INCONSISTENT", "LEAD_INCOMPLETE",
-                        "RHYTHM_INCONSISTENT"} & set(warnings))
+                        "RHYTHM_INCONSISTENT"} & set(warnings)
+               # Light correction is verified on synthetic pages only: the doctor confirms (SD-062).
+               and not ("LOW_LIGHT" in warnings and q_cfg.get("low_light_needs_confirmation", True)))
     status = "ok" if trusted else "needs_confirmation"
     layout = Layout(name=layout_name, registry_version=spec.registry_version, confidence=layout_conf)
     res = result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,

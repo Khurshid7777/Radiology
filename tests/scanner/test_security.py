@@ -240,3 +240,33 @@ def test_listener_cuts_off_unlisted_addresses_and_oversize_sends(tmp_path, limit
         lst.stop()
     assert status is None and got == []
     assert "refused" in lst.log_path.read_text()
+
+
+def test_a_dark_photo_is_read_after_light_correction_and_sent_for_confirmation():
+    """SD-062: indoor light (paper at grey ~105) used to be refused on layout / traces."""
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from ecgscan.bench.render import RenderSpec, render_page
+    from ecgscan.bench.sources import derive_limb_leads
+    from ecgscan.io import flat_field, paper_level
+    from ecgscan.layout import get_layout
+    from ecgscan.pipeline import ScanHints, scan
+
+    s = generate_synthetic_ecg(heart_rate_bpm=70, seed=6)
+    mv = derive_limb_leads({n: s.lead(n).astype(np.float64) / 1000.0 for n in s.lead_names})
+    img, gt = render_page(mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=12.0, header=False))
+    h, w = img.shape[:2]
+    light = np.linspace(0.35, 0.5, w)[None, :, None] * np.ones((h, 1, 1))     # dim, uneven light
+    dark = np.clip(img * light, 0, 255).astype(np.uint8)
+    assert paper_level(dark) < 180 and paper_level(flat_field(dark)) > 220
+    res = scan(cv2.imencode(".png", dark)[1].tobytes(), hints=ScanHints(paper_speed_mm_s=25, gain_mm_mv=10))
+    assert res.status == "needs_confirmation" and "LOW_LIGHT" in res.warnings
+    from ecgscan.bench.metrics import compare_trace
+
+    rs = []
+    for tr in gt.traces:
+        if tr.kind == "panel":
+            out = res.leads[tr.lead]
+            c = compare_trace(tr.samples_mv, tr.start_s, out.array(), out.start_s, 500.0, max_lag_s=0.25,
+                              min_overlap=0.5, snr_cap_db=40.0)
+            rs.append(c["r"] if c else 0.0)
+    assert np.median(rs) > 0.95, rs

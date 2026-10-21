@@ -664,6 +664,7 @@
         "BEATS_INCONSISTENT",
         "QRS_UNSTABLE",
         "RHYTHM_INCONSISTENT",
+        "LOW_LIGHT",
         "LEAD_OVERLAP",
         "LOW_RESOLUTION_MARGINAL",
         "FADED_PAPER",

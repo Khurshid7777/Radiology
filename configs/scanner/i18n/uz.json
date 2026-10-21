@@ -31,6 +31,7 @@
   "warning.BEATS_INCONSISTENT": "Bitta ulanish bo‘yicha ritm butun sahifa bo‘yicha ritmga mos emas — YuQS va intervallarni tekshiring.",
   "warning.QRS_UNSTABLE": "QRS kengligi kichik oxirgi R′ to‘lqiniga bog‘liq (masalan, o‘ng oyoqcha blokadasi) — rasm bo‘yicha o‘lchov beqaror, QRSni tekshiring.",
   "warning.RHYTHM_INCONSISTENT": "II ritm tasmasi u bilan bir vaqtda yozilgan tarmoqlar (II panel, aVR/aVF) bilan mos kelmaydi: ulardan biri noto‘g‘ri o‘qilgan. Agar tasma ular bilan umuman bog‘liq bo‘lmasa, YUQS va intervallar uchun ishlatilmaydi — uni suratda tekshiring.",
+  "warning.LOW_LIGHT": "Surat qorong‘i: o‘qishdan oldin ishchi nusxaning yoritilishi tekislandi (asl nusxa o‘zgartirilmagan). Keyingi safar yaxshi yorug‘likda suratga oling.",
   "warning.LEAD_OVERLAP": "Qo‘shni qatorlar chiziqlari kesishadi — ustma-ustlikni tekshiring.",
   "warning.LOW_RESOLUTION_MARGINAL": "Ruxsat quyi chegarada — aniqlik pasayishi mumkin.",
   "warning.FADED_PAPER": "Qog‘oz o‘chgan — aniqlik pasayishi mumkin.",

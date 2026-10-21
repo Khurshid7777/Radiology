@@ -116,3 +116,26 @@ def load_image(source: str | Path | bytes, *, max_megapixels: float = 60.0, min_
     return ImageInput(original_sha256=hashlib.sha256(data).hexdigest(), original_bytes=len(data),
                       mime_type=_mime(data), exif_orientation=exif_orientation(data),
                       width_px=int(bgr.shape[1]), height_px=int(bgr.shape[0]), bgr=bgr)
+
+
+def paper_level(bgr: np.ndarray) -> float:
+    """90th percentile of brightness (on every 4th pixel): the paper's grey level."""
+    import cv2
+
+    g = cv2.cvtColor(bgr[::4, ::4], cv2.COLOR_BGR2GRAY)
+    return float(np.percentile(g, 90))
+
+
+def flat_field(bgr: np.ndarray, *, target: float = 235.0) -> np.ndarray:
+    """A copy with the illumination divided out (SD-062): the paper level — the brightest
+    value within ~1 % of the frame's long side, smoothed — is scaled to ``target``. Grid,
+    trace and their contrast keep their ratios; only light and shadow change. Applied to
+    the working copy of a dark photo, never to the original (TZ §10)."""
+    import cv2
+
+    g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    k = max(3, int(0.01 * max(g.shape)) | 1)
+    illum = cv2.dilate(g, cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))).astype(np.float32)
+    illum = cv2.GaussianBlur(illum, (0, 0), 1.3 * k)
+    gain = target / np.maximum(illum, 1.0)
+    return np.clip(bgr.astype(np.float32) * gain[..., None], 0, 255).astype(np.uint8)

@@ -3,6 +3,9 @@
 quality:
   min_px_per_mm: 8.0             # TZ §5.3: below this -> rejected LOW_RESOLUTION
   max_megapixels: 60             # D98: checked from the file header before decoding -> rejected IMAGE_TOO_LARGE
+  flatfield_below: 180           # SD-062: paper (p90 grey) darker than this -> illumination divided out of the working copy, LOW_LIGHT
+  flatfield_target: 235          # SD-062: the paper level it is scaled to
+  low_light_needs_confirmation: true   # SD-062: until checked on real dark photos, a corrected one is never "ok" by itself
   min_side_px: 200               # D98: a smaller image -> rejected LOW_RESOLUTION before any check runs
   marginal_px_per_mm: 10.0       # below this -> warning LOW_RESOLUTION_MARGINAL
   min_grid_confidence: 0.3       # grid read below this -> rejected GRID_NOT_FOUND (bench: 113/114 correct reads are above, no wrong one is)
