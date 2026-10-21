@@ -69,3 +69,14 @@ def test_two_photos_of_one_strip_combine(sig, tmp_path):
     assert set(s.provenance.lead_windows) == {ln for g in SEQ_GROUPS for ln in g}
     # every group stays its own window: 1 cut inside a, 1 between the photos, 2 inside b
     assert len(s.provenance.discontinuities_s) == 4
+
+
+@pytest.mark.parametrize("turn", [0, 2])
+def test_chest_groups_alone_are_not_named_as_limb_leads(sig, tmp_path, turn):
+    """D138: a strip part with V1-V3 and V4-V6 only (no pulse, no aVR-aVF group) was read as
+    I-III / aVR-aVF on a real MEDIUS photo; without evidence the leads are not named."""
+    path = render_sequential_strip(sig, tmp_path / "c.png", groups=2, first=2, turn=turn)
+    with pytest.raises(ValueError, match="cannot be named"):
+        digitize_sequential(path)
+    with pytest.raises(ValueError, match="cannot be named"):     # not re-read as a 3x4 page
+        digitize_auto_to_signal(path)

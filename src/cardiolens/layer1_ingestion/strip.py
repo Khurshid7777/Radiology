@@ -737,8 +737,11 @@ def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
     if bgr is not None and is_sequential_strip(bgr):  # three rows, lead groups in turn (D125)
         try:
             return digitize_sequential_to_signal(path)
-        except ValueError:
-            pass
+        except ValueError as err:
+            # A strip whose leads cannot be named (D138) is refused as such: the page
+            # reader would name its rows by the 3x4 layout, which they are not.
+            if "cannot be named" in str(err):
+                raise
     rows = count_rows(path)
     if bgr is not None and bgr.shape[0] > bgr.shape[1]:
         # A portrait photo of a landscape sheet (D126): its rows run across the turned frame.

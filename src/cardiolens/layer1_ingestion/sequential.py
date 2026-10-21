@@ -36,6 +36,7 @@ SEQ_GAP_MM = 6.0             # an inkless run at least this long ...
 SEQ_GAP_ROWS = 2             # ... in at least this many rows at the same place is a group boundary
 SEQ_MIN_GROUP_S = 1.2        # a shorter group is the cut-off end of the strip
 SEQ_LIMB_MIN_R = 0.6         # |rank r(II, I + III)| above this: a chest group is not expected to look like that
+SEQ_NAME_MIN_R = 0.5         # |r| a group must reach for its pattern to name the strip's leads (D138)
 SEQ_POLARITY_WEIGHT = 0.3    # match score for QRS pointing the expected way (II up, aVR down)
 SEQ_PULSE_WEIGHT = 0.5       # match score for "limb group first" when a pulse is found at the left
 SEQ_INK_RATIOS = (0.7, 0.62)  # ink thresholds tried (a pale grid passes the strip reader's 0.78)
@@ -200,6 +201,18 @@ def digitize_sequential(path: str | Path, *, mm_per_s: float = 25.0, mm_per_mv: 
     if best is None:
         raise ValueError("three-channel strip: no three-row groups found")
     score, t, first, groups, bounds, calib, cov = best
+    # Naming needs evidence (D138). Chest groups mimic the limb pattern (V2 tracks V1 + V3,
+    # rank r up to 0.89 on synthetic records) but not the augmented one (aVL = -(aVR + aVF)).
+    # So the leads are named only when the aVR-aVF group is confirmed where it was placed,
+    # or the strip's start (a calibration pulse) is on the photo and its first group looks
+    # like I-III. A MEDIUS strip of V1-V6 alone, turned and without a pulse, was named
+    # I-III / aVR-aVF (match 0.42) — the scanner branch refuses such a page (SD-059).
+    aug_ok = any(first + j == 1 and _limb_r(*g) <= -SEQ_NAME_MIN_R for j, g in enumerate(groups))
+    start_ok = (first == 0 and calib.get("pulses_found", 0) > 0 and _limb_r(*groups[0]) >= SEQ_NAME_MIN_R)
+    if not (aug_ok or start_ok):
+        raise ValueError("three-channel strip: the limb groups are not recognised (neither the aVR-aVF group "
+                         "nor the strip's start with its calibration pulse is on the photo) — the leads cannot "
+                         "be named; photograph the whole strip")
     out = []
     for j, g in enumerate(groups):
         leads = SEQ_GROUPS[first + j]
