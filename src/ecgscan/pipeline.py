@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -68,6 +69,9 @@ class ScanDebug:
     consistency: object | None = None
     rhythm_checks: dict[str, dict[str, float]] = field(default_factory=dict)
     timings: dict[str, float] = field(default_factory=dict)
+
+
+_QC_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ecgscan-qc")
 
 
 def pipeline_config() -> dict:
@@ -126,14 +130,19 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     # The phone's frame checks, repeated on the photo as received (TZ §6.1, SD-046):
     # recorded for the record and for comparing client and server, not a gate.
     frame_qc = None
+    qc_future = None
     if q_cfg.get("capture_qc", True):
+        # Recorded only, never a gate: computed alongside the rest (~1 s; SD-063).
         from ecgscan.capture_qc import check_frame
 
-        frame_qc = check_frame(img.bgr[..., ::-1], grid=False)
+        qc_future = _QC_POOL.submit(check_frame, img.bgr[..., ::-1], grid=False)
 
     def result(status: str, *, calibration: Calibration | None = None, layout: Layout | None = None,
                leads=None, rhythm=None, overall: float = 0.0, ppm: float | None = None,
                contrast: float | None = None) -> ScanResult:
+        nonlocal frame_qc
+        if qc_future is not None and frame_qc is None:
+            frame_qc = qc_future.result()
         return ScanResult(
             scan_id=str(uuid.uuid4()), status=status, reject_reasons=sorted(set(reasons)) if status == "rejected" else [],
             warnings=sorted(set(warnings)), source=source,

@@ -224,24 +224,29 @@ def thin(mask: np.ndarray, max_iter: int = 8) -> np.ndarray:
     column before the onset already looks deflected: QRS read ~10 ms wide, PR short,
     QT long (M3 measurement). On the skeleton the edge is back in its own column.
     """
-    img = mask.astype(np.uint8).copy()
+    # Computed on the stroke pixels only (~2 % of a page) instead of the whole frame at
+    # every sub-step: the same rule, bit-identical skeleton, 4-6x faster (SD-063).
+    img = np.pad(mask.astype(np.uint8), 1)
+    w = img.shape[1]
+    flat = img.ravel()
+    offs = np.array([-w, -w + 1, 1, w + 1, w, w - 1, -1, -w - 1])     # P2..P9: N, NE, E, SE, S, SW, W, NW
     for _ in range(max_iter):
         changed = False
         for step in (0, 1):
-            p = np.pad(img, 1)
-            p2, p3, p4, p5 = p[:-2, 1:-1], p[:-2, 2:], p[1:-1, 2:], p[2:, 2:]
-            p6, p7, p8, p9 = p[2:, 1:-1], p[2:, :-2], p[1:-1, :-2], p[:-2, :-2]
-            b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
-            seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
-            a = sum(((seq[i] == 0) & (seq[i + 1] == 1)).astype(np.uint8) for i in range(8))
+            idx = np.flatnonzero(flat)
+            nb = flat[idx[:, None] + offs[None, :]]
+            b = nb.sum(axis=1)
+            seq = np.concatenate([nb, nb[:, :1]], axis=1)
+            a = ((seq[:, :-1] == 0) & (seq[:, 1:] == 1)).sum(axis=1)
+            p2, p4, p6, p8 = nb[:, 0], nb[:, 2], nb[:, 4], nb[:, 6]
             if step == 0:
                 c1, c2 = (p2 * p4 * p6) == 0, (p4 * p6 * p8) == 0
             else:
                 c1, c2 = (p2 * p4 * p8) == 0, (p2 * p6 * p8) == 0
-            rm = (img == 1) & (b >= 2) & (b <= 6) & (a == 1) & c1 & c2
+            rm = (b >= 2) & (b <= 6) & (a == 1) & c1 & c2
             if rm.any():
-                img[rm] = 0
+                flat[idx[rm]] = 0
                 changed = True
         if not changed:
             break
-    return img.astype(bool)
+    return img[1:-1, 1:-1].astype(bool)
