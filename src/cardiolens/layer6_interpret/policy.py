@@ -27,6 +27,7 @@ def decide_mode(
     *,
     min_overall: float,
     quality_ok: bool,
+    digitized: bool = False,
 ) -> ModeDecision:
     """Apply the §2 gating logic."""
     if requested_mode != "B":
@@ -37,6 +38,13 @@ def decide_mode(
         return ModeDecision(
             mode="escalate",
             reason="критическая находка требует просмотра врача (§10)",
+        )
+    # A signal digitised from a photo carries distortions the measurements cannot see
+    # (ECG scanner SD-015): it is always read by a doctor.
+    if digitized:
+        return ModeDecision(
+            mode="escalate",
+            reason="сигнал получен по фото — автономная интерпретация не применяется",
         )
     if causal_graph.implausible_flags:
         return ModeDecision(

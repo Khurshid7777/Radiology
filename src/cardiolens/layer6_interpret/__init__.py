@@ -71,6 +71,7 @@ def interpret(
     provider: LLMProvider | None = None,
     min_overall: float,
     quality_ok: bool,
+    digitized: bool = False,
 ) -> InterpretationReport:
     provider = provider or default_provider()
     report = provider.generate(data)
@@ -79,7 +80,7 @@ def interpret(
 
     decision = decide_mode(
         data.mode, data.causal_graph, safety,
-        min_overall=min_overall, quality_ok=quality_ok,
+        min_overall=min_overall, quality_ok=quality_ok, digitized=digitized,
     )
     report.mode = decision.mode
     if decision.mode == "escalate":

@@ -36,3 +36,18 @@ data/georgia/
 data/telegram/
 # scripts/run_local.sh: background Ollama log
 .ollama-serve.log
+
+# Scanner bench: rendered cases and per-case rows are regenerable (python -m ecgscan bench)
+data/scanner_bench/
+reports/scanner/**/cases/
+reports/scanner/**/cases.jsonl
+data/bench_*.log
+# ECG scanner service: job store, encrypted originals, artifacts (never committed)
+data/scanner_service/
+# Real ECG photos and their digital originals (patients; never committed, TZ §9)
+data/real/
+# M6 segmenter training data (generated)
+data/segmenter/
+# training checkpoints (the ONNX export and its model card are committed)
+models/segmenter/*.pt
+data/segmenter2/

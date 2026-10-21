@@ -140,4 +140,7 @@ class Measurements(BaseModel):
     morphology: Morphology = Field(default_factory=Morphology)
     # Sokolow-Lyon voltage sum for LVH assessment (µV).
     sokolow_lyon_uv: float | None = None
+    # Digitised page only: whether the final beats match the column detector's (D130).
+    # False = the rhythm is uncertain; None = nothing to compare.
+    page_beat_agreement: bool | None = None
     notes: list[str] = Field(default_factory=list)  # TODO / low-confidence markers

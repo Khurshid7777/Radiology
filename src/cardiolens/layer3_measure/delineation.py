@@ -86,9 +86,13 @@ def envelope_floor(env: np.ndarray, rpeaks: np.ndarray) -> float:
 
 
 def qrs_bounds_envelope(
-    signal: np.ndarray, rpeaks: np.ndarray, fs: float
+    signal: np.ndarray, rpeaks: np.ndarray, fs: float, *, hump_fraction: float | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Per-beat QRS onset/offset (sample indices, NaN when not found)."""
+    """Per-beat QRS onset/offset (sample indices, NaN when not found).
+
+    ``hump_fraction`` overrides ``QRS_HUMP_FRACTION`` for one call: the scanner asks
+    whether a digitised page's QRS width hinges on that threshold (D131)."""
+    hump = QRS_HUMP_FRACTION if hump_fraction is None else hump_fraction
     n_beats = len(rpeaks)
     on = np.full(n_beats, np.nan)
     off = np.full(n_beats, np.nan)
@@ -130,7 +134,7 @@ def qrs_bounds_envelope(
                 break
             off[i] = a + end
             g = seg[int(end): int(end) + gap]
-            if QRS_HUMP_FRACTION <= 0 or g.size == 0 or g.max() < max(QRS_HUMP_FRACTION * peak, 2.0 * thr):
+            if hump <= 0 or g.size == 0 or g.max() < max(hump * peak, 2.0 * thr):
                 break
             j = int(end) + int(np.argmax(g))
         if np.isfinite(on[i]) and np.isfinite(off[i]) and (off[i] - on[i]) > QRS_MAX_MS / 1000.0 * fs:

@@ -1,0 +1,73 @@
+"""Layout from the trace rows of a rectified page, checked against the registry (TZ §5.6).
+
+Two independent cues:
+
+* the number of trace rows equals a registry layout's rows (+ rhythm strips);
+* the median baseline pitch (mm) matches a layout's ``row_pitch_mm``.
+
+Both -> high confidence; the count alone -> medium (printers vary the pitch, e.g. 38 mm);
+the pitch alone -> low confidence and a ``LAYOUT_UNCERTAIN`` warning (a stray
+row from a shadow or a fold changes the count, rarely the median pitch); neither ->
+unknown. Lead labels (OCR) join in M3.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+from ecgscan.layout.registry import available_layouts
+from ecgscan.layout.rows import row_baselines
+
+
+@dataclass
+class LayoutGuess:
+    name: str | None
+    confidence: float
+    rows: int
+    pitch_mm: float | None
+    baselines: list[int]
+    uncertain: bool
+
+
+def merge_baselines(projection: list[int], pulse_bottoms: list[int], px_per_mm: float,
+                    tol_mm: float = 4.0) -> list[int]:
+    """Projection peaks plus calibration-pulse bottoms (a pulse stands on its row's baseline).
+    Busy rows (a child's 180/min) have few flat segments and a weak projection peak; their
+    pulse still marks them."""
+    out = sorted(projection)
+    for y in sorted(pulse_bottoms):
+        if all(abs(y - b) > tol_mm * px_per_mm for b in out):
+            out.append(int(y))
+    return sorted(out)
+
+
+def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
+                  pulse_bottoms: list[int] | None = None, stroke_min_height_mm: float = 3.0,
+                  stroke_bridge_mm: float = 0.0, exclude_boxes: list | None = None) -> LayoutGuess:
+    # A pulse bottom near a found row is that row's pulse, even when the printer floats it a
+    # few mm off the baseline (a real strip: 4.1 mm below row II, read as a 4th row and a
+    # 3x4+rhythm page, SD-059): no two rows are closer than the smallest registry pitch.
+    near_mm = 0.35 * min(spec.row_pitch_mm for spec in available_layouts().values())
+    base = merge_baselines(row_baselines(ink, px_per_mm, min_height_mm=stroke_min_height_mm, bridge_mm=stroke_bridge_mm,
+                                         exclude_boxes=exclude_boxes),
+                           pulse_bottoms or [], px_per_mm, tol_mm=max(4.0, near_mm))
+    n = len(base)
+    pitch = float(np.median(np.diff(base))) / px_per_mm if n > 1 else None
+    by_count, by_pitch = [], []
+    for spec in available_layouts().values():
+        if spec.n_trace_rows == 1 and pulse_bottoms and len({int(y // (8 * px_per_mm)) for y in pulse_bottoms}) > 1:
+            continue    # several pulses at different heights: not a single strip
+        if spec.n_trace_rows == n:
+            by_count.append(spec.name)
+        if pitch is not None and abs(pitch - spec.row_pitch_mm) <= pitch_tol * spec.row_pitch_mm:
+            by_pitch.append(spec.name)
+    both = [x for x in by_count if x in by_pitch]
+    if len(both) == 1:
+        return LayoutGuess(both[0], 0.9, n, pitch, base, False)
+    if len(by_count) == 1:
+        return LayoutGuess(by_count[0], 0.7, n, pitch, base, False)
+    if len(by_pitch) == 1:
+        return LayoutGuess(by_pitch[0], 0.4, n, pitch, base, True)
+    return LayoutGuess(None, 0.0, n, pitch, base, True)

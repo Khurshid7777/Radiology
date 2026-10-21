@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0.0",
+  "scan_id": "3f1c2a9e-6b7d-4e2a-9c51-0d8f4b6a2e17",
+  "status": "needs_confirmation",
+  "reject_reasons": [],
+  "warnings": ["SPEED_UNCERTAIN", "TRACE_GAPS"],
+  "source": {
+    "modality": "photo",
+    "original_sha256": "9b74c9897bac770ffc029102a200c5de0b2f1c6d8e5a7b3c4d1e0f9a8b7c6d5e",
+    "original_bytes": 3481220,
+    "mime_type": "image/jpeg",
+    "width_px": 4032,
+    "height_px": 3024,
+    "exif_orientation": 6,
+    "captured_at": "2026-10-16T09:12:44+05:00",
+    "received_at": "2026-10-16T09:12:51+05:00",
+    "device": "Pixel 8",
+    "client": "flutter",
+    "client_crop": [[212, 180], [3890, 205], [3874, 2890], [198, 2862]],
+    "header_masked": true,
+    "pipeline_version": "0.1.0"
+  },
+  "calibration": {
+    "px_per_mm_x": 12.4,
+    "px_per_mm_y": 12.3,
+    "grid_residual_mm": 0.08,
+    "paper_speed_mm_s": null,
+    "gain_mm_mv": 10,
+    "speed_source": null,
+    "gain_source": "calibration_pulse",
+    "speed_candidates": [
+      {"value": 25, "source": "calibration_pulse", "confidence": 0.4},
+      {"value": 50, "source": "calibration_pulse", "confidence": 0.3}
+    ],
+    "gain_candidates": [
+      {"value": 10, "source": "calibration_pulse", "confidence": 0.93}
+    ],
+    "confidence": 0.45
+  },
+  "layout": {"name": "3x4+rhythm", "registry_version": "1", "confidence": 0.9, "label_agreement": null},
+  "sampling_rate_hz": 500,
+  "leads": {
+    "I": {
+      "samples_mv": [0.01, 0.02, null, null, 0.03],
+      "start_s": 0.0,
+      "duration_s": 2.5,
+      "quality": 0.82,
+      "coverage": 0.97,
+      "missing_fraction": 0.03,
+      "method": "dp_path",
+      "box_px": [310, 420, 1240, 812],
+      "flags": ["TRACE_GAPS"]
+    }
+  },
+  "rhythm": [
+    {
+      "lead": "II",
+      "samples_mv": [0.0, 0.01, 0.02],
+      "start_s": 0.0,
+      "duration_s": 10.0,
+      "quality": 0.88,
+      "method": "dp_path",
+      "flags": []
+    }
+  ],
+  "quality": {
+    "overall": 0.71,
+    "limb_lead_consistency": 0.93,
+    "px_per_mm": 12.3,
+    "sharpness": 412.5,
+    "glare_fraction": 0.004,
+    "trace_contrast": 0.62,
+    "processing_ms": 4210
+  },
+  "artifacts": {
+    "rectified_image": "scans/3f1c2a9e/rectified.png",
+    "trace_mask": "scans/3f1c2a9e/mask.png",
+    "trace_overlay": "scans/3f1c2a9e/overlay.png"
+  },
+  "provenance_flags": ["digitized_from_image"],
+  "confirmation": null
+}

@@ -1,0 +1,25 @@
+# 3-channel strip recorder (thermal roll, e.g. the strips printed for OOO "MEDIUS" paper,
+# first real photos 2026-10-19): three rows, four groups of ~4 s - I-III, aVR-aVF, V1-V3,
+# V4-V6 - with ~10 mm of blank paper between groups (the next group's labels are printed
+# there), no rhythm strip, one calibration pulse at the very start (row II).
+# The groups are consecutive recordings: column c covers [c * panel_s, (c + 1) * panel_s).
+name: "3x4 strip"
+registry_version: "1"
+confidence: low           # measured on two photos of one device; refine with more strips
+panel_s: 4.0              # 99-100 mm per group at 25 mm/s on the photos
+panel_gap_mm: 10.0        # nominal; the reader takes each group's start from the blank paper
+start_pulse_required: true
+rows:
+  - [I, aVR, V1, V4]
+  - [II, aVL, V2, V5]
+  - [III, aVF, V3, V6]
+rhythm: []
+row_pitch_mm: 22.0        # 22-23 mm between baselines on the photos
+header_mm: 6.0            # the roll has only a printed paper-maker line above the traces
+margin_mm: 8.0
+pulse:
+  present: true
+  width_s: 0.32           # 8 mm wide at 25 mm/s on the photos
+  area_mm: 14.0
+  rows: [1]
+label_offset_mm: [-6.0, 4.0]   # labels sit in the gap before each group

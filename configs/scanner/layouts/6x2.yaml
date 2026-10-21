@@ -1,0 +1,21 @@
+# Six rows x two columns: limb leads in the first 5 s, chest leads in the next 5 s.
+name: "6x2"
+registry_version: "1"
+confidence: medium        # TODO(real devices): some machines print 6x2 with both columns simultaneous
+panel_s: 5.0
+rows:
+  - [I, V1]
+  - [II, V2]
+  - [III, V3]
+  - [aVR, V4]
+  - [aVL, V5]
+  - [aVF, V6]
+rhythm: []
+row_pitch_mm: 25.0
+header_mm: 20.0
+margin_mm: 8.0
+pulse:
+  present: true
+  width_s: 0.2
+  area_mm: 8.0
+label_offset_mm: [2.0, 4.0]

@@ -1,0 +1,97 @@
+# ecgscan pipeline thresholds (TZ §0.3: everything tunable lives here).
+
+quality:
+  min_px_per_mm: 8.0             # TZ §5.3: below this -> rejected LOW_RESOLUTION
+  max_megapixels: 60             # D136: checked from the file header before decoding -> rejected IMAGE_TOO_LARGE
+  flatfield_below: 180           # SD-062: paper (p90 grey) darker than this -> illumination divided out of the working copy, LOW_LIGHT
+  flatfield_target: 235          # SD-062: the paper level it is scaled to
+  low_light_needs_confirmation: true   # SD-062: until checked on real dark photos, a corrected one is never "ok" by itself
+  min_side_px: 200               # D136: a smaller image -> rejected LOW_RESOLUTION before any check runs
+  marginal_px_per_mm: 10.0       # below this -> warning LOW_RESOLUTION_MARGINAL
+  min_grid_confidence: 0.3       # grid read below this -> rejected GRID_NOT_FOUND (bench: 113/114 correct reads are above, no wrong one is)
+  capture_qc: true               # repeat the phone's frame checks on the photo (quality.sharpness / glare_fraction)
+  min_trace_contrast: 0.15       # below -> rejected LOW_CONTRAST (SD-064; was 0.67: faded print read at r 0.97 down to ~0.2)
+  faded_below: 0.67              # SD-064: 0.15-0.67 (synthetic faded thermal 0.645) -> read, FADED_PAPER, never ok by itself
+
+geometry:
+  working_px_per_mm: 10.0        # the photo is resampled to this before rectification (speed; 5 ms/px at 25 mm/s... 2.5 at 50)
+  max_upscale: 1.25              # 8..10 px/mm photos are brought up to 10: the M2 (legacy) trace reader
+                                 # rounds px/mm to an integer (a 9.3 page would be timed 3 % wrong); M3 lifts this
+  fit_px_per_mm: null            # fit the perspective homography at the working scale (6 px/mm was 2x faster but lost the traces: photo r 0.94 -> 0.30)
+  shear_min_deg: 0.3             # grid rows and columns tilted apart by more than this: de-shear, not just de-rotate (SD-054)
+  tile_aspect: 2.0               # a frame longer than this x its width: if the whole-frame grid is weak, read it in pieces (a strip, SD-059)
+  grid_tiles: 3
+
+calibration:
+  speeds_mm_s: [25, 50]
+  gains_mm_mv: [5, 10, 20]
+  value_tolerance: 0.12          # a measured value within this fraction of a standard one is that value
+  layout_speed_conf: 0.5         # candidate from the ink length / layout record length (never establishes alone)
+  pulse:
+    min_agreeing: 2              # pulses needed for full confidence (one -> lower confidence)
+    gain_conf_single: 0.75
+    gain_conf_multi: 0.95
+    speed_conf: 0.35             # SD-011: pulse width is a weak speed hint
+    retry_widen_px: 5            # no pulse found: retry on the mask widened this much across and
+    retry_close_px: 7            # ... with vertical gaps up to this closed (a thin, slightly slanted real pulse, SD-059)
+  ocr:
+    enabled: true
+    header_frac: 0.25
+    footer_frac: 0.12
+    conf: 0.9
+  # Rules (SD-011, TZ §5.4):
+  #  speed is established only by OCR or the user; pulse width alone -> needs_confirmation;
+  #  gain is established by the pulse (OCR agreeing or absent) or the user; OCR alone -> needs_confirmation;
+  #  any disagreement between sources -> needs_confirmation with the candidates.
+
+layout:
+  pitch_tolerance: 0.1           # measured baseline pitch within this fraction of a registry pitch matches it
+  stroke_min_height_mm: 2.0      # a trace row needs a complex this tall somewhere (a paper edge is <1 mm in every column); 3 lost lead III of a real strip (SD-059)
+  stroke_bridge_mm: 1.0          # trace pieces the mask split are joined across gaps this long when judging a row (SD-059)
+
+segmentation:
+  kind: onnx                     # onnx (M6, SD-053: wins on the benchmark) | classic; no model -> error, never a silent fallback
+  onnx_model: models/segmenter/trace_unet.onnx   # M6 (SD-052); sha256 below must match models/segmenter/model_card.json
+  onnx:
+    sha256: 607cb279e8445456b91ad3fcbcc60f063b94cb880617cdb21dc1785aef7c078f   # = models/segmenter/model_card.json
+    threshold: 0.7               # stroke probability above this = ink (SD-061: 0.5 -> 0.7, a thinner mask centres flanks better)
+    tile: 1024                   # tiles with overlap: bounded memory on a 3000-px page
+    overlap: 32
+    threads: null                # onnxruntime default
+  classic:
+    ratio: 0.62                  # darker than this fraction of the local paper level = ink
+    max_chroma: 70               # ... and neutral (the grid is coloured)
+    paper_window_mm: 4.0
+    min_speck_px: 6
+
+vectorize:
+  method: hybrid                 # dp_path | legacy_track | hybrid (DP path + D47 edge/apex detail where they agree)
+  fuse_tol_pitches: 0.15         # D47 value kept where within this many row pitches of the DP path
+  fuse_margin_cols: 10           # path used this many columns around a stretch where D47 left the row
+  fuse_max_gap_pitches: 0.5      # D47 kept in a DP gap only if bounded by agreement on both sides and at most this long
+  fuse_apex_strokes: 2.0         # where DP and D47 differ by more than this many strokes, the one further from the isoline wins
+  fuse_max_short_cols: 8         # a longer disagreement than this = D47 left the row (an apex lasts a few columns)
+  band_pitches: 1.3              # search band around a baseline, in row pitches (20 mm/mV traces cross rows)
+  baseline_weight: 0.6           # pull to the own baseline vs continuity
+  gap_cost: 2.5                  # per missing column (in stroke widths of vertical jump)
+  neighbour_cost: 4.0            # per column riding a flat run on another row's baseline (> gap_cost)
+  steep_rows: true               # steep flanks re-read from the rows / the blob's outer edge (SD-058)
+  steep_min_slope_strokes: 0.5   # a column is steep when the path moves more than this many strokes per column (SD-061: 1.0 -> 0.5)
+  steep_max_run_strokes: 4.0     # row runs longer than this are not the flank (flat stroke, page edge)
+  steep_tip_cols: 3              # the path turning back within this many columns = a tip on that side
+  gap_flag: 0.05                 # missing share above this -> TRACE_GAPS
+  overlap_flag: 0.1              # band-edge contact above this -> LEAD_OVERLAP
+
+validate:
+  rhythm_warn: 0.5                # SD-060: rhythm strip vs panel II / (aVF - aVR)/1.5 residual above -> RHYTHM_INCONSISTENT
+  rhythm_unrelated: 0.9           # SD-060: every check at least this (~1 = unrelated) -> strip flagged, not measured
+  min_median_coverage: 0.5       # below -> rejected TRACE_BROKEN
+  lead_min_coverage: 0.8         # any lead with less coverage -> LEAD_INCOMPLETE (needs confirmation)
+  limb_warn: 0.7                 # PROVISIONAL: limb-lead consistency below -> LIMB_LEADS_INCONSISTENT (clean pages 0.83-0.86, I<->II swap 0.61)
+  beat_check: true               # CardioLens beats vs page columns (D130) disagree -> BEATS_INCONSISTENT (needs confirmation)
+  qrs_hump_scale: 0.667          # QRS also measured with the R' hump threshold x this (SD-057); null = off
+  qrs_unstable_ms: 20            # ... and a width that moves more than this -> QRS_UNSTABLE (needs confirmation)
+  ok_min_overall: 0.6            # overall quality below -> needs_confirmation
+
+artifacts:
+  mask_bands: true               # D136: blank the header / footer bands (name, ID, date) in every saved or sent image

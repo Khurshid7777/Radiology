@@ -26,13 +26,16 @@ def result_to_dict(result: PipelineResult) -> dict[str, Any]:
         "patient": result.signal.patient.model_dump(),
         "context": result.signal.context.model_dump(),
         "quality": result.signal.quality.model_dump(),
+        # TZ §12 (ECG scanner): interpretation layers and reports see the photo origin.
+        "digitized_from_image": result.signal.provenance.digitized,
+        "digitization_confidence": result.signal.provenance.confidence,
         "measurements": result.measurements.model_dump(),
         "findings": [f.model_dump() for f in result.findings.findings],
         "causal_graph": result.causal_graph.model_dump(by_alias=True),
         "critical_flags": result.causal_graph.critical_flags,
         "critical_alerts": [
             {"code": a.code, "label_ru": a.label_ru, "label_uz": a.label_uz,
-             "reason": a.reason, "log_id": a.log_id}
+             "reason": a.reason, "log_id": a.log_id, "unverified": a.unverified}
             for a in result.safety.alerts
         ],
         "serial_comparison": result.serial.to_dict() if result.serial else None,

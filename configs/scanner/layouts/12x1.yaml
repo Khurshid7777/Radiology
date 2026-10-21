@@ -1,0 +1,28 @@
+# Bedside "12L" strip: twelve simultaneous leads stacked over the whole width (D72).
+name: "12x1"
+registry_version: "1"
+confidence: medium
+panel_s: 10.0
+rows:
+  - [I]
+  - [II]
+  - [III]
+  - [aVR]
+  - [aVL]
+  - [aVF]
+  - [V1]
+  - [V2]
+  - [V3]
+  - [V4]
+  - [V5]
+  - [V6]
+rhythm: []
+row_pitch_mm: 18.0
+header_mm: 14.0
+margin_mm: 8.0
+pulse:
+  present: true
+  width_s: 0.2
+  area_mm: 10.0
+  every_n_rows: 3         # D72: a pulse before every third row on the observed device
+label_offset_mm: [-8.0, -3.0]   # labels sit in the left margin above the baseline

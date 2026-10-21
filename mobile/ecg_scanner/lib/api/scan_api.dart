@@ -1,0 +1,111 @@
+// The /scans API (TZ §4; SD-040): upload, status, confirmation, analysis, frame-check config.
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
+
+class ApiError implements Exception {
+  ApiError(this.status, this.message);
+
+  final int status;
+  final String message;
+
+  /// Worth retrying later: no network, server overload or restart.
+  bool get transient => status == 0 || status == 408 || status == 429 || status >= 500;
+
+  @override
+  String toString() => 'ApiError($status): $message';
+}
+
+class ScanHints {
+  const ScanHints({this.paperSpeedMmS, this.gainMmMv, this.headerMasked = false});
+
+  final double? paperSpeedMmS;
+  final double? gainMmMv;
+  final bool headerMasked;
+
+  Map<String, String> toFields() => {
+        'client': 'flutter',
+        'header_masked': '$headerMasked',
+        if (paperSpeedMmS != null) 'paper_speed_mm_s': '$paperSpeedMmS',
+        if (gainMmMv != null) 'gain_mm_mv': '$gainMmMv',
+      };
+
+  Map<String, dynamic> toJson() =>
+      {'paper_speed_mm_s': paperSpeedMmS, 'gain_mm_mv': gainMmMv, 'header_masked': headerMasked};
+
+  factory ScanHints.fromJson(Map<String, dynamic> j) => ScanHints(
+        paperSpeedMmS: (j['paper_speed_mm_s'] as num?)?.toDouble(),
+        gainMmMv: (j['gain_mm_mv'] as num?)?.toDouble(),
+        headerMasked: j['header_masked'] as bool? ?? false,
+      );
+}
+
+class ScanApi {
+  ScanApi({required this.baseUrl, required this.apiKey, http.Client? client}) : _http = client ?? http.Client();
+
+  final String baseUrl;
+  final String apiKey;
+  final http.Client _http;
+
+  Uri _u(String path) => Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
+  Map<String, String> get _auth => {'X-API-Key': apiKey};
+
+  Future<Map<String, dynamic>> _json(Future<http.BaseResponse> Function() call) async {
+    final http.Response r;
+    try {
+      final resp = await call();
+      r = resp is http.StreamedResponse ? await http.Response.fromStream(resp) : resp as http.Response;
+    } on Exception catch (e) {
+      throw ApiError(0, e.toString());
+    }
+    if (r.statusCode >= 300) {
+      String msg = r.body;
+      try {
+        msg = (jsonDecode(r.body) as Map<String, dynamic>)['detail'].toString();
+      } on Object catch (_) {}
+      throw ApiError(r.statusCode, msg);
+    }
+    return jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  /// POST /scans: the scan id.
+  Future<String> submit(Uint8List jpeg, ScanHints hints) async {
+    final body = await _json(() {
+      final req = http.MultipartRequest('POST', _u('/scans'))
+        ..headers.addAll(_auth)
+        ..fields.addAll(hints.toFields())
+        ..files.add(http.MultipartFile.fromBytes('file', jpeg, filename: 'ecg.jpg'));
+      return _http.send(req);
+    });
+    return body['scan_id'] as String;
+  }
+
+  Future<Map<String, dynamic>> get(String scanId) => _json(() => _http.get(_u('/scans/$scanId'), headers: _auth));
+
+  Future<Map<String, dynamic>> confirm(String scanId, String decision,
+          {double? paperSpeedMmS, double? gainMmMv, String? comment}) =>
+      _json(() => _http.post(_u('/scans/$scanId/confirm'),
+          headers: {..._auth, 'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'decision': decision,
+            'paper_speed_mm_s': ?paperSpeedMmS,
+            'gain_mm_mv': ?gainMmMv,
+            'comment': ?comment,
+          })));
+
+  Future<Map<String, dynamic>> analyze(String scanId) =>
+      _json(() => _http.post(_u('/scans/$scanId/analysis'), headers: {..._auth, 'Content-Type': 'application/json'},
+          body: '{}'));
+
+  /// GET /scans/config/capture-qc: {config, hints: {ru, uz}}.
+  Future<Map<String, dynamic>> captureQcConfig() =>
+      _json(() => _http.get(_u('/scans/config/capture-qc'), headers: _auth));
+
+  /// The trace overlay preview (JPEG) for the confirmation screen.
+  Future<Uint8List> overlay(String scanId) async {
+    final r = await _http.get(_u('/scans/$scanId/artifacts/trace_overlay_preview'), headers: _auth);
+    if (r.statusCode != 200) throw ApiError(r.statusCode, 'overlay unavailable');
+    return r.bodyBytes;
+  }
+}

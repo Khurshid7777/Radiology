@@ -111,8 +111,20 @@ class QualityConfig(BaseModel):
     photo_min_einthoven_r: float = 0.8
 
 
+class IngestionConfig(BaseModel):
+    """What a record must be before it is measured (D135): refused, never guessed (TZ §0)."""
+    min_sampling_rate_hz: float = 100.0
+    # Below this the QRS edges are a few samples apart: measured, but noted.
+    low_sampling_rate_hz: float = 250.0
+    min_duration_s: float = 2.0
+    # Invalid (NaN/inf) runs up to this long are bridged and masked; longer ones refuse.
+    max_gap_s: float = 0.2
+    max_invalid_fraction: float = 0.05
+
+
 class AppConfig(BaseModel):
     mode: str
+    ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     ml: MLConfig = Field(default_factory=MLConfig)
     pause: PauseConfig = Field(default_factory=PauseConfig)

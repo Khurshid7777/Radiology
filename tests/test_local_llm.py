@@ -130,7 +130,7 @@ def test_web_service_uses_the_local_model_and_says_so(env_llm):
     from cardiolens.api.app import app
 
     url, srv = env_llm
-    client = TestClient(app)
+    client = TestClient(app, headers={"X-API-Key": "test-key"})
     h = client.get("/health").json()
     assert h["status"] == "ok"
     assert h["llm"]["active"] == "local" and h["llm"]["model"] == "mock-model"

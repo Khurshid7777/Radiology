@@ -79,6 +79,9 @@ class Provenance(BaseModel):
     # Times (s) where the record jumps between pages recorded at different moments
     # (two photos of a device's screen, D123): no RR interval spans one.
     discontinuities_s: list[float] | None = None
+    # Digitised input: per lead, the (t0_s, t1_s) stretches that were missing on the page
+    # and only bridged so the filters can run (ECG scanner SD-006). Not data.
+    sample_mask: dict[str, list[tuple[float, float]]] | None = None   # lead -> (t0_s, t1_s)
     notes: list[str] = Field(default_factory=list)
 
 

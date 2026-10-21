@@ -1,0 +1,97 @@
+# Scanner benchmark (TZ §11, M1). One command:
+#   python -m ecgscan bench --suite standard --out reports/scanner/<name>
+# A slice = a layout + render settings + photo defects + a signal source. Every case
+# is seeded from (suite seed, slice name, index) and therefore reproducible.
+
+seed: 20261016
+fs_hz: 500                      # ground truth and ScanResult sampling rate
+
+sources:
+  synthetic:                    # cardiolens.layer1_ingestion.generate_synthetic_ecg presets
+    adult:
+      - {name: sinus, heart_rate_bpm: [52, 100], weight: 4}
+      - {name: rbbb, heart_rate_bpm: [60, 90], bbb: rbbb}
+      - {name: lbbb, heart_rate_bpm: [60, 90], bbb: lbbb}
+      - {name: stemi_inf, heart_rate_bpm: [60, 95], st_elevation_uv: 250, st_leads: [II, III, aVF]}
+      - {name: af, heart_rate_bpm: [80, 120], p_amp_scale: 0.0, rr_jitter_ms: 120}
+      - {name: long_qt, heart_rate_bpm: [55, 70], qt_ms: 520}
+      - {name: lvh, heart_rate_bpm: [60, 85], amplitude_scale: 1.8}
+    pediatric:                  # TZ §8: rates above 150 bpm, narrow QRS
+      - {name: infant, heart_rate_bpm: [150, 190], age_years: 0.5, qrs_width_scale: 0.65, pr_ms: 100}
+      - {name: toddler, heart_rate_bpm: [110, 150], age_years: 2, qrs_width_scale: 0.75, pr_ms: 115}
+  ptbxl_dir: data/ptbxl         # optional local PTB-XL (python -m cardiolens.validation.fetch_ptbxl); skipped if absent
+
+# Defaults every slice starts from (ecgscan.bench.render.RenderSpec / degrade.DegradeSpec).
+defaults:
+  layout: "3x4+rhythm"
+  source: adult
+  render: {px_per_mm: 12.0, speed_mm_s: 25, gain_mm_mv: 10}
+  degrade: {}
+
+# Phone photo of a flat page in reasonable light (the TZ acceptance slice "фото чистой бумаги").
+_photo: &photo {background: 0.05, perspective: 0.02, rotation_deg: 3, vignette: 0.15, shadow: 0.15,
+                blur_px: 0.8, noise: 3, jpeg_quality: 85}
+
+slices:
+  clean_scan:      {degrade: {jpeg_quality: 95}}
+  scan_degraded:   {degrade: {rotation_deg: 2, blur_px: 0.8, jpeg_quality: 70, shadow: 0.2}}
+  photo_clean:     {degrade: *photo}
+  photo_crumpled:  {degrade: {<<: *photo, crumple: 1.2, creases: 2}}
+  photo_stains:    {degrade: {<<: *photo, stains: 3}}
+  photo_low_light: {degrade: {<<: *photo, low_light: 0.55, noise: 8, shadow: 0.35}}
+  photo_glare:     {degrade: {<<: *photo, glare: 0.45}}
+  faded_thermal:   {render: {trace_gray: 150, grid_fade: 0.4}, degrade: *photo}
+  speed_50:        {render: {speed_mm_s: 50}, degrade: *photo}
+  gain_5:          {render: {gain_mm_mv: 5}, degrade: *photo}
+  gain_20:         {render: {gain_mm_mv: 20}, degrade: *photo}
+  pediatric_25:    {source: pediatric, degrade: *photo}
+  pediatric_50:    {source: pediatric, render: {speed_mm_s: 50}, degrade: *photo}
+  photo_no_header: {render: {header: false}, degrade: *photo}  # diagnostic: sensitivity to the printed header
+  row_pitch_38:    {render: {row_pitch_mm: 38}, degrade: *photo}   # printer geometry differs from the default
+  layout_6x2:      {layout: "6x2", degrade: *photo}
+  layout_12x1:     {layout: "12x1", degrade: *photo}
+  layout_strip:    {layout: "3x4 strip", render: {header: false}, degrade: *photo}   # 3-channel recorder strip (SD-059); no printed speed
+  low_res_6ppm:    {render: {px_per_mm: 6.0}, degrade: *photo}   # below the 8 px/mm floor: should be refused
+  ptbxl_photo:     {source: ptbxl, degrade: *photo}
+
+suites:
+  smoke:                        # unit tests: tiny and fast
+    cases_per_slice: 1
+    slices: [clean_scan, photo_clean, speed_50, layout_12x1]
+    render: {px_per_mm: 6.0}
+  standard:
+    cases_per_slice: 6
+    slices: all
+
+# TZ §11 acceptance criteria, evaluated per slice in the report.
+acceptance:
+  slices: [photo_clean]         # "фото чистой бумаги"; with --real the criteria apply to all real photos
+  interval_mae_ms: 10           # RR, QRS, QT — digitisation-induced error (SD-010)
+  snr_db_min: 15
+  r_min: 0.95
+  r_amp_err_mv_median: 0.1
+  time_s_max: 10
+  bad_interval_ms: 20           # a case is "bad" when any interval error exceeds this ...
+  unflagged_bad_max: 0.0        # ... and the share of bad cases returned as "ok" must tend to 0
+
+metrics:
+  max_lag_s: 0.25               # time-origin search when aligning a trace with the truth
+  min_overlap: 0.5              # fraction of the true trace that must overlap after alignment
+  snr_cap_db: 60
+
+# External baselines (SD-012). Each runs as a separate process and must write
+# <out_dir>/result.json in ScanResult form (or a per-lead CSV, see ecgscan.bench.digitizers).
+# Disabled until the tool is installed and its licence checked.
+external:
+  open_ecg_digitizer:
+    enabled: false
+    licence: "CC BY-SA 4.0 — external process only, never vendored"
+    env: OPEN_ECG_DIGITIZER_CMD   # command template with {image} and {out_dir}
+  ecgtizer:
+    enabled: false
+    licence: "unverified"
+    env: ECGTIZER_CMD
+  ecgminer:
+    enabled: false
+    licence: "unverified"
+    env: ECGMINER_CMD

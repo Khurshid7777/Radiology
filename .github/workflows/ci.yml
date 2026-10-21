@@ -32,3 +32,28 @@ jobs:
 
       - name: Run tests (pytest)
         run: pytest -q
+
+  # ECG scanner app (TZ §6, SD-014): analyzer and tests, incl. the frame checks
+  # against the same reference frames as the Python side.
+  flutter:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile/ecg_scanner
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+
+      - name: Strings are in sync with configs/scanner/i18n
+        run: |
+          python3 tool/sync_i18n.py
+          git diff --exit-code assets/i18n
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test

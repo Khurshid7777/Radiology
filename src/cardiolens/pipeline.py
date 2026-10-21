@@ -32,6 +32,7 @@ from cardiolens.contracts.features import Measurements
 from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
+from cardiolens.layer1_ingestion.checks import check_record
 from cardiolens.layer1_ingestion.strip import SCALE_CONFLICT_NOTE
 from cardiolens.layer2_preprocess import assess_quality, preprocess
 from cardiolens.layer2_preprocess.photo_quality import (
@@ -86,6 +87,10 @@ def run_pipeline(
         calibrator = TemperatureScaler.load(configs_dir() / "calibrator.json")
     audit: list[str] = []
     fs_in = sig.sampling_rate_hz     # a digitised photo's px/mm x 25 mm/s, before resampling
+    # A record that cannot be measured is refused here, whatever route it came by (D135).
+    n_notes = len(sig.provenance.notes)
+    sig = check_record(sig, cfg.ingestion)
+    audit.extend(f"[L1] {n}" for n in sig.provenance.notes[n_notes:])
 
     # Pacing spikes are erased by the Layer-2 band-pass, so measure them on the raw signal.
     # Not on a digitised image (D114): at the pixel rate (~150 Hz) the steep QRS upstroke
@@ -205,17 +210,30 @@ def run_pipeline(
     # withhold the findings and report poor quality; mode B escalates.
     tc = m.qrs_template_consistency
     pc = m.qrs_partner_consistency
-    if (tc is not None and tc < cfg.quality.beat_consistency_min
-            and not (pc is not None and pc >= cfg.quality.beat_partner_min)):
+    # Too few complexes to judge (fewer than 3 away from the edges) is not "consistent":
+    # band-limited noise with 3 such "beats" read as AF and HR 32 with SQI 0.8 (D135).
+    unjudged = tc is None and len(m.r_peaks_samples or []) > 0
+    if unjudged or (tc is not None and tc < cfg.quality.beat_consistency_min
+                    and not (pc is not None and pc >= cfg.quality.beat_partner_min)):
+        why = ("too few QRS complexes to check their consistency" if unjudged
+               else f"QRS consistency {tc} < {cfg.quality.beat_consistency_min}")
         findings.findings = [Finding(
             code="poor_quality_signal", group="quality",
-            label_ru=f"Сигнал непригоден для надёжной интерпретации "
-                     f"(консистентность QRS {tc} < {cfg.quality.beat_consistency_min})",
-            label_uz=f"Signal ishonchli talqin uchun yaroqsiz (QRS konsistentligi {tc})",
+            label_ru=("Сигнал непригоден для надёжной интерпретации ("
+                      + ("слишком мало комплексов QRS для проверки)" if unjudged
+                         else f"консистентность QRS {tc} < {cfg.quality.beat_consistency_min})")),
+            label_uz=("Signal ishonchli talqin uchun yaroqsiz ("
+                      + ("tekshirish uchun QRS komplekslari juda kam)" if unjudged
+                         else f"QRS konsistentligi {tc})")),
             evidence=[Evidence(feature="qrs_template_consistency", value=str(tc))],
             confidence=0.9)]
         quality_ok = False
-        audit.append(f"[L2] signal disorganized (beat consistency {tc}) — R-peak findings withheld")
+        audit.append(f"[L2] signal disorganized ({why}) — R-peak findings withheld")
+    # Digitised page: the final beats disagree with the page's column detector (D92 of the
+    # scanner branch, now D130).
+    if m.page_beat_agreement is False:
+        quality_ok = False
+        audit.append("[L3] beats disagree with the page columns (D130) — rhythm uncertain")
     # No ECG at all (D108): neither a rhythm nor an alert can be read from a flat line or
     # baseline wander; the disorganisation gate above needs beats to judge.
     hf_uv = _hf_amplitude_uv(sig)
@@ -237,14 +255,21 @@ def run_pipeline(
     # The grid pitch and the calibration pulses disagree (D128): the time scale is not
     # known, so neither is the rate — Einthoven holds on a uniformly stretched record.
     scale_conflict = sig.provenance.digitized and SCALE_CONFLICT_NOTE in sig.provenance.notes
+    # Below the digital minimum rate (D135: 50 Hz read QRS 178 ms, a false LBBB) a photo is
+    # too small to measure; it is gated with the retake hint rather than refused.
+    coarse_photo = sig.provenance.digitized and fs_in < cfg.ingestion.min_sampling_rate_hz
     bad_photo = not no_ecg and not bad_units and (
-        scale_conflict or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
-                                          cfg.quality.photo_min_einthoven_r))
+        scale_conflict or coarse_photo or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
+                                                          cfg.quality.photo_min_einthoven_r))
     if bad_photo:
         lag = photo["panel_lag_ms"] if photo else None
         ein = (photo_aligned or photo)["einthoven_r"] if photo else None
         why_ru, why_uz = (("масштаб не определён: сетка и калибровочный импульс расходятся",
                            "masshtab aniqlanmadi: to'r va kalibrlash impulsi mos emas") if scale_conflict else
+                          ("снимок слишком мелкий для измерения", "surat o'lchash uchun juda kichik")
+                          if coarse_photo and not (photo and page_unreliable(
+                              photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
+                              cfg.quality.photo_min_einthoven_r)) else
                           ("отведения не совпадают по времени", "tarmoqlar vaqt bo'yicha mos emas"))
         # A digitised record's rate is the photo's px/mm x 25 mm/s: below ~6 px/mm a QRS
         # is a few pixels wide and the rows cannot be told apart where they cross (D126).
@@ -338,7 +363,17 @@ def run_pipeline(
                      f"qtcΔ={serial.qtc_delta_ms}")
 
     # Safety scan (TZ §10) — before interpretation, independent of LLM.
-    safety = scan_critical(findings, Measurements() if no_ecg or bad_photo or bad_units else m)
+    # Two policies meet here. A record that is not an ECG (D108), off by a units factor
+    # (D119) or a photo whose geometry or scale was not recovered (D114, D128) yields no
+    # alert: nothing read off it is a measurement. Any other quality failure keeps its
+    # alerts (recall first, TZ §10) and says so (scanner branch D97, now D135).
+    hard_gate = no_ecg or bad_photo or bad_units
+    safety = scan_critical(findings, Measurements() if hard_gate else m)
+    if not quality_ok and not hard_gate:
+        for a in safety.alerts:
+            a.unverified = True
+            a.label_ru += " — сигнал низкого качества, проверить по записи"
+            a.label_uz += " — signal sifati past, yozuv bo'yicha tekshiring"
     # New critical dynamics on serial comparison force escalation (TZ §8.4, §10).
     if serial is not None:
         for d in serial.deltas:
@@ -359,6 +394,13 @@ def run_pipeline(
         f"implausible={causal.implausible_flags} conf={causal.confidence}"
     )
 
+    # A signal digitised from a photo is no more certain than its digitisation
+    # (ECG scanner SD-015): the overall confidence is capped by the scanner's.
+    prov = sig.provenance
+    if prov.digitized and prov.confidence is not None and causal.confidence > prov.confidence:
+        audit.append(f"[L5] confidence {causal.confidence} capped by digitisation {prov.confidence}")
+        causal.confidence = round(float(prov.confidence), 3)
+
     # Layer 6 — interpretation with mode policy (TZ §9, §2).
     requested_mode = mode or cfg.mode
     data = InterpretationInput(
@@ -370,6 +412,7 @@ def run_pipeline(
     report = interpret(
         data, safety, provider=provider or default_provider(llm=cfg.llm),
         min_overall=cfg.confidence.autonomous_min_overall, quality_ok=quality_ok,
+        digitized=prov.digitized,
     )
     audit.append(f"[L6] provider={report.mode} escalation={report.escalation_reason}")
 

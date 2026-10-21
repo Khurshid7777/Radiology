@@ -1,0 +1,26 @@
+{
+ "algorithm": {
+  "work_width": 1920,
+  "glare_level": 250,
+  "grey_clip": 60,
+  "detrend": 31,
+  "band": 16,
+  "smooth": 3,
+  "harmonics": 4,
+  "comb_tol": 0.9,
+  "min_lag": 6,
+  "block": 32,
+  "paper_ratio": 1.15
+ },
+ "thresholds": {
+  "min_px_per_mm": 8.0,
+  "max_glare": 0.01,
+  "min_sharpness": 15.0,
+  "max_tilt_deg": 5.0,
+  "min_brightness": 90.0,
+  "min_sheet": 0.5
+ },
+ "auto_capture": {
+  "consecutive_frames": 5
+ }
+}

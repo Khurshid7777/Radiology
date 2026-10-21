@@ -1,0 +1,29 @@
+# ECG scanner service (TZ §4, §9; SD-004, SD-005, SD-008). Secrets come from the
+# environment only: ECGSCAN_API_KEYS ("name:key,name2:key2") and ECGSCAN_STORAGE_KEY
+# (a Fernet key; without it originals are not kept at all — never in plaintext).
+
+storage:
+  dir: data/scanner_service        # SQLite job store, encrypted originals, artifacts (env ECGSCAN_SERVICE_DIR overrides)
+  keep_originals: true             # needs ECGSCAN_STORAGE_KEY; lets a doctor's calibration correction re-run the scan
+  retention_days: 30               # originals and artifact images are deleted after this; results (signals) stay
+  purge_interval_h: 1              # D136: retention runs on this timer, not only at start
+
+upload:
+  max_mb: 25
+  mime: [image/jpeg, image/png, image/tiff]
+
+queue:
+  workers: 2                       # scans in parallel (OpenCV releases the GIL)
+  max_pending: 20                  # D136: queued + processing scans; more -> 429 (each holds up to 25 MB)
+  warm_up: true                    # scan one synthetic page at start: the first photo does not wait ~5 s for model loading
+
+feedback:
+  path: data/feedback/scanner_confirmations.jsonl   # doctor confirmations / corrections for future training (TZ §12)
+
+public_url: null                   # base URL for result links in the bot, e.g. https://clinic.example/
+
+confirm:
+  max_comment_chars: 500           # D136: free text is kept only until retention; no names or IDs
+
+access:
+  admins: []                       # D136: API key names that may open scans of other keys (a key sees only its own)
