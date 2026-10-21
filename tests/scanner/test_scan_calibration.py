@@ -133,10 +133,16 @@ def test_low_resolution_and_no_grid_are_rejected(synth_mv):
     assert blank.status == "rejected" and blank.reject_reasons == ["GRID_NOT_FOUND"]
 
 
-def test_faded_print_is_rejected_with_a_reason(synth_mv):
+def test_faded_print_is_read_for_confirmation_and_a_blank_one_rejected(synth_mv):
+    """SD-064: faded thermal paper (contrast ~0.65) is read, flagged FADED_PAPER and sent to
+    the doctor; a trace too pale to see (contrast < 0.15) is still refused with the reason."""
     img, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"),
                          RenderSpec(px_per_mm=10.0, trace_gray=150, grid_fade=0.4))
     res = scan(_encode(img), debug=ScanDebug())
+    assert res.status == "needs_confirmation" and "FADED_PAPER" in res.warnings and res.leads
+    ghost, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"),
+                           RenderSpec(px_per_mm=10.0, trace_gray=235, grid_fade=0.4))
+    res = scan(_encode(ghost), debug=ScanDebug())
     assert res.status == "rejected" and res.reject_reasons == ["LOW_CONTRAST"]
 
 

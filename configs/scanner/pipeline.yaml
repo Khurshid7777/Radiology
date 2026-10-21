@@ -10,7 +10,8 @@ quality:
   marginal_px_per_mm: 10.0       # below this -> warning LOW_RESOLUTION_MARGINAL
   min_grid_confidence: 0.3       # grid read below this -> rejected GRID_NOT_FOUND (bench: 113/114 correct reads are above, no wrong one is)
   capture_qc: true               # repeat the phone's frame checks on the photo (quality.sharpness / glare_fraction)
-  min_trace_contrast: 0.67       # PROVISIONAL (synthetic: faded 0.65, others >= 0.70): below -> rejected LOW_CONTRAST
+  min_trace_contrast: 0.15       # below -> rejected LOW_CONTRAST (SD-064; was 0.67: faded print read at r 0.97 down to ~0.2)
+  faded_below: 0.67              # SD-064: 0.15-0.67 (synthetic faded thermal 0.645) -> read, FADED_PAPER, never ok by itself
 
 geometry:
   working_px_per_mm: 10.0        # the photo is resampled to this before rectification (speed; 5 ms/px at 25 mm/s... 2.5 at 50)

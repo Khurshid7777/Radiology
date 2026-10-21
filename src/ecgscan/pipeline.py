@@ -203,6 +203,11 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     if contrast < q_cfg.get("min_trace_contrast", 0.0):
         reasons.append("LOW_CONTRAST")
         return result("rejected", ppm=raw_ppm, contrast=contrast)
+    if contrast < q_cfg.get("faded_below", 0.0):
+        # Pale but readable (faded thermal paper): read, flagged, and never "ok" by itself
+        # (SD-064: 4 of 6 synthetic faded pages read at r 0.97-0.99; the 2 misread ones
+        # were flagged by the limb / rhythm checks).
+        warnings.append("FADED_PAPER")
 
     # 3. Segmentation (TZ §5.5) and the calibration sources: pulses, header OCR (§5.4).
     c_cfg = cfg["calibration"]
@@ -325,7 +330,8 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
                and not {"LAYOUT_UNCERTAIN", "LIMB_LEADS_INCONSISTENT", "LEAD_INCOMPLETE",
                         "RHYTHM_INCONSISTENT"} & set(warnings)
                # Light correction is verified on synthetic pages only: the doctor confirms (SD-062).
-               and not ("LOW_LIGHT" in warnings and q_cfg.get("low_light_needs_confirmation", True)))
+               and not ("LOW_LIGHT" in warnings and q_cfg.get("low_light_needs_confirmation", True))
+               and "FADED_PAPER" not in warnings)
     status = "ok" if trusted else "needs_confirmation"
     layout = Layout(name=layout_name, registry_version=spec.registry_version, confidence=layout_conf)
     res = result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,
