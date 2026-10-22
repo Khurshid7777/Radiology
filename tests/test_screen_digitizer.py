@@ -157,7 +157,7 @@ def test_lit_strip_running_off_the_photo_is_not_a_screen(sig, tmp_path):
     img = cv2.imread(render_device_screen(sig, tmp_path / "s.png", leads=CHEST_6))
     assert is_device_screen(img)
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    ys, xs = np.nonzero(g > 165)
+    _ys, xs = np.nonzero(g > 165)
     cropped = img[:, xs.min() + 2:xs.max() - 2]      # the lit panel now touches both side edges
     assert not is_device_screen(cropped)
 
