@@ -34,11 +34,12 @@ from cardiolens.validation import run_validation
 
 @pytest.fixture(scope="module")
 def page(tmp_path_factory):
-    """A 3x4 page rendered from a synthetic sinus ECG, as a jpeg photo would arrive."""
+    """A 3x4 page rendered from a synthetic sinus ECG at 10 px/mm, as a photo sent as a file
+    arrives (D139: the scanner reads it; below 8 px/mm it refuses)."""
     root = tmp_path_factory.mktemp("page")
     sig = generate_synthetic_ecg(heart_rate_bpm=72, seed=5)
     png = root / "page.png"
-    render_ecg_page(sig, png, px_per_mm=6, calibration_pulse=True)
+    render_ecg_page(sig, png, px_per_mm=10, calibration_pulse=True)
     return png
 
 
@@ -46,7 +47,7 @@ def test_photo_gate_finds_the_grid_and_rejects_a_plain_image(page, tmp_path):
     import cv2
 
     ok, pitch = is_ecg_photo(page)
-    assert ok and 5.0 <= pitch <= 7.0
+    assert ok and 9.0 <= pitch <= 11.0      # the fixture page is drawn at 10 px/mm
     plain = tmp_path / "plain.png"
     cv2.imwrite(str(plain), np.full((400, 600), 230, dtype=np.uint8))
     assert is_ecg_photo(plain)[0] is False
@@ -269,3 +270,19 @@ def test_image_sent_as_a_file_is_read_like_a_photo(page, tmp_path):
     assert rec.status == "analysed" and len(client.sent) == 1
     broken = _FakeMessage(31, data=b"not an image at all")
     assert asyncio.run(col.handle_photo(broken, chat)) is None and len(client.sent) == 1
+
+
+def test_bot_reader_scanner_first_then_cardiolens(tmp_path):
+    """D139: a paper page goes to the scanner; a low-resolution page is refused with the
+    scanner's reason; a device screen (scanner: no grid) goes on to the CardioLens readers."""
+    from cardiolens.layer1_ingestion.screen import CHEST_6, render_device_screen
+    from cardiolens.telegram.analyze import digitize_photo
+
+    sig = generate_synthetic_ecg(heart_rate_bpm=72, seed=5)
+    page10 = render_ecg_page(sig, tmp_path / "p10.png", px_per_mm=10, calibration_pulse=True)
+    assert digitize_photo(page10).provenance.notes[0].startswith("ecgscan scan_id=")
+    page6 = render_ecg_page(sig, tmp_path / "p6.png", px_per_mm=6, calibration_pulse=True)
+    with pytest.raises(ValueError, match="низкое разрешение"):
+        digitize_photo(page6)
+    screen = render_device_screen(sig, tmp_path / "s.png", leads=CHEST_6)
+    assert any(n.startswith("device screen photo") for n in digitize_photo(screen).provenance.notes)

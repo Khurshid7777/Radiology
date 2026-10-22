@@ -58,11 +58,39 @@ def is_ecg_photo(path: str | Path, min_pitch_px: float = 3.0) -> tuple[bool, flo
     return bool(ok), None if pitch is None else float(pitch)
 
 
-def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[PipelineResult | None, str | None]:
-    """Digitise the photo (3x4 page or 12x1 strip, chosen from the ink — D72) and
-    run the pipeline; (result, None) or (None, error text)."""
+# Scanner refusals about the picture itself (D139): the CardioLens readers would read the
+# same picture worse, so the refusal stands. Refusals about the layout (a screen, a report
+# sheet, part of a strip: GRID_NOT_FOUND, LAYOUT_UNKNOWN, PAGE_INCOMPLETE, SCREEN_PHOTO, ...)
+# go on to the CardioLens readers, which read those formats behind their photo gates.
+SCANNER_FINAL_REFUSALS = frozenset({"LOW_RESOLUTION", "GLARE", "BLUR", "TRACE_BROKEN", "LIMB_LEADS_INCONSISTENT",
+                                    "LOW_CONTRAST", "IMAGE_TOO_LARGE", "CALIBRATION_MISSING"})
+
+
+def digitize_photo(path: str | Path) -> SignalRepresentation:
+    """The bot's photo reader (D139): the ECG scanner first — on its benchmark it reads paper
+    pages at r 0.98 with no unflagged bad case, where the CardioLens readers have 23 % —
+    then, when the scanner refuses the layout, the CardioLens readers (device screens,
+    report sheets, parts of strips). Raises ValueError with the reason otherwise."""
     try:
-        sig = digitize_auto_to_signal(path)
+        from ecgscan.contract.cardiolens_adapter import to_signal_representation
+        from ecgscan.i18n import t as scanner_text
+        from ecgscan.pipeline import scan
+    except ImportError:                 # the scanner extra is not installed
+        return digitize_auto_to_signal(path)
+    result = scan(path)
+    if result.status != "rejected":
+        return to_signal_representation(result)
+    final = [r for r in result.reject_reasons if r in SCANNER_FINAL_REFUSALS]
+    if final:
+        raise ValueError("; ".join(scanner_text(f"reject.{r}") for r in final))
+    return digitize_auto_to_signal(path)
+
+
+def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[PipelineResult | None, str | None]:
+    """Digitise the photo (``digitize_photo``, D139) and run the pipeline; (result, None)
+    or (None, error text)."""
+    try:
+        sig = digitize_photo(path)
         return run_pipeline(sig, mode=mode, provider=provider or StubProvider()), None
     except Exception as e:  # digitiser raises on pages it cannot read — that is data too
         return None, f"{type(e).__name__}: {e}"
@@ -81,7 +109,7 @@ def analyse_photos(paths: list[str | Path], *, mode: str = "A",
     sigs, errors = [], []
     for p in paths:
         try:
-            sigs.append(digitize_auto_to_signal(p))
+            sigs.append(digitize_photo(p))
         except Exception as e:
             errors.append(f"{Path(p).name}: {type(e).__name__}: {e}")
     screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]
@@ -219,6 +247,10 @@ def format_card(rec: Record, result: PipelineResult | None, error: str | None = 
         lines.append(f"ЧСС {_fmt(s['heart_rate_bpm'])} /мин · PR {_fmt(s['pr_ms'])} · QRS {_fmt(s['qrs_ms'])} · "
                      f"QTc {_fmt(s['qtc_bazett_ms'])} мс · ось {_fmt(s['qrs_axis_deg'], '°')}"
                      + (" (по ненадёжному снимку)" if unreliable is not None else ""))
+    scanner = next((n for n in result.signal.provenance.notes if n.startswith("ecgscan scan_id=")), None)
+    if scanner and "status=needs_confirmation" in scanner:   # D139: the scanner read it but asks to check
+        warn = next((n for n in result.signal.provenance.notes if n.startswith("warnings: ")), "")
+        lines.append("⚠️ Сканер просит проверить масштаб и раскладку по снимку" + (f" ({warn[10:]})" if warn else ""))
     lines.append("Находки: " + "; ".join(findings))
     lines.append("Коды: " + (", ".join(sorted(result.findings.codes())) or "—"))
     lines.append(f"Уверенность {s['confidence']:.2f} · оцифровка {_fmt(s['digitiser_coverage'], '', 2)}"
