@@ -1,4 +1,4 @@
-"""D94: DICOM waveform ECG input (12-lead / general / ambulatory ECG storage)."""
+"""D132: DICOM waveform ECG input (12-lead / general / ambulatory ECG storage)."""
 
 import numpy as np
 import pytest

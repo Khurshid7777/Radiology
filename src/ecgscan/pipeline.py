@@ -9,7 +9,7 @@ Status rules:
   TRACE_BROKEN, PROCESSING_ERROR (no traces are returned);
 * ``needs_confirmation`` — speed or gain not established (SD-011), sources disagree,
   layout uncertain, limb leads inconsistent, a lead largely missing, the CardioLens
-  beats disagreeing with the page columns (D92), or overall quality below
+  beats disagreeing with the page columns (D130), or overall quality below
   ``validate.ok_min_overall``;
 * ``ok`` — otherwise.
 """
@@ -112,7 +112,7 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
         img = load_image(image, max_megapixels=float(q_cfg.get("max_megapixels", 60)),
                          min_side_px=int(q_cfg.get("min_side_px", 200)))
     except ImageRefused as exc:
-        # Refused before decoding (D98): nothing of the picture was looked at.
+        # Refused before decoding (D136): nothing of the picture was looked at.
         data = image if isinstance(image, bytes) else Path(image).read_bytes()
         return ScanResult(
             scan_id=str(uuid.uuid4()), status="rejected", reject_reasons=[exc.code],
@@ -341,7 +341,7 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     if status == "ok" and (val.get("beat_check", True) or hump_scale):
         check = measurement_check(res, hump_scale=hump_scale)
         if val.get("beat_check", True) and check.beats_agree is False:
-            # Accurate traces can still give a wrong rhythm downstream (CardioLens D92): the
+            # Accurate traces can still give a wrong rhythm downstream (CardioLens D130): the
             # beats the measurement keeps disagree with the beats the page columns show.
             res.warnings = sorted({*res.warnings, "BEATS_INCONSISTENT"})
             res.status = "needs_confirmation"
@@ -355,7 +355,7 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
         from ecgscan.artifacts import write_artifacts
 
         # The header and footer bands carry the patient's name, ID and date: blanked in every
-        # image the service keeps or sends, whatever the client masked (D98).
+        # image the service keeps or sends, whatever the client masked (D136).
         bands = (top, bottom) if cfg.get("artifacts", {}).get("mask_bands", True) else None
         res.artifacts = write_artifacts(artifacts_dir, rectified=rect.bgr, mask=mask.ink, readings=readings,
                                         keep_rows=bands)

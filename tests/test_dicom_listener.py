@@ -1,4 +1,4 @@
-"""D96: DICOM C-STORE receiver for ECG devices (real DICOM network protocol on localhost)."""
+"""D134: DICOM C-STORE receiver for ECG devices (real DICOM network protocol on localhost)."""
 
 import json
 import socket

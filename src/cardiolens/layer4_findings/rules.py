@@ -147,8 +147,9 @@ def detect_findings(
                 fs.findings.append(Finding(
                     code="supraventricular_tachycardia", group="rhythm",
                     label_ru=f"Суправентрикулярная тахикардия (ЧСС {hr}/мин, "
-                             f"регулярная узкокомплексная)",
-                    label_uz=f"Supraventrikulyar taxikardiya (YUT {hr}/daq)",
+                             f"регулярная узкокомплексная{_SVT_FLUTTER_NOTE_RU if _near_150(hr) else ''})",
+                    label_uz=f"Supraventrikulyar taxikardiya (YUT {hr}/daq"
+                             f"{_SVT_FLUTTER_NOTE_UZ if _near_150(hr) else ''})",
                     evidence=_ev(heart_rate_bpm=hr, svt_rate_min=svt_min,
                                  qrs_ms=qrs, regular="yes"), confidence=0.7,
                 ))
@@ -260,7 +261,6 @@ def detect_findings(
             label_uz=f"Bo'lmachalar titrashi (bo'lmacha chastotasi {m.atrial_rate_bpm}/daq)",
             evidence=_ev(atrial_rate_bpm=m.atrial_rate_bpm), confidence=0.65,
         ))
-
     # A detected non-sinus rhythm (AF / flutter) replaces the sinus_* rate codes:
     # "sinus rhythm at 80" is wrong in AF, and the rate qualifier belongs to the
     # arrhythmia label instead (rapid/slow ventricular response).
@@ -336,6 +336,19 @@ def detect_findings(
         fs.findings = [f for f in fs.findings if f.code not in _WCT_EXCLUDES]
 
     return fs
+
+
+# A regular narrow tachycardia near 150/min is 2:1 flutter until shown otherwise: on the
+# development sets 26 of our 45 SVT calls at 138-162/min carried a flutter label and 4
+# an SVT label (D113). The F waves at 2 x HR are not separable from the T/P harmonics
+# of a sinus tachycardia spectrally, so the finding keeps its code and says so.
+SVT_FLUTTER_BAND_BPM = (135.0, 165.0)
+_SVT_FLUTTER_NOTE_RU = "; исключить трепетание предсердий 2:1"
+_SVT_FLUTTER_NOTE_UZ = "; 2:1 bo'lmachalar titrashini istisno qiling"
+
+
+def _near_150(hr) -> bool:
+    return hr is not None and SVT_FLUTTER_BAND_BPM[0] <= hr <= SVT_FLUTTER_BAND_BPM[1]
 
 
 _WCT_EXCLUDES = ("wpw_preexcitation", "first_degree_av_block", "pathological_q_waves")
@@ -509,13 +522,32 @@ def _peaked_t_findings(m: Measurements, norms, fs: FindingSet) -> None:
         ))
 
 
+# D116 (accepted on the held-out check): left atrial enlargement from the terminal
+# negative P force in V1 instead of the P duration. On the development sets our P duration
+# carries no signal (LAE-labelled median 90 ms vs 92 unlabelled; the > 120 ms rule has a
+# lift of 0.7-0.9, worse than chance) while PTFV1 >= 8000 µV·ms lifts 3.3-3.6. Our PTFV1
+# runs about twice the textbook scale (unlabelled median ~3000), so 8000 ~ the classic 0.04 mm·s.
+LAE_BY_PTFV1 = True
+LAE_PTFV1_UV_MS = 8000.0
+
+
 def _atrial_enlargement_findings(m: Measurements, norms, fs: FindingSet) -> None:
     """Left/right atrial enlargement from P-wave duration/amplitude (TZ §7.4)."""
     if fs.codes() & _NON_SINUS_CODES:
         return  # no true P waves to measure in AF / flutter
     pw = norms.get("p_wave", {})
     dur_hi, amp_hi = pw.get("duration_upper_ms"), pw.get("amplitude_upper_uv")
-    if dur_hi and m.p_wave_duration_ms is not None and m.p_wave_duration_ms > dur_hi:
+    ptf = m.voltages.p_terminal_v1_uv_ms
+    if LAE_BY_PTFV1:
+        if ptf is not None and ptf >= LAE_PTFV1_UV_MS:
+            fs.findings.append(Finding(
+                code="left_atrial_enlargement", group="hypertrophy",
+                label_ru=f"Увеличение левого предсердия (отрицательная фаза P в V1, {ptf / 1000:.1f} мВ·мс)",
+                label_uz=f"Chap bo'lmacha kattalashuvi (V1 da P manfiy fazasi, {ptf / 1000:.1f} mV·ms)",
+                evidence=_ev(p_terminal_v1_uv_ms=ptf, threshold=LAE_PTFV1_UV_MS),
+                confidence=0.6,
+            ))
+    elif dur_hi and m.p_wave_duration_ms is not None and m.p_wave_duration_ms > dur_hi:
         fs.findings.append(Finding(
             code="left_atrial_enlargement", group="hypertrophy",
             label_ru=f"Увеличение левого предсердия (P-mitrale, {m.p_wave_duration_ms} мс)",

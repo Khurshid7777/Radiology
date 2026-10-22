@@ -56,6 +56,32 @@ def test_ventricular_run_detector():
     assert detect_ventricular_runs(sig, rp, 500.0) == []
 
 
+def test_ventricular_run_found_when_ectopic_beats_are_the_majority():
+    # D94: with frequent couplets the median RR is the ectopic cycle, so a template of
+    # "not premature" beats against the median is built from PVCs (INCART I29-I31).
+    types = "NVVNVVNVVVVNVVNVVN"
+    rr = [900 if t == "N" else 400 for t in types[1:]]
+    sig, rp = _pulse_train(rr, odd={k for k, t in enumerate(types) if t == "V"})
+    assert detect_ventricular_runs(sig, rp, 500.0) == [(7, 4, 150)]
+
+
+def test_ventricular_run_with_a_late_first_beat_but_a_fast_inside():
+    # D95: the first run beat comes only slightly early (760 vs 800 ms), the run inside is
+    # at ~146/min (INCART I42, I66). A run barely faster than the rhythm stays out.
+    sig, rp = _pulse_train([800] * 5 + [760, 420, 400, 1100] + [800] * 4, odd={6, 7, 8})
+    assert detect_ventricular_runs(sig, rp, 500.0) == [(6, 3, 146)]
+    sig, rp = _pulse_train([800] * 5 + [760, 600, 580, 1100] + [800] * 4, odd={6, 7, 8})
+    assert detect_ventricular_runs(sig, rp, 500.0) == []
+
+
+def test_ventricular_run_at_the_rhythm_rate_is_not_vt():
+    # D98: one early beat followed by abnormally shaped beats at the sinus rate is not a
+    # tachycardia run (Georgia sinus tachycardia: inner RR 0.97-1.00 of the reference;
+    # INCART true runs <= 0.82).
+    sig, rp = _pulse_train([500] * 5 + [430, 500, 500, 500] + [500] * 4, odd={6, 7, 8})
+    assert detect_ventricular_runs(sig, rp, 500.0) == []
+
+
 def test_pvc_rule_and_bigeminy():
     rr = [800] * 5 + [560, 1040] + [800] * 5
     sig, rp = _pulse_train(rr, odd={6})
@@ -317,14 +343,15 @@ def test_recovered_beats_marked_off_their_r_peak_do_not_make_a_vt_run():
     # A detector beat displaced the same way is rescued too when its shifted match is
     # near-perfect (PTB-XL 18619: 0.998; true PVCs there 0.33-0.81; D88) ...
     assert not detect_ventricular_runs(sig, shifted, fs)
-    # ... and without that rescue the displaced beats are the false run it removes.
+    # ... and without that rescue the displaced beats are the false run it removes (the
+    # D98 rate check, which rejects this same-rate run too, is switched off for the proof).
     from cardiolens.arrhythmia import beats
-    keep = beats._RUN_SHIFTED_RESCUE_MIN
+    keep, keep_rate = beats._RUN_SHIFTED_RESCUE_MIN, beats._RUN_FASTER_THAN_REF
     try:
-        beats._RUN_SHIFTED_RESCUE_MIN = 2.0
+        beats._RUN_SHIFTED_RESCUE_MIN, beats._RUN_FASTER_THAN_REF = 2.0, 0.0
         assert detect_ventricular_runs(sig, shifted, fs)
     finally:
-        beats._RUN_SHIFTED_RESCUE_MIN = keep
+        beats._RUN_SHIFTED_RESCUE_MIN, beats._RUN_FASTER_THAN_REF = keep, keep_rate
 
 
 # --- QRS offset past a terminal R' after an envelope dip (D90) ---
@@ -361,3 +388,123 @@ def test_wave_marks_missing_an_edge_beat_stay_on_their_own_beats():
     t_off = _aligned([300, 1000, 1450], r, before=False)     # no T offset for the last beat
     assert list(t_off[:3]) == [300, 1000, 1450] and np.isnan(t_off[3])
     assert list(_aligned([1, 2, 3, 4], r, before=True)) == [1, 2, 3, 4]
+
+
+def test_detections_on_atrial_pacing_spikes_move_to_their_qrs():
+    # D98: with atrial pacing the detector can sit on the spike; the QRS follows after the
+    # AV delay. With ventricular pacing the QRS starts at the spike and nothing moves.
+    from cardiolens.layer3_measure.measure import _move_off_pacing_spikes
+
+    fs = 500.0
+    tt = np.arange(5000) / fs
+    spikes = np.arange(0.5, 9.5, 1.0)
+    x = np.zeros((3, tt.size))
+    for s in spikes:
+        i = int(s * fs)
+        x[:, i] += 100.0                                         # band-passed spike remnant
+        x += 80 * np.exp(-((tt - s - 0.06) / 0.03) ** 2)        # paced P wave
+        x += 1000 * np.exp(-((tt - s - 0.28) / 0.012) ** 2)     # QRS after the AV delay
+    det = (spikes * fs).astype(int)
+    out, moved = _move_off_pacing_spikes(x, det, fs, list(spikes))
+    assert moved == len(det) and np.all(np.abs(out - det - int(0.28 * fs)) <= 5)
+    v = np.zeros((3, tt.size))
+    for s in spikes:
+        v[:, int(s * fs)] += 1500.0
+        v += 900 * (np.exp(-((tt - s - 0.03) / 0.03) ** 2) - np.exp(-((tt - s - 0.11) / 0.03) ** 2))
+    out, moved = _move_off_pacing_spikes(v, det, fs, list(spikes))
+    assert moved == 0 and list(out) == list(det)
+
+
+def test_age_and_sex_are_read_from_wfdb_header_comments():
+    # D101: Challenge-format and PTBDB headers carry demographics; without them every
+    # woman was judged by male QTc / STEMI / Cornell thresholds.
+    from cardiolens.layer1_ingestion.parsers import patient_from_wfdb_comments
+
+    p = patient_from_wfdb_comments(["Age: 74", "Sex: Female", "Dx: 426783006"])
+    assert p.age_years == 74 and p.sex == "female"
+    p = patient_from_wfdb_comments(["age: 81", "sex: male"])
+    assert p.age_years == 81 and p.sex == "male"
+    p = patient_from_wfdb_comments(["Age: NaN", "Sex: Unknown"])
+    assert p.age_years is None and p.sex is None
+    assert patient_from_wfdb_comments(None).sex is None
+
+
+def test_every_finding_code_has_a_statement_map_row():
+    # D102: external scoring goes through configs/statement_map.yaml only; a new finding
+    # code without a row would silently drop out of every check.
+    import re
+    from pathlib import Path
+
+    import yaml
+
+    from cardiolens.config import configs_dir
+
+    table = yaml.safe_load((configs_dir() / "statement_map.yaml").read_text())
+    src = Path(__file__).resolve().parents[1] / "src" / "cardiolens"
+    codes = {m for p in src.rglob("*.py") for m in re.findall(r'code="([a-z_0-9]+)"', p.read_text())}
+    assert codes and not (codes - set(table)), sorted(codes - set(table))
+    assert all(isinstance(v["snomed"], list) and isinstance(v["scp"], list) for v in table.values())
+
+
+def test_statement_score_groups_codes_and_reports_wilson_intervals():
+    from cardiolens.validation.statement_score import score, wilson
+
+    table = {"lvh": {"snomed": ["164873001"], "scp": []}, "lvh_probable": {"snomed": ["164873001"], "scp": []},
+             "atrial_fibrillation": {"snomed": ["164889003"], "scp": []}}
+    pred = {"a": {"lvh_probable"}, "b": {"atrial_fibrillation"}, "c": set()}
+    gold = {"a": {"164873001"}, "b": {"426783006"}, "c": {"164889003"}}
+    res = score(pred, gold, "snomed", table)
+    assert set(res) == {"lvh", "atrial_fibrillation"}          # lvh + lvh_probable: one group
+    assert (res["lvh"].tp, res["atrial_fibrillation"].fp, res["atrial_fibrillation"].fn) == (1, 1, 1)
+    lo, hi = wilson(8, 10)
+    assert lo < 0.8 < hi and wilson(0, 0) is None
+
+
+def test_measurement_report_bias_sd_and_iec_style_limits():
+    from cardiolens.validation.measurement_report import summarise
+
+    pairs = [({"QRS": 100 + d, "P axis": 350.0}, {"QRS": 100, "P axis": 10.0}) for d in (2, 4, 6, 8)]
+    rows = {r["param"]: r for r in summarise(pairs, ["QRS", "P axis"])}
+    assert rows["QRS"]["bias"] == 5 and rows["QRS"]["passes"] is True     # +5 ms, SD 2.6 <= 6 / 10
+    assert rows["P axis"]["bias"] == -20                                   # 350 vs 10 deg is -20, not +340
+
+
+def test_rr_regularity_without_the_intervals_around_pvcs():
+    # D106: sinus rhythm with PVCs is regular once the coupling and compensatory intervals
+    # are left out; AF stays irregular.
+    from cardiolens.pipeline import _rr_cv_without
+
+    sinus = [0, 800, 1600, 2100, 3200, 4000, 4800, 5300, 6400, 7200, 8000]   # PVCs at 3 and 7
+    assert _rr_cv_without(sinus, [3, 7]) < 0.02
+    rng = np.random.default_rng(1)
+    af = np.cumsum(rng.uniform(450, 1100, 14)).astype(int).tolist()
+    assert _rr_cv_without(af, [4]) > 0.15
+    assert _rr_cv_without([0, 800, 1600], [1]) is None
+
+
+def test_flat_line_or_baseline_wander_is_no_ecg_signal_without_alerts():
+    # D108: a recording without any QRS (cable off: baseline wander + noise) gave "sinus
+    # bradycardia" and a critical pause alert (CODE-15% 1969740).
+    rng = np.random.default_rng(0)
+    fs, n = 500.0, 5000
+    t = np.arange(n) / fs
+    x = np.stack([300 * np.sin(2 * np.pi * 0.15 * t + k) + rng.normal(0, 5, n) for k in range(12)])
+    sig = SignalRepresentation(signal=x.astype(np.float32), sampling_rate_hz=fs, lead_names=list(STANDARD_12_LEADS),
+                               duration_s=n / fs, source="synthetic")
+    res = run_pipeline(sig, mode="A")
+    assert res.findings.codes() == {"no_ecg_signal"} and not res.safety.alerts
+    assert "no_ecg_signal" not in run_pipeline(generate_synthetic_ecg(heart_rate_bpm=70), mode="A").findings.codes()
+
+
+def test_median_beat_p_duration_and_pr_are_plausible_on_a_clean_ecg():
+    # D111: global P and PR on the 12-lead median beat.
+    from cardiolens.layer3_measure.delineation import qrs_bounds_envelope
+    from cardiolens.layer3_measure.measure import _median_beat_p
+
+    res = run_pipeline(generate_synthetic_ecg(heart_rate_bpm=70), mode="A")
+    s, m = res.signal, res.measurements
+    rp = np.asarray(m.r_peaks_samples)
+    on, _ = qrs_bounds_envelope(s.signal, rp, s.sampling_rate_hz)
+    pd, pr = _median_beat_p(s.signal, rp, on, s.sampling_rate_hz, m.intervals.qt_ms)
+    assert 60 <= pd <= 160 and 100 <= pr <= 260
+    assert _median_beat_p(s.signal, rp[:3], on[:3], s.sampling_rate_hz, None) is None

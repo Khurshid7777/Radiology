@@ -48,7 +48,7 @@ services:
       CARDIOLENS_LLM_BASE_URL: http://ollama:11434/v1
       CARDIOLENS_LLM_MODEL: ${CARDIOLENS_LLM_MODEL:-llama3.1:8b}
       CARDIOLENS_LLM_TIMEOUT_S: "180"
-      # D98: the API needs keys ("name:key,name2:key2"); the web page asks for one.
+      # D136: the API needs keys ("name:key,name2:key2"); the web page asks for one.
       ECGSCAN_API_KEYS: ${ECGSCAN_API_KEYS:?set ECGSCAN_API_KEYS=name:key before docker compose up}
       CARDIOLENS_FEEDBACK_PATH: /data/feedback/feedback.jsonl
     volumes:

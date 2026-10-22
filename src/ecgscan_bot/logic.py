@@ -42,7 +42,7 @@ def lang_of(language_code: str | None) -> str:
 
 def allowed(cfg: BotConfig, user_id: int | None, chat_type: str | None = "private") -> bool:
     """A whitelisted user in a private chat: in a group the verdict (and the overlay)
-    would reach every member (D98)."""
+    would reach every member (D136)."""
     return user_id is not None and user_id in cfg.allowed and chat_type == "private"
 
 

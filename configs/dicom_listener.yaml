@@ -1,4 +1,4 @@
-# DICOM network receiver for ECG devices (D96): a C-STORE SCP that passes each received
+# DICOM network receiver for ECG devices (D134): a C-STORE SCP that passes each received
 # ECG to the CardioLens API (/api/analyze). Run: python -m cardiolens.dicom_listener
 #
 # Security: only the AE titles listed below may connect; with the list empty the listener
@@ -12,7 +12,7 @@ max_bytes: 26214400               # 25 MB per ECG, like the upload limit
 api_url: "http://127.0.0.1:8000"  # CardioLens API that analyses each ECG
 api_timeout_s: 60
 log_path: "data/dicom_inbox/received.jsonl"   # one line per ECG: time, device AE, hashed UID, analysis id / error
-# D98: an AE title is a plaintext name any client can claim. On a network also list the
+# D136: an AE title is a plaintext name any client can claim. On a network also list the
 # devices' addresses; the receive is capped per association; the API key for
 # /api/analyze comes from the environment variable named below.
 allowed_ips: []                   # e.g. ["192.168.1.50"]; empty -> any address (keep host on localhost then)

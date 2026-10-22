@@ -144,7 +144,7 @@
 <script>
 const $ = id => document.getElementById(id);
 
-// Every /api/analyze and /api/analysis call carries the key (D98). It lives only in this
+// Every /api/analyze and /api/analysis call carries the key (D136). It lives only in this
 // tab (sessionStorage), never in a URL: images and the PDF are fetched and shown as blobs.
 try { $('apikey').value = sessionStorage.getItem('apikey') || ''; } catch (e) {}
 $('apikey').addEventListener('change', () => {

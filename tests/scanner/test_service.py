@@ -273,7 +273,7 @@ def test_real_page_end_to_end(tmp_path, env, synth_mv):
         data, media = svc.artifact(sid, "trace_overlay_preview", "bot")
         assert media == "image/jpeg" and data[:3] == b"\xff\xd8\xff" and len(data) < 1_000_000
         assert all("/" not in v for v in row.result["artifacts"].values())
-        # D98: with a storage key the images are kept encrypted, never as plaintext files.
+        # D136: with a storage key the images are kept encrypted, never as plaintext files.
         on_disk = sorted(p.name for p in (svc.artifacts_root / sid).iterdir())
         assert on_disk and all(n.endswith(".enc") for n in on_disk)
         with pytest.raises(ScanError) as other:

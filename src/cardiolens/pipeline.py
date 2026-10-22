@@ -9,6 +9,7 @@ traceability (TZ §11.1, §12). Output rendering (JSON/SVG/graph/PDF) lives in
 from __future__ import annotations
 
 import functools
+import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -32,7 +33,13 @@ from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
 from cardiolens.layer1_ingestion.checks import check_record
+from cardiolens.layer1_ingestion.strip import SCALE_CONFLICT_NOTE
 from cardiolens.layer2_preprocess import assess_quality, preprocess
+from cardiolens.layer2_preprocess.photo_quality import (
+    align_panels,
+    page_consistency,
+    page_unreliable,
+)
 from cardiolens.layer3_measure import measure
 from cardiolens.layer3_measure.pacing import (
     pacing_multilead_spike_times,
@@ -79,16 +86,30 @@ def run_pipeline(
     if calibrator is None:
         calibrator = TemperatureScaler.load(configs_dir() / "calibrator.json")
     audit: list[str] = []
-    # A record that cannot be measured is refused here, whatever route it came by (D97).
+    fs_in = sig.sampling_rate_hz     # a digitised photo's px/mm x 25 mm/s, before resampling
+    # A record that cannot be measured is refused here, whatever route it came by (D135).
     n_notes = len(sig.provenance.notes)
     sig = check_record(sig, cfg.ingestion)
     audit.extend(f"[L1] {n}" for n in sig.provenance.notes[n_notes:])
 
     # Pacing spikes are erased by the Layer-2 band-pass, so measure them on the raw signal.
-    pacing_ratio = pacing_spike_ratio(sig)
+    # Not on a digitised image (D114): at the pixel rate (~150 Hz) the steep QRS upstroke
+    # is a one-sample step, the largest |diff| outlier, and it sits just before R, so the
+    # coupling check passes too: 3 of 4 clean synthetic pages were read as paced.
+    pacing_ratio = 0.0 if sig.provenance.digitized else pacing_spike_ratio(sig)
     spike_times = pacing_spike_times(sig) if pacing_ratio >= cfg.pacing.spike_ratio_min else []
     ml_spike_times = pacing_multilead_spike_times(sig, cfg.pacing.multilead_k,
                                                   cfg.pacing.multilead_min_leads)
+
+    # Photo consistency on the digitised traces as read, before any filtering (D114); the
+    # rows' time lag against the lead-II strip is then undone (D115).
+    photo = page_consistency(sig)
+    photo_aligned = None
+    if photo is not None:
+        sig = align_panels(sig)
+        photo_aligned = page_consistency(sig)
+        audit.append(f"[L1] page aligned on the lead-II strip: lag {photo['panel_lag_ms']} ms, "
+                     f"Einthoven r {photo['einthoven_r']} -> {photo_aligned and photo_aligned['einthoven_r']}")
 
     # Layer 2 — preprocess + quality (TZ §5). preprocess() filters in place: work on a
     # copy so the caller's raw signal survives — a second run on the same object
@@ -106,7 +127,7 @@ def run_pipeline(
     audit.append(f"[L2] SQI mean-ok={quality_ok}, flags={quality.flags}")
 
     # Layer 3 — measurements (TZ §6).
-    m = measure(sig)
+    m = measure(sig, pacing_spikes_s=sorted(set(spike_times) | set(ml_spike_times)))
     audit.append(
         f"[L3] HR={m.heart_rate_bpm} PR={m.intervals.pr_ms} "
         f"QRS={m.intervals.qrs_ms} QTcB={m.intervals.qtc_bazett_ms}"
@@ -137,15 +158,29 @@ def run_pipeline(
     if pvc_idx and not runs:
         findings.findings.extend(pvc_findings(pvc_idx, len(m.r_peaks_samples)))
         audit.append(f"[L4] 12-lead PVC rule: {len(pvc_idx)} PVC beat(s)")
+        # AF read off the irregularity PVCs make (D106): the PVC rule needs a compensatory
+        # pause, which AF lacks; without the RR intervals around the PVCs a sinus rhythm is
+        # regular again, AF stays irregular.
+        cv_left = _rr_cv_without(m.r_peaks_samples, pvc_idx)
+        af_cv = norms.get("rhythm", {}).get("af_rr_cv_min", 0.10)
+        if (AF_PVC_RECHECK and cv_left is not None and cv_left <= af_cv
+                and "atrial_fibrillation" in findings.codes()):
+            findings.findings = [f for f in findings.findings if f.code != "atrial_fibrillation"]
+            audit.append(f"[L4] AF withdrawn: RR CV {cv_left:.3f} without the PVC intervals (D106)")
     # Paced rhythm (TZ §7.1): the spike must be time-locked to the QRS (an artifact
     # spike lands at random), or seen by many leads at once and QRS-locked (D75).
     r_times = [r / sig.sampling_rate_hz for r in (m.r_peaks_samples or [])]
     coupling = pacing_spike_coupling(spike_times, r_times)
     ml_coupling = pacing_spike_coupling(ml_spike_times, r_times)
     single = pacing_ratio >= cfg.pacing.spike_ratio_min and coupling >= cfg.pacing.coupling_min
-    if single or ml_coupling >= cfg.pacing.multilead_coupling_min:
+    # Atrial pacing (D98): the spike precedes its QRS by the AV delay, beyond the coupling
+    # window; beats whose detection was moved off such a spike are the paced ones.
+    atrial = m.atrial_paced_beats / max(1, len(r_times))
+    if single or ml_coupling >= cfg.pacing.multilead_coupling_min or atrial >= cfg.pacing.multilead_coupling_min:
         how_ru = (f"спайк ×{pacing_ratio}, связан с QRS в {coupling:.0%} ударов" if single else
-                  f"спайк в ≥ {cfg.pacing.multilead_min_leads} отведениях, связан с QRS в {ml_coupling:.0%} ударов")
+                  f"спайк в ≥ {cfg.pacing.multilead_min_leads} отведениях, связан с QRS в {ml_coupling:.0%} ударов"
+                  if ml_coupling >= cfg.pacing.multilead_coupling_min else
+                  f"предсердная стимуляция: спайк за АВ-задержку до QRS в {atrial:.0%} ударов")
         findings.findings.append(Finding(
             code="paced_rhythm", group="rhythm",
             label_ru=f"Ритм электрокардиостимулятора ({how_ru})",
@@ -176,8 +211,12 @@ def run_pipeline(
     tc = m.qrs_template_consistency
     pc = m.qrs_partner_consistency
     # Too few complexes to judge (fewer than 3 away from the edges) is not "consistent":
-    # band-limited noise with 3 such "beats" read as AF and HR 32 with SQI 0.8 (D97).
-    unjudged = tc is None and len(m.r_peaks_samples or []) > 0
+    # band-limited noise with 3 such "beats" read as AF and HR 32 with SQI 0.8 (D135).
+    # A device screen's ~2-s window (D122) holds two beats by design and is read from
+    # them; the rule is for records long enough to hold more (merge of the scanner branch).
+    page_edges = [0.0, *(sig.provenance.discontinuities_s or []), sig.duration_s]
+    longest_page = max(b - a for a, b in itertools.pairwise(page_edges))
+    unjudged = tc is None and len(m.r_peaks_samples or []) > 0 and longest_page >= SHORT_WINDOW_S
     if unjudged or (tc is not None and tc < cfg.quality.beat_consistency_min
                     and not (pc is not None and pc >= cfg.quality.beat_partner_min)):
         why = ("too few QRS complexes to check their consistency" if unjudged
@@ -194,10 +233,123 @@ def run_pipeline(
             confidence=0.9)]
         quality_ok = False
         audit.append(f"[L2] signal disorganized ({why}) — R-peak findings withheld")
-    # Digitised page: the final beats disagree with the page's column detector (D92).
+    # Digitised page: the final beats disagree with the page's column detector (D92 of the
+    # scanner branch, now D130).
     if m.page_beat_agreement is False:
         quality_ok = False
-        audit.append("[L3] beats disagree with the page columns (D92) — rhythm uncertain")
+        audit.append("[L3] beats disagree with the page columns (D130) — rhythm uncertain")
+    # No ECG at all (D108): neither a rhythm nor an alert can be read from a flat line or
+    # baseline wander; the disorganisation gate above needs beats to judge.
+    hf_uv = _hf_amplitude_uv(sig)
+    no_ecg = hf_uv < cfg.quality.min_qrs_hf_uv
+    # A units error (D119): no ECG reaches 100 mV; every voltage, ST and alert read off
+    # such a file is off by the same factor.
+    bad_units = hf_uv > cfg.quality.max_qrs_hf_uv
+    if bad_units:
+        findings.findings = [Finding(
+            code="amplitude_implausible", group="quality",
+            label_ru=f"Амплитуда сигнала {hf_uv / 1000:.0f} мВ невозможна для ЭКГ — проверьте единицы файла (мкВ / мВ)",
+            label_uz=f"Signal amplitudasi {hf_uv / 1000:.0f} mV EKG uchun imkonsiz — fayl birliklarini tekshiring (µV / mV)",
+            evidence=[Evidence(feature="hf_peak_to_peak_uv", value=f"{hf_uv:.0f}")],
+            confidence=0.95)]
+        quality_ok = False
+        audit.append(f"[L2] amplitude {hf_uv:.0f} µV is not an ECG (units?) — all findings and alerts withheld")
+    # A digitised photo whose page geometry was not recovered (D114): leads shifted in
+    # time widen the QRS and break the RR, so nothing read from it is trusted.
+    # The grid pitch and the calibration pulses disagree (D128): the time scale is not
+    # known, so neither is the rate — Einthoven holds on a uniformly stretched record.
+    scale_conflict = sig.provenance.digitized and SCALE_CONFLICT_NOTE in sig.provenance.notes
+    # Below the digital minimum rate (D135: 50 Hz read QRS 178 ms, a false LBBB) a photo is
+    # too small to measure; it is gated with the retake hint rather than refused.
+    coarse_photo = sig.provenance.digitized and fs_in < cfg.ingestion.min_sampling_rate_hz
+    bad_photo = not no_ecg and not bad_units and (
+        scale_conflict or coarse_photo or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
+                                                          cfg.quality.photo_min_einthoven_r))
+    if bad_photo:
+        lag = photo["panel_lag_ms"] if photo else None
+        ein = (photo_aligned or photo)["einthoven_r"] if photo else None
+        why_ru, why_uz = (("масштаб не определён: сетка и калибровочный импульс расходятся",
+                           "masshtab aniqlanmadi: to'r va kalibrlash impulsi mos emas") if scale_conflict else
+                          ("снимок слишком мелкий для измерения", "surat o'lchash uchun juda kichik")
+                          if coarse_photo and not (photo and page_unreliable(
+                              photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
+                              cfg.quality.photo_min_einthoven_r)) else
+                          ("отведения не совпадают по времени", "tarmoqlar vaqt bo'yicha mos emas"))
+        # A digitised record's rate is the photo's px/mm x 25 mm/s: below ~6 px/mm a QRS
+        # is a few pixels wide and the rows cannot be told apart where they cross (D126).
+        # Messengers shrink photos to ~1280 px; sent as a file the photo keeps its size.
+        px_mm = fs_in / 25.0
+        low_res = px_mm < PHOTO_LOW_RES_PX_PER_MM
+        on_screen = any(n.startswith("device screen photo") for n in sig.provenance.notes)
+        what_ru, what_uz = ("экран", "ekran") if on_screen else ("лист", "varaq")
+        findings.findings = [Finding(
+            code="photo_unreliable", group="quality",
+            label_ru=f"Снимок ЭКГ не распознан надёжно ({why_ru}) — "
+                     + (f"снимок мелкий (~{px_mm:.1f} пикс/мм, нужно от {PHOTO_LOW_RES_PX_PER_MM:.0f}): "
+                        f"снимите ближе, чтобы {what_ru} занял весь кадр, и отправьте как файл, а не как фото"
+                        if low_res else "переснимите лист ровно, без перекоса и тени"),
+            label_uz=f"EKG surati ishonchli o'qilmadi ({why_uz}) — "
+                     + (f"surat kichik (~{px_mm:.1f} piksel/mm, kamida {PHOTO_LOW_RES_PX_PER_MM:.0f} kerak): "
+                        f"yaqinroqdan, {what_uz} butun kadrni egallaydigan qilib oling va rasm emas, fayl sifatida yuboring"
+                        if low_res else "varaqni tekis, qiyshaymasdan va soyasiz qayta suratga oling"),
+            evidence=[Evidence(feature="panel_lag_ms", value=f"{lag:.0f}" if lag is not None else "—"),
+                      Evidence(feature="einthoven_r", value=f"{ein:.2f}" if ein is not None else "—"),
+                      Evidence(feature="px_per_mm", value=f"{px_mm:.1f}"),
+                      Evidence(feature="scale_conflict", value="yes" if scale_conflict else "no")],
+            confidence=0.9)]
+        quality_ok = False
+        audit.append(f"[L2] digitised page inconsistent (lag {lag} ms, Einthoven r {ein}, scale conflict "
+                     f"{scale_conflict}) — findings and alerts withheld")
+    # A ~2-s window with one QRS (D122): no RR to measure, but the neighbouring beats lie
+    # outside the window (or at its undetected edges), so the rate is below
+    # 60 / (the larger gap to an edge - 0.5 s). A severe
+    # bradycardia on a device preview would otherwise pass as "no rhythm findings".
+    # Pages joined from several photos (D123) are separate windows: the gaps are measured
+    # within the beat's own page.
+    edges = [0.0, *(sig.provenance.discontinuities_s or []), sig.duration_s]
+    pages = list(itertools.pairwise(edges))
+    longest = max(b - a for a, b in pages)
+    n_rp = len(m.r_peaks_samples or [])
+    if not (no_ecg or bad_units or bad_photo) and longest < SHORT_WINDOW_S and n_rp <= 1 and not m.heart_rate_bpm:
+        # Beats within ~0.5 s of an edge are not detected (truncated), so the gap is shortened by that.
+        if n_rp == 1:
+            t_beat = m.r_peaks_samples[0] / sig.sampling_rate_hz
+            a, b = next(((a, b) for a, b in pages if a <= t_beat <= b), (0.0, sig.duration_s))
+            gap = max(t_beat - a, b - t_beat) - SHORT_WINDOW_EDGE_S
+        else:
+            gap = longest - 2 * SHORT_WINDOW_EDGE_S
+        bound = 60.0 / max(0.5, gap)
+        seen = "виден один комплекс" if n_rp == 1 else "нет ни одного комплекса"
+        seen_uz = "bitta kompleks" if n_rp == 1 else "birorta ham kompleks yo'q"
+        findings.findings.append(Finding(
+            code="rate_unmeasurable_short", group="quality",
+            label_ru=f"В окне {longest:.1f} с {seen}: ЧСС не измерить, вероятно ниже "
+                     f"{bound:.0f}/мин (возможна брадикардия) — запишите не менее 10 с",
+            label_uz=f"{longest:.1f} s oynada {seen_uz}: YUT o'lchab bo'lmaydi, ehtimol "
+                     f"{bound:.0f}/daq dan past (bradikardiya bo'lishi mumkin) — kamida 10 s yozing",
+            evidence=[Evidence(feature="max_rate_bpm", value=f"{bound:.0f}")], confidence=0.8))
+    # A device-screen photo (D120): the scale is assumed, only the leads on the screen
+    # exist and the window is ~2 s. Findings stay, the limitation is said in the report.
+    screen = next((n for n in sig.provenance.notes if n.startswith("device screen photo")), None)
+    if screen and not (no_ecg or bad_units or bad_photo):
+        findings.findings.append(Finding(
+            code="screen_photo_limited", group="quality",
+            label_ru="Фото экрана прибора: масштаб принят по умолчанию (25 мм/с, 10 мм/мВ), видны не все отведения, "
+                     "запись короткая — амплитуды и ST ориентировочны; для заключения нужна полная запись 12 отведений",
+            label_uz="Qurilma ekrani surati: masshtab taxminiy (25 mm/s, 10 mm/mV), barcha tarmoqlar ko'rinmaydi, "
+                     "yozuv qisqa — amplituda va ST taxminiy; xulosa uchun to'liq 12 tarmoqli yozuv kerak",
+            evidence=[Evidence(feature="screen", value=screen)], confidence=0.9))
+    if no_ecg:
+        findings.findings = [Finding(
+            code="no_ecg_signal", group="quality",
+            label_ru="ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении) — проверьте электроды"
+                     + (_UNITS_HINT_RU if sig.source in _FILE_SOURCES else ""),
+            label_uz="EKG signali aniqlanmadi (hech bir tarmoqda QRS yo'q) — elektrodlarni tekshiring"
+                     + (_UNITS_HINT_UZ if sig.source in _FILE_SOURCES else ""),
+            evidence=[Evidence(feature="hf_peak_to_peak_uv", value=f"{hf_uv:.0f}")],
+            confidence=0.95)]
+        quality_ok = False
+        audit.append("[L2] no ECG signal (8-40 Hz below threshold in every lead) — all findings and alerts withheld")
     # Apply confidence calibration to each finding (TZ §13).
     for f in findings.findings:
         f.confidence = round(calibrator.apply(f.confidence), 3)
@@ -215,10 +367,13 @@ def run_pipeline(
                      f"qtcΔ={serial.qtc_delta_ms}")
 
     # Safety scan (TZ §10) — before interpretation, independent of LLM.
-    safety = scan_critical(findings, m)
-    if not quality_ok:
-        # Alerts are never withheld (recall first, TZ §10), but one raised on a signal that
-        # failed the quality gates says so: the doctor checks it against the tracing (D97).
+    # Two policies meet here. A record that is not an ECG (D108), off by a units factor
+    # (D119) or a photo whose geometry or scale was not recovered (D114, D128) yields no
+    # alert: nothing read off it is a measurement. Any other quality failure keeps its
+    # alerts (recall first, TZ §10) and says so (scanner branch D97, now D135).
+    hard_gate = no_ecg or bad_photo or bad_units
+    safety = scan_critical(findings, Measurements() if hard_gate else m)
+    if not quality_ok and not hard_gate:
         for a in safety.alerts:
             a.unverified = True
             a.label_ru += " — сигнал низкого качества, проверить по записи"
@@ -269,6 +424,44 @@ def run_pipeline(
         signal=sig, measurements=m, findings=findings, causal_graph=causal,
         safety=safety, report=report, config=cfg, audit_log=audit, serial=serial,
     )
+
+
+# A file in mV read as µV is 1000x too small and looks like no ECG at all (D119).
+PHOTO_LOW_RES_PX_PER_MM = 6.0   # D126: an unreliable photo below this asks for a closer shot sent as a file
+SHORT_WINDOW_S = 4.0     # D122: below this, one visible QRS bounds the rate instead of measuring it
+SHORT_WINDOW_EDGE_S = 0.5
+_FILE_SOURCES = {"csv", "edf"}
+_UNITS_HINT_RU = "; для файла — проверьте единицы (мВ вместо мкВ)"
+_UNITS_HINT_UZ = "; fayl uchun birliklarni tekshiring (µV o'rniga mV)"
+
+
+def _hf_amplitude_uv(sig: SignalRepresentation) -> float:
+    """Largest 8-40 Hz peak-to-peak (0.5-99.5 percentile) over the leads, µV (D108)."""
+    import numpy as np
+    from scipy.signal import butter, filtfilt
+
+    fs = sig.sampling_rate_hz
+    x = np.nan_to_num(np.asarray(sig.signal, dtype=np.float64))
+    if x.shape[-1] < int(fs):
+        return 0.0
+    b, a = butter(2, [8.0 / (fs / 2), min(40.0, fs / 2 - 1) / (fs / 2)], btype="band")
+    y = filtfilt(b, a, x, axis=-1)
+    return float(np.max(np.percentile(y, 99.5, axis=-1) - np.percentile(y, 0.5, axis=-1)))
+
+
+AF_PVC_RECHECK = True   # D106: accepted on the held-out check (fold 10 + Georgia g6-g11)
+
+
+def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
+    """RR coefficient of variation leaving out the intervals into and out of each PVC."""
+    import numpy as np
+
+    rr = np.diff(np.asarray(rpeaks, dtype=float))
+    drop = {k for i in pvc_idx for k in (i - 1, i)}
+    keep = np.array([v for k, v in enumerate(rr) if k not in drop])
+    if keep.size < 4:
+        return None
+    return float(np.std(keep) / (np.mean(keep) + 1e-9))
 
 
 # A paced QRS is wide with secondary ST-T and a left axis by construction: these are not

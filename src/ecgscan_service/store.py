@@ -112,7 +112,7 @@ class ScanStore:
         return [r[0] for r in self._exec("SELECT id FROM scans WHERE created_at < ?", (iso,))]
 
     def scrub_comments(self, ids: list[str]) -> None:
-        """Free-text doctor comments of expired scans are removed with the images (D98)."""
+        """Free-text doctor comments of expired scans are removed with the images (D136)."""
         for scan_id in ids:
             self._exec("UPDATE audit SET details = json_remove(details, '$.comment') "
                        "WHERE scan_id = ? AND details IS NOT NULL AND json_valid(details)", (scan_id,))

@@ -1,4 +1,4 @@
-"""A signal digitised from a photo (ECG scanner M4, D92, scanner SD-015).
+"""A signal digitised from a photo (ECG scanner M4, D130, scanner SD-015).
 
 * never autonomous: mode B escalates, the report confidence is capped by the
   digitisation's, and every report carries the RU/UZ "from a photo" mark;

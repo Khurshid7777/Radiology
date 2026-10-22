@@ -49,7 +49,7 @@ class Vault:
     def delete(self, scan_id: str) -> None:
         self._path(scan_id).unlink(missing_ok=True)
 
-    # -- artifact images (D98): encrypted beside their scan, read back on request --------------
+    # -- artifact images (D136): encrypted beside their scan, read back on request --------------
 
     def seal_file(self, path: Path) -> Path:
         """Encrypt ``path`` to ``path.enc`` and remove the plaintext."""

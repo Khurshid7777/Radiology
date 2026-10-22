@@ -54,8 +54,8 @@ class Settings:
     feedback_path: Path
     public_url: str | None
     warm_up: bool = False
-    max_pending: int = 20               # queued + processing; more -> 429 (D98)
-    purge_interval_s: float = 3600.0    # retention is enforced on a timer, not only at start (D98)
+    max_pending: int = 20               # queued + processing; more -> 429 (D136)
+    purge_interval_s: float = 3600.0    # retention is enforced on a timer, not only at start (D136)
     max_comment_chars: int = 500
     admins: tuple[str, ...] = ()        # key names that may open any client's scans
     max_megapixels: float = 60.0
@@ -183,7 +183,7 @@ class ScanService:
         res = run(data, hints=ScanHints(**{k: hints.get(k) for k in HINT_KEYS if k in hints}), artifacts_dir=art)
         res.scan_id = scan_id
         # Artifact paths are served by name through the API, never as server paths. With a
-        # storage key they are kept encrypted like the originals (D98).
+        # storage key they are kept encrypted like the originals (D136).
         files = {k: Path(v) for k, v in (res.artifacts or {}).items()}
         if self.vault is not None:
             files = {k: self.vault.seal_file(v) for k, v in files.items()}
@@ -211,7 +211,7 @@ class ScanService:
             time.sleep(0.1)
 
     def get(self, scan_id: str, actor: str | None = None) -> ScanRow:
-        """``actor``: the API key's name; a scan of another client reads as not found (D98)."""
+        """``actor``: the API key's name; a scan of another client reads as not found (D136)."""
         row = self.store.get(scan_id)
         if row is None or (actor is not None and actor != row.owner and actor not in self.settings.admins):
             raise ScanError(404, "scan not found")

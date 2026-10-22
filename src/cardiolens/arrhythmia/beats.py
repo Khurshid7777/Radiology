@@ -293,12 +293,15 @@ def detect_pvc_beats(sig, rpeaks, fs: float) -> list[int]:
 # Ventricular runs (non-sustained VT) on a 10-s strip (D40; first iteration D38).
 # Chosen on MIT-BIH DS1+DS2, INCART windows and PTB-XL/Chapman development records.
 _RUN_LEADS = ("II", "MLII", "V1", "V5")
-_RUN_TEMPLATE_PRE_MIN = 0.92   # template beats: not premature (pre-RR >= 0.92 x median)
+_RUN_TEMPLATE_PRE_MIN = 0.92   # template beats: not premature (pre-RR >= 0.92 x reference RR)
+_RUN_TEMPLATE_RR_PCT = 75.0    # reference RR: upper quartile of the strip RR (D94; the median is ectopic when ectopy dominates)
 _RUN_CORR_MAX = 0.80           # every run beat: mean correlation to that template
 _RUN_CORR_CORE = 0.70          # ... and at least one clearly abnormal beat
 _RUN_MIN_BEATS = 3
 _RUN_PRE_MAX = 0.90            # the run starts early: RR <= 0.90 x the RR before it
+_RUN_PRE_INNER = 0.70          # ... or the run inside is clearly faster: mean inner RR <= 0.70 x the RR before it (D95)
 _RUN_MAX_RR_MS = 600.0         # >= 100/min inside the run
+_RUN_FASTER_THAN_REF = 0.90    # the run is faster than the rhythm: inner RR <= 0.90 x the reference RR (D98)
 # A beat recovered from the multi-lead envelope (D75) is marked at the envelope peak,
 # not the rhythm lead's R: it is compared with the template at its best alignment
 # within this shift. Off-R, a normal beat reads as abnormal and three in a row made a
@@ -342,7 +345,7 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
     segs = {n: np.stack([sig.lead(n)[rp[i] - half:rp[i] + half].astype(float) for i in ok])
             for n in leads}
     rr = np.diff(rp).astype(float)
-    med = float(np.median(rr)) or 1.0
+    med = float(np.percentile(rr, _RUN_TEMPLATE_RR_PCT)) or 1.0
     timing_normal = [k for k, i in enumerate(ok) if i >= 1 and rr[i - 1] >= _RUN_TEMPLATE_PRE_MIN * med]
     pick = timing_normal if len(timing_normal) >= 3 else list(range(len(ok)))
     tmpl = {n: np.median(segs[n][pick], axis=0) for n in leads}
@@ -374,8 +377,10 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
         # ectopy the median itself is short (D38 missed 19 INCART runs this way).
         if (e - j >= _RUN_MIN_BEATS and j >= 2 and e < len(rp)
                 and float(corr[j:e].min()) <= _RUN_CORR_CORE
-                and rr[j - 1] <= _RUN_PRE_MAX * rr[j - 2]
-                and float(np.mean(inner_ms)) <= _RUN_MAX_RR_MS):
+                and (rr[j - 1] <= _RUN_PRE_MAX * rr[j - 2]
+                     or float(np.mean(rr[j:e - 1])) <= _RUN_PRE_INNER * rr[j - 2])
+                and float(np.mean(inner_ms)) <= _RUN_MAX_RR_MS
+                and (not _RUN_FASTER_THAN_REF or float(np.mean(rr[j:e - 1])) <= _RUN_FASTER_THAN_REF * med)):
             out.append((j, e - j, round(60000.0 / float(np.mean(inner_ms)))))
         j = e
     return out
@@ -388,8 +393,13 @@ def vt_run_finding(runs: list[tuple[int, int, float]]):
     _, n, rate = max(runs, key=lambda r: r[1])
     return Finding(
         code="ventricular_tachycardia", group="rhythm",
-        label_ru=f"Пробежка желудочковой тахикардии ({n} комплексов, ~{int(rate)}/мин)",
-        label_uz=f"Ventrikulyar taxikardiya yugurishi ({n} kompleks, ~{int(rate)}/daq)",
+        # The run detector sees premature beats shaped unlike the dominant QRS: VT and an
+        # aberrated SVT run look alike to it (D92: PTB-XL 21033, 12490), and a run on a
+        # 10 s strip is non-sustained by definition.
+        label_ru=(f"Пробежка широких комплексов ({n} комплексов, ~{int(rate)}/мин): "
+                  "вероятна неустойчивая ЖТ, аберрация не исключена"),
+        label_uz=(f"Keng komplekslar yugurishi ({n} kompleks, ~{int(rate)}/daq): "
+                  "ehtimoliy beqaror JT, aberratsiya istisno qilinmagan"),
         evidence=[Evidence(feature="run_beats", value=str(n)),
                   Evidence(feature="run_rate_per_min", value=str(int(rate))),
                   Evidence(feature="runs", value=str(len(runs)))],

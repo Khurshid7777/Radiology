@@ -91,7 +91,7 @@ def qrs_bounds_envelope(
     """Per-beat QRS onset/offset (sample indices, NaN when not found).
 
     ``hump_fraction`` overrides ``QRS_HUMP_FRACTION`` for one call: the scanner asks
-    whether a digitised page's QRS width hinges on that threshold (D93)."""
+    whether a digitised page's QRS width hinges on that threshold (D131)."""
     hump = QRS_HUMP_FRACTION if hump_fraction is None else hump_fraction
     n_beats = len(rpeaks)
     on = np.full(n_beats, np.nan)

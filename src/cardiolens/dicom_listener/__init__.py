@@ -1,4 +1,4 @@
-"""DICOM C-STORE receiver for ECG devices (D96).
+"""DICOM C-STORE receiver for ECG devices (D134).
 
 An ECG device configured to "send to PACS" (a DICOM storage SCU) pushes each recording
 here; each 12-lead / general / ambulatory ECG object is handed to an ``analyze``
@@ -45,7 +45,7 @@ class ListenerConfig(BaseModel):
     api_url: str = "http://127.0.0.1:8000"
     api_timeout_s: float = 60.0
     log_path: str = "data/dicom_inbox/received.jsonl"
-    # D98. An AE title is a plaintext name any client can claim: on a network the
+    # D136. An AE title is a plaintext name any client can claim: on a network the
     # source address is checked too (empty = any), and the receive is capped.
     allowed_ips: list[str] = Field(default_factory=list)
     max_associations: int = 4
@@ -64,7 +64,7 @@ def api_analyzer(cfg: ListenerConfig) -> Callable[[bytes], dict]:
 
     key = os.environ.get(cfg.api_key_env)
     if not key:
-        raise ValueError(f"dicom_listener: ${cfg.api_key_env} is not set - the API needs a key (D98)")
+        raise ValueError(f"dicom_listener: ${cfg.api_key_env} is not set - the API needs a key (D136)")
 
     def analyze(data: bytes) -> dict:
         r = httpx.post(f"{cfg.api_url.rstrip('/')}/api/analyze", timeout=cfg.api_timeout_s,

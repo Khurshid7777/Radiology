@@ -16,7 +16,7 @@ preprocessing:
   # Signal Quality Index below this marks a lead as low-quality (0..1).
   sqi_accept_threshold: 0.5
 
-# What a digital record must be before it is measured (D97). A record that fails is
+# What a digital record must be before it is measured (D135). A record that fails is
 # refused with the reason, never measured on guesses (TZ §0).
 ingestion:
   min_sampling_rate_hz: 100     # 50 Hz gave QRS 178 ms and false LBBB / short QT
@@ -75,6 +75,16 @@ quality:
   # (D89): several stable QRS shapes (PVCs, bigeminy, pacing) are organised, noise is
   # not. PTB-XL: records with burst noise / electrode problems stay below it.
   beat_partner_min: 0.95
+  # D108: no ECG at all — 8-40 Hz peak-to-peak (µV) in the best lead below this; PTB-XL >= 494,
+  # Georgia >= 309, a cable with only baseline wander 25.
+  min_qrs_hf_uv: 150
+  # D119: above this (µV, 8-40 Hz peak-to-peak) the amplitude is a units error, not an ECG; development max 19 756.
+  max_qrs_hf_uv: 100000
+  # D114-D115: a digitised photo's panels are shifted onto the lead-II strip; one whose lag hits
+  # the search limit (median, ms) or that breaks II = I + III after the shift gets no findings or
+  # alerts — "retake the photo". Synthetic: clean/phone r >= 0.84 after alignment.
+  photo_max_panel_lag_ms: 75
+  photo_min_einthoven_r: 0.8
 
 # Paced rhythm (TZ §7.1; ported from claude/vibrant-curie-ro1zsz D24, D74, D75): a slope
 # outlier on the raw signal QRS-locked on >= coupling_min of beats, or a spike-shaped event

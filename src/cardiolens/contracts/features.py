@@ -132,13 +132,15 @@ class Measurements(BaseModel):
     # The subset of r_peaks_samples added from the multi-lead envelope (D75): marked at the
     # envelope peak, not the rhythm lead's R, so shape comparisons must allow a shift (D87).
     r_peaks_recovered: list[int] = Field(default_factory=list)
+    # Beats whose detection sat on an atrial pacing spike and was moved to its QRS (D98).
+    atrial_paced_beats: int = 0
     intervals: Intervals = Field(default_factory=Intervals)
     voltages: Voltages = Field(default_factory=Voltages)
     axes: Axes = Field(default_factory=Axes)
     morphology: Morphology = Field(default_factory=Morphology)
     # Sokolow-Lyon voltage sum for LVH assessment (µV).
     sokolow_lyon_uv: float | None = None
-    # Digitised page only: whether the final beats match the column detector's (D92).
+    # Digitised page only: whether the final beats match the column detector's (D130).
     # False = the rhythm is uncertain; None = nothing to compare.
     page_beat_agreement: bool | None = None
     notes: list[str] = Field(default_factory=list)  # TODO / low-confidence markers

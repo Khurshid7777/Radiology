@@ -10,7 +10,7 @@
 
 Artifacts are derived from the working copy only: never the unmasked original. The
 header and footer bands (name, ID, date) are blanked on the server whatever the client
-did (D98, ``artifacts.mask_bands``).
+did (D136, ``artifacts.mask_bands``).
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def write_artifacts(out_dir: str | Path, *, rectified: np.ndarray, mask: np.ndar
                     preview_width: int = 1600, preview_quality: int = 85,
                     keep_rows: tuple[int, int] | None = None) -> dict[str, str]:
     """``keep_rows``: (top, bottom) of the trace rows; everything above and below — the header
-    and footer with the patient's name, ID and date — is blanked in every image (D98)."""
+    and footer with the patient's name, ID and date — is blanked in every image (D136)."""
     import cv2
 
     rectified = blank_outside(rectified, keep_rows)

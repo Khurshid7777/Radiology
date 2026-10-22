@@ -108,12 +108,14 @@ def test_gap_bridges_are_dropped_but_tall_strokes_are_kept():
     assert np.isnan(out[10:20]).all() and np.isfinite(out[:10]).all()
 
 
-def test_telegram_analyse_reads_a_strip(strip):
+def test_telegram_analyse_reads_a_strip(tmp_path):
+    """The bot's reader (D139): a 12x1 strip sent as a file (10 px/mm) is read by the scanner;
+    the shared 6-px/mm fixture is below the scanner's 8-px/mm floor and is refused."""
     from cardiolens.telegram.analyze import analyse_photo, format_card
     from cardiolens.telegram.store import Record
 
-    _, png, _ = strip
+    png = render_ecg_strip(generate_synthetic_ecg(heart_rate_bpm=70, seed=2), tmp_path / "s.png", px_per_mm=10)
     result, error = analyse_photo(png)
     assert error is None and "sinus_rhythm" in result.findings.codes()
     card = format_card(Record(id="1_1", chat_id=1, msg_id=1), result)
-    assert "раскладка 12x1" in card
+    assert "раскладка 12x1 (сканер)" in card

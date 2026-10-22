@@ -11,7 +11,7 @@ Endpoints:
   GET  /api/analysis/{id}/conclusion?lang=ru|uz
 
 Everything under /api/analyze and /api/analysis needs an API key (``X-API-Key``, the same
-keys as /scans in ``$ECGSCAN_API_KEYS``); a key sees only its own analyses (D98). The web
+keys as /scans in ``$ECGSCAN_API_KEYS``); a key sees only its own analyses (D136). The web
 UI, /health and the demo case list stay open.
 
 Core layers (1-5) run locally; the Layer-6 narrative comes from a local
@@ -46,7 +46,7 @@ from ecgscan_service.router import actor
 from ecgscan_service.router import router as scans_router
 
 app = FastAPI(title="CardioLens", version="0.1.0")
-# Key check and body cap before any multipart parsing (D98); uploads are 64 MB at most.
+# Key check and body cap before any multipart parsing (D136); uploads are 64 MB at most.
 app.add_middleware(RequestGuard, max_body_bytes=service.MAX_UPLOAD_BYTES + 1024 * 1024)
 # ECG scanner (photo/scan input, TZ scanner §4, SD-004): /scans, own API-key auth.
 app.include_router(scans_router)
@@ -101,7 +101,7 @@ async def analyze(
         if files:
             uploads, budget = [], service.MAX_UPLOAD_BYTES
             for f in files:
-                # A running byte budget: never more than the limit in memory (D98).
+                # A running byte budget: never more than the limit in memory (D136).
                 content = await f.read(budget + 1)
                 budget -= len(content)
                 if budget < 0:

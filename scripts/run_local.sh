@@ -82,7 +82,7 @@ export CARDIOLENS_LLM_PROVIDER="${CARDIOLENS_LLM_PROVIDER:-auto}"   # Claude key
 if [ "$WANT_LLM" = 0 ]; then export CARDIOLENS_LLM_PROVIDER=stub; fi
 
 log "web UI:  http://$HOST:$PORT/        health: http://$HOST:$PORT/health"
-# The API needs a key (D98). Without one configured, a key for this session is made up
+# The API needs a key (D136). Without one configured, a key for this session is made up
 # and printed: paste it into the "Ключ доступа API" field of the web page.
 if [ -z "${ECGSCAN_API_KEYS:-}" ]; then
   KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(18))')"

@@ -22,8 +22,8 @@ CRITICAL_CODES = {
     "peaked_t_waves": ("Паттерн гиперкалиемии (остроконечные T)",
                        "Giperkaliyemiya patterni (uchli T)"),
     "complete_av_block": ("Полная АВ-блокада", "To'liq AV blokada"),
-    "ventricular_tachycardia": ("Желудочковая тахикардия (пробежка ЖЭ)",
-                                "Ventrikulyar taxikardiya (VES yugurishi)"),
+    "ventricular_tachycardia": ("Пробежка широких комплексов (исключить ЖТ)",
+                                "Keng komplekslar yugurishi (JT ni istisno qilish)"),
     "wide_complex_tachycardia": ("Тахикардия с широкими комплексами (исключить ЖТ)",
                                  "Keng kompleksli taxikardiya (JT ni istisno qilish)"),
 }
@@ -36,7 +36,7 @@ class CriticalAlert:
     label_uz: str
     reason: str
     log_id: str = ""
-    unverified: bool = False     # raised on a signal that failed the quality gates (D97)
+    unverified: bool = False     # raised on a signal that failed the quality gates (D135)
 
 
 @dataclass

@@ -3,7 +3,7 @@
 All endpoints need an API key (``X-API-Key``; keys in ``$ECGSCAN_API_KEYS`` as
 ``name:key,name2:key2``; the same keys guard CardioLens ``/api``). The key's name is the
 actor written to the audit log, and a key sees only the scans it submitted unless it is
-listed in ``access.admins`` (D98). With no keys configured the API refuses every request
+listed in ``access.admins`` (D136). With no keys configured the API refuses every request
 — it never runs open.
 """
 

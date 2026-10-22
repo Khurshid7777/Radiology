@@ -1,4 +1,4 @@
-"""What a record must be before it is measured (D97).
+"""What a record must be before it is measured (D135).
 
 Every input route (files, API uploads, DICOM network, digitised pages) ends in
 ``run_pipeline``, which calls :func:`check_record` first. A record that is not
@@ -35,7 +35,11 @@ def check_record(sig: SignalRepresentation, limits) -> SignalRepresentation:
     fs = float(sig.sampling_rate_hz)
     if sig.n_leads == 0 or sig.n_samples == 0:
         raise ValueError("record has no leads or no samples")
-    if fs < limits.min_sampling_rate_hz:
+    # A digitised photo's rate is its px/mm x 25 mm/s and its window may be a device's
+    # ~2-s screen: those are judged by the photo gates (D126, D122), which say what to
+    # retake, instead of being refused here (merge of the scanner branch).
+    digitised = sig.provenance.digitized
+    if fs < limits.min_sampling_rate_hz and not digitised:
         raise ValueError(f"sampling rate {fs:g} Hz is below {limits.min_sampling_rate_hz:g} Hz: "
                          "QRS and intervals cannot be measured")
     x = np.asarray(sig.signal)
@@ -72,7 +76,7 @@ def check_record(sig: SignalRepresentation, limits) -> SignalRepresentation:
             notes.append(f"{bridged} short run(s) of invalid samples bridged and masked")
         prov = sig.provenance.model_copy(update={"sample_mask": mask or None})
         out = sig.model_copy(update={"signal": x, "duration_s": x.shape[1] / fs, "provenance": prov})
-    if out.n_samples / fs < limits.min_duration_s:
+    if out.n_samples / fs < limits.min_duration_s and not digitised:
         raise ValueError(f"record is {out.n_samples / fs:.2f} s long; at least {limits.min_duration_s:g} s "
                          "is needed to measure")
     if fs < limits.low_sampling_rate_hz:

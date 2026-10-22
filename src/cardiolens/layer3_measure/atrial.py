@@ -21,7 +21,7 @@ Every gate that fails leaves the field ``None`` and appends a note (TZ §0).
 from __future__ import annotations
 
 import numpy as np
-from scipy.signal import butter, filtfilt, welch
+from scipy.signal import butter, filtfilt, find_peaks, welch
 
 # Pass-1 gates.
 ATRIAL_RESIDUAL_MIN_UV = 25.0      # residual RMS floor (absolute)
@@ -366,3 +366,85 @@ def atrial_activity(
     else:
         av = False
     return rate, av, notes
+
+
+# QRS-independent P train (D112, plan step 5a). The autocorrelation route above finds
+# 7 of 19 complete blocks on the development sets: small P waves and an irregular
+# escape rhythm blur the residual's period. Here P waves are picked one by one on
+# the template-subtracted residual and the block is read from the train itself:
+# regular P-P (hidden P under a QRS allowed: an interval of 2-3 periods) and a PR
+# that wanders (R minus the last P before it), with more P waves than QRS.
+P_TRAIN_LEADS = ("II", "III", "aVF", "V1", "V2")
+P_TRAIN_BAND_HZ = (1.5, 12.0)
+P_TRAIN_WINDOW_S = (0.30, 0.55)      # template window around R
+P_TRAIN_BLANK_S = (0.06, 0.10)       # QRS blank before / after R
+P_TRAIN_MIN_DISTANCE_S = 0.32        # <= ~190/min
+P_TRAIN_HEIGHT_MAD = 3.0             # peak height and prominence, x robust SD
+P_TRAIN_MIN_PEAKS = 5
+P_TRAIN_PERIOD_TOL = 0.12            # |PP - n T| / T for a regular interval
+P_TRAIN_MIN_REGULAR = 0.75           # fraction of regular P-P intervals
+P_TRAIN_MIN_PR_IQR_S = 0.10          # PR spread: a conducted rhythm has a fixed PR
+P_TRAIN_RATE_RANGE = (45.0, 150.0)
+
+
+def p_train(
+    leads: dict[str, np.ndarray], rpeaks: np.ndarray, fs: float,
+) -> dict | None:
+    """Best regular P train over ``leads`` (both polarities): its rate, regular
+    fraction, PR spread and P/QRS counts; None without a usable train."""
+    rp = np.asarray(rpeaks, dtype=int)
+    if len(rp) < 4:
+        return None
+    nyq = fs / 2.0
+    b, a = butter(2, [P_TRAIN_BAND_HZ[0] / nyq, min(P_TRAIN_BAND_HZ[1] / nyq, 0.99)], btype="band")
+    w1, w2 = int(P_TRAIN_BLANK_S[0] * fs), int(P_TRAIN_BLANK_S[1] * fs)
+    best = None
+    for name in P_TRAIN_LEADS:
+        x = leads.get(name)
+        if x is None:
+            continue
+        res = template_subtract(x, rp, fs, *P_TRAIN_WINDOW_S)
+        if res is None:
+            continue
+        res = filtfilt(b, a, res)
+        keep = np.ones(len(res), dtype=bool)
+        for r in rp:
+            keep[max(0, r - w1):r + w2] = False
+        if keep.sum() < fs:
+            continue
+        mad = 1.4826 * float(np.median(np.abs(res[keep] - np.median(res[keep])))) + 1e-9
+        for pol in (1.0, -1.0):
+            y = pol * res
+            y[~keep] = 0.0
+            pk, _ = find_peaks(y, distance=int(P_TRAIN_MIN_DISTANCE_S * fs),
+                               height=P_TRAIN_HEIGHT_MAD * mad, prominence=P_TRAIN_HEIGHT_MAD * mad)
+            if len(pk) < P_TRAIN_MIN_PEAKS:
+                continue
+            pp = np.diff(pk) / fs
+            period = float(np.median(pp[pp <= 1.6 * np.percentile(pp, 25)]))
+            n = np.round(pp / period)
+            regular = float(np.mean((n >= 1) & (n <= 3) & (np.abs(pp - n * period) / period <= P_TRAIN_PERIOD_TOL)))
+            prs = []
+            for r in rp:
+                before = pk[(pk < r - w1) & (pk > r - int(1.2 * period * fs))]
+                if len(before):
+                    prs.append((r - before[-1]) / fs)
+            pr_iqr = (float(np.subtract(*np.percentile(prs, [75, 25])))
+                      if len(prs) >= 4 else None)
+            score = regular * min(1.0, len(pk) / len(rp))
+            if best is None or score > best[0]:
+                best = (score, dict(rate_bpm=60.0 / period, regular=regular, pr_iqr_s=pr_iqr,
+                                    n_p=len(pk), n_r=len(rp), lead=name))
+    return best[1] if best else None
+
+
+def p_train_dissociated(train: dict | None, heart_rate_bpm: float | None) -> bool:
+    """Complete-block signature of a ``p_train`` result (D112)."""
+    if train is None or heart_rate_bpm is None or train["pr_iqr_s"] is None:
+        return False
+    return bool(train["regular"] >= P_TRAIN_MIN_REGULAR
+                and train["pr_iqr_s"] >= P_TRAIN_MIN_PR_IQR_S
+                and train["rate_bpm"] >= AV_DISSOCIATION_MIN_RATIO * heart_rate_bpm
+                and P_TRAIN_RATE_RANGE[0] <= train["rate_bpm"] <= P_TRAIN_RATE_RANGE[1]
+                and train["n_p"] >= train["n_r"])
+

@@ -130,7 +130,7 @@ def lead_quality(missing_fraction: float, ambiguity: float, edge_contact: float,
 
 @dataclass
 class MeasurementCheck:
-    """What the CardioLens measurement says about a digitised result (D92, D93)."""
+    """What the CardioLens measurement says about a digitised result (D130, D131)."""
 
     beats_agree: bool | None = None          # its final beats match the page columns'
     qrs_ms: float | None = None              # its QRS width
@@ -170,6 +170,6 @@ def measurement_check(result, *, hump_scale: float | None = None) -> Measurement
 
 def beats_agree(result) -> bool | None:
     """The CardioLens measurement on this result: do its final beats match the page
-    columns' (D92)? ``None`` when there is nothing to compare (no page columns, too few
+    columns' (D130)? ``None`` when there is nothing to compare (no page columns, too few
     beats) or CardioLens cannot measure it."""
     return measurement_check(result).beats_agree

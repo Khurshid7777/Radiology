@@ -4,6 +4,7 @@ dataset store, feedback entries, export to the harness — and the collector wit
 import asyncio
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -33,11 +34,12 @@ from cardiolens.validation import run_validation
 
 @pytest.fixture(scope="module")
 def page(tmp_path_factory):
-    """A 3x4 page rendered from a synthetic sinus ECG, as a jpeg photo would arrive."""
+    """A 3x4 page rendered from a synthetic sinus ECG at 10 px/mm, as a photo sent as a file
+    arrives (D139: the scanner reads it; below 8 px/mm it refuses)."""
     root = tmp_path_factory.mktemp("page")
     sig = generate_synthetic_ecg(heart_rate_bpm=72, seed=5)
     png = root / "page.png"
-    render_ecg_page(sig, png, px_per_mm=6, calibration_pulse=True)
+    render_ecg_page(sig, png, px_per_mm=10, calibration_pulse=True)
     return png
 
 
@@ -45,7 +47,7 @@ def test_photo_gate_finds_the_grid_and_rejects_a_plain_image(page, tmp_path):
     import cv2
 
     ok, pitch = is_ecg_photo(page)
-    assert ok and 5.0 <= pitch <= 7.0
+    assert ok and 9.0 <= pitch <= 11.0      # the fixture page is drawn at 10 px/mm
     plain = tmp_path / "plain.png"
     cv2.imwrite(str(plain), np.full((400, 600), 230, dtype=np.uint8))
     assert is_ecg_photo(plain)[0] is False
@@ -225,3 +227,62 @@ def test_collector_end_to_end_with_a_fake_client(page, tmp_path, monkeypatch):
     cv2.imwrite(str(blank), np.full((300, 300), 230, dtype=np.uint8))
     skipped = asyncio.run(col.handle_photo(_FakeMessage(14, data=blank.read_bytes()), chat))
     assert skipped.status == "not_ecg" and len(client.sent) == 1
+
+
+def test_album_of_two_screen_pages_gives_one_card(tmp_path):
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from cardiolens.layer1_ingestion.screen import CHEST_6, LIMB_6, render_device_screen
+    from cardiolens.telegram.agent import Collector
+
+    s = generate_synthetic_ecg(heart_rate_bpm=80, duration_s=10.0, seed=5)
+    limb = render_device_screen(s, tmp_path / "limb.png", leads=LIMB_6)
+    chest = render_device_screen(s, tmp_path / "chest.png", leads=CHEST_6)
+    cfg = TelegramConfig(store_dir=str(tmp_path / "tg"), feedback_path=str(tmp_path / "fb.jsonl"))
+    store = DatasetStore(cfg.store_dir)
+    client = _FakeClient()
+    col = Collector(client, cfg, store, "me")
+    chat = SimpleNamespace(id=1, title="ЭКГ группа")
+    msgs = [_FakeMessage(20, data=Path(limb).read_bytes()), _FakeMessage(21, data=Path(chest).read_bytes())]
+    rec = asyncio.run(col.handle_album(msgs, chat))
+    assert rec.status == "analysed" and len(client.sent) == 1 and len(client.sent[0][1]) == 3   # 2 photos + review
+    other = store.get(DatasetStore.record_id(1, 21))
+    assert other.status == "merged" and rec.id in other.error
+    assert store.stats()["awaiting_review"] == 1
+
+
+def test_image_sent_as_a_file_is_read_like_a_photo(page, tmp_path):
+    from cardiolens.telegram.agent import IMAGE_DOC_MAX_BYTES, Collector, is_image_message
+
+    doc = SimpleNamespace(photo=None, document=SimpleNamespace(mime_type="image/jpeg", size=3_000_000))
+    pdf = SimpleNamespace(photo=None, document=SimpleNamespace(mime_type="application/pdf", size=100_000))
+    huge = SimpleNamespace(photo=None, document=SimpleNamespace(mime_type="image/png", size=IMAGE_DOC_MAX_BYTES + 1))
+    assert is_image_message(doc) and not is_image_message(pdf) and not is_image_message(huge)
+    assert not is_image_message(SimpleNamespace(photo=None, document=None))
+
+    cfg = TelegramConfig(store_dir=str(tmp_path / "tg"), feedback_path=str(tmp_path / "fb.jsonl"))
+    client = _FakeClient()
+    col = Collector(client, cfg, DatasetStore(cfg.store_dir), "me")
+    chat = SimpleNamespace(id=1, title="ЭКГ группа")
+    msg = _FakeMessage(30, data=page.read_bytes())
+    msg.photo, msg.document = None, SimpleNamespace(mime_type="image/png", size=len(page.read_bytes()))
+    assert is_image_message(msg)
+    rec = asyncio.run(col.handle_photo(msg, chat))
+    assert rec.status == "analysed" and len(client.sent) == 1
+    broken = _FakeMessage(31, data=b"not an image at all")
+    assert asyncio.run(col.handle_photo(broken, chat)) is None and len(client.sent) == 1
+
+
+def test_bot_reader_scanner_first_then_cardiolens(tmp_path):
+    """D139: a paper page goes to the scanner; a low-resolution page is refused with the
+    scanner's reason; a device screen (scanner: no grid) goes on to the CardioLens readers."""
+    from cardiolens.layer1_ingestion.screen import CHEST_6, render_device_screen
+    from cardiolens.telegram.analyze import digitize_photo
+
+    sig = generate_synthetic_ecg(heart_rate_bpm=72, seed=5)
+    page10 = render_ecg_page(sig, tmp_path / "p10.png", px_per_mm=10, calibration_pulse=True)
+    assert digitize_photo(page10).provenance.notes[0].startswith("ecgscan scan_id=")
+    page6 = render_ecg_page(sig, tmp_path / "p6.png", px_per_mm=6, calibration_pulse=True)
+    with pytest.raises(ValueError, match="низкое разрешение"):
+        digitize_photo(page6)
+    screen = render_device_screen(sig, tmp_path / "s.png", leads=CHEST_6)
+    assert any(n.startswith("device screen photo") for n in digitize_photo(screen).provenance.notes)

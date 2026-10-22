@@ -1,4 +1,4 @@
-"""SCP-ECG (EN 1064 / ISO 11073-91064) rhythm data to the unified representation (D95).
+"""SCP-ECG (EN 1064 / ISO 11073-91064) rhythm data to the unified representation (D133).
 
 Record layout: CRC-CCITT (2 bytes, over the rest of the record) and record length (4),
 then sections, each with a 16-byte header (CRC, id, length incl. header, versions,
@@ -18,7 +18,7 @@ ones then 0/1 escape to an 8/16-bit two's-complement original value.
 
 Refused, never guessed (TZ §0): a bad CRC, reference-beat subtraction (section 3 flag),
 bimodal compression and custom Huffman tables — each needs a real device file to
-verify against before it is supported. Also refused (D97): a lead range outside
+verify against before it is supported. Also refused (D135): a lead range outside
 1 <= start <= end, leads over different ranges, lead data past section 6, more
 samples than coded bits, and sections shorter than their fields.
 """
@@ -155,7 +155,7 @@ def _load(buf: bytes) -> SignalRepresentation:
         raise ValueError("SCP-ECG reference-beat subtraction is not supported yet (needs a sample file)")
     leads = [struct.unpack_from("<IIB", s3, 2 + 9 * i) for i in range(n_leads)]
     # All leads must span the same samples (simultaneous recording): leads starting at
-    # different samples would be laid side by side out of time (D97).
+    # different samples would be laid side by side out of time (D135).
     if not leads:
         raise ValueError("SCP-ECG record without leads")
     if any(not 1 <= start <= end for start, end, _ in leads):

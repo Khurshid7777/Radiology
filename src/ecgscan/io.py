@@ -88,7 +88,7 @@ def image_size(data: bytes) -> tuple[int, int] | None:
 
 def check_image(data: bytes, *, max_megapixels: float, min_side_px: int) -> None:
     """Refuse before decoding: a 1-MB PNG can declare 32000 x 32000 px and decode to 3 GB
-    (D98); an empty or 1-px image crashed the frame checks."""
+    (D136); an empty or 1-px image crashed the frame checks."""
     if not data:
         raise ImageRefused("NOT_AN_ECG", "empty file")
     size = image_size(data)

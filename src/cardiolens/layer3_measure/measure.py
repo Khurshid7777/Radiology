@@ -25,7 +25,15 @@ from cardiolens.contracts.features import (
 )
 from cardiolens.contracts.signal import SignalRepresentation
 from cardiolens.layer2_preprocess.quality import is_lead_off
-from cardiolens.layer3_measure.atrial import FLUTTER_SPECTRAL_LEADS, atrial_activity, fwave_index
+from cardiolens.layer3_measure.atrial import (
+    FLUTTER_BAND_BPM,
+    FLUTTER_SPECTRAL_LEADS,
+    P_TRAIN_LEADS,
+    atrial_activity,
+    fwave_index,
+    p_train,
+    p_train_dissociated,
+)
 from cardiolens.layer3_measure.delineation import (
     P_ONSET_MIN_FRACTION,
     P_ONSET_MIN_UV,
@@ -71,6 +79,13 @@ OVERSENSE_ENV_FRACTION = 0.25
 # Beat-to-beat PR standard deviation below this = a fixed PR = conducted rhythm;
 # an AV-dissociation candidate with a stable PR is rejected.
 PR_STD_DISSOCIATION_MS = 40.0
+SHORT_RECORD_S = 3.0          # shorter (a device-screen photo, D122): delineate from two beats
+SHORT_RECORD_MIN_BEATS = 2
+# QRS upstroke ~30 mV/s; P and T waves 1-3 mV/s. Kept below by a 2x scale error (D122).
+SHORT_RECORD_MIN_SLOPE_UV_S = 8000.0
+# D112 (plan step 5a): AV dissociation from the QRS-independent P train instead of the
+# residual autocorrelation and its PR vetoes. Accepted on the held-out check.
+ATRIAL_P_TRAIN = True
 # ... and a dissociation candidate needs organised P waves (AF has none).
 AV_DISSOCIATION_MIN_P_RATIO = 0.3
 
@@ -88,11 +103,30 @@ def _lacks_organised_p(p_wave_ratio: float | None, n_beats: int) -> bool:
     return (n_p + 1) / (n_beats + 1) < AV_DISSOCIATION_MIN_P_RATIO
 
 
+def _keep_steep_beats(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float) -> np.ndarray:
+    """Beats whose steepest slope over the leads with a signal (+-40 ms) reaches a QRS's."""
+    windows = getattr(sig.provenance, "lead_windows", None)
+    rows = [i for i, n in enumerate(sig.lead_names)
+            if not is_lead_off(sig.lead(n)) and (not windows or n in windows)]
+    if not rows:
+        return rpeaks
+    d = np.abs(np.diff(sig.signal[rows].astype(np.float64), axis=1)) * fs
+    w = max(1, int(0.04 * fs))
+    keep = [r for r in rpeaks
+            if d[:, max(0, int(r) - w):int(r) + w].max(initial=0.0) >= SHORT_RECORD_MIN_SLOPE_UV_S]
+    return np.asarray(keep, dtype=int)
+
+
 def _pick_rhythm_lead(sig: SignalRepresentation) -> int:
+    """First preferred lead that carries a signal. A lead missing from a digitised
+    screen (its row is not on the photo, D120) or detached is flat and has no beats."""
+    windows = getattr(sig.provenance, "lead_windows", None)
+    usable = [n for n in sig.lead_names
+              if not is_lead_off(sig.lead(n)) and (not windows or n in windows)]
     for name in _RHYTHM_LEAD_PREFERENCE:
-        if name in sig.lead_names:
+        if name in usable:
             return sig.lead_names.index(name)
-    return 0
+    return sig.lead_names.index(usable[0]) if usable else 0
 
 
 def _reject_non_qrs_detections(
@@ -150,6 +184,57 @@ RECOVER_MIN_GAP_S = 0.25      # ... and lies a refractory period from every acce
 RECOVER_REF_HALF_S = 0.15     # an accepted beat's envelope level = max within this of its R (QRS search half-width)
 RECOVER_MAX_FLOOR = 0.25      # no recovery when the envelope between beats is this high relative
                               # to the beats: noise, not QRS, reaches half their level (PTB-XL 15973)
+
+
+PACED_R_MAX_OFFSET_S = 0.010   # a detection this close to a pacing spike sits on the spike
+PACED_QRS_WINDOW_S = (0.08, 0.30)   # an atrially paced QRS follows its spike after the AV delay
+PACED_QUIET_S = (0.02, 0.07)   # ... with a quiet envelope right after the spike (a ventricular
+PACED_QUIET_FRACTION = 0.3     #     spike is followed at once by its own wide QRS: left alone)
+PACED_QRS_MIN_RATIO = 2.3      # the QRS outweighs the spike point on the envelope (atrial pacing
+                               # 2.5-4.2; a late hump of a ventricular paced beat 1.1-2.0)
+
+
+def _move_off_pacing_spikes(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
+                            spikes_s: list[float] | None) -> tuple[np.ndarray, int]:
+    """Move detections that sit on an atrial pacing spike onto the QRS that follows (D98).
+
+    With atrial pacing the single-lead detector can lock onto the spikes instead of the
+    QRS 250-300 ms later; the oversense gate then keeps some of them and HR halves
+    (Georgia E00850: 33/min at 60). A detection within PACED_R_MAX_OFFSET_S of a raw
+    pacing spike, with a quiet envelope just after the spike and an envelope peak in
+    PACED_QRS_WINDOW_S, is moved to that peak; one that lands on an already detected
+    QRS is dropped. Ventricular pacing (QRS right after the spike) is left alone.
+    """
+    if not spikes_s or len(rpeaks) == 0:
+        return rpeaks, 0
+    env = spatial_velocity(signal, fs)
+    sp = np.asarray(spikes_s, dtype=float) * fs
+    q0, q1 = (int(x * fs) for x in PACED_QUIET_S)
+    w0, w1 = (int(x * fs) for x in PACED_QRS_WINDOW_S)
+    out, moved = [], 0
+    for r in (int(x) for x in rpeaks):
+        k = int(np.argmin(np.abs(sp - r)))
+        s0 = int(round(sp[k]))
+        if abs(sp[k] - r) > PACED_R_MAX_OFFSET_S * fs or s0 + w1 >= env.size:
+            out.append(r)
+            continue
+        win = env[s0 + w0:s0 + w1]
+        peak = s0 + w0 + int(np.argmax(win))
+        at_r = float(env[max(0, r - q0):r + q0].max())
+        if (float(env[s0 + q0:s0 + q1].max()) >= PACED_QUIET_FRACTION * float(env[peak])
+                or float(env[peak]) < PACED_QRS_MIN_RATIO * at_r):
+            out.append(r)
+            continue
+        out.append(peak)
+        moved += 1
+    if not moved:
+        return rpeaks, 0
+    merged = []
+    for r in sorted(out):
+        if merged and r - merged[-1] < int(0.25 * fs):
+            continue
+        merged.append(r)
+    return np.asarray(merged, dtype=rpeaks.dtype), moved
 
 
 def _recover_missed_qrs(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
@@ -306,6 +391,8 @@ def _delineate(cleaned: np.ndarray, rpeaks: np.ndarray, fs: float):
 SAMPLE_MASK_BEFORE_S = 0.30    # a beat's P-QRS reaches this far before its R ...
 SAMPLE_MASK_AFTER_S = 0.45     # ... and its T this far after (same spans as the page edges)
 PAGE_BEAT_MIN_FRACTION = 0.35   # envelope peak, as a fraction of its column's 90th-percentile peak
+PAGE_BEAT_T_WINDOW_S = 0.45      # D114: a weak envelope peak this soon after a beat is its T wave
+PAGE_BEAT_T_FRACTION = 0.5
 PAGE_BEAT_MIN_RR_S = 0.24       # refractory distance between beats (250 bpm)
 PAGE_BEAT_SNAP_S = 0.06         # a beat is snapped to the column's summed-deflection apex within this window
 PAGE_BEAT_EDGE_START_S = 0.30   # no beat without a full P-QRS window before it
@@ -361,7 +448,7 @@ def _fit_page_edits_to_rhythm(confirmed: list, kept: list, added: list, rpeaks: 
 
 def _page_beat_agreement(sig: SignalRepresentation, windows: dict, rhythm_row: np.ndarray,
                          rpeaks: np.ndarray, fs: float) -> bool | None:
-    """Do the final beats match the column detector's beats (D92)?
+    """Do the final beats match the column detector's beats (D130)?
 
     Both are compared where both can judge: inside the rhythm lead's own window, away
     from the page edges and the column boundaries. A beat in one list without a partner
@@ -442,6 +529,16 @@ def _page_beats(sig: SignalRepresentation, windows: dict, rhythm_row: np.ndarray
     # follows (the single-lead detector skips such edge beats too).
     inside = (peaks >= int(PAGE_BEAT_EDGE_START_S * fs)) & (peaks < n - int(PAGE_BEAT_EDGE_END_S * fs))
     peaks, heights = peaks[inside], heights[inside]
+    # A tall T wave of a slow rhythm reaches the envelope threshold in the chest-lead
+    # column (D114: 0.42-0.44 at 38/min, 0.39 s after R; HR read 53). Its slope is
+    # well below the QRS it follows; a premature QRS (PVC, tachycardia) is not.
+    t_win = int(PAGE_BEAT_T_WINDOW_S * fs)
+    keep = np.ones(peaks.size, dtype=bool)
+    for k in range(1, peaks.size):
+        prev = [j for j in range(k) if keep[j] and 0 < peaks[k] - peaks[j] <= t_win]
+        if prev and heights[k] < PAGE_BEAT_T_FRACTION * max(heights[j] for j in prev):
+            keep[k] = False
+    peaks, heights = peaks[keep], heights[keep]
     if peaks.size < 2:
         return None
     # The envelope peaks on the steepest slope, not the apex: snap each beat to
@@ -484,9 +581,12 @@ def _page_beats(sig: SignalRepresentation, windows: dict, rhythm_row: np.ndarray
     return pos[order], np.asarray(kept_heights)[order]
 
 
-def measure(sig: SignalRepresentation, *, qrs_hump_fraction: float | None = None) -> Measurements:
-    """Full Layer-3 measurement pass (TZ §6). ``qrs_hump_fraction`` overrides the QRS-end
-    terminal-hump threshold for this call only (D93: the scanner's stability check)."""
+def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = None, *,
+            qrs_hump_fraction: float | None = None) -> Measurements:
+    """Full Layer-3 measurement pass (TZ §6). ``pacing_spikes_s``: raw-signal pacing
+    spike times (the band-pass erases them), used to keep R off atrial pacing spikes.
+    ``qrs_hump_fraction`` overrides the QRS-end terminal-hump threshold for this call
+    only (D93 of the scanner branch, now D131: the scanner's stability check)."""
     import neurokit2 as nk
 
     fs = sig.sampling_rate_hz
@@ -500,6 +600,10 @@ def measure(sig: SignalRepresentation, *, qrs_hump_fraction: float | None = None
         rpeaks = np.asarray(info["ECG_R_Peaks"], dtype=int)
     except Exception:
         rpeaks = np.array([], dtype=int)
+    rpeaks, n_moved = _move_off_pacing_spikes(sig.signal, rpeaks, fs, pacing_spikes_s)
+    m.atrial_paced_beats = n_moved
+    if n_moved:
+        m.notes.append(f"{n_moved} R detection(s) moved off atrial pacing spikes onto the QRS (D98)")
     page_windows = getattr(sig.provenance, "lead_windows", None)
     page_confirmed = False
     if page_windows:
@@ -526,7 +630,7 @@ def measure(sig: SignalRepresentation, *, qrs_hump_fraction: float | None = None
             confirmed = [r for r in rpeaks if page.size and np.min(np.abs(page - r)) <= tol]
             # The rhythm lead's own window may end before the page does (6x2: lead II
             # stops at 5 s and is 0 after it). A single-lead beat at that edge is the
-            # step into the padding, not a QRS (a 6x2 page read HR 77 for 69, D92):
+            # step into the padding, not a QRS (a 6x2 page read HR 77 for 69, D130):
             # there it counts only when the columns confirm it.
             own = page_windows.get(sig.lead_names[lead_idx])
             own_edges = [int(round(e * fs)) for e in (own or ()) if 0 < e * fs < n_s]
@@ -583,16 +687,23 @@ def measure(sig: SignalRepresentation, *, qrs_hump_fraction: float | None = None
             if n_rec:
                 m.notes.append(f"{n_rec} QRS recovered from the multi-lead envelope (D75)")
                 m.r_peaks_recovered = sorted(int(r) for r in rpeaks if int(r) not in before)
+    # A ~2-s window may hold no QRS at all; the detector then marks P/T waves (D122: a
+    # 35/min record read as 105/min). On so short a record a beat needs a QRS slope.
+    if sig.duration_s < SHORT_RECORD_S and len(rpeaks):
+        rpeaks = _keep_steep_beats(sig, rpeaks, fs)
     if page_windows:
         m.page_beat_agreement = _page_beat_agreement(sig, page_windows, cleaned, rpeaks, fs)
         if m.page_beat_agreement is False:
-            m.notes.append("beats disagree with the page columns: the rhythm needs a look (D92)")
+            m.notes.append("beats disagree with the page columns: the rhythm needs a look (D130)")
     m.r_peaks_samples = rpeaks.tolist()
     m.qrs_template_consistency = _qrs_template_consistency(sig, rpeaks, fs)
     m.qrs_partner_consistency = _qrs_partner_consistency(sig, rpeaks, fs)
     # Median-beat Q waves and right-precordial ST (ported from claude/vibrant-curie-ro1zsz
     # D36, D89, D90): pathological Q and the Brugada type-1 pattern.
-    if len(rpeaks) >= 3:
+    # A ~2-s device-screen preview (D120) holds two or three beats; a 10-s record has
+    # fewer than three only below 18/min, so two suffice when the record is that short.
+    min_beats = SHORT_RECORD_MIN_BEATS if sig.duration_s < SHORT_RECORD_S else 3
+    if len(rpeaks) >= min_beats:
         names = list(sig.lead_names)
         m.morphology.q_waves = global_q_waves(sig.signal, rpeaks, fs, names)
         m.morphology.right_precordial_st = global_right_precordial_st(sig.signal, rpeaks, fs, names)
@@ -600,8 +711,13 @@ def measure(sig: SignalRepresentation, *, qrs_hump_fraction: float | None = None
     m.n_beats = len(rpeaks)
 
     rr_s_mean = None
-    if len(rpeaks) >= 2:
-        rr = np.diff(rpeaks) / fs  # seconds
+    # RR intervals across a jump between pages recorded at different moments are not RR
+    # (D123: two photos of a recorder's screen joined into one record).
+    cuts = getattr(sig.provenance, "discontinuities_s", None) or []
+    spans_cut = (lambda a, b: any(a / fs < c <= b / fs for c in cuts)) if cuts else (lambda a, b: False)
+    rr_ok = [(a, b) for a, b in pairwise(rpeaks) if not spans_cut(a, b)]
+    if len(rpeaks) >= 2 and rr_ok:
+        rr = np.array([b - a for a, b in rr_ok], dtype=float) / fs  # seconds
         rr_s_mean = float(np.mean(rr))
         m.heart_rate_bpm = round(60.0 / rr_s_mean, 1)
         m.rr_std_ms = round(float(np.std(rr) * 1000.0), 1)
@@ -629,7 +745,8 @@ def measure(sig: SignalRepresentation, *, qrs_hump_fraction: float | None = None
     qrs_on = np.full(n_beats, np.nan)
     qrs_off = np.full(n_beats, np.nan)
     t_off: np.ndarray | None = None
-    if n_beats >= 3:
+    p_on = p_off = None
+    if n_beats >= min_beats:
         qrs_on, qrs_off = qrs_bounds_envelope(sig.signal, rpeaks, fs, hump_fraction=qrs_hump_fraction)
         p_on = p_off = None
         waves = _delineate(cleaned, rpeaks, fs)
@@ -706,6 +823,18 @@ def measure(sig: SignalRepresentation, *, qrs_hump_fraction: float | None = None
             pdur = [(p_off[i] - p_on[i]) for i in range(n_beats)
                     if np.isfinite(p_on[i]) and np.isfinite(p_off[i]) and p_off[i] > p_on[i]]
             m.p_wave_duration_ms = _median_ms(pdur, fs)
+            # Global P and PR on the 12-lead median beat (D111), like 12SL/Glasgow: the
+            # single-lead per-beat P is noisy (D103: P 28 ms short, SD 26; PR SD 15-21).
+            if P_MEDIAN_BEAT and (m.p_wave_ratio or 0.0) >= 0.5:
+                mb = _median_beat_p(sig.signal, rpeaks, qrs_on, fs, m.intervals.qt_ms)
+                if mb is not None:
+                    mb_pd, mb_pr = mb
+                    if not P_MB_CONSENSUS or (m.p_wave_duration_ms is not None
+                                              and abs(mb_pd - m.p_wave_duration_ms) <= 40.0):
+                        m.p_wave_duration_ms = mb_pd
+                    if m.intervals.pr_ms is not None and (
+                            not P_MB_CONSENSUS or abs(mb_pr - m.intervals.pr_ms) <= 20.0):
+                        m.intervals.pr_ms = mb_pr
             m.p_wave_amplitude_uv = _p_amplitude(sig, p_on, p_off)
 
         # ST measured off the envelope QRS offsets (J points), PR-segment baseline.
@@ -742,6 +871,15 @@ def measure(sig: SignalRepresentation, *, qrs_hump_fraction: float | None = None
                 and (m.p_onset_ratio or 0.0) < 0.5):
             av = False
             notes.append("atrial activity: no organised P waves -> not AV dissociation")
+        if ATRIAL_P_TRAIN:
+            train = p_train({ln: sig.lead(ln).astype(np.float64)
+                             for ln in P_TRAIN_LEADS if ln in sig.lead_names}, rpeaks, fs)
+            flutter = rate is not None and FLUTTER_BAND_BPM[0] <= rate <= FLUTTER_BAND_BPM[1]
+            av = p_train_dissociated(train, m.heart_rate_bpm) and not flutter
+            if av:
+                rate = round(train["rate_bpm"], 1)
+                notes.append(f"atrial activity: P train {rate}/min, PR spread "
+                             f"{round(1000 * train['pr_iqr_s'])} ms -> AV dissociation")
         m.atrial_rate_bpm, m.av_dissociation = rate, av
         m.fwave_index = fwave_index(atrial_leads, rpeaks, fs, qrs_on=qrs_on, qrs_off=qrs_off)
         m.notes.extend(notes)
@@ -757,7 +895,8 @@ def measure(sig: SignalRepresentation, *, qrs_hump_fraction: float | None = None
         )
 
     # --- Frontal QRS axis ---
-    m.axes = Axes(qrs_deg=_qrs_axis(sig, rpeaks, fs, qrs_on, qrs_off))
+    m.axes = Axes(qrs_deg=_qrs_axis(sig, rpeaks, fs, qrs_on, qrs_off),
+                  p_deg=_p_axis(sig, rpeaks, fs, p_on, p_off) if p_on is not None and p_off is not None else None)
 
     # --- Sokolow-Lyon voltage (LVH) + the other hypertrophy voltages ---
     m.sokolow_lyon_uv = _sokolow_lyon(sig, rpeaks, fs)
@@ -816,6 +955,102 @@ def _qrs_net_deflection(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray
         if seg.size:
             vals.append(float(seg.max() + seg.min()))
     return float(np.median(vals)) if vals else None
+
+
+P_MEDIAN_BEAT = True       # D111: accepted on the held-out check (fold 10)
+P_MB_FRACTION = 0.20       # P bounds: 20 % of the P peak above the window's 10th percentile
+P_MB_CONSENSUS = 1         # use the median-beat value only near the per-beat one (D111)
+
+
+def _median_beat_p(signal: np.ndarray, rpeaks: np.ndarray, qrs_on: np.ndarray, fs: float,
+                   qt_ms: float | None) -> tuple[float, float] | None:
+    """(P duration, PR) in ms from the 12-lead median beat (D111).
+
+    Beats not premature (RR >= 0.8 x median) are aligned to the strip median beat by
+    +-10 ms cross-correlation (r >= 0.9 kept); on their median, the P is searched from the
+    previous T end (QRS onset + QT - RR) to 10 ms before the QRS onset: spatial magnitude
+    above the straight line joining the window ends, bounded where it falls to
+    P_MB_FRACTION of its peak above the window's 10th percentile. The QRS onset is the
+    envelope onset (median offset to R), validated against 12SL (D103).
+    """
+    rp = np.asarray(rpeaks, dtype=int)
+    if len(rp) < 4 or not np.isfinite(qrs_on).any():
+        return None
+    rr = np.diff(rp)
+    med = float(np.median(rr))
+    pre, post = int(min(0.5, 0.8 * med / fs) * fs), int(min(0.3, 0.6 * med / fs) * fs)
+    sh = int(0.01 * fs)
+    idx = [k for k in range(1, len(rp)) if rr[k - 1] >= 0.8 * med
+           and rp[k] - pre - sh >= 0 and rp[k] + post + sh < signal.shape[1]]
+    if len(idx) < 3:
+        return None
+    x = np.asarray(signal, dtype=np.float64)
+    m0 = np.median(np.stack([x[:, rp[k] - pre:rp[k] + post] for k in idx]), axis=0)
+    aligned = []
+    for k in idx:
+        best, bs = -2.0, 0
+        for d in range(-sh, sh + 1):
+            c = np.corrcoef(x[:, rp[k] - pre + d:rp[k] + post + d].ravel(), m0.ravel())[0, 1]
+            if c > best:
+                best, bs = c, d
+        if best >= 0.9:
+            aligned.append(x[:, rp[k] - pre + bs:rp[k] + post + bs])
+    mb = np.median(np.stack(aligned), axis=0) if len(aligned) >= 3 else m0
+    q = int(round(pre + float(np.nanmedian(qrs_on - rp))))
+    t_end = (qt_ms / 1000.0 * fs) if qt_ms else 0.40 * fs
+    lo = max(1, int(q + t_end - med + 0.02 * fs), int(q - 0.35 * fs))
+    hi = q - int(0.01 * fs)
+    if hi - lo < int(0.06 * fs):
+        return None
+    seg = mb[:, lo:hi]
+    line = np.linspace(seg[:, :3].mean(axis=1), seg[:, -3:].mean(axis=1), seg.shape[1]).T
+    mag = np.convolve(np.sqrt(((seg - line) ** 2).sum(axis=0)), np.ones(5) / 5, mode="same")
+    pk = int(np.argmax(mag))
+    base = float(np.percentile(mag, 10))
+    thr = base + P_MB_FRACTION * (float(mag[pk]) - base)
+    a = pk
+    while a > 0 and mag[a] > thr:
+        a -= 1
+    b = pk
+    while b < len(mag) - 1 and mag[b] > thr:
+        b += 1
+    if b - a < int(0.03 * fs):
+        return None
+    return (b - a) / fs * 1000.0, (q - (lo + a)) / fs * 1000.0
+
+
+def _p_axis(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float,
+            p_on: np.ndarray, p_off: np.ndarray) -> float | None:
+    """Frontal P axis (degrees), D99.
+
+    Per limb lead, the median over beats of the P-wave area above the straight line
+    joining its onset and offset (a slope across the P — T wave tail, wander — is not
+    taken for P), combined on the hexaxial frame like the QRS axis. Sinus P points
+    down and to the left (0-75 deg); a low atrial or retrograde focus points up.
+    """
+    names = set(sig.lead_names)
+    x = y = 0.0
+    n = 0
+    for lead, deg in _LIMB_ANGLES_DEG.items():
+        if lead not in names or _lead_off(sig, lead):
+            continue
+        row = sig.lead(lead).astype(np.float64)
+        vals = []
+        for i in range(len(rpeaks)):
+            a, b = p_on[i], p_off[i]
+            if not (np.isfinite(a) and np.isfinite(b)) or b - a < int(0.02 * fs) or a < 0 or b >= row.size:
+                continue
+            seg = row[int(a):int(b) + 1]
+            vals.append(float(np.mean(seg - np.linspace(seg[0], seg[-1], seg.size))))
+        if len(vals) < 3:
+            continue
+        net = float(np.median(vals))
+        x += net * np.cos(np.radians(deg))
+        y += net * np.sin(np.radians(deg))
+        n += 1
+    if n < 2 or (abs(x) < 1e-6 and abs(y) < 1e-6):
+        return None
+    return round(float(np.degrees(np.arctan2(y, x))), 1)
 
 
 def _qrs_axis(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float,
@@ -1109,8 +1344,7 @@ def _qrs_partner_consistency(sig: SignalRepresentation, rpeaks: np.ndarray, fs: 
     """
     if len(rpeaks) < 3:
         return None
-    li = sig.lead_names.index("II") if "II" in sig.lead_names else 0
-    row = sig.signal[li].astype(np.float64)
+    row = sig.signal[_pick_rhythm_lead(sig)].astype(np.float64)
     w = int(0.09 * fs)
     beats = [row[int(r) - w:int(r) + w] for r in rpeaks
              if int(r) - w >= 0 and int(r) + w < len(row)]
@@ -1138,8 +1372,7 @@ def _qrs_template_consistency(
     """
     if len(rpeaks) < 3:
         return None
-    li = sig.lead_names.index("II") if "II" in sig.lead_names else 0
-    row = sig.signal[li].astype(np.float64)
+    row = sig.signal[_pick_rhythm_lead(sig)].astype(np.float64)   # II, or the first lead with a signal (D120)
     # +-90 ms captures the full QRS even for wide (BBB/paced) complexes, and the
     # wider window also drives noise correlation down (a random signal decorrelates
     # over a longer span) — sharpening the separation from real ECG.

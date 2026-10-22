@@ -78,7 +78,7 @@ def signal_from_uploads(
             saved.append(p)
 
         # A malformed file is the sender's error (400 with the reason), whatever the
-        # parser raised underneath: truncated SCP sections, junk EDF, a 0-d CSV (D97).
+        # parser raised underneath: truncated SCP sections, junk EDF, a 0-d CSV (D135).
         try:
             dcm = next((p for p, f in zip(saved, files, strict=True)
                         if p.suffix.lower() == ".dcm" or is_dicom(f.content)), None)
@@ -136,7 +136,7 @@ def apply_patient_overrides(
 # LRU-evicting so a long-running server can't grow without bound. Swap for a DB
 # / object store in production (see DECISIONS.md).
 _STORE: OrderedDict[str, PipelineResult] = OrderedDict()
-_OWNERS: dict[str, str | None] = {}      # analysis id -> API key name that created it (D98)
+_OWNERS: dict[str, str | None] = {}      # analysis id -> API key name that created it (D136)
 
 
 def run_and_store(sig, *, mode: str | None, prior_id: str | None = None,
@@ -156,7 +156,7 @@ def run_and_store(sig, *, mode: str | None, prior_id: str | None = None,
 
 
 def get_analysis(analysis_id: str, *, owner: str | None = None) -> PipelineResult | None:
-    """``owner``: the caller's key name; another key's analysis reads as absent (D98)."""
+    """``owner``: the caller's key name; another key's analysis reads as absent (D136)."""
     if owner is not None and _OWNERS.get(analysis_id) not in (None, owner):
         return None
     result = _STORE.get(analysis_id)

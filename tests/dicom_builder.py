@@ -1,4 +1,4 @@
-"""Synthetic DICOM waveform ECG files for the tests (D94, D96)."""
+"""Synthetic DICOM waveform ECG files for the tests (D132, D134)."""
 
 import numpy as np
 from pydicom.dataset import Dataset, FileMetaDataset

@@ -66,13 +66,7 @@ class ClaudeProvider(LLMProvider):
             "critical_flags": data.causal_graph.critical_flags,
             "implausible_flags": data.causal_graph.implausible_flags,
             "confidence": data.causal_graph.confidence,
-            "measurements": {
-                "heart_rate_bpm": data.measurements.heart_rate_bpm,
-                "pr_ms": data.measurements.intervals.pr_ms,
-                "qrs_ms": data.measurements.intervals.qrs_ms,
-                "qtc_bazett_ms": data.measurements.intervals.qtc_bazett_ms,
-                "qtc_fridericia_ms": data.measurements.intervals.qtc_fridericia_ms,
-            },
+            "measurements": _measurements(data),
         }
 
     def generate(self, data: InterpretationInput) -> InterpretationReport:
@@ -88,6 +82,26 @@ class ClaudeProvider(LLMProvider):
         report = report_from_json(json.loads(_extract_json(text)), data)
         report.provider, report.provider_model = self.name, self.model
         return report
+
+
+# Findings that mean the numbers were not read from a trustworthy signal (D128): the
+# model gets none of them, or a false rate from a stretched photo would be narrated.
+WITHHOLD_MEASUREMENTS = ("photo_unreliable", "no_ecg_signal", "amplitude_implausible")
+
+
+def _measurements(data: InterpretationInput) -> dict:
+    codes = {f.code for f in data.findings.findings}
+    withheld = [c for c in WITHHOLD_MEASUREMENTS if c in codes]
+    if withheld:
+        return {"withheld": f"not measured reliably ({', '.join(withheld)}); do not state any rate or interval"}
+    m = data.measurements
+    return {
+        "heart_rate_bpm": m.heart_rate_bpm,
+        "pr_ms": m.intervals.pr_ms,
+        "qrs_ms": m.intervals.qrs_ms,
+        "qtc_bazett_ms": m.intervals.qtc_bazett_ms,
+        "qtc_fridericia_ms": m.intervals.qtc_fridericia_ms,
+    }
 
 
 PROMPT_INSTRUCTIONS = (

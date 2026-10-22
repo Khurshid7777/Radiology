@@ -1,4 +1,4 @@
-"""D95: SCP-ECG rhythm data (default Huffman table or plain samples, difference 0/1/2)."""
+"""D133: SCP-ECG rhythm data (default Huffman table or plain samples, difference 0/1/2)."""
 
 import binascii
 import struct

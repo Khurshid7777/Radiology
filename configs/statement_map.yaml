@@ -1,0 +1,69 @@
+# Finding codes -> reference label systems (D102; plan docs/PLAN_V2.md step 3).
+#
+# One table for every external check: a finding is scored against a dataset label only
+# through this map, so "AF" means the same thing on PTB-XL (SCP) and on the PhysioNet
+# Challenge 2021 sets (SNOMED CT) and the scorer needs no per-dataset code lists.
+#
+#   aha:    statement group of the AHA/ACCF/HRS diagnostic statement list (Mason et al.
+#           2007, part II) -- the category, not its numeric code
+#   snomed: SNOMED CT concept ids as used by PhysioNet Challenge 2020/2021 labels
+#   scp:    PTB-XL SCP-ECG statements
+#   code15: CODE-15% label columns (Ribeiro et al. 2020, Zenodo 4916206)
+# Empty lists mean "no reference label to score against", not "never present".
+#
+# Statements the AHA list has and CardioLens does not emit yet (gaps, plan step 3):
+# second-degree AV block (Mobitz I/II, 2:1), left anterior / posterior fascicular block,
+# incomplete bundle branch blocks, premature atrial complexes, junctional rhythm,
+# old/acute infarction by territory.
+
+atrial_fibrillation:        {aha: rhythm, snomed: ["164889003"], scp: [AFIB], code15: ["AF"]}
+atrial_flutter:             {aha: rhythm, snomed: ["164890007"], scp: [AFLT], code15: []}
+sinus_rhythm:               {aha: rhythm, snomed: ["426783006"], scp: [SR], code15: []}
+sinus_bradycardia:          {aha: rhythm, snomed: ["426177001"], scp: [SBRAD], code15: ["SB"]}
+sinus_tachycardia:          {aha: rhythm, snomed: ["427084000"], scp: [STACH], code15: ["ST"]}
+supraventricular_tachycardia: {aha: rhythm, snomed: ["426761007", "67198005", "713422000"], scp: [SVTAC, PSVT], code15: []}
+paced_rhythm:               {aha: pacemaker, snomed: ["10370003"], scp: [PACE], code15: []}
+ventricular_ectopy:         {aha: rhythm, snomed: ["427172004", "17338001"], scp: [PVC], code15: []}
+ventricular_bigeminy:       {aha: rhythm, snomed: ["11157007"], scp: [BIGU], code15: []}
+ventricular_tachycardia:    {aha: rhythm, snomed: ["164895002"], scp: [], code15: []}
+wide_complex_tachycardia:   {aha: rhythm, snomed: [], scp: [], code15: []}
+sinus_pause:                {aha: rhythm, snomed: [], scp: [], code15: []}
+irregular_rhythm:           {aha: rhythm, snomed: [], scp: [], code15: []}
+first_degree_av_block:      {aha: av_conduction, snomed: ["270492004"], scp: [1AVB], code15: ["1dAVb"]}
+complete_av_block:          {aha: av_conduction, snomed: ["27885002"], scp: [3AVB], code15: []}
+wpw_preexcitation:          {aha: av_conduction, snomed: ["74390002"], scp: [WPW], code15: []}
+lbbb:                       {aha: intraventricular_conduction, snomed: ["164909002", "733534002"], scp: [CLBBB], code15: ["LBBB"]}
+rbbb:                       {aha: intraventricular_conduction, snomed: ["59118001", "713427006"], scp: [CRBBB], code15: ["RBBB"]}
+wide_qrs_nonspecific:       {aha: intraventricular_conduction, snomed: ["698252002"], scp: [IVCD], code15: []}
+left_axis_deviation:        {aha: axis_voltage, snomed: ["39732003"], scp: [], code15: []}
+right_axis_deviation:       {aha: axis_voltage, snomed: ["47665007"], scp: [], code15: []}
+extreme_axis:               {aha: axis_voltage, snomed: [], scp: [], code15: []}
+low_qrs_voltage:            {aha: axis_voltage, snomed: ["251146004"], scp: [LVOLT], code15: []}
+lvh:                        {aha: chamber_hypertrophy, snomed: ["164873001"], scp: [LVH], code15: []}
+lvh_probable:               {aha: chamber_hypertrophy, snomed: ["164873001"], scp: [LVH], code15: []}
+rvh:                        {aha: chamber_hypertrophy, snomed: ["89792004"], scp: [RVH], code15: []}
+left_atrial_enlargement:    {aha: chamber_hypertrophy, snomed: ["67741000119109"], scp: [LAO/LAE], code15: []}
+right_atrial_enlargement:   {aha: chamber_hypertrophy, snomed: ["446358003"], scp: [RAO/RAE], code15: []}
+long_qt:                    {aha: st_t_u, snomed: ["111975006"], scp: [LNGQT], code15: []}
+short_qt:                   {aha: st_t_u, snomed: ["77867006"], scp: [], code15: []}
+st_elevation:               {aha: st_t_u, snomed: ["164931005"], scp: [STE_], code15: []}
+st_elevation_any:           {aha: st_t_u, snomed: [], scp: [], code15: []}   # descriptor (any lead >= 1 mm), not a diagnosis
+st_elevation_nonspecific:   {aha: st_t_u, snomed: [], scp: [], code15: []}
+st_depression:              {aha: st_t_u, snomed: ["429622005"], scp: [STD_], code15: []}
+t_inversion:                {aha: st_t_u, snomed: ["59931005"], scp: [INVT], code15: []}
+flat_t_waves:               {aha: st_t_u, snomed: [], scp: [LOWT], code15: []}
+peaked_t_waves:             {aha: st_t_u, snomed: [], scp: [], code15: []}
+secondary_st_t_change:      {aha: st_t_u, snomed: [], scp: [], code15: []}
+u_waves:                    {aha: st_t_u, snomed: [], scp: [], code15: []}
+early_repolarisation:       {aha: st_t_u, snomed: [], scp: [], code15: []}
+juvenile_t_pattern:         {aha: st_t_u, snomed: [], scp: [], code15: []}
+pericarditis:               {aha: st_t_u, snomed: [], scp: [], code15: []}
+brugada_pattern:            {aha: st_t_u, snomed: ["418818005"], scp: [], code15: []}
+pathological_q_waves:       {aha: myocardial_infarction, snomed: ["164917005"], scp: [], code15: []}
+lead_reversal_la_ra:        {aha: technical, snomed: [], scp: [], code15: []}
+no_ecg_signal:              {aha: technical, snomed: [], scp: [], code15: []}
+photo_unreliable:           {aha: technical, snomed: [], scp: [], code15: []}
+amplitude_implausible:      {aha: technical, snomed: [], scp: [], code15: []}
+screen_photo_limited:       {aha: technical, snomed: [], scp: [], code15: []}
+rate_unmeasurable_short:    {aha: technical, snomed: [], scp: [], code15: []}
+poor_quality_signal:        {aha: technical, snomed: [], scp: [], code15: []}

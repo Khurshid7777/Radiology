@@ -1,4 +1,4 @@
-"""``python -m cardiolens.dicom_listener [--config path]`` — run the ECG DICOM receiver (D96)."""
+"""``python -m cardiolens.dicom_listener [--config path]`` — run the ECG DICOM receiver (D134)."""
 
 from __future__ import annotations
 

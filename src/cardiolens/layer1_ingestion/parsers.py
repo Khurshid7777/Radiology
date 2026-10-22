@@ -1,13 +1,14 @@
 """Layer 1 — file parsers to the unified representation (TZ §4).
 
-Working parsers for WFDB, EDF/EDF+, CSV, DICOM waveform ECG (D94) and SCP-ECG
-rhythm data (D95). GE-MUSE / Philips / HL7-aECG are declared as interfaces with explicit
+Working parsers for WFDB, EDF/EDF+, CSV, DICOM waveform ECG (D132) and SCP-ECG
+rhythm data (D133). GE-MUSE / Philips / HL7-aECG are declared as interfaces with explicit
 ``NotImplementedError`` + TODO — we never fabricate a result (TZ §0). All
 outputs are in microvolts.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,31 @@ from cardiolens.contracts.signal import (
     SignalRepresentation,
     canonical_lead_name,
 )
+
+_AGE_RE = re.compile(r"\bage>?\s*:\s*([0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
+_SEX_RE = re.compile(r"\bsex>?\s*:\s*([a-z]+)", re.IGNORECASE)
+
+
+def patient_from_wfdb_comments(comments: list[str] | None) -> Patient:
+    """Age and sex from WFDB header comments (D101).
+
+    PhysioNet Challenge 2020/2021 headers carry ``# Age: 74`` / ``# Sex: Female`` lines,
+    PTBDB ``# age: 81`` / ``# sex: female``. Unknown or ``NaN`` stays None. Without this the
+    rules fell back to male thresholds (QTc 450, STEMI V2-V3, Cornell) for every woman.
+    """
+    text = " ".join(comments or [])
+    age = sex = None
+    m = _AGE_RE.search(text)
+    if m:
+        age = float(m.group(1))
+        if not 0 <= age <= 120:
+            age = None
+    m = _SEX_RE.search(text)
+    if m:
+        v = m.group(1).lower()
+        sex = "female" if v in ("female", "f", "woman") else "male" if v in ("male", "m", "man") else None
+    return Patient(age_years=age, sex=sex)
+
 
 # Physical units to microvolts (EDF / WFDB / CSV).
 _UNITS_UV = {"uv": 1.0, "µv": 1.0, "μv": 1.0, "mv": 1000.0, "v": 1e6}
@@ -43,7 +69,7 @@ def load_wfdb(record_path: str | Path, *, sampto: int | None = None,
     sig = np.asarray(rec.p_signal, dtype=np.float32).T  # -> [leads, samples]
 
     units = [u.strip().lower() if u else "mv" for u in (rec.units or [])]
-    # Convert per-lead to µV based on declared units; an unknown unit is refused (D97).
+    # Convert per-lead to µV based on declared units; an unknown unit is refused (D135).
     out = np.empty_like(sig)
     for i in range(sig.shape[0]):
         unit = units[i] if i < len(units) else "mv"
@@ -59,13 +85,14 @@ def load_wfdb(record_path: str | Path, *, sampto: int | None = None,
         lead_names=lead_names,
         duration_s=float(sig.shape[1] / rec.fs),
         source="wfdb",
+        patient=patient_from_wfdb_comments(getattr(rec, "comments", None)),
         provenance=Provenance(digitized=False, confidence=1.0),
     )
 
 
 def load_edf(path: str | Path) -> SignalRepresentation:
     """Parse an EDF/EDF+ file (TZ §4) to microvolts, each signal by its own physical
-    dimension (uV / mV / V) (D97).
+    dimension (uV / mV / V) (D97; D119 on our side).
 
     The ECG leads are the signals labelled as standard leads (all signals when none
     is). Every ECG lead must share one sampling rate and a known unit — otherwise the
@@ -191,7 +218,7 @@ def _dicom_age(value) -> float | None:
 
 
 def load_dicom(path: str | Path) -> SignalRepresentation:
-    """DICOM waveform ECG (12-lead, general or ambulatory; PS3.3 C.10.9) to microvolts (D94).
+    """DICOM waveform ECG (12-lead, general or ambulatory; PS3.3 C.10.9) to microvolts (D132).
 
     The multiplex group with the most standard leads is read (on a tie, the longest:
     the rhythm group rather than a median beat). Each sample becomes
@@ -216,7 +243,7 @@ def load_dicom(path: str | Path) -> SignalRepresentation:
 
     def usable(g) -> bool:
         # The header and the channel list must describe the same multiplex; a mismatch
-        # used to scramble the interleaving into leads with no error (D97).
+        # used to scramble the interleaving into leads with no error (D135).
         chans = g.get("ChannelDefinitionSequence") or []
         try:
             n_ch, n_s, fs = int(g.NumberOfWaveformChannels), int(g.NumberOfWaveformSamples), float(g.SamplingFrequency)
@@ -285,7 +312,7 @@ def load_dicom(path: str | Path) -> SignalRepresentation:
 
 
 def load_scp(path: str | Path) -> SignalRepresentation:
-    """SCP-ECG rhythm data (D95; ``cardiolens.layer1_ingestion.scp``)."""
+    """SCP-ECG rhythm data (D133; ``cardiolens.layer1_ingestion.scp``)."""
     from cardiolens.layer1_ingestion.scp import load_scp as _load_scp
 
     return _load_scp(path)

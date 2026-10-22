@@ -42,23 +42,92 @@ def save_photo(data: bytes, dest: str | Path) -> Path:
 
 
 def is_ecg_photo(path: str | Path, min_pitch_px: float = 3.0) -> tuple[bool, float | None]:
-    """An image is an ECG candidate when the digitiser finds a millimetre grid in it."""
+    """An image is an ECG candidate when the digitiser finds a millimetre grid in it, or
+    when it is a photo of a recorder's own screen (D120-D121: its grid is not paper) or
+    of a three-channel strip on a patterned desk (D125)."""
     import cv2
 
-    gray = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-    if gray is None:
+    from cardiolens.layer1_ingestion.screen import is_device_screen
+    from cardiolens.layer1_ingestion.sequential import is_sequential_strip
+
+    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if bgr is None:
         return False, None
-    pitch = estimate_grid_pitch(gray)
-    return bool(pitch is not None and pitch >= min_pitch_px), None if pitch is None else float(pitch)
+    pitch = estimate_grid_pitch(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY))
+    ok = (pitch is not None and pitch >= min_pitch_px) or is_device_screen(bgr) or is_sequential_strip(bgr)
+    return bool(ok), None if pitch is None else float(pitch)
+
+
+# Scanner refusals about the picture itself (D139): the CardioLens readers would read the
+# same picture worse, so the refusal stands. Refusals about the layout (a screen, a report
+# sheet, part of a strip: GRID_NOT_FOUND, LAYOUT_UNKNOWN, PAGE_INCOMPLETE, SCREEN_PHOTO, ...)
+# go on to the CardioLens readers, which read those formats behind their photo gates.
+SCANNER_FINAL_REFUSALS = frozenset({"LOW_RESOLUTION", "GLARE", "BLUR", "TRACE_BROKEN", "LIMB_LEADS_INCONSISTENT",
+                                    "LOW_CONTRAST", "IMAGE_TOO_LARGE", "CALIBRATION_MISSING"})
+
+
+def digitize_photo(path: str | Path) -> SignalRepresentation:
+    """The bot's photo reader (D139): the ECG scanner first — on its benchmark it reads paper
+    pages at r 0.98 with no unflagged bad case, where the CardioLens readers have 23 % —
+    then, when the scanner refuses the layout, the CardioLens readers (device screens,
+    report sheets, parts of strips). Raises ValueError with the reason otherwise."""
+    try:
+        from ecgscan.contract.cardiolens_adapter import to_signal_representation
+        from ecgscan.i18n import t as scanner_text
+        from ecgscan.pipeline import scan
+    except ImportError:                 # the scanner extra is not installed
+        return digitize_auto_to_signal(path)
+    result = scan(path)
+    if result.status != "rejected":
+        return to_signal_representation(result)
+    final = [r for r in result.reject_reasons if r in SCANNER_FINAL_REFUSALS]
+    if final:
+        raise ValueError("; ".join(scanner_text(f"reject.{r}") for r in final))
+    return digitize_auto_to_signal(path)
 
 
 def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[PipelineResult | None, str | None]:
-    """Digitise the photo (3x4 page or 12x1 strip, chosen from the ink — D72) and
-    run the pipeline; (result, None) or (None, error text)."""
+    """Digitise the photo (``digitize_photo``, D139) and run the pipeline; (result, None)
+    or (None, error text)."""
     try:
-        sig = digitize_auto_to_signal(path)
+        sig = digitize_photo(path)
         return run_pipeline(sig, mode=mode, provider=provider or StubProvider()), None
     except Exception as e:  # digitiser raises on pages it cannot read — that is data too
+        return None, f"{type(e).__name__}: {e}"
+
+
+def analyse_photos(paths: list[str | Path], *, mode: str = "A",
+                   provider=None) -> tuple[PipelineResult | None, str | None]:
+    """Several photos sent together (a Telegram album). Photos of one recorder's pages —
+    TeleECG's limb page and chest page — become one record (D123), as do photos of
+    the parts of one three-channel strip (D125); anything else is
+    analysed from the first photo that digitises."""
+    if len(paths) == 1:
+        return analyse_photo(paths[0], mode=mode, provider=provider)
+    from cardiolens.layer1_ingestion.screen import combine_screen_signals
+
+    sigs, errors = [], []
+    for p in paths:
+        try:
+            sigs.append(digitize_photo(p))
+        except Exception as e:
+            errors.append(f"{Path(p).name}: {type(e).__name__}: {e}")
+    screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]
+    strips = [s for s in sigs if any(n.startswith("three-channel strip photo") for n in s.provenance.notes)]
+    try:
+        if len(screens) >= 2:
+            sig = combine_screen_signals(screens)
+        elif len(strips) >= 2:     # parts of one strip, in the order sent (D125)
+            sig = combine_screen_signals(strips, drop_repeats=True)
+        elif sigs:
+            sig = sigs[0]
+        else:
+            return None, "; ".join(errors)
+    except ValueError:            # the pages repeat leads: two photos of the same page
+        sig = sigs[0]
+    try:
+        return run_pipeline(sig, mode=mode, provider=provider or StubProvider()), None
+    except Exception as e:
         return None, f"{type(e).__name__}: {e}"
 
 
@@ -130,7 +199,9 @@ def summarize(result: PipelineResult) -> dict:
     iv = m.intervals
     prov = result.signal.provenance
     calib = next((n for n in prov.notes if n.startswith("calibration:")), None)
-    layout = next((n.split(":")[0] for n in prov.notes if "strip" in n or "page" in n), None)
+    scanned = next((n.split()[1] for n in prov.notes if n.startswith("layout: ")), None)   # ecgscan (D139)
+    layout = (f"{scanned} (сканер)" if scanned else
+              next((n.split(":")[0] for n in prov.notes if "strip" in n or "page" in n), None))
     return {
         "layout": layout,
         "heart_rate_bpm": m.heart_rate_bpm, "pr_ms": iv.pr_ms, "qrs_ms": iv.qrs_ms,
@@ -169,8 +240,19 @@ def format_card(rec: Record, result: PipelineResult | None, error: str | None = 
     lines = [head, ""]
     if alerts:
         lines.append("🚨 КРИТИЧЕСКОЕ: " + "; ".join(alerts))
-    lines.append(f"ЧСС {_fmt(s['heart_rate_bpm'])} /мин · PR {_fmt(s['pr_ms'])} · QRS {_fmt(s['qrs_ms'])} · "
-                 f"QTc {_fmt(s['qtc_bazett_ms'])} мс · ось {_fmt(s['qrs_axis_deg'], '°')}")
+    unreliable = next((f for f in result.findings.findings if f.code == "photo_unreliable"), None)
+    scale_unknown = unreliable is not None and any(e.feature == "scale_conflict" and e.value == "yes"
+                                                    for e in unreliable.evidence)
+    if scale_unknown:      # D128: the time scale is not known, so no number read from it is
+        lines.append("ЧСС и интервалы не измерены: масштаб снимка не определён")
+    else:
+        lines.append(f"ЧСС {_fmt(s['heart_rate_bpm'])} /мин · PR {_fmt(s['pr_ms'])} · QRS {_fmt(s['qrs_ms'])} · "
+                     f"QTc {_fmt(s['qtc_bazett_ms'])} мс · ось {_fmt(s['qrs_axis_deg'], '°')}"
+                     + (" (по ненадёжному снимку)" if unreliable is not None else ""))
+    scanner = next((n for n in result.signal.provenance.notes if n.startswith("ecgscan scan_id=")), None)
+    if scanner and "status=needs_confirmation" in scanner:   # D139: the scanner read it but asks to check
+        warn = next((n for n in result.signal.provenance.notes if n.startswith("warnings: ")), "")
+        lines.append("⚠️ Сканер просит проверить масштаб и раскладку по снимку" + (f" ({warn[10:]})" if warn else ""))
     lines.append("Находки: " + "; ".join(findings))
     lines.append("Коды: " + (", ".join(sorted(result.findings.codes())) or "—"))
     lines.append(f"Уверенность {s['confidence']:.2f} · оцифровка {_fmt(s['digitiser_coverage'], '', 2)}"
