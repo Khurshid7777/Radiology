@@ -146,3 +146,23 @@ def test_two_screen_pages_combine_into_twelve_leads(tmp_path):
     assert error is None and result.measurements.heart_rate_bpm == pytest.approx(80, rel=0.1)
     with pytest.raises(ValueError):
         combine_screen_signals([sig, sig])            # the same page twice
+
+
+# --- D140: a screen sits in its casing; a lit preview is read upright ---
+
+def test_lit_strip_running_off_the_photo_is_not_a_screen(sig, tmp_path):
+    """A paper strip over a dark desk is lit and contrasted like a screen, but not framed."""
+    import cv2
+
+    img = cv2.imread(render_device_screen(sig, tmp_path / "s.png", leads=CHEST_6))
+    assert is_device_screen(img)
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    ys, xs = np.nonzero(g > 165)
+    cropped = img[:, xs.min() + 2:xs.max() - 2]      # the lit panel now touches both side edges
+    assert not is_device_screen(cropped)
+
+
+def test_lit_screen_with_negative_qrs_is_not_turned(sig, tmp_path):
+    neg = sig.model_copy(update={"signal": -np.asarray(sig.signal)})
+    digitize_screen(render_device_screen(neg, tmp_path / "n.png", leads=CHEST_6))
+    assert digitize_screen.last_calibration["rotated_deg"] == 0

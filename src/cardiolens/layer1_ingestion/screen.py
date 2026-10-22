@@ -43,7 +43,20 @@ SCREEN_MIN_PANEL_FRACTION = 0.03
 SCREEN_MAX_PANEL_FRACTION = 0.8   # a panel filling the photo is a paper page, not a screen
 SCREEN_MAX_RED_FRACTION = 0.02    # red-grid pixels inside the panel: more = paper
 SCREEN_LIMB_EINTHOVEN_R = 0.9
+SCREEN_NAME_MAX_LAG = 0.03        # of the row: the time shift per row a tilted photo may carry (D140)
 SCREEN_LIGHT_MIN_V = 170          # a lit panel's median brightness
+SCREEN_FRAME_MARGIN = 0.01        # of the photo's long side: a light panel nearer an edge is not framed (D140)
+SCREEN_TINT_HUE = (85, 125)        # a bluish backlit panel (second pass, D140) ...
+SCREEN_TINT_SAT = (30, 130)        # ... tinted, not near-white (casing) nor grey paper under a cold white balance
+SCREEN_TINT_MIN_V = 140
+SCREEN_SQUARE_MIN_POWER = 0.3     # grid lines on both axes at >= this of each axis's strongest ...
+SCREEN_SQUARE_TOL = 0.12          # ... with periods this close = the square (D140)
+SCREEN_TITLE_RATIO = 0.8         # panel rows darker than this x its median at the top = title bars ...
+SCREEN_TITLE_MAX_FRACTION = 0.25  # ... within this much of the height
+SCREEN_TITLE_PAD_PX = 3
+SCREEN_SWEEP_GAP = 0.015         # an empty band this wide (of the panel) across all rows = the sweep ...
+SCREEN_SWEEP_SEARCH = 0.35        # ... looked for in this right part of the span
+SCREEN_SWEEP_EMPTY = 0.35         # ... "empty": ink below this x the span's median column (stray specks)
 SCREEN_RIM_CONTRAST = 80          # panel minus its frame (see _rim_contrast)
 SCREEN_LIGHT_MIN_INK = 0.005      # a lit panel with less trace ink is a button or an info box
 SCREEN_DARK_INK_RATIO = 1.35      # dark screens: brighter than this x the local background ...
@@ -69,12 +82,19 @@ LIMB_6 = ["I", "II", "III", "aVR", "aVL", "aVF"]
 CHEST_6 = ["V1", "V2", "V3", "V4", "V5", "V6"]
 
 
-def find_screen_panel(bgr: np.ndarray) -> tuple[int, int, int, int] | None:
-    """(x0, y0, x1, y1) of the lit waveform panel, or None."""
+def find_screen_panel(bgr: np.ndarray, tinted: bool = False) -> tuple[int, int, int, int] | None:
+    """(x0, y0, x1, y1) of the lit waveform panel, or None. ``tinted``: a bluish backlit
+    panel (D140: a TeleECG in a white casing — the casing is the near-white region, the
+    panel is light blue, hue ~102, saturation ~77)."""
     import cv2
 
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    bright = ((hsv[..., 2] > SCREEN_BRIGHT_V) & (hsv[..., 1] < SCREEN_BRIGHT_MAX_S)).astype(np.uint8)
+    if tinted:
+        hue, sat = hsv[..., 0], hsv[..., 1]
+        bright = ((hsv[..., 2] > SCREEN_TINT_MIN_V) & (hue >= SCREEN_TINT_HUE[0]) & (hue <= SCREEN_TINT_HUE[1])
+                  & (sat >= SCREEN_TINT_SAT[0]) & (sat <= SCREEN_TINT_SAT[1])).astype(np.uint8)
+    else:
+        bright = ((hsv[..., 2] > SCREEN_BRIGHT_V) & (hsv[..., 1] < SCREEN_BRIGHT_MAX_S)).astype(np.uint8)
     bright = cv2.morphologyEx(bright, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
     _n, lab, st, _ = cv2.connectedComponentsWithStats(bright)
     area = bgr.shape[0] * bgr.shape[1]
@@ -143,23 +163,50 @@ def screen_view(bgr: np.ndarray) -> tuple[str, np.ndarray, tuple[int, int, int, 
     panel) or "dark" (bright trace on black); None for anything else (paper)."""
     import cv2
 
-    box = find_screen_panel(bgr)
-    if box is not None:
+    h_img, w_img = bgr.shape[:2]
+    margin = SCREEN_FRAME_MARGIN * max(h_img, w_img)
+    for tinted in (False, True):
+        box = find_screen_panel(bgr, tinted=tinted)
+        if box is None:
+            continue
         x0, y0, x1, y1 = box
+        # A screen sits in its casing: framed on all four sides. A paper strip or page
+        # held over a dark desk is lit and contrasted too, but runs off the photo's edges
+        # (D140: r07, r09-r11 were read as screens).
+        if min(x0, y0, w_img - x1, h_img - y1) < margin:
+            continue
         p = bgr[y0:y1, x0:x1].astype(int)
         red = (p[..., 2] - p[..., 0] > 40) & (p[..., 2] > 150)
         v = float(np.median(cv2.cvtColor(bgr[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)[..., 2]))
         gray = cv2.cvtColor(bgr[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
+        box_y0 = y0
         # A white button or info box is lit and framed too, but carries no trace.
-        if (red.mean() <= SCREEN_MAX_RED_FRACTION and v >= SCREEN_LIGHT_MIN_V
+        if (red.mean() <= SCREEN_MAX_RED_FRACTION and v >= (SCREEN_TINT_MIN_V if tinted else SCREEN_LIGHT_MIN_V)
                 and _rim_contrast(bgr, box) >= SCREEN_RIM_CONTRAST
                 and _ink(gray)[1].mean() >= SCREEN_LIGHT_MIN_INK):
-            return "light", gray, box
+            box = _trim_title_bars(gray, box)
+            x0, y0, x1, y1 = box
+            return "light", gray[y0 - box_y0:], box
     box = find_dark_panel(bgr)
     if box is not None:
         x0, y0, x1, y1 = box
         return "dark", cv2.cvtColor(bgr[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY), box
     return None
+
+
+def _trim_title_bars(gray: np.ndarray, box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """The box without the dark status and title bars at its top ("02:44", "Preview" on
+    TeleECG): their thick text reads as a trace row (D140: the bluish second pass takes them
+    in; the leads were then shifted by one row)."""
+    med = np.median(gray, axis=1)
+    ref = float(np.median(gray))
+    top = 0
+    while top < SCREEN_TITLE_MAX_FRACTION * len(med) and med[top] < SCREEN_TITLE_RATIO * ref:
+        top += 1
+    if top == 0:
+        return box
+    x0, y0, x1, y1 = box
+    return x0, y0 + top + SCREEN_TITLE_PAD_PX, x1, y1
 
 
 def is_device_screen(bgr: np.ndarray) -> bool:
@@ -195,6 +242,42 @@ def _major_pitch_px(g: np.ndarray, ink: np.ndarray) -> float | None:
         if near and f[max(near, key=lambda i: f[i])] >= SCREEN_FUNDAMENTAL_FRACTION * f[top_i]:
             best = max(near, key=lambda i: f[i])
     return float(1.0 / fr[best])
+
+
+def _spectral_lines(prof: np.ndarray) -> list[tuple[float, float]]:
+    """(period px, power relative to the strongest) of the local spectral maxima of a profile
+    within the grid's period range, strongest first."""
+    prof = prof - prof.mean()
+    if prof.size < 64:
+        return []
+    f = np.abs(np.fft.rfft(prof * np.hanning(prof.size)))
+    fr = np.fft.rfftfreq(prof.size)
+    ok = np.flatnonzero((fr >= 1.0 / SCREEN_GRID_PERIOD_PX[1]) & (fr <= 1.0 / SCREEN_GRID_PERIOD_PX[0]))
+    loc = [i for i in ok if f[i] >= f[i - 1] and f[i] >= f[min(i + 1, f.size - 1)]]
+    if not loc:
+        return []
+    top = max(f[i] for i in loc)
+    return sorted(((float(1.0 / fr[i]), float(f[i] / top)) for i in loc), key=lambda t: -t[1])
+
+
+def _square_pitch_px(g: np.ndarray, ink: np.ndarray) -> float | None:
+    """Grid period (px), checked on both axes: the squares are square. The column profile's
+    fundamental (``_major_pitch_px``) stands if the row profile has a line there too;
+    otherwise the line both profiles share with the most power between them (D140: on narrow
+    TeleECG panels the column profile alone gave 4 squares for one — a few beats and the
+    sweep gap make low lines). None if the axes share no line."""
+    filled = np.where(ink, 1.0, g)
+    xs = [t for t in _spectral_lines(filled.mean(axis=0)) if t[1] >= SCREEN_SQUARE_MIN_POWER]
+    ys = [t for t in _spectral_lines(filled.mean(axis=1)) if t[1] >= SCREEN_SQUARE_MIN_POWER]
+    major = _major_pitch_px(g, ink)
+    if major is not None and any(abs(py - major) <= SCREEN_SQUARE_TOL * major for py, _ in ys):
+        return major
+    best = None
+    for px, wx in xs:
+        for py, wy in ys:
+            if abs(px - py) <= SCREEN_SQUARE_TOL * px and (best is None or wx + wy > best[1]):
+                best = (px, wx + wy)
+    return best[0] if best else None
 
 
 def _ink(gray: np.ndarray, mode: str = "light") -> tuple[np.ndarray, np.ndarray]:
@@ -292,6 +375,22 @@ def _trace_span(mask: np.ndarray, c0: int, c1: int) -> tuple[int, int]:
             min(c1 - SCREEN_RIGHT_MARGIN_PX, c0 + int(on[-1]) + 1))
 
 
+def _sweep_span(mask: np.ndarray, a: int, b: int) -> tuple[int, int]:
+    """A live preview's span without what lies past the sweep: the trace is redrawn from the
+    left, an empty gap across all rows marks the sweep, and right of it are the previous
+    sweep's leftovers, from another moment (D140, r14)."""
+    col = mask[:, a:b].sum(axis=0)
+    need = max(3, int(SCREEN_SWEEP_GAP * mask.shape[1]))
+    start = int((1.0 - SCREEN_SWEEP_SEARCH) * col.size)
+    empty = SCREEN_SWEEP_EMPTY * float(np.median(col)) if col.size else 0.0
+    run = 0
+    for i in range(start, col.size):
+        run = run + 1 if col[i] <= empty else 0
+        if run >= need:
+            return a, a + i - run + 1
+    return a, b
+
+
 def _read_rows(mask: np.ndarray, x_left: int, x_right: int, n_rows: int | None,
                uv_per_px: float) -> tuple[list[np.ndarray], list[float]]:
     from scipy.signal import find_peaks
@@ -371,7 +470,10 @@ def digitize_screen(path: str | Path, *, lead_order: list[str] | None = None,
     # 1.8-s window).
     if mode == "light" and turns == 0:
         try:
-            return _digitize_view(gray, mode, box, 0, lead_order, mm_per_s, mm_per_mv, grid_mm)
+            # Upright too: the QRS directions do not decide here (D140: a patient with negative
+            # QRS in most leads was read upside down).
+            return _digitize_view(gray, mode, box, 0, lead_order, mm_per_s, mm_per_mv, grid_mm,
+                                  orientation_known=True)
         except ValueError:
             if gray.shape[0] <= SCREEN_PORTRAIT_RATIO * gray.shape[1]:
                 raise
@@ -396,7 +498,7 @@ def _digitize_view(gray: np.ndarray, mode: str, box: tuple[int, int, int, int], 
         # found from the ink.
         if mode == "light" and len(cs) == 1:
             c0, c1 = cs[0]
-            return [(c0 + int(SCREEN_LABEL_FRACTION * (c1 - c0)), c1 - SCREEN_RIGHT_MARGIN_PX)]
+            return [_sweep_span(m, c0 + int(SCREEN_LABEL_FRACTION * (c1 - c0)), c1 - SCREEN_RIGHT_MARGIN_PX)]
         return [_trace_span(m, c0, c1) for c0, c1 in cs]
 
     spans = spans_of(mask, cols)
@@ -408,7 +510,7 @@ def _digitize_view(gray: np.ndarray, mode: str, box: tuple[int, int, int, int], 
         px_per_mm = col_px / (SCREEN_6X2_COLUMN_S * mm_per_s)
         scale_from = f"column = {SCREEN_6X2_COLUMN_S:g} s"
     else:
-        pitch = _major_pitch_px(ratio, mask)
+        pitch = _square_pitch_px(ratio, mask) or _major_pitch_px(ratio, mask)
         if pitch is None or pitch < 8:
             raise ValueError("screen: grid pitch not found")
         px_per_mm = pitch / grid_mm
@@ -447,12 +549,30 @@ def _digitize_view(gray: np.ndarray, mode: str, box: tuple[int, int, int, int], 
     return dict(zip(lead_order, rows, strict=True))
 
 
+def _einthoven_r(i: np.ndarray, ii: np.ndarray, iii: np.ndarray) -> float:
+    """Correlation of II with I + III, the best over small time shifts growing row by row: a
+    photo taken a few degrees off puts each row's QRS a few pixels later than the row above
+    (D140: TeleECG limb leads at 3.5 deg read r 0.40 unshifted, 0.9 upright)."""
+    n = len(ii)
+    lag = max(1, int(SCREEN_NAME_MAX_LAG * n))
+    best = -1.0
+    for s in range(-lag, lag + 1):
+        lo, hi = abs(s), n - abs(s)
+        if hi - lo < n // 2:
+            continue
+        a, c = i[lo - s:hi - s], iii[lo + s:hi + s]
+        b = ii[lo:hi]
+        if np.std(b) > 0 and np.std(a + c) > 0:
+            best = max(best, float(np.corrcoef(b, a + c)[0, 1]))
+    return best
+
+
 def _guess_lead_order(rows: list[np.ndarray]) -> list[str]:
     if len(rows) == 12:
         return LIMB_6 + CHEST_6
     if len(rows) == 6:
         a, b, c = (r.astype(np.float64) for r in rows[:3])
-        if np.std(b) > 0 and np.std(a + c) > 0 and np.corrcoef(b, a + c)[0, 1] >= SCREEN_LIMB_EINTHOVEN_R:
+        if _einthoven_r(a, b, c) >= SCREEN_LIMB_EINTHOVEN_R:
             return LIMB_6
         return CHEST_6
     return LIMB_6[:len(rows)]
