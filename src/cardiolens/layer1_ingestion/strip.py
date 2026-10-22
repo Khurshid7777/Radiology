@@ -714,8 +714,9 @@ def count_rows(path: str | Path | np.ndarray) -> int:
 
 
 def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
-    """Pick the layout: a device screen photo -> screen reader (D120); a narrow strip of
-    paper -> three-channel reader (D125); ~12 rows -> a report sheet (rows beside text
+    """Pick the layout: a device screen photo -> screen reader (D120); an elongated strip
+    -> 3x4 + rhythm reader (D141), refused when too coarse; a narrow strip of paper ->
+    three-channel reader (D125); ~12 rows -> a report sheet (rows beside text
     with a rhythm strip, D126), then a strip; otherwise the 3x4 page digitiser; the
     others are the fallbacks in that order."""
     import cv2
@@ -723,7 +724,10 @@ def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
     from cardiolens.layer1_ingestion.digitize import digitize_page_to_signal
     from cardiolens.layer1_ingestion.screen import digitize_screen_to_signal, is_device_screen
     from cardiolens.layer1_ingestion.sequential import (
+        RHYTHM_LOW_RES,
+        digitize_rhythm_strip_to_signal,
         digitize_sequential_to_signal,
+        is_rhythm_strip_candidate,
         is_sequential_strip,
     )
     from cardiolens.layer1_ingestion.sheet import digitize_sheet_to_signal
@@ -734,6 +738,13 @@ def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
             return digitize_screen_to_signal(path)
         except ValueError:
             pass
+    coarse = None
+    if bgr is not None and is_rhythm_strip_candidate(bgr):   # 3x4 + rhythm on a strip (D141)
+        try:
+            return digitize_rhythm_strip_to_signal(path)
+        except ValueError as err:
+            if RHYTHM_LOW_RES in str(err):
+                coarse = err
     if bgr is not None and is_sequential_strip(bgr):  # three rows, lead groups in turn (D125)
         try:
             return digitize_sequential_to_signal(path)
@@ -741,7 +752,10 @@ def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
             # A strip whose leads cannot be named (D138) is refused as such: the page
             # reader would name its rows by the 3x4 layout, which they are not.
             if "cannot be named" in str(err):
-                raise
+                raise coarse or err from None
+    if coarse is not None:
+        # Four rows too coarse to name: the page reader would read them by the 3x4 layout.
+        raise coarse
     rows = count_rows(path)
     if bgr is not None and bgr.shape[0] > bgr.shape[1]:
         # A portrait photo of a landscape sheet (D126): its rows run across the turned frame.

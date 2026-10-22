@@ -45,6 +45,7 @@ SCREEN_MAX_RED_FRACTION = 0.02    # red-grid pixels inside the panel: more = pap
 SCREEN_LIMB_EINTHOVEN_R = 0.9
 SCREEN_NAME_MAX_LAG = 0.03        # of the row: the time shift per row a tilted photo may carry (D140)
 SCREEN_LIGHT_MIN_V = 170          # a lit panel's median brightness
+SCREEN_MAX_ASPECT = 2.2           # a lit panel longer than this x its width is a paper strip (D141)
 SCREEN_FRAME_MARGIN = 0.01        # of the photo's long side: a light panel nearer an edge is not framed (D140)
 SCREEN_TINT_HUE = (85, 125)        # a bluish backlit panel (second pass, D140) ...
 SCREEN_TINT_SAT = (30, 130)        # ... tinted, not near-white (casing) nor grey paper under a cold white balance
@@ -174,6 +175,10 @@ def screen_view(bgr: np.ndarray) -> tuple[str, np.ndarray, tuple[int, int, int, 
         # held over a dark desk is lit and contrasted too, but runs off the photo's edges
         # (D140: r07, r09-r11 were read as screens).
         if min(x0, y0, w_img - x1, h_img - y1) < margin:
+            continue
+        # Nor is a lit panel much longer than wide (6x2 displays: 1.65-1.9): a whole strip
+        # laid on a dark desk is framed too (D141).
+        if max(x1 - x0, y1 - y0) > SCREEN_MAX_ASPECT * min(x1 - x0, y1 - y0):
             continue
         p = bgr[y0:y1, x0:x1].astype(int)
         red = (p[..., 2] - p[..., 0] > 40) & (p[..., 2] > 150)

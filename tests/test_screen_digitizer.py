@@ -64,7 +64,9 @@ def test_paper_page_is_not_a_screen(sig, tmp_path):
 @pytest.mark.parametrize("kw,layout", [
     (dict(dark=True), "screen 6x1"),
     (dict(dark=True, columns=2, seconds=5.0, row_pitch_mm=12, px_per_mm=6), "screen 6x2"),
-    (dict(columns=2, seconds=5.0, row_pitch_mm=12, px_per_mm=6), "screen 6x2"),
+    # a real 6x2 display is 1.65-1.9 times as wide as high (D121); a longer lit panel is a
+    # paper strip (D141), so the light one is drawn with taller rows
+    (dict(columns=2, seconds=5.0, row_pitch_mm=22, px_per_mm=6), "screen 6x2"),
 ])
 def test_dark_and_two_column_screens(tmp_path, kw, layout):
     from cardiolens.layer1_ingestion.screen import digitize_screen_to_signal
