@@ -199,7 +199,9 @@ def summarize(result: PipelineResult) -> dict:
     iv = m.intervals
     prov = result.signal.provenance
     calib = next((n for n in prov.notes if n.startswith("calibration:")), None)
-    layout = next((n.split(":")[0] for n in prov.notes if "strip" in n or "page" in n), None)
+    scanned = next((n.split()[1] for n in prov.notes if n.startswith("layout: ")), None)   # ecgscan (D139)
+    layout = (f"{scanned} (сканер)" if scanned else
+              next((n.split(":")[0] for n in prov.notes if "strip" in n or "page" in n), None))
     return {
         "layout": layout,
         "heart_rate_bpm": m.heart_rate_bpm, "pr_ms": iv.pr_ms, "qrs_ms": iv.qrs_ms,
