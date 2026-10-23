@@ -307,8 +307,12 @@ def summarize(result: PipelineResult) -> dict:
     prov = result.signal.provenance
     calib = next((n for n in prov.notes if n.startswith("calibration:")), None)
     scanned = next((n.split()[1] for n in prov.notes if n.startswith("layout: ")), None)   # ecgscan (D139)
+    # The reader's own note names the layout; the calibration dict and the album note mention
+    # "strip" and "page" too (D148: an FK album's card read "раскладка calibration").
     layout = (f"{scanned} (сканер)" if scanned else
-              next((n.split(":")[0] for n in prov.notes if "strip" in n or "page" in n), None))
+              next((n.split(":")[0] for n in prov.notes
+                    if not n.startswith(("calibration:", "photo pages combined"))
+                    and any(w in n for w in ("strip", "page", "screen", "sheet"))), None))
     return {
         "layout": layout,
         "heart_rate_bpm": m.heart_rate_bpm, "pr_ms": iv.pr_ms, "qrs_ms": iv.qrs_ms,
