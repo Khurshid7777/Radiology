@@ -313,7 +313,8 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
         try:
             rect = rectify(work, working_px_per_mm=float(g_cfg["working_px_per_mm"]), raw_grid=raw,
                            max_upscale=float(g_cfg["max_upscale"]), fit_px_per_mm=g_cfg.get("fit_px_per_mm"),
-                           shear_min_deg=g_cfg.get("shear_min_deg"))
+                           shear_min_deg=g_cfg.get("shear_min_deg"),
+                           reread_tolerance=float(g_cfg.get("reread_tolerance", 0.15)))
         except Exception:
             reasons.append("GRID_NOT_FOUND")
             return result("rejected", ppm=raw_ppm)
@@ -419,7 +420,13 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     val = cfg.get("validate", {})
     cover = [r.trace.coverage or 0.0 for r in readings]
     if float(np.median(cover)) < val.get("min_median_coverage", 0.5):
-        reasons.append("TRACE_BROKEN")
+        # The ink ends well before the layout's last column: the photo shows part of the
+        # page (a piece of a strip), not broken traces. Only the reason differs; both refuse,
+        # and a part of a page is a layout matter for the callers (SD-067).
+        width_px = spec.record_s * decision.speed_for_traces * ppm
+        shown = None if frame.ink_x1 is None or width_px <= 0 else (frame.ink_x1 - frame.x0) / width_px
+        partial = shown is not None and shown < val.get("min_page_extent", 0.8)
+        reasons.append("PAGE_INCOMPLETE" if partial else "TRACE_BROKEN")
         return result("rejected", calibration=decision.calibration, ppm=raw_ppm, contrast=contrast,
                       layout=Layout(name=layout_name, confidence=layout_conf))
     cons = limb_consistency([(r.panel.lead, r.trace) for r in readings], fs_out)

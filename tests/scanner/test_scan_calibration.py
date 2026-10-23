@@ -200,3 +200,41 @@ def test_line_angles_reads_rows_and_columns_in_one_pass():
         cv2.line(g, (x, 20), (x + int(round(860 * np.tan(np.radians(-1)))), 880), 0, 1)
     rows, cols = line_angles(g)
     assert rows == pytest.approx(2.0, abs=0.3) and cols == pytest.approx(-1.0, abs=0.3)
+
+
+def test_a_piece_of_a_page_is_incomplete_not_broken(synth_mv):
+    """SD-067: the left 40 % of a 3x4 + rhythm page (a strip torn or photographed in part)
+    is refused as PAGE_INCOMPLETE — a layout matter — not as TRACE_BROKEN (a final refusal)."""
+    img, gt = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=10.0))
+    rhythm = next(t for t in gt.traces if t.kind == "rhythm")
+    cut = int(rhythm.x0_px + 0.4 * 10 * 25 * 10)
+    res = scan(cv2.imencode(".png", img[:, :cut])[1].tobytes(), hints=ScanHints(layout="3x4+rhythm"))
+    assert res.reject_reasons == ["PAGE_INCOMPLETE"]
+
+
+def test_a_grid_re_read_far_from_the_predicted_scale_is_not_used(synth_mv, monkeypatch):
+    """SD-068: after the perspective fit the grid of a faint page was re-read at 17.9 px/mm
+    (confidence 0.03); the page was squeezed 1.8x in time, the pulse read as 5 mm/mV and the
+    heart rate came out 100 instead of 55. The axis now keeps the predicted scale."""
+    import ecgscan.geometry.rectify as R
+    from ecgscan.geometry.grid import GridEstimate
+
+    img, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=10.0))
+    h, w = img.shape[:2]
+    quad = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
+    tilt = np.float32([[60, 40], [w - 20, 0], [w, h], [0, h - 50]])
+    photo = cv2.warpPerspective(img, cv2.getPerspectiveTransform(quad, tilt), (w, h), borderValue=(255, 255, 255))
+    raw = estimate_grid(photo)
+    real = R.estimate_grid
+    calls = []
+
+    def harmonic(bgr):
+        g = real(bgr)
+        calls.append(g)
+        return GridEstimate(17.9, g.px_per_mm_y, 0.3, 0.4, "gray", 0.03) if len(calls) == 1 else g
+
+    monkeypatch.setattr(R, "estimate_grid", harmonic)
+    rect = R.rectify(photo, working_px_per_mm=10.0, raw_grid=raw, max_upscale=1.25)
+    assert rect.method != "affine" and calls
+    assert rect.grid.px_per_mm_x == pytest.approx(raw.px_per_mm * min(1.25, 10.0 / raw.px_per_mm), rel=0.01)
+    assert rect.bgr.shape[1] == pytest.approx(img.shape[1] * 10.0 / 10.0, rel=0.1)    # not squeezed 1.8x

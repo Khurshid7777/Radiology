@@ -21,6 +21,7 @@ geometry:
   shear_min_deg: 0.3             # grid rows and columns tilted apart by more than this: de-shear, not just de-rotate (SD-054)
   tile_aspect: 2.0               # a frame longer than this x its width: if the whole-frame grid is weak, read it in pieces (a strip, SD-059)
   grid_tiles: 3
+  reread_tolerance: 0.15         # SD-068: a grid re-read after perspective further than this from the predicted scale is not the grid
 
 calibration:
   speeds_mm_s: [25, 50]
@@ -86,6 +87,7 @@ validate:
   rhythm_warn: 0.5                # SD-060: rhythm strip vs panel II / (aVF - aVR)/1.5 residual above -> RHYTHM_INCONSISTENT
   rhythm_unrelated: 0.9           # SD-060: every check at least this (~1 = unrelated) -> strip flagged, not measured
   min_median_coverage: 0.5       # below -> rejected TRACE_BROKEN
+  min_page_extent: 0.8           # SD-067: ...unless the ink spans less than this of the layout width -> PAGE_INCOMPLETE (a piece of a page)
   lead_min_coverage: 0.8         # any lead with less coverage -> LEAD_INCOMPLETE (needs confirmation)
   limb_warn: 0.7                 # PROVISIONAL: limb-lead consistency below -> LIMB_LEADS_INCONSISTENT (clean pages 0.83-0.86, I<->II swap 0.61)
   beat_check: true               # CardioLens beats vs page columns (D130) disagree -> BEATS_INCONSISTENT (needs confirmation)
