@@ -135,6 +135,36 @@ def test_original_is_kept_only_encrypted(make_client):
     assert PNG not in stored and svc.vault.get(sid) == PNG
 
 
+
+def test_a_page_in_parts_is_one_scan_with_one_sealed_original(make_client):
+    """SD-066: the parts reach the scanner as a list, in order, and are kept as one blob."""
+    import hashlib
+
+    from ecgscan_service.service import unpack_parts
+
+    seen = []
+    fake = FakeScan()
+    orig = fake.__call__
+
+    def spy(data, **kw):
+        seen.append(data)
+        return orig(data, **kw)
+
+    other = cv2.imencode(".png", np.full((50, 70, 3), 200, np.uint8))[1].tobytes()
+    client, svc = make_client(spy)
+    r = client.post("/scans", files=[("file", ("a.png", PNG, "image/png")), ("parts", ("b.png", other, "image/png"))],
+                    headers=KEY)
+    assert r.status_code == 202, r.text
+    sid = r.json()["scan_id"]
+    svc.wait(sid)
+    assert seen == [[PNG, other]] and unpack_parts(svc.vault.get(sid)) == [PNG, other]
+    joined = hashlib.sha256(PNG).hexdigest() + hashlib.sha256(other).hexdigest()
+    assert svc.store.get(sid).sha256 == hashlib.sha256(joined.encode()).hexdigest()
+    too_many = [("file", ("a.png", PNG, "image/png"))] + [("parts", (f"{i}.png", PNG, "image/png")) for i in range(4)]
+    assert client.post("/scans", files=too_many, headers=KEY).status_code == 400
+    bad = [("file", ("a.png", PNG, "image/png")), ("parts", ("b.txt", b"hello", "text/plain"))]
+    assert client.post("/scans", files=bad, headers=KEY).status_code == 415
+
 def test_without_a_key_nothing_is_kept(make_client):
     client, svc = make_client(vault=None)
     sid = _submit(client)

@@ -18,6 +18,8 @@ uvicorn cardiolens.api.app:app        # CardioLens + /scans
 ```bash
 curl -H "X-API-Key: $KEY" -F file=@ecg.jpg -F client=api localhost:8000/scans
 # {"scan_id": "…", "status": "queued"}
+# Лист на подложке, снятый по частям (SD-066): первая часть в file, остальные в parts (до 4 снимков)
+curl -H "X-API-Key: $KEY" -F file=@left.jpg -F parts=@right.jpg localhost:8000/scans
 curl -H "X-API-Key: $KEY" localhost:8000/scans/<id>            # статус, результат, тексты RU/UZ
 curl -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
      -d '{"decision": "corrected", "paper_speed_mm_s": 50}' localhost:8000/scans/<id>/confirm

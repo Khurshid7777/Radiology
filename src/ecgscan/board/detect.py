@@ -64,11 +64,12 @@ def _markers(gray: np.ndarray, dictionary: str, max_side: int) -> tuple[list[np.
 
 
 def detect_board(bgr: np.ndarray, specs: list[BoardSpec], *, min_markers: int = 3, max_residual_mm: float = 1.0,
-                 max_side_px: int = 2000) -> BoardFit | None:
+                 max_side_px: int = 2000, whole_zone: bool = True) -> BoardFit | None:
     """The board seen in ``bgr``, or ``None`` when no board marker is in the photo.
 
     A fit with ``ok=False`` means a board is there but cannot be trusted (too few
-    markers, corners off a plane): the caller falls back to the grid and says why."""
+    markers, corners off a plane): the caller falls back to the grid and says why.
+    ``whole_zone=False``: a part of a set (SD-066), the zone may extend out of frame."""
     import cv2
 
     gray = bgr if bgr.ndim == 2 else cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
@@ -109,26 +110,63 @@ def detect_board(bgr: np.ndarray, specs: list[BoardSpec], *, min_markers: int = 
     fit = BoardFit(spec, H, sorted(ids), residual, float(scales.min()), float(scales.mean()), in_frame)
     if residual > max_residual_mm:
         fit.ok, fit.reason = False, f"marker corners {residual:.2f} mm off a plane (board bent or a marker misread)"
-    elif not in_frame:
+    elif whole_zone and not in_frame:
         fit.ok, fit.reason = False, "the board's zone is not wholly in the photo"
     return fit
 
 
-def warp_zone(bgr: np.ndarray, fit: BoardFit, px_per_mm: float) -> np.ndarray:
-    """The zone at exactly ``px_per_mm`` pixels per board millimetre (never upscaled
-    by more than the photo holds: the photo is reduced first when it is finer)."""
+def _zone_transform(fit: BoardFit, px_per_mm: float, shape: tuple[int, int]) -> tuple[np.ndarray, float]:
+    """Photo px -> zone canvas px, and the factor the photo is first reduced by (never
+    upscaled by more than the photo holds: a finer photo is area-averaged down first,
+    a 3x reduction inside warpPerspective would alias the grid)."""
+    f = min(1.0, 1.25 * px_per_mm / fit.mean_px_per_mm)
+    H = fit.H
+    if f < 1.0:
+        h, w = shape
+        H = H @ np.diag([w / round(w * f), h / round(h * f), 1.0])
+    x0, y0, _, _ = fit.spec.zone_mm
+    S = np.array([[px_per_mm, 0, -x0 * px_per_mm], [0, px_per_mm, -y0 * px_per_mm], [0, 0, 1]], np.float64)
+    return S @ H, f
+
+
+def zone_shape(spec: BoardSpec, px_per_mm: float) -> tuple[int, int]:
+    zw, zh = spec.zone_size_mm
+    return int(round(zh * px_per_mm)), int(round(zw * px_per_mm))
+
+
+def warp_zone(bgr: np.ndarray, fit: BoardFit, px_per_mm: float, *,
+              with_mask: bool = False) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+    """The zone at exactly ``px_per_mm`` pixels per board millimetre; with ``with_mask``
+    also where the photo covers it (bool)."""
     import cv2
 
-    H = fit.H
-    f = min(1.0, 1.25 * px_per_mm / fit.mean_px_per_mm)
-    src = bgr
-    if f < 1.0:
-        # Area-average down first: a 3x reduction inside warpPerspective would alias the grid.
-        h, w = bgr.shape[:2]
-        src = cv2.resize(bgr, (int(round(w * f)), int(round(h * f))), interpolation=cv2.INTER_AREA)
-        H = H @ np.diag([w / src.shape[1], h / src.shape[0], 1.0])
-    x0, y0, _, _ = fit.spec.zone_mm
-    zw, zh = fit.spec.zone_size_mm
-    M = np.array([[px_per_mm, 0, -x0 * px_per_mm], [0, px_per_mm, -y0 * px_per_mm], [0, 0, 1]], np.float64) @ H
-    return cv2.warpPerspective(src, M, (int(round(zw * px_per_mm)), int(round(zh * px_per_mm))),
-                               flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    h, w = bgr.shape[:2]
+    M, f = _zone_transform(fit, px_per_mm, (h, w))
+    src = bgr if f == 1.0 else cv2.resize(bgr, (int(round(w * f)), int(round(h * f))), interpolation=cv2.INTER_AREA)
+    zh, zw = zone_shape(fit.spec, px_per_mm)
+    out = cv2.warpPerspective(src, M, (zw, zh), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    if not with_mask:
+        return out
+    ones = np.full(src.shape[:2], 255, np.uint8)
+    mask = cv2.warpPerspective(ones, M, (zw, zh), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT,
+                               borderValue=0)
+    return out, mask > 0
+
+
+def scale_map(fit: BoardFit, px_per_mm: float, n: int = 9) -> np.ndarray:
+    """The photo's own px per mm (the worse axis) at every pixel of the zone canvas."""
+    import cv2
+
+    x0, y0, x1, y1 = fit.spec.zone_mm
+    xs, ys = np.meshgrid(np.linspace(x0, x1, n), np.linspace(y0, y1, n))
+    p = np.stack([xs.ravel(), ys.ravel()], 1)
+    H_inv = np.linalg.inv(fit.H)
+
+    def proj(q: np.ndarray) -> np.ndarray:
+        r = np.c_[q, np.ones(len(q))] @ H_inv.T
+        return r[:, :2] / r[:, 2:]
+
+    c = proj(p)
+    s = np.minimum(np.linalg.norm(proj(p + [1.0, 0.0]) - c, axis=1), np.linalg.norm(proj(p + [0.0, 1.0]) - c, axis=1))
+    zh, zw = zone_shape(fit.spec, px_per_mm)
+    return cv2.resize(s.reshape(n, n).astype(np.float32), (zw, zh), interpolation=cv2.INTER_LINEAR)

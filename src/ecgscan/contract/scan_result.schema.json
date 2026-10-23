@@ -156,6 +156,17 @@
           "type": "boolean",
           "description": "Patient header was masked on the device before upload."
         },
+        "parts_sha256": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "description": "A page photographed in parts on a capture board: each part's SHA-256."
+        },
         "pipeline_version": {
           "type": "string"
         }
@@ -647,7 +658,8 @@
         "NOT_AN_ECG",
         "PAGE_INCOMPLETE",
         "PROCESSING_ERROR",
-        "IMAGE_TOO_LARGE"
+        "IMAGE_TOO_LARGE",
+        "BOARD_NOT_FOUND"
       ]
     },
     "warning_code": {

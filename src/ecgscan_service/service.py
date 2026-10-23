@@ -43,6 +43,32 @@ class ScanError(Exception):
         self.code = code
 
 
+_PARTS_MAGIC = b"ECGSCAN-PARTS1\n"
+
+
+def pack_parts(parts: list[bytes]) -> bytes:
+    """Several photos as one blob (one sealed original, one retention): a magic line,
+    the count and each length as 8-byte big-endian, then the photos."""
+    head = _PARTS_MAGIC + len(parts).to_bytes(8, "big") + b"".join(len(x).to_bytes(8, "big") for x in parts)
+    return head + b"".join(parts)
+
+
+def unpack_parts(blob: bytes) -> bytes | list[bytes]:
+    if not blob.startswith(_PARTS_MAGIC):
+        return blob
+    pos = len(_PARTS_MAGIC)
+    n = int.from_bytes(blob[pos:pos + 8], "big")
+    lens = [int.from_bytes(blob[pos + 8 + 8 * i:pos + 16 + 8 * i], "big") for i in range(n)]
+    pos += 8 + 8 * n
+    out = []
+    for ln in lens:
+        out.append(blob[pos:pos + ln])
+        pos += ln
+    if pos != len(blob):
+        raise ValueError("damaged parts container")
+    return out
+
+
 @dataclass
 class Settings:
     root: Path
@@ -59,6 +85,7 @@ class Settings:
     max_comment_chars: int = 500
     admins: tuple[str, ...] = ()        # key names that may open any client's scans
     max_megapixels: float = 60.0
+    max_parts: int = 4                  # photos of one page in parts on a capture board (SD-066)
 
     @classmethod
     def load(cls) -> Settings:
@@ -75,7 +102,8 @@ class Settings:
                    purge_interval_s=float(c["storage"].get("purge_interval_h", 1.0)) * 3600.0,
                    max_comment_chars=int(c.get("confirm", {}).get("max_comment_chars", 500)),
                    admins=tuple(c.get("access", {}).get("admins") or ()),
-                   max_megapixels=float(load_yaml("pipeline")["quality"].get("max_megapixels", 60)))
+                   max_megapixels=float(load_yaml("pipeline")["quality"].get("max_megapixels", 60)),
+                   max_parts=int(c["upload"].get("max_parts", 4)))
 
 
 class ScanService:
@@ -116,15 +144,14 @@ class ScanService:
 
     # -- submission and processing ---------------------------------------------------------
 
-    def submit(self, data: bytes, *, owner: str, hints: dict | None = None) -> str:
-        if len(data) > self.settings.max_bytes:
-            raise ScanError(413, f"file too large (max {self.settings.max_bytes // (1024 * 1024)} MB)")
-        if _mime(data) not in self.settings.mime:
-            raise ScanError(415, "unsupported file type; expected " + ", ".join(self.settings.mime))
-        size = image_size(data)
-        if size is not None and size[0] * size[1] > self.settings.max_megapixels * 1e6:
-            raise ScanError(413, f"image too large ({size[0]} x {size[1]} px; max "
-                                 f"{self.settings.max_megapixels:g} MP)")
+    def submit(self, data: bytes | list[bytes], *, owner: str, hints: dict | None = None) -> str:
+        """One photo, or a list: one page photographed in parts on a capture board (SD-066),
+        kept as one sealed original (``pack_parts``)."""
+        parts = data if isinstance(data, list) else [data]
+        if not parts or len(parts) > self.settings.max_parts:
+            raise ScanError(400, f"1 to {self.settings.max_parts} photos per scan")
+        for part in parts:
+            self._check_upload(part)
         with self._lock:
             if self._pending >= self.settings.max_pending:
                 raise ScanError(429, "too many scans in the queue; try again shortly")
@@ -133,8 +160,14 @@ class ScanService:
 
         scan_id = str(uuid.uuid4())
         hints = {k: v for k, v in (hints or {}).items() if k in HINT_KEYS and v is not None}
-        self.store.create(scan_id, owner=owner, sha256=hashlib.sha256(data).hexdigest(), hints=hints)
-        self.store.audit(scan_id, owner, "submitted", {"bytes": len(data), "hints": hints})
+        if len(parts) == 1:
+            data, sha = parts[0], hashlib.sha256(parts[0]).hexdigest()
+        else:
+            # As ScanResult.source: the hash of the parts' hex digests, in the order sent.
+            data = pack_parts(parts)
+            sha = hashlib.sha256("".join(hashlib.sha256(x).hexdigest() for x in parts).encode()).hexdigest()
+        self.store.create(scan_id, owner=owner, sha256=sha, hints=hints)
+        self.store.audit(scan_id, owner, "submitted", {"bytes": len(data), "parts": len(parts), "hints": hints})
         if self.vault is not None:
             self.vault.put(scan_id, data)
         else:
@@ -142,6 +175,16 @@ class ScanService:
                 self._inflight[scan_id] = data
         self._pool.submit(self._process, scan_id)
         return scan_id
+
+    def _check_upload(self, data: bytes) -> None:
+        if len(data) > self.settings.max_bytes:
+            raise ScanError(413, f"file too large (max {self.settings.max_bytes // (1024 * 1024)} MB)")
+        if _mime(data) not in self.settings.mime:
+            raise ScanError(415, "unsupported file type; expected " + ", ".join(self.settings.mime))
+        size = image_size(data)
+        if size is not None and size[0] * size[1] > self.settings.max_megapixels * 1e6:
+            raise ScanError(413, f"image too large ({size[0]} x {size[1]} px; max "
+                                 f"{self.settings.max_megapixels:g} MP)")
 
     def _original(self, scan_id: str) -> bytes | None:
         with self._lock:
@@ -180,7 +223,7 @@ class ScanService:
         art = self.artifacts_root / scan_id
         if art.exists():
             shutil.rmtree(art)
-        res = run(data, hints=ScanHints(**{k: hints.get(k) for k in HINT_KEYS if k in hints}), artifacts_dir=art)
+        res = run(unpack_parts(data), hints=ScanHints(**{k: hints.get(k) for k in HINT_KEYS if k in hints}), artifacts_dir=art)
         res.scan_id = scan_id
         # Artifact paths are served by name through the API, never as server paths. With a
         # storage key they are kept encrypted like the originals (D136).

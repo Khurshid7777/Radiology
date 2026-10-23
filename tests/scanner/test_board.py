@@ -8,7 +8,7 @@ import pytest
 from ecgscan.bench.render import RenderSpec, render_page
 from ecgscan.board import detect_board, load_boards, render_board
 from ecgscan.layout import get_layout
-from ecgscan.pipeline import ScanDebug, _board, pipeline_config, scan
+from ecgscan.pipeline import ScanDebug, _board, _board_set, pipeline_config, scan
 
 cv2 = pytest.importorskip("cv2")
 pytest.importorskip("cv2.aruco")
@@ -95,3 +95,53 @@ def test_an_untrusted_board_falls_back_to_the_grid(synth_mv, boards, kw, reason)
     dbg = ScanDebug()
     assert _board(_photo(synth_mv, boards[0], 12.0, **kw), cfg, dbg) is None
     assert not dbg.board.ok and reason in dbg.board.reason
+
+
+# --- a page in parts (SD-066) ---------------------------------------------------------
+
+def _shoot(img, scale: float, tilt: int = 60):
+    hh, ww = img.shape[:2]
+    src = np.float32([[0, 0], [ww, 0], [ww, hh], [0, hh]])
+    dst = np.float32([[tilt, tilt], [ww - tilt, 0], [ww, hh], [0, hh - tilt]]) * scale
+    return cv2.warpPerspective(img, cv2.getPerspectiveTransform(src, dst), (int(ww * scale), int(hh * scale)),
+                               borderValue=(90, 80, 70))
+
+
+@pytest.fixture(scope="module")
+def a3_parts(synth_mv, boards):
+    """The whole A3 at ~7 px/mm (refused), and its two halves at ~11 px/mm."""
+    flat = _photo(synth_mv, boards[0], 12.0, tilt=False)
+    w = flat.shape[1]
+    return _shoot(flat, 0.6), _shoot(flat[:, :int(w * 0.56)], 0.92), _shoot(flat[:, int(w * 0.44):], 0.92)
+
+
+def _png(img) -> bytes:
+    return cv2.imencode(".png", img)[1].tobytes()
+
+
+def test_a_page_too_coarse_whole_is_read_from_two_halves(synth_mv, a3_parts):
+    whole, left, right = a3_parts
+    assert scan(_png(whole)).reject_reasons == ["LOW_RESOLUTION"]
+    dbg = ScanDebug()
+    res = scan([_png(left), _png(right)], debug=dbg)
+    assert not res.reject_reasons and "STITCHED" in res.warnings
+    assert dbg.composite.coverage == pytest.approx(1.0) and set(np.unique(dbg.composite.source)) == {0, 1}
+    assert res.quality.px_per_mm > 9 and len(res.source.parts_sha256) == 2
+    rs = []
+    for lead, tr in res.leads.items():
+        y = tr.array()
+        k = int(round(tr.start_s * 500))
+        t = synth_mv[lead][k:k + len(y)]
+        ok = np.isfinite(y[:len(t)])
+        rs.append(np.corrcoef(t[ok], y[:len(t)][ok])[0, 1])
+    assert len(rs) == 12 and np.median(rs) > 0.85
+
+
+def test_a_set_needs_markers_on_every_part_and_the_whole_zone(a3_parts, synth_mv):
+    left = a3_parts[1]
+    cfg = copy.deepcopy(pipeline_config())
+    plain, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=8))
+    assert _board_set([left, plain], cfg, ScanDebug()) == "BOARD_NOT_FOUND"
+    assert _board_set([left, left], cfg, ScanDebug()) == "PAGE_INCOMPLETE"       # the right half never seen
+    res = scan([_png(left), _png(plain)])
+    assert res.reject_reasons == ["BOARD_NOT_FOUND"] and res.source.parts_sha256
