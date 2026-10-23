@@ -78,6 +78,9 @@ qtc_ms:
   male_upper: 450
   female_upper: 460
   short_lower: 350
+  # In atrial fibrillation the QT varies beat to beat: long QT from this QTc, marked
+  # approximate; below it a note that the QTc is not assessable (D146).
+  af_long_min: 500
   # Under a wide QRS (>= wide_qrs_ms, or a bundle branch block) the long-QT rule
   # judges QT - wide_qrs_qt_fraction x QRS (Bogossian 2014): two thirds of the
   # long-QT false calls on the 664 set carried a QRS >= 120 ms (D60).

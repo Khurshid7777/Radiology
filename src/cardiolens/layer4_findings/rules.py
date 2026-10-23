@@ -19,6 +19,7 @@ from cardiolens.layer4_findings.hypertrophy import hypertrophy_findings
 
 # Precordial leads where juvenile T-inversion is a normal variant in children.
 _PEDIATRIC_TINV_OK = {"V1", "V2", "V3", "V4"}
+_FLAT_T_NORMAL_LEADS = {"III", "V1", "aVR"}
 
 # Coronary territories and their reciprocal leads (TZ §7.2, §8.1).
 _TERRITORIES = [
@@ -284,12 +285,15 @@ def detect_findings(
 
     # Peaked T-waves feed the hyperkalemia causal chain.
     _peaked_t_findings(m, norms, fs)
-    if len(m.morphology.flat_t_leads) >= 3:
+    # A low T in III, V1 or aVR is normal (Minnesota code 5 leaves them out): (III, V1, aVL)
+    # was the commonest set on normal PTB-XL records, 19 % of which had the finding (D146).
+    flat = [ld for ld in m.morphology.flat_t_leads if ld not in _FLAT_T_NORMAL_LEADS]
+    if len(flat) >= 3:
         fs.findings.append(Finding(
             code="flat_t_waves", group="other",
             label_ru="Уплощение зубцов T",
             label_uz="T to'lqinlarining yassilanishi",
-            evidence=_ev(leads=",".join(m.morphology.flat_t_leads)), confidence=0.6,
+            evidence=_ev(leads=",".join(flat)), confidence=0.6,
         ))
     if m.morphology.u_wave_leads:
         fs.findings.append(Finding(
@@ -434,16 +438,30 @@ def _qt_findings(iv, norms, is_pediatric, sig, fs: FindingSet) -> None:
         sex = (sig.patient.sex or "male").lower()
         upper = qtc_norms.get("female_upper" if sex == "female" else "male_upper")
         short_lower = qtc_norms.get("short_lower")
-    if upper and qtc > upper:
+    # In AF the QT changes beat to beat, but AF on antiarrhythmics is a TdP risk group, so
+    # the alert is not dropped (TZ §10): it needs QTc >= af_long_min there and says it is
+    # approximate; below that a note says the QTc is not assessable (D146).
+    af_min = qtc_norms.get("af_long_min")
+    if upper and qtc > upper and af_min and "atrial_fibrillation" in fs.codes() and qtc < float(af_min):
+        fs.findings.append(Finding(
+            code="qtc_unreliable_af", group="interval",
+            label_ru=f"QTc при фибрилляции предсердий не оценивается (QTc {qtc} мс, {formula})",
+            label_uz=f"Bo'lmachalar fibrillyatsiyasida QTc baholanmaydi (QTc {qtc} ms, {formula})",
+            evidence=_ev(qtc_ms=qtc, formula=formula, af_long_min=af_min), confidence=0.5,
+        ))
+    elif upper and qtc > upper:
+        in_af = bool(af_min) and "atrial_fibrillation" in fs.codes()
         ev = _ev(qtc_ms=qtc, formula=formula, upper=upper)
         if adjusted_from is not None:
             ev += _ev(qtc_measured_ms=adjusted_from, qrs_adjustment="bogossian")
         fs.findings.append(Finding(
             code="long_qt", group="interval",
             label_ru=f"Удлинение QT (QTc {qtc} мс, {formula}"
-                     + (", с поправкой на широкий QRS)" if adjusted_from is not None else ")"),
+                     + (", с поправкой на широкий QRS" if adjusted_from is not None else "")
+                     + (", при ФП ориентировочно)" if in_af else ")"),
             label_uz=f"QT uzayishi (QTc {qtc} ms, {formula}"
-                     + (", keng QRS uchun tuzatilgan)" if adjusted_from is not None else ")"),
+                     + (", keng QRS uchun tuzatilgan" if adjusted_from is not None else "")
+                     + (", BF da taxminiy)" if in_af else ")"),
             evidence=ev, confidence=0.85,
         ))
     elif short_lower and qtc < short_lower:
@@ -876,7 +894,9 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
 
 
 def _t_inversion_findings(m: Measurements, is_pediatric: bool, fs: FindingSet) -> None:
-    inv = [l for l in m.morphology.inverted_t_leads if l != "aVR"]
+    # An inverted T in aVR, and in an adult's V1, is normal (D146: (III, V1) was the
+    # commonest false set; 4.4 % of normal PTB-XL records had the finding, 0.7 % without V1).
+    inv = [l for l in m.morphology.inverted_t_leads if l != "aVR" and (is_pediatric or l != "V1")]
     if not inv:
         return
     # Pediatric caveat (TZ §7.2): juvenile T-inversion in V1-V4 is NORMAL.

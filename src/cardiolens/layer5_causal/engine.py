@@ -127,6 +127,7 @@ def _standalone_codes() -> set[str]:
     """Findings that legitimately stand alone (not needing a causal chain)."""
     return {
         "sinus_bradycardia", "sinus_tachycardia", "irregular_rhythm",
+        "qtc_unreliable_af",
         "first_degree_av_block", "short_qt", "st_elevation",
         "atrial_fibrillation", "st_depression", "t_inversion",
         "complete_av_block", "atrial_flutter", "left_axis_deviation",
