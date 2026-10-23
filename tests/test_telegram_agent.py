@@ -324,12 +324,11 @@ def test_album_on_the_capture_board_is_one_page(tmp_path):
     album, are composed into one 12-lead page by the scanner, not read one by one."""
     cv2 = pytest.importorskip("cv2")
     pytest.importorskip("cv2.aruco")
+    from cardiolens.telegram.analyze import analyse_photos, on_capture_board
     from ecgscan.bench.render import RenderSpec, render_page
     from ecgscan.bench.sources import derive_limb_leads
     from ecgscan.board import load_boards, render_board
     from ecgscan.layout import get_layout
-
-    from cardiolens.telegram.analyze import analyse_photos, on_capture_board
 
     s = generate_synthetic_ecg(heart_rate_bpm=72, seed=7)
     mv = derive_limb_leads({n: s.lead(n).astype(np.float64) / 1000.0 for n in s.lead_names})
