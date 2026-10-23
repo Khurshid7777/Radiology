@@ -582,11 +582,14 @@ def _page_beats(sig: SignalRepresentation, windows: dict, rhythm_row: np.ndarray
 
 
 def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = None, *,
-            qrs_hump_fraction: float | None = None) -> Measurements:
+            qrs_hump_fraction: float | None = None,
+            amplitude_sig: SignalRepresentation | None = None) -> Measurements:
     """Full Layer-3 measurement pass (TZ §6). ``pacing_spikes_s``: raw-signal pacing
     spike times (the band-pass erases them), used to keep R off atrial pacing spikes.
     ``qrs_hump_fraction`` overrides the QRS-end terminal-hump threshold for this call
-    only (D93 of the scanner branch, now D131: the scanner's stability check)."""
+    only (D93 of the scanner branch, now D131: the scanner's stability check).
+    ``amplitude_sig``: the same record on a wider band, sample-aligned with ``sig``; the
+    limb QRS amplitude (low voltage) is measured on it when given (D148)."""
     import neurokit2 as nk
 
     fs = sig.sampling_rate_hz
@@ -911,7 +914,9 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
             setattr(m, attr, terminal_qrs_sign(sig.lead(lead), rpeaks[mk], qrs_off[mk], fs, qrs_on[mk]))
 
     # --- Limb-lead QRS amplitude (for low-voltage detection, TZ §7.5) ---
-    m.qrs_amplitude_limb_uv = _limb_qrs_amplitude(sig, rpeaks, fs)
+    m.qrs_amplitude_limb_uv = _limb_qrs_amplitude(
+        amplitude_sig if amplitude_sig is not None and amplitude_sig.signal.shape == sig.signal.shape else sig,
+        rpeaks, fs)
 
     # --- Morphology (peaked/flat/inverted T) ---
     m.morphology.st = m.morphology.st  # populated by _measure_st

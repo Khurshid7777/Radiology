@@ -13,6 +13,7 @@ preprocessing:
   target_sampling_rate_hz: 500
   bandpass_low_hz: 0.5      # baseline-wander removal
   bandpass_high_hz: 40.0    # keep ST intact, remove HF noise
+  amplitude_bandpass_high_hz: 150.0   # D148: limb QRS amplitude (low voltage) on a 0.5-150 Hz copy (<= 0.45 fs)
   # Signal Quality Index below this marks a lead as low-quality (0..1).
   sqi_accept_threshold: 0.5
 

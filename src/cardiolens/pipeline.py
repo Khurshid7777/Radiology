@@ -115,19 +115,31 @@ def run_pipeline(
     # copy so the caller's raw signal survives — a second run on the same object
     # would otherwise see the band-passed signal and lose the pacing spikes.
     pp = cfg.preprocessing
+    raw = sig
     sig = preprocess(
-        sig.model_copy(deep=True),
+        raw.model_copy(deep=True),
         mains_frequency_hz=cfg.mains_frequency_hz,
         bandpass_low_hz=pp.bandpass_low_hz,
         bandpass_high_hz=pp.bandpass_high_hz,
         target_sampling_rate_hz=pp.target_sampling_rate_hz,
     )
+    # The QRS amplitude for low voltage on a wider band (D148): same resampling, so the
+    # samples and R peaks line up; the 40-Hz pass shaves the QRS peaks (median 7 %).
+    # Recorded signals only: on a digitised trace the wider band keeps the pixel steps
+    # (real photos: +33 % "amplitude"), so photos stay on the measuring band.
+    amp_sig = None
+    if pp.amplitude_bandpass_high_hz and not raw.provenance.digitized:
+        high = min(float(pp.amplitude_bandpass_high_hz), 0.45 * sig.sampling_rate_hz)
+        if high > pp.bandpass_high_hz:
+            amp_sig = preprocess(raw.model_copy(deep=True), mains_frequency_hz=cfg.mains_frequency_hz,
+                                 bandpass_low_hz=pp.bandpass_low_hz, bandpass_high_hz=high,
+                                 target_sampling_rate_hz=pp.target_sampling_rate_hz)
     quality, la_ra_reversed = assess_quality(sig, sqi_accept_threshold=pp.sqi_accept_threshold)
     quality_ok = _quality_ok(quality, pp.sqi_accept_threshold)
     audit.append(f"[L2] SQI mean-ok={quality_ok}, flags={quality.flags}")
 
     # Layer 3 — measurements (TZ §6).
-    m = measure(sig, pacing_spikes_s=sorted(set(spike_times) | set(ml_spike_times)))
+    m = measure(sig, pacing_spikes_s=sorted(set(spike_times) | set(ml_spike_times)), amplitude_sig=amp_sig)
     audit.append(
         f"[L3] HR={m.heart_rate_bpm} PR={m.intervals.pr_ms} "
         f"QRS={m.intervals.qrs_ms} QTcB={m.intervals.qtc_bazett_ms}"

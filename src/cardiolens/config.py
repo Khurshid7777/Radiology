@@ -47,6 +47,9 @@ class Preprocessing(BaseModel):
     bandpass_low_hz: float
     bandpass_high_hz: float
     sqi_accept_threshold: float
+    # QRS amplitudes for low voltage are measured on a second pass with this upper edge
+    # (IEC 60601-2-25 diagnostic band; the 40-Hz pass shaves 7 % off the QRS, D148).
+    amplitude_bandpass_high_hz: float | None = None
 
 
 class Versions(BaseModel):
