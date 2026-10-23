@@ -45,6 +45,8 @@ SCREEN_MAX_RED_FRACTION = 0.02    # red-grid pixels inside the panel: more = pap
 SCREEN_LIMB_EINTHOVEN_R = 0.9
 SCREEN_NAME_MAX_LAG = 0.03        # of the row: the time shift per row a tilted photo may carry (D140)
 SCREEN_LIGHT_MIN_V = 170          # a lit panel's median brightness
+SCREEN_PAPER_GRID_RATIO = 5.0     # a 1-mm grid line this far above the spectrum = paper (D143) ...
+SCREEN_PAPER_TILE = (128, 64)     # ... in the median tile of this size (w, h)
 SCREEN_MAX_ASPECT = 2.2           # a lit panel longer than this x its width is a paper strip (D141)
 SCREEN_FRAME_MARGIN = 0.01        # of the photo's long side: a light panel nearer an edge is not framed (D140)
 SCREEN_TINT_HUE = (85, 125)        # a bluish backlit panel (second pass, D140) ...
@@ -187,6 +189,7 @@ def screen_view(bgr: np.ndarray) -> tuple[str, np.ndarray, tuple[int, int, int, 
         box_y0 = y0
         # A white button or info box is lit and framed too, but carries no trace.
         if (red.mean() <= SCREEN_MAX_RED_FRACTION and v >= (SCREEN_TINT_MIN_V if tinted else SCREEN_LIGHT_MIN_V)
+                and not _millimetre_grid(gray)
                 and _rim_contrast(bgr, box) >= SCREEN_RIM_CONTRAST
                 and _ink(gray)[1].mean() >= SCREEN_LIGHT_MIN_INK):
             box = _trim_title_bars(gray, box)
@@ -197,6 +200,27 @@ def screen_view(bgr: np.ndarray) -> tuple[str, np.ndarray, tuple[int, int, int, 
         x0, y0, x1, y1 = box
         return "dark", cv2.cvtColor(bgr[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY), box
     return None
+
+
+def _millimetre_grid(gray: np.ndarray) -> bool:
+    """Paper's 1-mm grid: in tiles of the panel, a sharp spectral line at 3-15 px in the
+    column profile (D143: a piece of a grey-grid strip on a dark desk is framed and lit
+    like a screen). Tiles, not the whole panel: perspective bends and spreads the lines.
+    Median tile ratio on synthetic paper 6.1-7.9, on screens at most 3.8 (TeleECG photos
+    3.2-3.8, synthetic 1.8-2.4)."""
+    w, h = SCREEN_PAPER_TILE
+    if gray.shape[1] < w or gray.shape[0] < h:
+        return False
+    fr = np.fft.rfftfreq(w)
+    band = (fr >= 1 / 15.0) & (fr <= 1 / 3.0)
+    win = np.hanning(w)
+    ratios = []
+    for y in range(0, gray.shape[0] - h + 1, h):
+        for x in range(0, gray.shape[1] - w + 1, w):
+            prof = gray[y:y + h, x:x + w].astype(np.float64).mean(axis=0)
+            f = np.abs(np.fft.rfft((prof - prof.mean()) * win))
+            ratios.append(f[band].max() / max(1e-9, float(np.median(f[band]))))
+    return bool(ratios) and float(np.median(ratios)) >= SCREEN_PAPER_GRID_RATIO
 
 
 def _trim_title_bars(gray: np.ndarray, box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:

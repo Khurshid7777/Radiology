@@ -1426,7 +1426,7 @@ def page_to_signal(
             t = traces.get(lead)
             if t is None:
                 continue
-            t = t[:seg]
+            t = t[:max(0, min(seg, signal.shape[1] - col * seg))]
             signal[li, col * seg: col * seg + len(t)] = t
             windows[lead] = (col * PANEL_SECONDS, (col + 1) * PANEL_SECONDS)
     cov = coverage if coverage is not None else getattr(digitize_page, "last_coverage", None)

@@ -28,7 +28,7 @@ def sig():
 
 
 @pytest.mark.parametrize("window,leads", [((0, 10), {"I", "aVR", "V1", "V4"}), ((0, 4), {"I"}),
-                                          ((3, 7.5), {"aVR", "V1"})])
+                                          ((3, 7.5), {"V1"})])
 def test_groups_are_named(sig, tmp_path, window, leads):
     _, win = digitize_rhythm_strip(render_rhythm_strip(sig, tmp_path / "s.png", window_s=window))
     assert leads <= set(win) and "II" in win
@@ -52,3 +52,19 @@ def test_coarse_strip_is_refused_not_read_as_a_page(sig, tmp_path):
     """D141: the FK strip at ~5 px/mm read as a 3x4 page gave HR 42 / 55 / 89 per piece."""
     with pytest.raises(ValueError, match=RHYTHM_LOW_RES):
         digitize_auto_to_signal(render_rhythm_strip(sig, tmp_path / "k.png", px_per_mm=5))
+
+
+@pytest.mark.parametrize("degrade", [dict(rotation_deg=2), dict(perspective=0.02, jpeg_quality=70)])
+def test_photo_like_piece_is_named_or_refused_never_misread(sig, tmp_path, degrade):
+    """D143: a 4-s piece the reader could not name went on to the screen and page readers,
+    which read a rate of 55 as 35-100."""
+    from cardiolens.layer1_ingestion.digitize import degrade_image
+
+    src = render_rhythm_strip(sig, tmp_path / "p.png", window_s=(0, 4))
+    path = degrade_image(src, tmp_path / "d.png", seed=3, **degrade)
+    try:
+        s = digitize_auto_to_signal(path)
+    except ValueError:
+        return
+    assert any(n.startswith("3x4+rhythm strip photo") for n in s.provenance.notes)
+    assert run_pipeline(s, mode="A").measurements.heart_rate_bpm == pytest.approx(80, rel=0.05)

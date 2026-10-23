@@ -35,6 +35,7 @@ SEQ_PAPER_BRIGHT = 0.7       # ... and of bright, weakly saturated pixels
 SEQ_WHITE_V = 150            # grey-grid fallback (D141): near-white pixels ...
 SEQ_WHITE_MAX_S = 60
 SEQ_WHITE_FILL = 0.85        # ... filling this much of the window = paper
+SEQ_GRID_BAND_PX = 64        # ... in a band this high
 SEQ_GRID_LINE_RATIO = 8.0    # ... with a grid line this far above the spectrum's median
 SEQ_GAP_MM = 6.0             # an inkless run at least this long ...
 SEQ_GAP_ROWS = 2             # ... in at least this many rows at the same place is a group boundary
@@ -92,7 +93,10 @@ def _has_grid(gray: np.ndarray) -> bool:
     """A periodic fine grid: the column profile's strongest line in the 1-mm period range
     (3-15 px) stands well above the spectrum's median there (a white wall or a sheet of
     plain paper has no such line)."""
-    prof = gray.astype(np.float64).mean(axis=0)
+    # A thin band: on a photo turned by 2 deg the 1-mm lines drift by more than their period
+    # over the full height and wash out of the column profile (D143).
+    mid, half = gray.shape[0] // 2, SEQ_GRID_BAND_PX // 2
+    prof = gray[max(0, mid - half):mid + half].astype(np.float64).mean(axis=0)
     if prof.size < 64:
         return False
     f = np.abs(np.fft.rfft((prof - prof.mean()) * np.hanning(prof.size)))
@@ -346,13 +350,16 @@ RHYTHM_MAX_ERR = 0.3          # ... a window is limb / augmented when its identi
 RHYTHM_CHEST_ERR = 0.8        # ... and a chest window when neither comes closer than this
 RHYTHM_MIN_EVIDENCE_S = 0.6   # limb or augmented windows needed to name the leads (D138)
 RHYTHM_MIN_WINDOW_S = 1.0     # a group part shorter than this on the photo is left out
-RHYTHM_EDGE_S = 0.3           # trimmed off both ends of a group: a boundary found from one side
-                              # alone was up to 0.4 s off on synthetic strips
+RHYTHM_EDGE_S = 0.5           # trimmed off both ends of a group: a boundary found from one side
+                              # alone was up to 0.4 s off on synthetic strips, 0.47 s on a degraded
+                              # piece (D143)
 RHYTHM_INK_RATIOS = (0.7, 0.78, 0.8, 0.62)
 RHYTHM_MIN_ASPECT = 1.8       # paper this elongated may be such a strip (an A4 page: 1.41; a cut
                               # piece of the strip runs off the photo, so less than SEQ_MIN_ASPECT)
+RHYTHM_PIECE_ASPECT = 1.3     # a 4-s piece of the strip is ~1.5 x its width (D143)
 RHYTHM_MAX_FILL = 0.7         # paper filling more of the image is a page, not a strip on a desk
-RHYTHM_MIN_PX_PER_MM = 8.0    # below this four rows are refused as too coarse (D141)
+RHYTHM_MIN_PX_PER_MM = 7.5    # below this four rows are refused as too coarse (D141); the strip
+                              # reader measures a nominal 8 px/mm photo at 7.9-8.0 (D143)
 RHYTHM_LOW_RES = "rhythm strip: too coarse"
 
 
@@ -370,13 +377,20 @@ def _window_kinds(rows: dict[str, np.ndarray], fs: float) -> tuple[np.ndarray, n
         d = float(np.linalg.norm(ref))
         return float(np.linalg.norm(x - ref)) / d if d > 0 else np.inf
 
+    def zero_sum(*xs: np.ndarray) -> float:
+        """|aVR + aVL + aVF| against the largest of the three: aVL is often small, and a
+        residual relative to it alone failed on a photo turned by 2 deg (D143)."""
+        xs = [x - np.median(x) for x in xs]
+        d = max(float(np.linalg.norm(x)) for x in xs)
+        return float(np.linalg.norm(sum(xs))) / d if d > 0 else np.inf
+
     for x in range(0, max(1, n - win + 1), step):
         s = slice(x, x + win)
         # Shape alone does not tell the groups apart: V5 often looks like II, and V5 tracks
         # V4 + V6. The identities hold in amplitude too: the limb group's II is the rhythm's
         # II and I + III; the augmented leads sum to zero and aVF - aVR = 1.5 II.
         limb_err = max(rel(b[s], rh[s]), rel(a[s] + c[s], b[s]))
-        aug_err = max(rel(c[s] - a[s], 1.5 * rh[s]), rel(-(a[s] + c[s]), b[s]))
+        aug_err = max(rel(c[s] - a[s], 1.5 * rh[s]), zero_sum(a[s], b[s], c[s]))
         if limb_err <= RHYTHM_MAX_ERR and limb_err <= aug_err:
             k = 0
         elif aug_err <= RHYTHM_MAX_ERR:
@@ -431,6 +445,16 @@ def is_rhythm_strip_candidate(bgr: np.ndarray) -> bool:
     # page reader takes it (a 3x4 + rhythm page is this layout too).
     if h * w > RHYTHM_MAX_FILL * bgr.shape[0] * bgr.shape[1]:
         return False
+    return max(h, w) >= RHYTHM_PIECE_ASPECT * min(h, w)
+
+
+def is_strip_shaped(bgr: np.ndarray) -> bool:
+    """Elongated like a strip (a 3x4 page is 1.41): only then is a refusal of the rhythm
+    reader final; a shorter piece that it cannot name goes on to the other readers."""
+    found = find_paper(bgr)
+    if found is None:
+        return False
+    h, w = found[0].shape[:2]
     return max(h, w) >= RHYTHM_MIN_ASPECT * min(h, w)
 
 

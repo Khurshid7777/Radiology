@@ -729,22 +729,31 @@ def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
         digitize_sequential_to_signal,
         is_rhythm_strip_candidate,
         is_sequential_strip,
+        is_strip_shaped,
     )
     from cardiolens.layer1_ingestion.sheet import digitize_sheet_to_signal
 
     bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    coarse = None
+    # A 3x4 + rhythm strip first (D141): a named read rests on exact lead identities, which
+    # no screen satisfies, while a piece of the strip on a dark desk is framed and lit like
+    # a screen (D143: a 4-s piece was read as a 6x2 display).
+    if bgr is not None and is_rhythm_strip_candidate(bgr):
+        try:
+            return digitize_rhythm_strip_to_signal(path)
+        except ValueError as err:
+            # Four rows too coarse, or whose leads cannot be named, are refused: the page and
+            # screen readers would name them by their own layouts (D143: HR 35-100 on synthetic
+            # strips and pieces of 55-100). Unless the photo may be a device screen too: a
+            # TeleECG preview is its own reader's (a 6-row panel can pass for four rows).
+            if ((RHYTHM_LOW_RES in str(err) or "cannot be named" in str(err))
+                    and (is_strip_shaped(bgr) or not is_device_screen(bgr))):
+                coarse = err
     if bgr is not None and is_device_screen(bgr):     # a device's own display (D120)
         try:
             return digitize_screen_to_signal(path)
         except ValueError:
             pass
-    coarse = None
-    if bgr is not None and is_rhythm_strip_candidate(bgr):   # 3x4 + rhythm on a strip (D141)
-        try:
-            return digitize_rhythm_strip_to_signal(path)
-        except ValueError as err:
-            if RHYTHM_LOW_RES in str(err):
-                coarse = err
     if bgr is not None and is_sequential_strip(bgr):  # three rows, lead groups in turn (D125)
         try:
             return digitize_sequential_to_signal(path)
@@ -754,7 +763,6 @@ def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
             if "cannot be named" in str(err):
                 raise coarse or err from None
     if coarse is not None:
-        # Four rows too coarse to name: the page reader would read them by the 3x4 layout.
         raise coarse
     rows = count_rows(path)
     if bgr is not None and bgr.shape[0] > bgr.shape[1]:
