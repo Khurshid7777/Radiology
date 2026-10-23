@@ -707,7 +707,9 @@ def combine_screen_signals(signals: list[SignalRepresentation], *,
         notes += p.provenance.notes
         start += n
     conf = [p.provenance.confidence for p in pages if p.provenance.confidence is not None]
-    notes.append(f"device screen photo: {len(pages)} pages combined, one after the other")
+    # Neutral: the parts of a paper strip are combined here too (D142: an album of strip
+    # parts was flagged "photo of a device screen"); a screen page keeps its own note.
+    notes.append(f"photo pages combined: {len(pages)}, one after the other")
     return SignalRepresentation(
         signal=out, sampling_rate_hz=fs, lead_names=list(STANDARD_12_LEADS), duration_s=total / fs,
         source="image", provenance=Provenance(digitized=True, confidence=min(conf) if conf else None,

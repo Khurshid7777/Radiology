@@ -80,3 +80,12 @@ def test_chest_groups_alone_are_not_named_as_limb_leads(sig, tmp_path, turn):
         digitize_sequential(path)
     with pytest.raises(ValueError, match="cannot be named"):     # not re-read as a 3x4 page
         digitize_auto_to_signal(path)
+
+
+def test_combined_strip_parts_are_not_called_a_screen(sig, tmp_path):
+    """D142: the combined record's note said "device screen photo", and the report then
+    called an album of strip parts a photo of a device screen."""
+    a = digitize_sequential_to_signal(render_sequential_strip(sig, tmp_path / "a.png", groups=2, first=0))
+    b = digitize_sequential_to_signal(render_sequential_strip(sig, tmp_path / "b.png", groups=3, first=1))
+    r = run_pipeline(combine_screen_signals([a, b], drop_repeats=True), mode="A")
+    assert "screen_photo_limited" not in r.findings.codes()

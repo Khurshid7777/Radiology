@@ -86,6 +86,37 @@ def digitize_photo(path: str | Path) -> SignalRepresentation:
     return digitize_auto_to_signal(path)
 
 
+# Readers' refusals the card says in words (D142); anything else is shown as raised.
+_ERROR_TEXT = [
+    ("cannot be named", "отведения на этом куске ленты не опознать: на нём нет ни начала ленты с калибровочным "
+                        "импульсом, ни групп I–III / aVR–aVF. Снимите ленту целиком или пришлите все куски "
+                        "одним альбомом"),
+    ("no trace detected", "кривая ЭКГ на снимке не найдена. Снимите ближе, прямо сверху, без бликов, "
+                          "и отправьте файлом"),
+]
+
+
+_PPM_NOTE = " На снимке ≈"
+
+
+def error_text(e: Exception) -> str:
+    """What the card says about a photo that was not read: the scanner's and the readers'
+    Russian advice as is, known English refusals in words, the rest with its type."""
+    from cardiolens.layer1_ingestion.sequential import RHYTHM_LOW_RES
+
+    msg = str(e)
+    if RHYTHM_LOW_RES in msg:
+        head, _, advice = msg.partition("): ")
+        ppm = head.rpartition("(")[2].split()[0]
+        return f"{advice}{_PPM_NOTE}{ppm} точки на мм."
+    for key, text in _ERROR_TEXT:
+        if key in msg:
+            return text[0].upper() + text[1:] + "."
+    if isinstance(e, ValueError) and any("а" <= ch <= "я" for ch in msg.lower()):
+        return msg                      # already said in Russian (the scanner's refusals)
+    return f"{type(e).__name__}: {msg}"
+
+
 def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[PipelineResult | None, str | None]:
     """Digitise the photo (``digitize_photo``, D139) and run the pipeline; (result, None)
     or (None, error text)."""
@@ -93,7 +124,7 @@ def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[
         sig = digitize_photo(path)
         return run_pipeline(sig, mode=mode, provider=provider or StubProvider()), None
     except Exception as e:  # digitiser raises on pages it cannot read — that is data too
-        return None, f"{type(e).__name__}: {e}"
+        return None, error_text(e)
 
 
 def analyse_photos(paths: list[str | Path], *, mode: str = "A",
@@ -111,9 +142,10 @@ def analyse_photos(paths: list[str | Path], *, mode: str = "A",
         try:
             sigs.append(digitize_photo(p))
         except Exception as e:
-            errors.append(f"{Path(p).name}: {type(e).__name__}: {e}")
+            errors.append((Path(p).name, error_text(e)))
     screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]
-    strips = [s for s in sigs if any(n.startswith("three-channel strip photo") for n in s.provenance.notes)]
+    strips = [s for s in sigs if any(n.startswith(("three-channel strip photo", "3x4+rhythm strip photo"))
+                                     for n in s.provenance.notes)]
     try:
         if len(screens) >= 2:
             sig = combine_screen_signals(screens)
@@ -122,7 +154,14 @@ def analyse_photos(paths: list[str | Path], *, mode: str = "A",
         elif sigs:
             sig = sigs[0]
         else:
-            return None, "; ".join(errors)
+            # One reason for all the photos is said once (D142: three parts of one strip
+            # repeated the same refusal three times).
+            reasons = {t.split(_PPM_NOTE)[0] for _, t in errors}
+            if len(reasons) == 1:
+                ppm = sorted({t.split(_PPM_NOTE)[1].split()[0] for _, t in errors if _PPM_NOTE in t})
+                return None, reasons.pop() + (f"{_PPM_NOTE}{'–'.join(ppm[::max(1, len(ppm) - 1)])} точки на мм."
+                                              if ppm else "")
+            return None, "; ".join(f"{name}: {t}" for name, t in errors)
     except ValueError:            # the pages repeat leads: two photos of the same page
         sig = sigs[0]
     try:

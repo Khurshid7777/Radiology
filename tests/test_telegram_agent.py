@@ -286,3 +286,16 @@ def test_bot_reader_scanner_first_then_cardiolens(tmp_path):
         digitize_photo(page6)
     screen = render_device_screen(sig, tmp_path / "s.png", leads=CHEST_6)
     assert any(n.startswith("device screen photo") for n in digitize_photo(screen).provenance.notes)
+
+
+def test_refusals_are_said_in_words():
+    """D142: the card showed the readers' English refusals with their exception type."""
+    from cardiolens.layer1_ingestion.sequential import RHYTHM_LOW_RES
+    from cardiolens.telegram.analyze import error_text
+
+    low = error_text(ValueError(f"{RHYTHM_LOW_RES} (5.0 px/mm): Слишком низкое разрешение."))
+    assert low.startswith("Слишком низкое разрешение.") and "≈5.0" in low and "ValueError" not in low
+    named = error_text(ValueError("three-channel strip: ... the leads cannot be named; photograph the whole strip"))
+    assert named.startswith("Отведения на этом куске ленты не опознать")
+    assert error_text(ValueError("Снимок пересвечен")) == "Снимок пересвечен"
+    assert error_text(RuntimeError("boom")) == "RuntimeError: boom"
