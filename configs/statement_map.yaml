@@ -29,7 +29,8 @@ ventricular_tachycardia:    {aha: rhythm, snomed: ["164895002"], scp: [], code15
 wide_complex_tachycardia:   {aha: rhythm, snomed: [], scp: [], code15: []}
 sinus_pause:                {aha: rhythm, snomed: [], scp: [], code15: []}
 irregular_rhythm:           {aha: rhythm, snomed: [], scp: [], code15: []}
-first_degree_av_block:      {aha: av_conduction, snomed: ["270492004"], scp: [1AVB], code15: ["1dAVb"]}
+first_degree_av_block:      {aha: av_conduction, snomed: ["270492004"], scp: [1AVB, LPR], code15: ["1dAVb"]}   # LPR = prolonged PR, the same statement (D150)
+pr_borderline:              {aha: av_conduction, snomed: [], scp: [], code15: []}   # PR 200-210 ms: named, not a block (D150)
 complete_av_block:          {aha: av_conduction, snomed: ["27885002"], scp: [3AVB], code15: []}
 wpw_preexcitation:          {aha: av_conduction, snomed: ["74390002"], scp: [WPW], code15: []}
 lbbb:                       {aha: intraventricular_conduction, snomed: ["164909002", "733534002"], scp: [CLBBB], code15: ["LBBB"]}

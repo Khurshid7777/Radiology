@@ -242,12 +242,26 @@ def detect_findings(
     in_af = "atrial_fibrillation" in fs.codes()
     if (iv.pr_ms is not None and pr_hi and iv.pr_ms > pr_hi and p_present
             and not in_af and m.av_dissociation is not True):
-        fs.findings.append(Finding(
-            code="first_degree_av_block", group="interval",
-            label_ru=f"АВ-блокада I степени (PR {iv.pr_ms} мс)",
-            label_uz=f"I darajali AV blokada (PR {iv.pr_ms} ms)",
-            evidence=_ev(pr_ms=iv.pr_ms, norm_high=pr_hi), confidence=0.85,
-        ))
+        # Two levels in adults (D150): a PR within the measurement's own spread above the
+        # norm (200-210 ms; PR vs 12SL SD ~9 ms, D111) is named, not diagnosed — 100 of 161
+        # false AV-block-I calls on the PTB-XL development set sat in 200-220 ms.
+        block_from = _interval_norms(norms, sig.patient).get("pr_block_from") if not is_pediatric else None
+        if block_from is not None and iv.pr_ms <= float(block_from):
+            fs.findings.append(Finding(
+                code="pr_borderline", group="interval",
+                label_ru=f"PR {iv.pr_ms} мс: пограничное удлинение, возможна АВ-блокада I степени "
+                         f"(погрешность измерения ±10 мс)",
+                label_uz=f"PR {iv.pr_ms} ms: chegaraviy uzayish, I darajali AV blokada bo'lishi mumkin "
+                         f"(o'lchash xatoligi ±10 ms)",
+                evidence=_ev(pr_ms=iv.pr_ms, norm_high=pr_hi, block_from=block_from), confidence=0.6,
+            ))
+        else:
+            fs.findings.append(Finding(
+                code="first_degree_av_block", group="interval",
+                label_ru=f"АВ-блокада I степени (PR {iv.pr_ms} мс)",
+                label_uz=f"I darajali AV blokada (PR {iv.pr_ms} ms)",
+                evidence=_ev(pr_ms=iv.pr_ms, norm_high=pr_hi), confidence=0.85,
+            ))
 
     _conduction_findings(m, norms, fs, sig.patient)
     _qt_findings(iv, norms, is_pediatric, sig, fs)

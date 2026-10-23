@@ -69,6 +69,9 @@ svt_rate_min: 140
 
 intervals_ms:
   pr: [120, 200]
+  # PR above the norm but not above this is "PR at the upper limit" (pr_borderline), the
+  # AV block I finding starts past it: the PR measurement's own spread is ~9 ms (D150).
+  pr_block_from: 210
   qrs: [70, 110]
   qt: [350, 450]
   # QTc thresholds are sex-specific below.
