@@ -744,12 +744,15 @@ def digitize_auto_to_signal(path: str | Path, **kw) -> SignalRepresentation:
         except ValueError as err:
             # Four rows too coarse, or whose leads cannot be named, are refused: the page and
             # screen readers would name them by their own layouts (D143: HR 35-100 on synthetic
-            # strips and pieces of 55-100). Unless the photo may be a device screen too: a
-            # TeleECG preview is its own reader's (a 6-row panel can pass for four rows).
-            if ((RHYTHM_LOW_RES in str(err) or "cannot be named" in str(err))
-                    and (is_strip_shaped(bgr) or not is_device_screen(bgr))):
+            # strips and pieces of 55-100). Four rows found at full resolution and not named
+            # are refused even where the photo also passes for a screen (D148: a chest-only FK
+            # piece on a dark desk was read as a TeleECG panel, HR 125 for 78); no screen
+            # photo here (6 real, 5 synthetic) reaches that point. Too coarse is final only when
+            # it cannot be a screen: a TeleECG preview is its own reader's.
+            if "cannot be named" in str(err) or (
+                    RHYTHM_LOW_RES in str(err) and (is_strip_shaped(bgr) or not is_device_screen(bgr))):
                 coarse = err
-    if bgr is not None and is_device_screen(bgr):     # a device's own display (D120)
+    if bgr is not None and coarse is None and is_device_screen(bgr):     # a device's own display (D120)
         try:
             return digitize_screen_to_signal(path)
         except ValueError:

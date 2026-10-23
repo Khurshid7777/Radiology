@@ -68,3 +68,14 @@ def test_photo_like_piece_is_named_or_refused_never_misread(sig, tmp_path, degra
         return
     assert any(n.startswith("3x4+rhythm strip photo") for n in s.provenance.notes)
     assert run_pipeline(s, mode="A").measurements.heart_rate_bpm == pytest.approx(80, rel=0.05)
+
+
+def test_chest_only_piece_on_a_desk_is_refused_not_read_as_a_screen(sig, tmp_path):
+    """D149: a degraded V1-V6 piece on a dark desk passes for a lit screen; the screen reader
+    read it as a TeleECG panel (HR 125 for 78). Four rows that cannot be named are refused."""
+    from cardiolens.layer1_ingestion.digitize import degrade_image
+
+    src = render_rhythm_strip(sig, tmp_path / "c.png", window_s=(6, 10), px_per_mm=10)
+    path = degrade_image(src, tmp_path / "d.jpg", seed=5, jpeg_quality=85)
+    with pytest.raises(ValueError, match="cannot be named"):
+        digitize_auto_to_signal(path)
