@@ -712,6 +712,10 @@ python -m cardiolens.telegram analyse photo.jpg   # одно фото тем ж�
 стороне (≈ 4 px/мм для ленты) — просите присылать ЭКГ **файлом** («без сжатия»):
 агент читает и фото, и документы, а оцифровщик измерен на 6–12 px/мм (D72).
 
+## Развёртывание на сервер (D153)
+
+Docker Compose + Caddy (HTTPS), выкладка вручную через GitHub Actions → Deploy. Пошагово: [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
 ## Тесты
 
 ```bash

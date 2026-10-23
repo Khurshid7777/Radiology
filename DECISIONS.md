@@ -3726,3 +3726,28 @@ st_depression_minor против STD_; до → после; отправлен �
 `st_depression` сама, остальные находки и тревоги не изменились ни в одной записи; тест режима B
 (`test_st_minor_d152.py::test_mode_b_report_carries_the_minor_finding`) проходит. Все пять пунктов
 выполнены. **Принято.**
+
+## D153. Развёртывание на сервер владельца: Docker Compose + Caddy, выкладка только вручную
+
+**Задача.** Владелец купил сервер и домен. Нужно поднять CardioLens (API и веб-страницу загрузки) и иметь
+повторяемый способ обновления. Бот Telegram — позже, по команде владельца.
+
+**Решение.**
+- `deploy/Dockerfile` — образ приложения (python 3.11-slim, extras `digitize,scanner,llm,dicom`). Шаг apt
+  (`libgl1`, `libglib2.0-0`) нужен: `rapidocr-onnxruntime` тянет полный `opencv-python`.
+- `deploy/docker-compose.yml` — два сервиса: `cardiolens` (uvicorn :8000, только во внутренней сети) и
+  `caddy` (80/443, сертификат Let's Encrypt автоматически по `DOMAIN`). Данные сканера и обратной
+  связи — в томе `appdata`, переживают обновления.
+- `.github/workflows/deploy.yml` — только `workflow_dispatch` (вручную). Перед выкладкой проверяет, что CI
+  на этом коммите зелёный; rsync на сервер в `/opt/cardiolens`, `.env` пишется из GitHub secrets, затем
+  `docker compose up -d --build`; в конце проверка `https://DOMAIN/health`.
+- Порядок обновления (указание владельца): **перед каждой выкладкой — подтверждение владельца**.
+  Автоматической выкладки по push нет.
+- Нарратив: подписка claude.ai не даёт ключа API для сервера. Без `ANTHROPIC_API_KEY` работает офлайн-шаблон
+  (`llm.active = stub`); ключ из console.anthropic.com добавляется секретом без изменения кода.
+
+**Проверка.** Локально: uvicorn с теми же переменными — `/health` 200, `/` 200, `/scans` без ключа 401;
+YAML workflow разобран. Локальная `docker build` в контейнере сессии не прошла по сети (apt не видит
+`deb.debian.org`) — проверка сборки будет первым запуском на сервере.
+
+**Не входит.** Бот и сборщик Telegram, локальная LLM (Ollama) на сервере, резервное копирование тома.

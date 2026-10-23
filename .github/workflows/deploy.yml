@@ -1,0 +1,95 @@
+name: Deploy
+
+# Updates the server from main (D153). Only by hand: the owner confirms every update, so
+# the main session asks first and starts this workflow (Actions -> Deploy -> Run workflow)
+# only after a yes. The commit must have passed CI.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit or branch to deploy (normally main)"
+        required: true
+        default: main
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      actions: read
+    env:
+      APP_DIR: /opt/cardiolens
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: The commit passed CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          ok=$(gh run list --workflow CI --commit "$sha" --json conclusion --jq '[.[] | select(.conclusion=="success")] | length')
+          if [ "${ok:-0}" -lt 1 ]; then echo "CI is not green on $sha - not deploying"; exit 1; fi
+          echo "deploying $sha"
+
+      - name: SSH access
+        env:
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          HOST: ${{ secrets.SERVER_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          printf 'Host server\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  ServerAliveInterval 30\n' \
+            "$HOST" "${{ secrets.SERVER_USER }}" > ~/.ssh/config
+
+      - name: Copy the code
+        run: |
+          ssh server "sudo mkdir -p $APP_DIR && sudo chown \$(id -u):\$(id -g) $APP_DIR"
+          rsync -az --delete \
+            --exclude .git --exclude mobile --exclude tools --exclude reports \
+            --exclude 'data/*' \
+            --exclude deploy/.env \
+            ./ server:$APP_DIR/
+          rsync -az data/samples/ server:$APP_DIR/data/samples/
+
+      - name: Write the server's secrets
+        env:
+          DOMAIN: ${{ secrets.DOMAIN }}
+          ECGSCAN_API_KEYS: ${{ secrets.ECGSCAN_API_KEYS }}
+          ECGSCAN_STORAGE_KEY: ${{ secrets.ECGSCAN_STORAGE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          umask 077
+          {
+            echo "DOMAIN=$DOMAIN"
+            echo "ECGSCAN_API_KEYS=$ECGSCAN_API_KEYS"
+            echo "ECGSCAN_STORAGE_KEY=$ECGSCAN_STORAGE_KEY"
+            echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+            echo "CARDIOLENS_LLM_PROVIDER=auto"
+          } > env.server
+          scp env.server server:$APP_DIR/deploy/.env
+          rm -f env.server
+
+      - name: Build and start
+        run: |
+          ssh server "cd $APP_DIR && sudo bash deploy/server_setup.sh && \
+            sudo docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build --remove-orphans && \
+            sudo docker image prune -f"
+
+      - name: The site answers
+        env:
+          DOMAIN: ${{ secrets.DOMAIN }}
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "https://$DOMAIN/health"; then echo; echo "up"; exit 0; fi
+            sleep 10
+          done
+          ssh server "cd $APP_DIR && sudo docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs --tail 80"
+          exit 1
