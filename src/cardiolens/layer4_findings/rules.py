@@ -30,6 +30,18 @@ _TERRITORIES = [
 ]
 
 
+# Contiguous lead pairs for the minor ST depression level (D152): the inferior wall,
+# the lateral wall (I, aVL, V5, V6 as one wall) and neighbouring precordial leads.
+_ST_CONTIGUOUS = [("I", "aVL"), ("I", "V5"), ("I", "V6"), ("aVL", "V5"), ("aVL", "V6"), ("V5", "V6"),
+                  ("II", "III"), ("III", "aVF"), ("II", "aVF"),
+                  ("V1", "V2"), ("V2", "V3"), ("V3", "V4"), ("V4", "V5")]
+
+
+def _has_contiguous(leads: list[str]) -> bool:
+    s = set(leads)
+    return any(a in s and b in s for a, b in _ST_CONTIGUOUS)
+
+
 def _territory_of(elevated: set[str]) -> tuple[str, str, set[str]] | None:
     """Return (label_ru, label_uz, reciprocal_leads) for the best-matching territory."""
     best = None
@@ -782,6 +794,11 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
         return
     plateau = float(thr.get("elevation_plateau_fraction", 0.8))
     upsloping = float(thr.get("depression_upsloping_uv", 50))
+    # Minor depression (D152): 0.5-1 mm in >= 2 contiguous leads is significant for
+    # ischaemia (ESC), and PTB-XL's STD_ is labelled at that depth (misses had a deepest
+    # lead of -80 uV, median). A descriptor, never an alert; adult table only.
+    minor_thr = thr.get("depression_minor")
+    minor_depressed: list[str] = []
     # Descriptor thresholds: a flat 1 mm in any lead (the STEMI-grade sex/age V2-V3
     # thresholds belong to the alert only); discordant elevation under BBB/LVH/WPW
     # counts only when it is large (Sgarbossa-like), see D37.
@@ -835,6 +852,12 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
                     dev = 0
         elif j is not None and j <= -depr:
             dev = -1
+        if minor_thr is not None and dev <= 0:
+            low_m = (min(j60, j80) if j80 is not None else j60) if j60 is not None else j
+            if (low_m is not None and low_m <= -float(minor_thr)
+                    and not (j60 is not None and j80 is not None and j80 - j60 >= upsloping)
+                    and not (secondary_ctx and st.qrs_net_uv is not None and st.qrs_net_uv > 0)):
+                minor_depressed.append(st.lead)
         if dev == 0:
             continue
         ctx = elevation_mimic_ctx if dev > 0 else secondary_ctx
@@ -891,6 +914,15 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
             evidence=_ev(leads=",".join(primary_depressed), threshold_uv=thr.get("depression_significant"),
                          discordant_leads_excluded=",".join(disc) or "none"),
             confidence=0.75,
+        ))
+    elif minor_thr is not None and _has_contiguous(minor_depressed):
+        fs.findings.append(Finding(
+            code="st_depression_minor", group="ischemia",
+            label_ru=f"Небольшая депрессия ST ({float(minor_thr) / 100:g}–1 мм) в смежных отведениях "
+                     f"({', '.join(minor_depressed)})",
+            label_uz=f"Qo'shni tarmoqlarda ST ning kichik depressiyasi ({float(minor_thr) / 100:g}–1 mm) "
+                     f"({', '.join(minor_depressed)})",
+            evidence=_ev(leads=",".join(minor_depressed), threshold_uv=minor_thr), confidence=0.55,
         ))
     # Neutral descriptor: any lead with ST elevation at its threshold (contiguous or
     # not, primary or discordant). Never critical; matches the broad "ST elevation"

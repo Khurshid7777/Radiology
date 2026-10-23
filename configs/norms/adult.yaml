@@ -172,6 +172,9 @@ st_uv:
   proportional_discordant_min_uv: 100
   depression_significant: 100
   depression_upsloping_uv: 50
+  # Minor depression (D152): from this depth, in >= 2 contiguous leads, below
+  # depression_significant - a descriptor (st_depression_minor), never an alert.
+  depression_minor: 70
 
 # P-wave criteria for atrial enlargement (ecglibrary / 150 ECG Problems).
 p_wave:

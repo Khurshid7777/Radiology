@@ -52,6 +52,7 @@ st_elevation:               {aha: st_t_u, snomed: ["164931005"], scp: [STE_], co
 st_elevation_any:           {aha: st_t_u, snomed: [], scp: [], code15: []}   # descriptor (any lead >= 1 mm), not a diagnosis
 st_elevation_nonspecific:   {aha: st_t_u, snomed: [], scp: [], code15: []}
 st_depression:              {aha: st_t_u, snomed: ["429622005"], scp: [STD_], code15: []}
+st_depression_minor:        {aha: st_t_u, snomed: ["429622005"], scp: [STD_], code15: []}   # 0.6-1 mm, contiguous leads (D152); scored with st_depression
 t_inversion:                {aha: st_t_u, snomed: ["59931005"], scp: [INVT], code15: []}
 flat_t_waves:               {aha: st_t_u, snomed: [], scp: [LOWT], code15: []}
 peaked_t_waves:             {aha: st_t_u, snomed: [], scp: [], code15: []}

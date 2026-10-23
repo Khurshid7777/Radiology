@@ -129,7 +129,7 @@ def _standalone_codes() -> set[str]:
         "sinus_bradycardia", "sinus_tachycardia", "irregular_rhythm",
         "qtc_unreliable_af",
         "first_degree_av_block", "pr_borderline", "short_qt", "st_elevation",
-        "atrial_fibrillation", "st_depression", "t_inversion",
+        "atrial_fibrillation", "st_depression", "st_depression_minor", "t_inversion",
         "complete_av_block", "atrial_flutter", "left_axis_deviation",
         "right_axis_deviation", "extreme_axis", "low_qrs_voltage",
         "left_atrial_enlargement", "right_atrial_enlargement",
