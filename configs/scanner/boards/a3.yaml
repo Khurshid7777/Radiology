@@ -1,0 +1,18 @@
+# Capture board A3 (SD-065): an A4 ECG page (landscape) or strips laid in rows go inside
+# the zone; eight ArUco markers around it give the photo's exact scale and perspective.
+# All lengths in millimetres, board coordinates: x to the right, y down, origin top-left.
+name: a3
+title: "Cardiolens A3"
+size_mm: [420, 297]
+dictionary: DICT_4X4_50
+marker_mm: 20                  # black square side; >= 3 mm of white between it and the rulers (quiet zone)
+markers:                       # id: centre; ids 0-7 belong to this board only
+  0: [20, 20]
+  1: [210, 20]
+  2: [400, 20]
+  3: [400, 148.5]
+  4: [400, 277]
+  5: [210, 277]
+  6: [20, 277]
+  7: [20, 148.5]
+zone_mm: [40, 40, 380, 257]    # x0, y0, x1, y1: where the paper lies; the scan sees only this

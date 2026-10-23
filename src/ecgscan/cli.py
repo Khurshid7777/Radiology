@@ -29,7 +29,26 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--out", required=True)
     g.add_argument("--n", type=int, default=None)
     g.add_argument("--slices", nargs="*", default=None)
+    bd = sub.add_parser("board", help="render a printable capture board (SD-065)")
+    bd.add_argument("--name", default="a3", help="board in configs/scanner/boards/")
+    bd.add_argument("--out", required=True, help=".pdf (prints at actual size) or .png")
+    bd.add_argument("--dpi", type=int, default=300)
     args = ap.parse_args(argv)
+
+    if args.cmd == "board":
+        from ecgscan.board import load_board, render_board
+
+        img = render_board(load_board(args.name), px_per_mm=args.dpi / 25.4)
+        if args.out.lower().endswith(".pdf"):
+            from PIL import Image
+
+            Image.fromarray(img).save(args.out, resolution=float(args.dpi))   # page size = board size
+        else:
+            import cv2
+
+            cv2.imwrite(args.out, img)
+        print(f"{args.name}: {img.shape[1]}x{img.shape[0]} px at {args.dpi} dpi -> {args.out}; print at 100 %")
+        return 0
 
     if args.cmd == "generate":
         from ecgscan.bench.cases import generate_suite
