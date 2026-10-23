@@ -26,14 +26,15 @@ from pathlib import Path
 import numpy as np
 
 from ecgscan import PIPELINE_VERSION
+from ecgscan.board import compose_zone, detect_board, load_boards, warp_zone
 from ecgscan.calibration.header_ocr import read_bands
 from ecgscan.calibration.pulse import find_pulses, summarize_pulses, widen_strokes
 from ecgscan.calibration.resolve import resolve
 from ecgscan.config import load_yaml
 from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, Source
 from ecgscan.contract.models import RHYTHM_MISMATCH
-from ecgscan.geometry.grid import estimate_grid, estimate_grid_tiled
-from ecgscan.geometry.rectify import Rectified, rectify
+from ecgscan.geometry.grid import GridEstimate, estimate_grid, estimate_grid_tiled
+from ecgscan.geometry.rectify import Rectified, rectify, tile_residual
 from ecgscan.io import ImageRefused, _mime, flat_field, load_image, paper_level
 from ecgscan.layout import get_layout
 from ecgscan.layout.detect import detect_layout
@@ -68,10 +69,92 @@ class ScanDebug:
     readings: list = field(default_factory=list)
     consistency: object | None = None
     rhythm_checks: dict[str, dict[str, float]] = field(default_factory=dict)
+    board: object | None = None             # BoardFit (a list for a set of parts), None: no marker seen
+    composite: object | None = None         # board.Composite of a set of parts
     timings: dict[str, float] = field(default_factory=dict)
 
 
 _QC_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ecgscan-qc")
+
+
+_BOARDS: dict[tuple[str, ...], list] = {}
+
+
+def _fits(works: list[np.ndarray], b_cfg: dict, *, whole_zone: bool) -> list:
+    key = tuple(b_cfg.get("specs", []))
+    if key not in _BOARDS:
+        _BOARDS[key] = load_boards(list(key))
+    return [detect_board(w, _BOARDS[key], min_markers=int(b_cfg.get("min_markers", 3)),
+                         max_residual_mm=float(b_cfg.get("max_residual_mm", 1.0)),
+                         max_side_px=int(b_cfg.get("detect_max_side_px", 2000)), whole_zone=whole_zone)
+            for w in works]
+
+
+def _zone_rect(zone: np.ndarray, raw: GridEstimate, wppm: float, name: str, cfg: dict,
+               *, rescale_to_grid: bool) -> Rectified | None:
+    """The rectified zone, cross-checked with the paper grid. The paper is the ECG's own
+    scale: a page printed scaled or lifted off the board disagrees with the board by more
+    than ``grid_mismatch``. One photo: ``None`` (the grid path reads it instead); a set of
+    parts (no grid path for them): the zone is rescaled so the grid is exact."""
+    import cv2
+
+    grid = estimate_grid(zone)
+    if (grid.px_per_mm is not None and grid.confidence >= cfg["quality"]["min_grid_confidence"]
+            and abs(grid.px_per_mm / wppm - 1) > float(cfg["board"].get("grid_mismatch", 0.03))):
+        if not rescale_to_grid:
+            return None
+        zone = cv2.resize(zone, None, fx=wppm / grid.px_per_mm_x, fy=wppm / grid.px_per_mm_y,
+                          interpolation=cv2.INTER_AREA)
+        grid = estimate_grid(zone)
+    residual, pitches = tile_residual(zone, wppm)
+    return Rectified(zone, cv2.cvtColor(zone, cv2.COLOR_BGR2GRAY), wppm, grid, grid, residual, pitches,
+                     method=f"board:{name}")
+
+
+def _board(work: np.ndarray, cfg: dict, dbg: ScanDebug) -> tuple[Rectified | None, GridEstimate, float] | None:
+    """The zone of a capture board in the photo rectified at the working scale, the
+    photo's scale as a grid estimate (the board's mean) and its worst px/mm over the
+    zone; ``None``: no usable board (the reason is in ``dbg.board``). Below the
+    resolution floor the rectified image is ``None``: nothing is warped."""
+    b_cfg = cfg.get("board") or {}
+    if not b_cfg.get("enabled"):
+        return None
+    fit = _fits([work], b_cfg, whole_zone=True)[0]
+    dbg.board = fit
+    if fit is None or not fit.ok:
+        return None
+    wppm = float(cfg["geometry"]["working_px_per_mm"])
+    raw = GridEstimate(fit.mean_px_per_mm, fit.mean_px_per_mm, 0.0, 0.0, "board", 1.0)
+    if fit.min_px_per_mm < cfg["quality"]["min_px_per_mm"]:
+        return None, raw, fit.min_px_per_mm
+    rect = _zone_rect(warp_zone(work, fit, wppm), raw, wppm, fit.spec.name, cfg, rescale_to_grid=False)
+    if rect is None:
+        fit.ok = False
+        fit.reason = "the paper grid disagrees with the board scale"
+        return None
+    return rect, raw, fit.min_px_per_mm
+
+
+def _board_set(works: list[np.ndarray], cfg: dict, dbg: ScanDebug) -> tuple[Rectified | None, GridEstimate, float] | str:
+    """A page photographed in parts on one board (SD-066): the parts composed into one
+    zone, or the refusal code. Every part needs its own markers; the composed zone must
+    be covered (``board.min_coverage``) and is judged at its worst best-resolution."""
+    b_cfg = cfg.get("board") or {}
+    if not b_cfg.get("enabled"):
+        return "BOARD_NOT_FOUND"
+    fits = _fits(works, b_cfg, whole_zone=False)
+    dbg.board = fits
+    if any(f is None or not f.ok for f in fits) or len({f.spec.name for f in fits}) != 1:
+        return "BOARD_NOT_FOUND"
+    wppm = float(cfg["geometry"]["working_px_per_mm"])
+    comp = compose_zone(works, fits, wppm)
+    dbg.composite = comp
+    if comp.coverage < float(b_cfg.get("min_coverage", 0.99)):
+        return "PAGE_INCOMPLETE"
+    raw = GridEstimate(comp.mean_px_per_mm, comp.mean_px_per_mm, 0.0, 0.0, "board", 1.0)
+    if comp.min_px_per_mm < cfg["quality"]["min_px_per_mm"]:
+        return None, raw, comp.min_px_per_mm
+    return _zone_rect(comp.bgr, raw, wppm, fits[0].spec.name, cfg, rescale_to_grid=True), raw, comp.min_px_per_mm
 
 
 def pipeline_config() -> dict:
@@ -94,10 +177,13 @@ def trace_contrast(bgr: np.ndarray, px_per_mm: float) -> float:
     return max(0.0, 1.0 - ink / max(paper, 1.0))
 
 
-def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: float = 500.0,
+def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHints | None = None, fs_out: float = 500.0,
          debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None,
          config: dict | None = None) -> ScanResult:
-    """Digitise one photo/scan. ``artifacts_dir``: write rectified / mask / overlay images there."""
+    """Digitise one photo/scan. ``artifacts_dir``: write rectified / mask / overlay images there.
+
+    A list: one page photographed in parts on a capture board (SD-066); the parts are
+    composed by the board's markers, and a part without them refuses the set."""
     t_start = time.perf_counter()
     cfg = config or pipeline_config()
     hints = hints or ScanHints()
@@ -108,12 +194,17 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
         dbg.timings[name] = round(time.perf_counter() - t0, 3)
         return time.perf_counter()
 
+    parts = list(image) if isinstance(image, (list, tuple)) else [image]
+    if not parts:
+        raise ValueError("scan: no image")
+    imgs = []
     try:
-        img = load_image(image, max_megapixels=float(q_cfg.get("max_megapixels", 60)),
-                         min_side_px=int(q_cfg.get("min_side_px", 200)))
+        for part in parts:
+            imgs.append(load_image(part, max_megapixels=float(q_cfg.get("max_megapixels", 60)),
+                                   min_side_px=int(q_cfg.get("min_side_px", 200))))
     except ImageRefused as exc:
         # Refused before decoding (D136): nothing of the picture was looked at.
-        data = image if isinstance(image, bytes) else Path(image).read_bytes()
+        data = part if isinstance(part, bytes) else Path(part).read_bytes()
         return ScanResult(
             scan_id=str(uuid.uuid4()), status="rejected", reject_reasons=[exc.code],
             source=Source(modality="photo", original_sha256=hashlib.sha256(data).hexdigest(),
@@ -121,10 +212,16 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
                           device=hints.device, header_masked=hints.header_masked, pipeline_version=PIPELINE_VERSION),
             calibration=Calibration(confidence=0.0), layout=Layout(confidence=0.0), sampling_rate_hz=fs_out,
             quality=QualitySummary(overall=0.0, processing_ms=int((time.perf_counter() - t_start) * 1000)))
+    img = imgs[0]
     source = Source(modality="photo", original_sha256=img.original_sha256, original_bytes=img.original_bytes,
                     mime_type=img.mime_type, width_px=img.width_px, height_px=img.height_px,
                     exif_orientation=img.exif_orientation, client=hints.client, device=hints.device,
                     header_masked=hints.header_masked, pipeline_version=PIPELINE_VERSION)
+    if len(imgs) > 1:
+        shas = [i.original_sha256 for i in imgs]
+        source.parts_sha256 = shas
+        source.original_sha256 = hashlib.sha256("".join(shas).encode()).hexdigest()
+        source.original_bytes = sum(i.original_bytes for i in imgs)
     reasons: list[str] = []
     warnings: list[str] = []
     # The phone's frame checks, repeated on the photo as received (TZ §6.1, SD-046):
@@ -157,47 +254,72 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     # 0. A dark photo (indoor light): the working copy is divided by the local paper level so
     # the segmenter, trained on lit pages, sees paper as paper (SD-062). Deterministic
     # photometry of the copy only; the original is hashed and kept as received (TZ §10).
-    work = img.bgr
-    paper = paper_level(img.bgr)
-    if paper < q_cfg.get("flatfield_below", 0):
-        work = flat_field(img.bgr, target=float(q_cfg.get("flatfield_target", 235)))
-        warnings.append("LOW_LIGHT")
+    works = []
+    for im in imgs:
+        works.append(im.bgr)
+        if paper_level(im.bgr) < q_cfg.get("flatfield_below", 0):
+            works[-1] = flat_field(im.bgr, target=float(q_cfg.get("flatfield_target", 235)))
+            warnings.append("LOW_LIGHT")
+    work = works[0]
 
-    # 1. Grid and resolution on the photo as taken (TZ §5.3).
+    # 0b. A capture board (SD-065): its markers give the exact scale and perspective and the
+    # photo's resolution over the whole zone; the scan then sees only the zone. No board, or
+    # one that cannot be trusted: the grid path below, unchanged.
     t = time.perf_counter()
-    raw = estimate_grid(work)
-    if work is not img.bgr:
-        # Flattening can weaken a faint grid as well: the better of the two reads is kept.
-        plain = estimate_grid(img.bgr)
-        if plain.confidence > raw.confidence:
-            raw = plain
-    h_img, w_img = work.shape[:2]
-    if raw.confidence < q_cfg["min_grid_confidence"] and max(h_img, w_img) > g_cfg.get("tile_aspect", 2.0) * min(h_img, w_img):
-        # A long strip: perspective smears the whole-frame comb; read it piece by piece (SD-059).
-        tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
-        if tiled is not None and tiled.confidence > raw.confidence:
-            raw = tiled
-    t = tick("grid", t)
-    raw_ppm = raw.px_per_mm
-    if raw_ppm is None or raw.confidence < q_cfg["min_grid_confidence"]:
-        reasons.append("GRID_NOT_FOUND")
-        return result("rejected", ppm=raw_ppm)
-    if raw_ppm < q_cfg["min_px_per_mm"]:
-        reasons.append("LOW_RESOLUTION")
-        return result("rejected", ppm=raw_ppm)
-    if raw_ppm < q_cfg["marginal_px_per_mm"]:
-        warnings.append("LOW_RESOLUTION_MARGINAL")
+    if len(works) > 1:
+        on_board = _board_set(works, cfg, dbg)
+        if isinstance(on_board, str):
+            reasons.append(on_board)
+            return result("rejected")
+        warnings.append("STITCHED")
+    else:
+        on_board = _board(work, cfg, dbg)
+    t = tick("board", t)
+    if on_board is not None:
+        rect, raw, raw_ppm = on_board
+        if rect is None:
+            reasons.append("LOW_RESOLUTION")
+            return result("rejected", ppm=raw_ppm)
+        if raw_ppm < q_cfg["marginal_px_per_mm"]:
+            warnings.append("LOW_RESOLUTION_MARGINAL")
+        dbg.rectified = rect
+    else:
+        # 1. Grid and resolution on the photo as taken (TZ §5.3).
+        t = time.perf_counter()
+        raw = estimate_grid(work)
+        if work is not img.bgr:
+            # Flattening can weaken a faint grid as well: the better of the two reads is kept.
+            plain = estimate_grid(img.bgr)
+            if plain.confidence > raw.confidence:
+                raw = plain
+        h_img, w_img = work.shape[:2]
+        if raw.confidence < q_cfg["min_grid_confidence"] and max(h_img, w_img) > g_cfg.get("tile_aspect", 2.0) * min(h_img, w_img):
+            # A long strip: perspective smears the whole-frame comb; read it piece by piece (SD-059).
+            tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
+            if tiled is not None and tiled.confidence > raw.confidence:
+                raw = tiled
+        t = tick("grid", t)
+        raw_ppm = raw.px_per_mm
+        if raw_ppm is None or raw.confidence < q_cfg["min_grid_confidence"]:
+            reasons.append("GRID_NOT_FOUND")
+            return result("rejected", ppm=raw_ppm)
+        if raw_ppm < q_cfg["min_px_per_mm"]:
+            reasons.append("LOW_RESOLUTION")
+            return result("rejected", ppm=raw_ppm)
+        if raw_ppm < q_cfg["marginal_px_per_mm"]:
+            warnings.append("LOW_RESOLUTION_MARGINAL")
 
-    # 2. Rectify to the working scale.
-    try:
-        rect = rectify(work, working_px_per_mm=float(g_cfg["working_px_per_mm"]), raw_grid=raw,
-                       max_upscale=float(g_cfg["max_upscale"]), fit_px_per_mm=g_cfg.get("fit_px_per_mm"),
-                       shear_min_deg=g_cfg.get("shear_min_deg"))
-    except Exception:
-        reasons.append("GRID_NOT_FOUND")
-        return result("rejected", ppm=raw_ppm)
-    dbg.rectified = rect
-    t = tick("rectify", t)
+        # 2. Rectify to the working scale.
+        try:
+            rect = rectify(work, working_px_per_mm=float(g_cfg["working_px_per_mm"]), raw_grid=raw,
+                           max_upscale=float(g_cfg["max_upscale"]), fit_px_per_mm=g_cfg.get("fit_px_per_mm"),
+                           shear_min_deg=g_cfg.get("shear_min_deg"),
+                           reread_tolerance=float(g_cfg.get("reread_tolerance", 0.15)))
+        except Exception:
+            reasons.append("GRID_NOT_FOUND")
+            return result("rejected", ppm=raw_ppm)
+        dbg.rectified = rect
+        t = tick("rectify", t)
     ppm = rect.px_per_mm
     contrast = trace_contrast(rect.bgr, ppm)
     if contrast < q_cfg.get("min_trace_contrast", 0.0):
@@ -298,7 +420,13 @@ def scan(image: str | Path | bytes, *, hints: ScanHints | None = None, fs_out: f
     val = cfg.get("validate", {})
     cover = [r.trace.coverage or 0.0 for r in readings]
     if float(np.median(cover)) < val.get("min_median_coverage", 0.5):
-        reasons.append("TRACE_BROKEN")
+        # The ink ends well before the layout's last column: the photo shows part of the
+        # page (a piece of a strip), not broken traces. Only the reason differs; both refuse,
+        # and a part of a page is a layout matter for the callers (SD-067).
+        width_px = spec.record_s * decision.speed_for_traces * ppm
+        shown = None if frame.ink_x1 is None or width_px <= 0 else (frame.ink_x1 - frame.x0) / width_px
+        partial = shown is not None and shown < val.get("min_page_extent", 0.8)
+        reasons.append("PAGE_INCOMPLETE" if partial else "TRACE_BROKEN")
         return result("rejected", calibration=decision.calibration, ppm=raw_ppm, contrast=contrast,
                       layout=Layout(name=layout_name, confidence=layout_conf))
     cons = limb_consistency([(r.panel.lead, r.trace) for r in readings], fs_out)

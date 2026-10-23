@@ -158,7 +158,7 @@ def _warp(img: np.ndarray, m: np.ndarray, size: tuple[int, int], border) -> np.n
 
 def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate | None = None,
             max_upscale: float = 1.0, fit_px_per_mm: float | None = None,
-            shear_min_deg: float | None = None) -> Rectified:
+            shear_min_deg: float | None = None, reread_tolerance: float = 0.15) -> Rectified:
     """Area-downscale to the working scale once, then every step only *measures* on an
     intermediate image; the result is one warp by the composed matrix F * R * H (a 2-3 px
     trace stroke loses detail at every resampling)."""
@@ -203,9 +203,18 @@ def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate
         bgr_r = bgr_i
     else:
         g = estimate_grid(bgr_i)
-        if g.px_per_mm_x is None or g.px_per_mm_y is None:
-            g = GridEstimate(raw.px_per_mm * s, raw.px_per_mm * s, raw.score_x, raw.score_y, raw.channel,
-                             raw.confidence * 0.5)
+        expected = raw.px_per_mm * s
+
+        def _axis(v: float | None) -> float | None:
+            # A re-read far from the scale the photo's own grid predicts is a harmonic or the
+            # traces, not the grid (17.9 px/mm at confidence 0.03 squeezed a strip 1.8x in
+            # time and halved its gain, SD-068): that axis keeps the predicted scale.
+            return v if v is not None and abs(v / expected - 1.0) <= reread_tolerance else None
+
+        gx, gy = _axis(g.px_per_mm_x), _axis(g.px_per_mm_y)
+        if gx is None or gy is None:
+            g = GridEstimate(gx or expected, gy or expected, g.score_x, g.score_y, g.channel,
+                             min(g.confidence, raw.confidence) * 0.5)
         # Perspective changed the scale: exact working scale on both axes, folded into the
         # same single warp of the area-downscaled photo.
         fx, fy = working_px_per_mm / g.px_per_mm_x, working_px_per_mm / g.px_per_mm_y

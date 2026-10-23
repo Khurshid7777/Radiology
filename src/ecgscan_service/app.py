@@ -8,8 +8,11 @@ from ecgscan.config import load_yaml
 from ecgscan_service.router import router
 
 app = FastAPI(title="ECG Scanner", version=PIPELINE_VERSION)
-# Key check and body cap before multipart parsing (D136): the upload limit plus form fields.
-app.add_middleware(RequestGuard, max_body_bytes=int(load_yaml("service")["upload"]["max_mb"] * 1024 * 1024) + 1024 * 1024)
+# Key check and body cap before multipart parsing (D136): the upload limit (per photo, times
+# the photos of one page in parts, SD-066) plus form fields.
+_up = load_yaml("service")["upload"]
+app.add_middleware(RequestGuard,
+                   max_body_bytes=int(_up["max_mb"] * 1024 * 1024) * int(_up.get("max_parts", 1)) + 1024 * 1024)
 app.include_router(router)
 
 

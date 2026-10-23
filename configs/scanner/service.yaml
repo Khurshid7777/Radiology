@@ -9,7 +9,8 @@ storage:
   purge_interval_h: 1              # D136: retention runs on this timer, not only at start
 
 upload:
-  max_mb: 25
+  max_mb: 25                        # per photo
+  max_parts: 4                     # SD-066: one page photographed in parts on a capture board
   mime: [image/jpeg, image/png, image/tiff]
 
 queue:

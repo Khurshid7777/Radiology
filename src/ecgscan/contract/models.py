@@ -25,7 +25,7 @@ RHYTHM_MISMATCH = "RHYTHM_MISMATCH"
 REJECT_CODES = (
     "LOW_RESOLUTION", "GLARE", "BLUR", "GRID_NOT_FOUND", "CALIBRATION_MISSING", "LAYOUT_UNKNOWN",
     "TRACE_BROKEN", "LIMB_LEADS_INCONSISTENT", "LOW_CONTRAST", "SCREEN_PHOTO", "NOT_AN_ECG",
-    "PAGE_INCOMPLETE", "PROCESSING_ERROR", "IMAGE_TOO_LARGE",
+    "PAGE_INCOMPLETE", "PROCESSING_ERROR", "IMAGE_TOO_LARGE", "BOARD_NOT_FOUND",
 )
 WARNING_CODES = (
     "SPEED_UNCERTAIN", "GAIN_UNCERTAIN", "SPEED_SOURCES_DISAGREE", "GAIN_SOURCES_DISAGREE",
@@ -56,6 +56,9 @@ class Source(_Strict):
     client: Literal["flutter", "telegram_bot", "api", "web", "cli"] | None = None
     client_crop: list[list[float]] | None = None
     header_masked: bool = False
+    # A page photographed in parts on a capture board (SD-066): every part's hash, in the
+    # order sent; original_sha256 is then the hash of their concatenated hex digests.
+    parts_sha256: list[str] | None = None
     pipeline_version: str = PIPELINE_VERSION
 
 

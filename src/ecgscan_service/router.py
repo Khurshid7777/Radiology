@@ -86,13 +86,19 @@ def view(row: ScanRow) -> dict:
 
 
 @router.post("", status_code=202)
-async def submit_scan(file: UploadFile = File(...), paper_speed_mm_s: float | None = Form(None),
+async def submit_scan(file: UploadFile = File(...), parts: list[UploadFile] | None = File(None),
+                      paper_speed_mm_s: float | None = Form(None),
                       gain_mm_mv: float | None = Form(None), layout: str | None = Form(None),
                       client: Literal["flutter", "telegram_bot", "api", "web", "cli"] | None = Form(None),
                       device: str | None = Form(None),
                       header_masked: bool = Form(False), who: str = Depends(actor),
                       svc: ScanService = Depends(get_service)) -> dict:
-    data = await file.read(svc.settings.max_bytes + 1)
+    # ``parts``: more photos of the same page on a capture board, after ``file`` (SD-066).
+    if parts and len(parts) + 1 > svc.settings.max_parts:
+        raise HTTPException(400, f"1 to {svc.settings.max_parts} photos per scan")
+    data: bytes | list[bytes] = await file.read(svc.settings.max_bytes + 1)
+    if parts:
+        data = [data] + [await f.read(svc.settings.max_bytes + 1) for f in parts]
     hints = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv, "layout": layout,
              "client": client, "device": device, "header_masked": header_masked}
     try:

@@ -18,6 +18,7 @@
   "reject.NOT_AN_ECG": "Suratda EKG topilmadi.",
   "reject.PAGE_INCOMPLETE": "Varaq yoki lenta kadrga to‘liq tushmagan. Uni lenta boshidagi kalibrlash impulsi bilan birga to‘liq suratga oling.",
   "reject.IMAGE_TOO_LARGE": "Surat juda katta (60 megapikseldan ortiq). Kameraning oddiy o‘lchamidagi suratni yuboring.",
+  "reject.BOARD_NOT_FOUND": "Qismlarga bo‘lingan suratlar faqat taglikda yig‘iladi: har bir suratda bitta taglikning kamida 3 ta belgisi ko‘rinishi kerak. Chetdagi belgilar kadrga tushadigan qilib qayta suratga oling.",
   "reject.PROCESSING_ERROR": "Suratni qayta ishlashda xato. Qayta urinib ko‘ring.",
   "warning.SPEED_UNCERTAIN": "Qog‘oz tezligi aniqlanmadi — 25 yoki 50 mm/s ni tasdiqlang.",
   "warning.GAIN_UNCERTAIN": "Kuchaytirish aniqlanmadi — 5, 10 yoki 20 mm/mV ni tasdiqlang.",
