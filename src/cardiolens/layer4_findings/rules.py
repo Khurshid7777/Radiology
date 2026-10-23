@@ -16,6 +16,7 @@ from cardiolens.contracts.features import Measurements
 from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.signal import SignalRepresentation
 from cardiolens.layer4_findings.hypertrophy import hypertrophy_findings
+from cardiolens.layer4_findings.p_consistency import p_window_consistency
 
 # Precordial leads where juvenile T-inversion is a normal variant in children.
 _PEDIATRIC_TINV_OK = {"V1", "V2", "V3", "V4"}
@@ -210,13 +211,25 @@ def detect_findings(
             and m.fwave_index >= float(af_override) and not flutter_rate
             and m.pr_std_ms >= rh.get("af_fwave_override_min_pr_std_ms", 15)):
         conducted_p = False
-    if (m.rr_cv or 0) > af_cv and (no_p or fwaves) and not conducted_p:
+    # Third route (D147): an irregular rhythm whose pre-QRS wave does not repeat from beat
+    # to beat. The P detector takes f-waves or noise for "P" on many AF records (44 of 85
+    # missed on the PTB-XL development set); a real P repeats even when ectopy or sinus
+    # arrhythmia makes the RR irregular. Adults only, never at a flutter rate.
+    pc_route = rh.get("af_p_consistency")
+    unrepeated = False
+    if pc_route and not is_pediatric and not flutter_rate and (m.rr_cv or 0) > pc_route["rr_cv_min"] \
+            and (m.rr_mad_cv or 0) >= pc_route["rr_mad_cv_min"]:
+        pc = p_window_consistency(sig, m.r_peaks_samples)
+        unrepeated = pc is not None and pc[0] < pc_route["corr_max"] and pc[1] < pc_route["keep_max"]
+    if unrepeated or ((m.rr_cv or 0) > af_cv and (no_p or fwaves) and not conducted_p):
         fs.findings.append(Finding(
             code="atrial_fibrillation", group="rhythm",
             label_ru="Фибрилляция предсердий (нерегулярный ритм, отсутствие P)",
             label_uz="Bo'lmachalar fibrillyatsiyasi (notekis ritm, P yo'q)",
             evidence=_ev(rr_cv=m.rr_cv, p_wave_ratio=m.p_wave_ratio, pr_std_ms=m.pr_std_ms,
-                         fwave_index=m.fwave_index, route="f_waves" if (fwaves and not no_p) else "no_p"),
+                         fwave_index=m.fwave_index,
+                         route=("f_waves" if (fwaves and not no_p) else "no_p")
+                         if ((m.rr_cv or 0) > af_cv and (no_p or fwaves) and not conducted_p) else "p_unrepeated"),
             confidence=0.7,
         ))
 

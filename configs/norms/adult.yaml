@@ -53,6 +53,15 @@ rhythm:
   # index p99 0.59. A PR SD below the floor keeps the conducted P in charge.
   af_fwave_conducted_override: 0.8
   af_fwave_override_min_pr_std_ms: 15
+  # Third route (D147): an irregular rhythm whose wave 300-60 ms before each R (lead II)
+  # does not repeat - median correlation to the beats' template below corr_max and the
+  # template keeping less than keep_max of the window amplitude. Irregular non-AF on
+  # PTB-XL: correlation 0.94 (median); AF: 0.44-0.51. Adults only, not at a flutter rate.
+  af_p_consistency:
+    rr_cv_min: 0.08
+    rr_mad_cv_min: 0.06
+    corr_max: 0.6
+    keep_max: 0.5
 
 # A regular narrow tachycardia at/above this rate is SVT, a wide one VT-suspect (§7.1,
 # §10; ported from claude/vibrant-curie-ro1zsz D37): resting sinus rarely exceeds ~140.
