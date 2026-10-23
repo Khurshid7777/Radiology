@@ -42,12 +42,17 @@ from cardiolens.outputs import (
     result_to_dict,
     write_pdf,
 )
+from ecgscan.config import load_yaml
 from ecgscan_service.router import actor
 from ecgscan_service.router import router as scans_router
 
 app = FastAPI(title="CardioLens", version="0.1.0")
-# Key check and body cap before any multipart parsing (D136); uploads are 64 MB at most.
-app.add_middleware(RequestGuard, max_body_bytes=service.MAX_UPLOAD_BYTES + 1024 * 1024)
+# Key check and body cap before any multipart parsing (D136): CardioLens uploads are 64 MB at
+# most; /scans takes up to max_parts photos of one page on the capture board, each up to its
+# own limit (SD-066, D145), as the standalone scanner service does.
+_scan_upload = load_yaml("service")["upload"]
+_SCANS_MAX_BYTES = int(_scan_upload["max_mb"] * 1024 * 1024) * int(_scan_upload.get("max_parts", 1))
+app.add_middleware(RequestGuard, max_body_bytes=max(service.MAX_UPLOAD_BYTES, _SCANS_MAX_BYTES) + 1024 * 1024)
 # ECG scanner (photo/scan input, TZ scanner §4, SD-004): /scans, own API-key auth.
 app.include_router(scans_router)
 

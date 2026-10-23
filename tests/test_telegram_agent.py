@@ -317,3 +317,42 @@ def test_scanner_scale_doubt_with_inconsistency_is_not_trusted():
     assert not scale_unknown(res(warnings=["SPEED_UNCERTAIN"]))
     assert not scale_unknown(res(conf=0.8, warnings=["RHYTHM_INCONSISTENT"]))
     assert not scale_unknown(res(status="ok", warnings=["SPEED_UNCERTAIN", "RHYTHM_INCONSISTENT"]))
+
+
+def test_album_on_the_capture_board_is_one_page(tmp_path):
+    """D145: two halves of one page on the scanner's capture board (SD-066), sent as an
+    album, are composed into one 12-lead page by the scanner, not read one by one."""
+    cv2 = pytest.importorskip("cv2")
+    pytest.importorskip("cv2.aruco")
+    from ecgscan.bench.render import RenderSpec, render_page
+    from ecgscan.bench.sources import derive_limb_leads
+    from ecgscan.board import load_boards, render_board
+    from ecgscan.layout import get_layout
+
+    from cardiolens.telegram.analyze import analyse_photos, on_capture_board
+
+    s = generate_synthetic_ecg(heart_rate_bpm=72, seed=7)
+    mv = derive_limb_leads({n: s.lead(n).astype(np.float64) / 1000.0 for n in s.lead_names})
+    spec, ppm = load_boards(["a3"])[0], 12.0
+    board = cv2.cvtColor(render_board(spec, ppm), cv2.COLOR_GRAY2BGR)
+    page, _ = render_page(mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=ppm))
+    y0 = x0 = int(50 * ppm)
+    board[y0:y0 + page.shape[0], x0:x0 + page.shape[1]] = page
+    w = board.shape[1]
+
+    def shoot(img, scale=0.92, tilt=60):
+        hh, ww = img.shape[:2]
+        src = np.float32([[0, 0], [ww, 0], [ww, hh], [0, hh]])
+        dst = np.float32([[tilt, tilt], [ww - tilt, 0], [ww, hh], [0, hh - tilt]]) * scale
+        return cv2.warpPerspective(img, cv2.getPerspectiveTransform(src, dst), (int(ww * scale), int(hh * scale)),
+                                   borderValue=(90, 80, 70))
+
+    left, right = tmp_path / "l.png", tmp_path / "r.png"
+    cv2.imwrite(str(left), shoot(board[:, :int(w * 0.56)]))
+    cv2.imwrite(str(right), shoot(board[:, int(w * 0.44):]))
+    assert on_capture_board([left, right])
+    result, error = analyse_photos([left, right])
+    assert error is None and len(result.signal.provenance.lead_windows or {}) == 12
+    assert result.measurements.heart_rate_bpm == pytest.approx(72, rel=0.05)
+    plain = render_ecg_page(s, tmp_path / "p.png", px_per_mm=10, calibration_pulse=True)
+    assert not on_capture_board([left, plain])

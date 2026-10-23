@@ -55,3 +55,18 @@ def test_artifact_endpoints_do_not_leak_tempfiles():
     assert created, "expected the endpoints to create temp dirs"
     still_there = [d for d in created if os.path.isdir(d)]
     assert still_there == [], f"temp dirs leaked: {still_there}"
+
+
+def test_body_cap_takes_a_page_in_parts_for_the_scanner():
+    """D145: /scans takes up to max_parts photos of one page on the capture board (SD-066); a
+    body the size of all of them passes the cap, one past it does not, and CardioLens' own
+    uploads keep their 64-MB budget per request (test_upload_too_large_rejected)."""
+    from cardiolens.api.app import _SCANS_MAX_BYTES
+
+    assert _SCANS_MAX_BYTES > service.MAX_UPLOAD_BYTES
+    over = client.post("/api/analyze", headers={"Content-Length": str(_SCANS_MAX_BYTES + 2 * 1024 * 1024)},
+                       content=b"")
+    assert over.status_code == 413
+    within = client.post("/scans", headers={"Content-Length": str(service.MAX_UPLOAD_BYTES + 2 * 1024 * 1024),
+                                            "Content-Type": "multipart/form-data; boundary=b"}, content=b"")
+    assert within.status_code != 413

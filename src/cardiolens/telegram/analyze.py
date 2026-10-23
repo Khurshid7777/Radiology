@@ -83,38 +83,67 @@ def scale_unknown(result) -> bool:
             and "RHYTHM_INCONSISTENT" in warnings)
 
 
-def digitize_photo(path: str | Path) -> SignalRepresentation:
+def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
     """The bot's photo reader (D139): the ECG scanner first — on its benchmark it reads paper
     pages at r 0.98 with no unflagged bad case, where the CardioLens readers have 23 % —
     then, when the scanner refuses the layout, the CardioLens readers (device screens,
-    report sheets, parts of strips). Raises ValueError with the reason otherwise."""
+    report sheets, parts of strips). Raises ValueError with the reason otherwise.
+    A list: one page photographed in parts on the capture board (SD-066, D145), which only
+    the scanner composes; a set it does not compose raises ValueError."""
+    in_parts = isinstance(path, list)
     try:
         from ecgscan.contract.cardiolens_adapter import to_signal_representation
         from ecgscan.i18n import t as scanner_text
         from ecgscan.pipeline import scan
     except ImportError:                 # the scanner extra is not installed
+        if in_parts:
+            raise ValueError("photos in parts need the scanner") from None
         return digitize_auto_to_signal(path)
-    result = scan(path)
+    result = scan([str(p) for p in path] if in_parts else path)
+    readers = None if in_parts else (lambda: digitize_auto_to_signal(path))
     if result.status != "rejected":
         sig = to_signal_representation(result)
         if not scale_unknown(result):
             return sig
-        # D144: read, but with no time or gain scale it trusts (on a strip turned by 2 deg:
-        # gain 5 for 10, a rate of 55 read as 100.6). The CardioLens readers go first; if
-        # they too read it only behind a photo gate, the scanner's record stands with its
-        # scale marked unknown, so the rate and intervals are withheld (D128).
-        try:
-            alt = digitize_auto_to_signal(path)
-            if not run_pipeline(alt, mode="A").findings.codes() & PHOTO_GATES:
-                return alt
-        except ValueError:
-            pass
+        # D144: read, but with no time or gain scale it trusts and its own rhythm row at
+        # odds with the panels (on a strip turned by 2 deg: a rate of 55 read as 100.6). The
+        # CardioLens readers go first; if they too read it only behind a photo gate, the
+        # scanner's record stands with its scale marked unknown, so the rate and intervals
+        # are withheld (D128).
+        if readers is not None:
+            try:
+                alt = readers()
+                if not run_pipeline(alt, mode="A").findings.codes() & PHOTO_GATES:
+                    return alt
+            except ValueError:
+                pass
         sig.provenance.notes.append(SCALE_CONFLICT_NOTE)
         return sig
     final = [r for r in result.reject_reasons if r in SCANNER_FINAL_REFUSALS]
-    if final:
-        raise ValueError("; ".join(scanner_text(f"reject.{r}") for r in final))
-    return digitize_auto_to_signal(path)
+    if final or readers is None:
+        raise ValueError("; ".join(scanner_text(f"reject.{r}") for r in (final or result.reject_reasons)))
+    return readers()
+
+
+def on_capture_board(paths: list[str | Path]) -> bool:
+    """Every photo shows the scanner's capture board (its ArUco markers, SD-065)."""
+    try:
+        import cv2
+
+        from ecgscan.board import detect_board, load_boards
+        from ecgscan.pipeline import pipeline_config
+    except ImportError:
+        return False
+    b_cfg = pipeline_config().get("board") or {}
+    if not b_cfg.get("enabled", True):
+        return False
+    specs = load_boards(list(b_cfg.get("specs", [])))
+    for p in paths:
+        img = cv2.imread(str(p), cv2.IMREAD_COLOR)
+        if img is None or detect_board(img, specs, min_markers=int(b_cfg.get("min_markers", 3)),
+                                       whole_zone=False) is None:
+            return False
+    return True
 
 
 # Readers' refusals the card says in words (D142); anything else is shown as raised.
@@ -168,6 +197,14 @@ def analyse_photos(paths: list[str | Path], *, mode: str = "A",
         return analyse_photo(paths[0], mode=mode, provider=provider)
     from cardiolens.layer1_ingestion.screen import combine_screen_signals
 
+    # One page in parts on the capture board (D145): the scanner composes them into one page.
+    # A set it refuses is said as such; the parts are not read one by one (each is a piece).
+    if on_capture_board(paths):
+        try:
+            sig = digitize_photo(list(paths))
+            return run_pipeline(sig, mode=mode, provider=provider or StubProvider()), None
+        except Exception as e:
+            return None, error_text(e)
     sigs, errors = [], []
     for p in paths:
         try:
