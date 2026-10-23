@@ -299,3 +299,21 @@ def test_refusals_are_said_in_words():
     assert named.startswith("Отведения на этом куске ленты не опознать")
     assert error_text(ValueError("Снимок пересвечен")) == "Снимок пересвечен"
     assert error_text(RuntimeError("boom")) == "RuntimeError: boom"
+
+
+def test_scanner_scale_doubt_with_inconsistency_is_not_trusted():
+    """D144: a doubtful scale alone is common on the scanner's good reads; with its own
+    rhythm inconsistency it marked only bad ones."""
+    from types import SimpleNamespace as NS
+
+    from cardiolens.telegram.analyze import scale_unknown
+
+    def res(status="needs_confirmation", conf=0.0, warnings=()):
+        return NS(status=status, calibration=NS(confidence=conf), warnings=list(warnings))
+
+    assert scale_unknown(res(warnings=["SPEED_UNCERTAIN", "RHYTHM_INCONSISTENT"]))
+    assert scale_unknown(res(conf=0.6, warnings=["SPEED_UNCERTAIN", "RHYTHM_INCONSISTENT"]))
+    assert not scale_unknown(res(warnings=["SPEED_UNCERTAIN", "LIMB_LEADS_INCONSISTENT"]))
+    assert not scale_unknown(res(warnings=["SPEED_UNCERTAIN"]))
+    assert not scale_unknown(res(conf=0.8, warnings=["RHYTHM_INCONSISTENT"]))
+    assert not scale_unknown(res(status="ok", warnings=["SPEED_UNCERTAIN", "RHYTHM_INCONSISTENT"]))

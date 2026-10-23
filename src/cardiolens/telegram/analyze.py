@@ -15,7 +15,7 @@ import numpy as np
 from cardiolens.contracts.signal import Provenance, SignalRepresentation
 from cardiolens.feedback import Feedback, FindingFeedback
 from cardiolens.layer1_ingestion.digitize import estimate_grid_pitch
-from cardiolens.layer1_ingestion.strip import digitize_auto_to_signal
+from cardiolens.layer1_ingestion.strip import SCALE_CONFLICT_NOTE, digitize_auto_to_signal
 from cardiolens.layer6_interpret.stub import StubProvider
 from cardiolens.pipeline import PipelineResult, run_pipeline
 from cardiolens.telegram.store import Record
@@ -66,6 +66,23 @@ SCANNER_FINAL_REFUSALS = frozenset({"LOW_RESOLUTION", "GLARE", "BLUR", "TRACE_BR
                                     "LOW_CONTRAST", "IMAGE_TOO_LARGE", "CALIBRATION_MISSING"})
 
 
+PHOTO_GATES = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_implausible"})
+
+
+def scale_unknown(result) -> bool:
+    """The scanner read the page but asks to confirm it, trusts neither its calibration nor
+    its paper speed, and finds its own rhythm row inconsistent with the panels (D144). The
+    scale doubt alone is common on good reads (13 of the scanner's benchmark pages: strips,
+    photos without a header); with the rhythm inconsistency it marked only bad reads there.
+    Limb-lead inconsistency is not enough: the synthetic generator's limb leads are only
+    roughly consistent, and a clean page of them carries it."""
+    cal = getattr(result, "calibration", None)
+    warnings = set(result.warnings or [])
+    return (result.status == "needs_confirmation"
+            and ((cal is not None and cal.confidence == 0) or "SPEED_UNCERTAIN" in warnings)
+            and "RHYTHM_INCONSISTENT" in warnings)
+
+
 def digitize_photo(path: str | Path) -> SignalRepresentation:
     """The bot's photo reader (D139): the ECG scanner first — on its benchmark it reads paper
     pages at r 0.98 with no unflagged bad case, where the CardioLens readers have 23 % —
@@ -79,7 +96,21 @@ def digitize_photo(path: str | Path) -> SignalRepresentation:
         return digitize_auto_to_signal(path)
     result = scan(path)
     if result.status != "rejected":
-        return to_signal_representation(result)
+        sig = to_signal_representation(result)
+        if not scale_unknown(result):
+            return sig
+        # D144: read, but with no time or gain scale it trusts (on a strip turned by 2 deg:
+        # gain 5 for 10, a rate of 55 read as 100.6). The CardioLens readers go first; if
+        # they too read it only behind a photo gate, the scanner's record stands with its
+        # scale marked unknown, so the rate and intervals are withheld (D128).
+        try:
+            alt = digitize_auto_to_signal(path)
+            if not run_pipeline(alt, mode="A").findings.codes() & PHOTO_GATES:
+                return alt
+        except ValueError:
+            pass
+        sig.provenance.notes.append(SCALE_CONFLICT_NOTE)
+        return sig
     final = [r for r in result.reject_reasons if r in SCANNER_FINAL_REFUSALS]
     if final:
         raise ValueError("; ".join(scanner_text(f"reject.{r}") for r in final))
