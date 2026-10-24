@@ -72,8 +72,8 @@ PPV 0,073 → 0,103; фото остаются на 40 Гц), D149 (кусок �
 
 ## Ждём от владельца
 
-- **Сервер**: домен, IP, пользователь SSH, ОС; секреты в GitHub (environment `production`, список в
-  `docs/DEPLOY.md`). Ключ `ANTHROPIC_API_KEY` — с console.anthropic.com (подписка claude.ai его не даёт).
+- **Сервер**: домен и IP (впишем в `deploy/target.env`); секрет GitHub `SERVER_SSH_KEY` (одна команда на
+  сервере, `docs/DEPLOY.md` §1). Ключ `ANTHROPIC_API_KEY` — с console.anthropic.com (подписка claude.ai его не даёт).
 - **ST на фото экранов**: выдавать с пометкой «ориентировочно», помечать «не подтверждено» или не
   выдавать?
 - **Лента FK файлом** (не сжатым фото), лучше на подложке с метками.

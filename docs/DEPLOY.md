@@ -3,32 +3,27 @@
 Что поднимается: API и веб-страница загрузки CardioLens за Caddy (HTTPS автоматически).
 Бот Telegram — позже.
 
-## 1. Один раз: сервер и домен
+## 1. Один раз: что сделать владельцу
 
-1. Сервер: Ubuntu 22.04/24.04 или Debian 12, ≥ 2 ГБ ОЗУ (лучше 4), ≥ 20 ГБ диска.
-2. В DNS домена A-запись `@` (или поддомен, например `ecg`) → IP сервера. Порты 80 и 443 открыты.
-3. Ключ SSH для выкладки (на своём компьютере):
+1. Сервер: Ubuntu 22.04/24.04 или Debian 12, ≥ 2 ГБ ОЗУ (лучше 4), ≥ 20 ГБ диска. В DNS домена A-запись →
+   IP сервера.
+2. Сообщить главной сессии домен и IP — она впишет их в `deploy/target.env` (не секрет: DNS и так
+   показывает IP).
+3. В консоли сервера (под `root`) одной командой создать ключ выкладки, разрешить его и вывести на экран:
    ```bash
-   ssh-keygen -t ed25519 -f cardiolens_deploy -N ""
-   ssh-copy-id -i cardiolens_deploy.pub root@IP_СЕРВЕРА
+   ssh-keygen -t ed25519 -f ~/.ssh/cardiolens_deploy -N "" -q && cat ~/.ssh/cardiolens_deploy.pub >> ~/.ssh/authorized_keys && cat ~/.ssh/cardiolens_deploy
    ```
-   Пользователь — `root` или с `sudo` без пароля. Docker скрипт `deploy/server_setup.sh` поставит сам.
+4. Открыть https://github.com/Khurshid7777/Radiology/settings/secrets/actions/new — Name: `SERVER_SSH_KEY`,
+   Secret: всё, что вывела команда (от `-----BEGIN` до `-----END ... KEY-----` включительно) → Add secret.
+5. Необязательно: так же секрет `ANTHROPIC_API_KEY` (ключ с console.anthropic.com; подписка claude.ai его
+   не даёт). Без него нарратив — офлайн-шаблон.
 
-## 2. Один раз: секреты в GitHub
+## 2. Что делается само
 
-Репозиторий → Settings → Environments → **New environment** `production`, в нём **Add secret**:
-
-| Секрет | Что вписать |
-|---|---|
-| `SERVER_HOST` | IP сервера |
-| `SERVER_USER` | `root` (или пользователь с sudo) |
-| `SERVER_SSH_KEY` | содержимое файла `cardiolens_deploy` (закрытый ключ целиком) |
-| `DOMAIN` | домен, например `ecg.example.uz` |
-| `ECGSCAN_API_KEYS` | ключи клиник для `/scans`: `clinic1:длинный_случайный_ключ` (через запятую) |
-| `ECGSCAN_STORAGE_KEY` | ключ шифрования снимков: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
-| `ANTHROPIC_API_KEY` | необязательно; ключ из console.anthropic.com. Без него нарратив — офлайн-шаблон |
-
-`ECGSCAN_STORAGE_KEY` после первой выкладки не менять: старые снимки перестанут расшифровываться.
+Docker ставится при первой выкладке. Ключ клиники для `/scans` и ключ шифрования снимков создаются на
+сервере один раз (`deploy/server_env.sh`) и через GitHub не проходят. Посмотреть их:
+`cat /opt/cardiolens/deploy/.env`. Файл не удалять: без `ECGSCAN_STORAGE_KEY` старые снимки не
+расшифровать.
 
 ## 3. Выкладка и обновление
 
