@@ -57,8 +57,12 @@ jobs:
           install -m 700 -d ~/.ssh
           # A key copied from a server console often loses its line breaks or gains \r:
           # rebuild it from the base64 body between the BEGIN/END lines.
-          case "$SSH_KEY" in ssh-ed25519*|ssh-rsa*) echo "SERVER_SSH_KEY holds the PUBLIC key (.pub) - the private one is needed"; exit 1;; esac
-          k=$(printf '%s' "$SSH_KEY" | tr -d '\r')
+          k=$(printf '%s' "$SSH_KEY" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          # what it looks like, without showing it: length, lines, kind of the first word
+          first=$(printf '%s' "$k" | head -c 11 | tr -c 'A-Za-z0-9-' '.')
+          case "$first" in -----BEGIN*|ssh-ed25519|ssh-rsa*) ;; *) first="(other: $(printf '%s' "$k" | head -c 40 | tr -c 'A-Za-z0-9+/=\n' '?' | sed 's/[A-Za-z0-9+/=]/x/g'))";; esac
+          echo "SERVER_SSH_KEY: $(printf '%s' "$k" | wc -c) chars, $(printf '%s\n' "$k" | wc -l) lines, starts with: $first"
+          case "$k" in ssh-ed25519*|ssh-rsa*|ecdsa-*) echo "SERVER_SSH_KEY holds the PUBLIC key (.pub) - the private one is needed"; exit 1;; esac
           # also taken as one line: base64 -w0 ~/.ssh/cardiolens_deploy (nothing to break when copying)
           if ! printf '%s' "$k" | grep -q -- '-----BEGIN'; then
             k=$(printf '%s' "$k" | tr -d ' \n\t' | base64 -d 2>/dev/null | tr -d '\r' || true)
