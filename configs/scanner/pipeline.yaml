@@ -105,3 +105,10 @@ board:                           # capture board with ArUco markers (SD-065); no
   max_residual_mm: 1.0           # marker corners off the fitted homography by more than this: not used
   grid_mismatch: 0.03            # paper grid vs board scale apart by more: the page is not flat / not 1:1 -> grid path
   detect_max_side_px: 2000       # markers are searched on a copy no larger than this (speed); corners refined at full size
+  # SD-069: the zone is cropped to the page (+ pad) before reading; the A3 zone is 340 x 217 mm, a page half of it.
+  crop_pad_mm: 8.0               # null: no crop
+  crop_edge_mm: 3.0              # band along the zone edge ignored (printed outline)
+  crop_chroma_min: 14            # page pixel: max-min channel above this (grid, tinted paper) ...
+  crop_gray_max: 200             # ... or darker than this (traces, grey grid)
+  crop_line_fraction: 0.02       # a row / column is page when this share of it is page pixels
+  crop_min_gain: 0.85            # the box covers more than this share of the zone: not cropped

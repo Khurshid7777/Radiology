@@ -10,6 +10,7 @@ the trace plus a darkness map (0..1) used for sub-pixel centroids. Implementatio
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -191,12 +192,16 @@ class OnnxSegmenter:
         ok, why = self.available()
         if not ok:
             raise RuntimeError(f"segmenter 'onnx' unavailable: {why}")
+        # The paper mask (cv2, ~0.5 s) is computed while onnxruntime runs: both release the
+        # GIL, the result is the same (SD-069).
+        paper = _MASK_POOL.submit(paper_mask, bgr, px_per_mm)
         prob = self.probability(bgr)
-        ink = (prob > self.threshold) & paper_mask(bgr, px_per_mm)
+        ink = (prob > self.threshold) & paper.result()
         return TraceMask(ink, prob, self.name)
 
 
 _ONNX_CACHE: dict[tuple, OnnxSegmenter] = {}
+_MASK_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ecgscan-mask")
 
 
 def make_segmenter(cfg: dict) -> Segmenter:

@@ -33,14 +33,18 @@ def compose_zone(photos: list[np.ndarray], fits: list[BoardFit], px_per_mm: floa
     src = None
     for k, (img, fit) in enumerate(zip(photos, fits, strict=True)):
         zone, mask = warp_zone(img, fit, px_per_mm, with_mask=True)
-        scale = np.where(mask, scale_map(fit, px_per_mm), -1.0)
+        scale = scale_map(fit, px_per_mm)
+        np.copyto(scale, np.float32(-1.0), where=~mask)
         if best is None:
-            best, out, src = scale, zone, np.where(mask, k, -1)
+            best, out = scale, zone
+            src = np.full(mask.shape, -1, np.int8)
+            np.copyto(src, np.int8(k), where=mask)
             continue
+        # Masked copies, not fancy indexing: the zone is ~7 Mpx x 3 (0.9 s -> ~0.2 s, SD-069).
         take = scale > best
-        out[take] = zone[take]
-        src[take] = k
-        best = np.maximum(best, scale)
+        np.copyto(out, zone, where=take[..., None])
+        np.copyto(src, np.int8(k), where=take)
+        np.maximum(best, scale, out=best)
     covered = src >= 0
     vals = best[covered]
     return Composite(out, src, float(covered.mean()), float(vals.min()) if vals.size else 0.0,

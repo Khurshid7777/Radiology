@@ -42,6 +42,22 @@ def column_runs(col: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(np.flatnonzero(d == 1).tolist(), np.flatnonzero(d == -1).tolist(), strict=True))
 
 
+def runs_by_column(sub: np.ndarray, y0: int = 0) -> list[list[tuple[int, int]]]:
+    """``column_runs`` of every column of a 2-D bool array at once, offset by ``y0``
+    (one vectorised pass instead of a call per column: ~0.3 s a page, SD-069)."""
+    h, n = sub.shape
+    if n == 0:
+        return []
+    padded = np.zeros((n, h + 2), np.int8)
+    padded[:, 1:-1] = sub.T
+    d = np.diff(padded, axis=1)
+    sc, sr = np.nonzero(d == 1)          # row-major: by column, then by position
+    _, er = np.nonzero(d == -1)
+    sr, er = (sr + y0).tolist(), (er + y0).tolist()
+    bounds = np.searchsorted(sc, np.arange(n + 1)).tolist()
+    return [list(zip(sr[bounds[i]:bounds[i + 1]], er[bounds[i]:bounds[i + 1]], strict=True)) for i in range(n)]
+
+
 def estimate_stroke(ink: np.ndarray) -> float:
     """Typical stroke thickness (px): median height of thin runs (flat segments dominate)."""
     hs = []
@@ -72,7 +88,7 @@ def trace_panel(ink: np.ndarray, darkness: np.ndarray, x0: int, x1: int, y0: int
     if n == 0:
         return PanelTrace(np.zeros(0), 1.0, 0.0, stroke_px)
     sub = ink[y0:y1, x0:x1]
-    runs = [[(a + y0, b + y0) for a, b in column_runs(sub[:, i])] for i in range(n)]
+    runs = runs_by_column(sub, y0)
     s = max(1.0, stroke_px)
     INF = 1e18
     # state 0 = gap; states 1.. = runs. cost[i][k], back[i][k]; gap keeps the last run's centre.
