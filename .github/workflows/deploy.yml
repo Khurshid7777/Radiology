@@ -55,7 +55,21 @@ jobs:
           SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          # A key copied from a server console often loses its line breaks or gains \r:
+          # rebuild it from the base64 body between the BEGIN/END lines.
+          k=$(printf '%s' "$SSH_KEY" | tr -d '\r')
+          head=$(printf '%s' "$k" | grep -o -- '-----BEGIN [A-Z ]*KEY-----' | head -1 || true)
+          foot=$(printf '%s' "$k" | grep -o -- '-----END [A-Z ]*KEY-----' | head -1 || true)
+          if [ -z "$head" ] || [ -z "$foot" ]; then
+            echo "SERVER_SSH_KEY has no BEGIN/END lines - paste the whole key"; exit 1
+          fi
+          body=${k#*"$head"}; body=${body%%"$foot"*}
+          { echo "$head"; printf '%s' "$body" | tr -d ' \n\t' | fold -w 70; echo; echo "$foot"; } > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if ! ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null; then
+            echo "SERVER_SSH_KEY is not a valid private key (cut short?) - copy it again"; exit 1
+          fi
+          echo "key ok: $(ssh-keygen -l -f ~/.ssh/id_deploy)"
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           printf 'Host server\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  ServerAliveInterval 30\n' \
             "$SERVER_HOST" "$SERVER_USER" > ~/.ssh/config
