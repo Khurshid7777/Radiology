@@ -168,3 +168,27 @@ def test_health_answers_while_an_analysis_runs(monkeypatch):
     t.join()
     assert h.status_code == 200 and dt < 1.0, dt
     assert done["r"].status_code == 200
+
+
+# --- HEIC and PDF photos (D158) ---------------------------------------------------------------
+
+def test_heic_and_pdf_photos_are_read(tmp_path):
+    import pillow_heif
+    import pymupdf
+    from PIL import Image
+
+    png = _page_png(tmp_path)
+    pillow_heif.register_heif_opener()
+    heic = tmp_path / "page.heic"
+    Image.open(png).save(heic, quality=92)
+    pdf = tmp_path / "page.pdf"
+    with pymupdf.open() as doc:
+        w, h = Image.open(png).size
+        page = doc.new_page(width=w * 72 / 254, height=h * 72 / 254)   # 10 px/mm -> true size
+        page.insert_image(page.rect, filename=str(png))
+        doc.save(pdf)
+    for name, mime in (("page.heic", "image/heic"), ("page.pdf", "application/pdf")):
+        with open(tmp_path / name, "rb") as f:
+            r = client.post("/api/analyze", data={"mode": "A"}, files={"files": (name, f, mime)})
+        assert r.status_code == 200, (name, r.text)
+        assert r.json()["measurements"]["heart_rate_bpm"] == pytest.approx(72, abs=4), name

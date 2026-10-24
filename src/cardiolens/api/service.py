@@ -27,15 +27,52 @@ from cardiolens.pipeline import PipelineResult, run_pipeline
 # Guardrails for the public-facing service.
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024   # 64 MB total across uploaded files
 
-# A photo or scan of a paper ECG (D155): told by the file's magic, else by its name.
+# A photo or scan of a paper ECG (D155): told by the file's magic, else by its name. iPhone
+# photos (HEIC/HEIF) and PDF scans or device exports count too (D158): OpenCV reads neither,
+# so ``as_photo`` renders them to PNG first.
 _IMAGE_MAGIC = (b"\xff\xd8\xff", b"\x89PNG", b"BM", b"II*\x00", b"MM\x00*")
-_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff",
+                   ".heic", ".heif", ".pdf"}
+_HEIF_BRANDS = (b"heic", b"heix", b"hevc", b"hevx", b"heif", b"mif1", b"msf1")
+
+
+def _is_heif(content: bytes) -> bool:
+    return content[4:8] == b"ftyp" and content[8:12] in _HEIF_BRANDS
+
+
+def _is_pdf(content: bytes) -> bool:
+    return content.startswith(b"%PDF")
 
 
 def is_image(content: bytes, name: str) -> bool:
     head = content[:12]
     return (head.startswith(_IMAGE_MAGIC) or (head[:4] == b"RIFF" and head[8:12] == b"WEBP")
+            or _is_heif(content) or _is_pdf(content)
             or Path(name).suffix.lower() in _IMAGE_SUFFIXES)
+
+
+def as_photo(path: Path, content: bytes) -> Path:
+    """The file as an image OpenCV reads: itself, or a PNG rendered next to it (D158). A PDF
+    gives its first page at 300 dpi (11.8 px/mm, above the readers' 8 px/mm); a HEIC photo
+    is turned the way the phone held it (EXIF)."""
+    if _is_heif(content):
+        import pillow_heif
+        from PIL import Image, ImageOps
+
+        pillow_heif.register_heif_opener()
+        out = path.with_suffix(".png")
+        ImageOps.exif_transpose(Image.open(path)).convert("RGB").save(out)
+        return out
+    if _is_pdf(content):
+        import pymupdf
+
+        out = path.with_suffix(".png")
+        with pymupdf.open(path) as doc:
+            if doc.page_count == 0:
+                raise ValueError("в PDF нет страниц")
+            doc[0].get_pixmap(dpi=300).save(out)
+        return out
+    return path
 STORE_MAX_ENTRIES = 200               # bounded in-memory analysis cache
 
 # Synthetic demo cases exposed by the web UI (mirrors cardiolens.demo).
@@ -91,13 +128,13 @@ def signal_from_uploads(
         # Photos of a paper ECG take the bot's route (D155): the scanner first, then the
         # CardioLens readers; several photos are one record (pages, parts of a strip, parts of
         # a page on the capture board); a refusal comes back in words (D142) as a 400.
-        images = [p for p, f in zip(saved, files, strict=True) if is_image(f.content, p.name)]
+        images = [(p, f.content) for p, f in zip(saved, files, strict=True) if is_image(f.content, p.name)]
         if images:
             if len(images) != len(saved):
                 raise ValueError("photos and ECG signal files cannot be mixed in one upload")
             from cardiolens.telegram.analyze import digitize_photos
 
-            return digitize_photos(images)
+            return digitize_photos([as_photo(p, c) for p, c in images])
 
         # A malformed file is the sender's error (400 with the reason), whatever the
         # parser raised underneath: truncated SCP sections, junk EDF, a 0-d CSV (D135).

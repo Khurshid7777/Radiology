@@ -47,3 +47,9 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env restart
 ```
 
 Откат: запустить Deploy с `ref` = предыдущий коммит.
+
+## 5. Ссылка для врача
+
+Ключ клиники: `sudo sed -n 's/^ECGSCAN_API_KEYS=clinic1://p' /opt/cardiolens/deploy/.env`. Врачу
+достаточно один раз открыть `https://cardio.vision-ai.uz/?key=КЛЮЧ` — страница запомнит ключ в браузере
+и уберёт его из адреса (D157).

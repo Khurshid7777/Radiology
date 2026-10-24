@@ -26,7 +26,8 @@ dependencies = [
 [project.optional-dependencies]
 llm = ["anthropic"]
 validation = ["pandas"]
-digitize = ["opencv-python-headless"]
+# Photos of paper ECG; HEIC (iPhone) and PDF are rendered to PNG first (D158).
+digitize = ["opencv-python-headless", "pillow-heif", "pymupdf"]
 telegram = ["telethon", "opencv-python-headless"]
 # DICOM waveform ECG input (D132) and network receiver (D134); MIT.
 dicom = ["pydicom>=2.4", "pynetdicom>=2", "httpx"]
@@ -34,7 +35,7 @@ dicom = ["pydicom>=2.4", "pynetdicom>=2", "httpx"]
 scanner = ["opencv-python-headless", "jsonschema", "rapidocr-onnxruntime", "cryptography"]
 bot = ["aiogram>=3", "httpx"]
 dev = ["pytest", "ruff", "httpx", "opencv-python-headless", "jsonschema", "rapidocr-onnxruntime", "cryptography",
-       "pydicom>=2.4", "pynetdicom>=2"]
+       "pydicom>=2.4", "pynetdicom>=2", "pillow-heif", "pymupdf"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
