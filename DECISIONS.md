@@ -3756,3 +3756,22 @@ YAML workflow разобран. Локальная `docker build` в конте�
 меняются. Для `root` workflow не вызывает `sudo`; rsync ставится, если его нет.
 
 **Не входит.** Бот и сборщик Telegram, локальная LLM (Ollama) на сервере, резервное копирование тома.
+
+## D154. Нарратив Claude: при сбое вызова — офлайн-шаблон, анализ не падает
+
+**Проблема.** На сервере (D153) после добавления `ANTHROPIC_API_KEY` нарратив пишет Claude. `ClaudeProvider.generate`
+не ловил ошибок: отозванный ключ, неоплаченный счёт, перегрузка API, лимит запросов или ответ без JSON роняли
+весь `run_pipeline` — пользователь получал 500 вместо заключения. Локальный провайдер (`LocalOpenAIProvider`)
+уже откатывается на `StubProvider`; у Claude такой защиты не было.
+
+**Решение.** `ClaudeProvider.generate` обёрнут так же, как локальный: любое исключение → `StubProvider`,
+`provider` остаётся `stub` (UI не приписывает текст модели), в `reasoning_trace` первая строка —
+`Claude unavailable (<тип ошибки>) -> deterministic offline narrative`. При успехе первая строка —
+`narrative by Claude <модель>`. Слои 1–5 и заземление не затронуты.
+
+**Проверка.** `tests/test_claude_fallback.py` — подменный модуль `anthropic` (пакет, ключ и сеть не нужны):
+ответ с JSON → `provider=claude`, незаземлённая фраза отброшена; `AuthenticationError` → `stub` с заметкой;
+ответ без JSON → `stub`. Существующие `test_local_llm`, `test_interpret` зелёные.
+
+**Не входит.** Повтор запроса при 429/5xx (SDK повторяет сам дважды), смена модели по умолчанию
+(`claude-sonnet-5`, задаётся `ANTHROPIC_MODEL`).
