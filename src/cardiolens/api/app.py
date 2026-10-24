@@ -20,9 +20,12 @@ OpenAI-compatible model, from Claude, or from the deterministic stub (TZ §12).
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import os
 import shutil
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
@@ -57,6 +60,16 @@ app.add_middleware(RequestGuard, max_body_bytes=max(service.MAX_UPLOAD_BYTES, _S
 app.include_router(scans_router)
 
 _STATIC = Path(__file__).parent / "static"
+
+# One analysis at a time, off the event loop (D156): a photo through the scanner and a Claude
+# narrative take tens of seconds; meanwhile /health, the page and the other clinic's
+# requests are still answered, and two analyses never share the server's memory.
+_ANALYSIS = ThreadPoolExecutor(max_workers=1, thread_name_prefix="analysis")
+
+
+async def _in_analysis_thread(fn, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_ANALYSIS, functools.partial(fn, *args, **kwargs))
 
 
 def _cleanup(tmp_dir: str) -> BackgroundTask:
@@ -112,8 +125,8 @@ async def analyze(
                 if budget < 0:
                     raise ValueError(f"upload too large (> {service.MAX_UPLOAD_BYTES} bytes)")
                 uploads.append(service.UploadFile(filename=f.filename or "upload", content=content))
-            sig = service.signal_from_uploads(
-                uploads, sampling_rate_hz=sampling_rate_hz, unit=unit
+            sig = await _in_analysis_thread(
+                service.signal_from_uploads, uploads, sampling_rate_hz=sampling_rate_hz, unit=unit
             )
         elif case:
             sig = service.signal_from_case(case)
@@ -124,7 +137,9 @@ async def analyze(
             sig, age_years=age_years, age_days=age_days, sex=sex,
             potassium=potassium, calcium=calcium,
         )
-        analysis_id, result = service.run_and_store(sig, mode=mode, prior_id=prior_ecg_id, owner=who)
+        analysis_id, result = await _in_analysis_thread(
+            service.run_and_store, sig, mode=mode, prior_id=prior_ecg_id, owner=who
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

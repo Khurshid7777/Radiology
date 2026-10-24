@@ -26,6 +26,16 @@ from cardiolens.pipeline import PipelineResult, run_pipeline
 
 # Guardrails for the public-facing service.
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024   # 64 MB total across uploaded files
+
+# A photo or scan of a paper ECG (D155): told by the file's magic, else by its name.
+_IMAGE_MAGIC = (b"\xff\xd8\xff", b"\x89PNG", b"BM", b"II*\x00", b"MM\x00*")
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+
+
+def is_image(content: bytes, name: str) -> bool:
+    head = content[:12]
+    return (head.startswith(_IMAGE_MAGIC) or (head[:4] == b"RIFF" and head[8:12] == b"WEBP")
+            or Path(name).suffix.lower() in _IMAGE_SUFFIXES)
 STORE_MAX_ENTRIES = 200               # bounded in-memory analysis cache
 
 # Synthetic demo cases exposed by the web UI (mirrors cardiolens.demo).
@@ -61,7 +71,8 @@ def signal_from_uploads(
 
     Supports WFDB (.hea + .dat), EDF (.edf/.bdf), CSV (.csv/.txt) and DICOM waveform
     ECG (.dcm, or any file with the DICOM magic: devices export without an extension) and
-    SCP-ECG (.scp, or a record whose CRC and section-0 mark hold).
+    SCP-ECG (.scp, or a record whose CRC and section-0 mark hold), and photos or scans of a
+    paper ECG (JPEG/PNG/WebP/BMP/TIFF, D155).
     """
     if not files:
         raise ValueError("no files uploaded")
@@ -76,6 +87,17 @@ def signal_from_uploads(
             p = tmp / Path(f.filename).name
             p.write_bytes(f.content)
             saved.append(p)
+
+        # Photos of a paper ECG take the bot's route (D155): the scanner first, then the
+        # CardioLens readers; several photos are one record (pages, parts of a strip, parts of
+        # a page on the capture board); a refusal comes back in words (D142) as a 400.
+        images = [p for p, f in zip(saved, files, strict=True) if is_image(f.content, p.name)]
+        if images:
+            if len(images) != len(saved):
+                raise ValueError("photos and ECG signal files cannot be mixed in one upload")
+            from cardiolens.telegram.analyze import digitize_photos
+
+            return digitize_photos(images)
 
         # A malformed file is the sender's error (400 with the reason), whatever the
         # parser raised underneath: truncated SCP sections, junk EDF, a 0-d CSV (D135).
