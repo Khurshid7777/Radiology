@@ -57,7 +57,12 @@ jobs:
           install -m 700 -d ~/.ssh
           # A key copied from a server console often loses its line breaks or gains \r:
           # rebuild it from the base64 body between the BEGIN/END lines.
+          case "$SSH_KEY" in ssh-ed25519*|ssh-rsa*) echo "SERVER_SSH_KEY holds the PUBLIC key (.pub) - the private one is needed"; exit 1;; esac
           k=$(printf '%s' "$SSH_KEY" | tr -d '\r')
+          # also taken as one line: base64 -w0 ~/.ssh/cardiolens_deploy (nothing to break when copying)
+          if ! printf '%s' "$k" | grep -q -- '-----BEGIN'; then
+            k=$(printf '%s' "$k" | tr -d ' \n\t' | base64 -d 2>/dev/null | tr -d '\r' || true)
+          fi
           head=$(printf '%s' "$k" | grep -o -- '-----BEGIN [A-Z ]*KEY-----' | head -1 || true)
           foot=$(printf '%s' "$k" | grep -o -- '-----END [A-Z ]*KEY-----' | head -1 || true)
           if [ -z "$head" ] || [ -z "$foot" ]; then

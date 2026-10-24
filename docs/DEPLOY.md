@@ -11,10 +11,12 @@
    показывает IP).
 3. В консоли сервера (под `root`) одной командой создать ключ выкладки, разрешить его и вывести на экран:
    ```bash
-   ssh-keygen -t ed25519 -f ~/.ssh/cardiolens_deploy -N "" -q && cat ~/.ssh/cardiolens_deploy.pub >> ~/.ssh/authorized_keys && cat ~/.ssh/cardiolens_deploy
+   ssh-keygen -t ed25519 -f ~/.ssh/cardiolens_deploy -N "" -q && cat ~/.ssh/cardiolens_deploy.pub >> ~/.ssh/authorized_keys && base64 -w0 ~/.ssh/cardiolens_deploy; echo
    ```
+   Команда выводит закрытый ключ одной строкой (base64) — её проще скопировать целиком. Подходит и
+   обычный вид (`cat ~/.ssh/cardiolens_deploy`, от `-----BEGIN` до `-----END`). Не подходит `.pub`.
 4. Открыть https://github.com/Khurshid7777/Radiology/settings/secrets/actions/new — Name: `SERVER_SSH_KEY`,
-   Secret: всё, что вывела команда (от `-----BEGIN` до `-----END ... KEY-----` включительно) → Add secret.
+   Secret: строка, которую вывела команда → Add secret.
 5. Необязательно: так же секрет `ANTHROPIC_API_KEY` (ключ с console.anthropic.com; подписка claude.ai его
    не даёт). Без него нарратив — офлайн-шаблон.
 
