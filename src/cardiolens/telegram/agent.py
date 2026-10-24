@@ -269,5 +269,5 @@ async def run_agent(cfg: TelegramConfig, *, backfill_only: bool = False) -> None
             log.exception("review message %s failed", event.message.id)
 
     log.info("listening to %d group(s); review chat: %s", len(groups), cfg.review_chat)
-    await client.send_message(review, "CardioLens-агент запущен · " + time.strftime("%Y-%m-%d %H:%M") + "\n" + VERDICT_HELP)
+    await client.send_message(review, "CardioVision-агент запущен · " + time.strftime("%Y-%m-%d %H:%M") + "\n" + VERDICT_HELP)
     await client.run_until_disconnected()

@@ -51,6 +51,21 @@ def is_image(content: bytes, name: str) -> bool:
             or Path(name).suffix.lower() in _IMAGE_SUFFIXES)
 
 
+# The scanner's and the readers' refusals were written for Telegram ("send the photo as a
+# file"); on the web page the same advice is the original from the gallery (D159).
+_WEB_WORDING = (
+    ("отправьте фото файлом, без сжатия", "выберите оригинал снимка из галереи, а не копию из мессенджера"),
+    ("и отправьте файлом", "и выберите оригинал из галереи"),
+    ("пришлите все куски одним альбомом", "выберите все куски вместе"),
+)
+
+
+def web_wording(text: str) -> str:
+    for bot, web in _WEB_WORDING:
+        text = text.replace(bot, web)
+    return text
+
+
 def as_photo(path: Path, content: bytes) -> Path:
     """The file as an image OpenCV reads: itself, or a PNG rendered next to it (D158). A PDF
     gives its first page at 300 dpi (11.8 px/mm, above the readers' 8 px/mm); a HEIC photo
@@ -134,7 +149,10 @@ def signal_from_uploads(
                 raise ValueError("photos and ECG signal files cannot be mixed in one upload")
             from cardiolens.telegram.analyze import digitize_photos
 
-            return digitize_photos([as_photo(p, c) for p, c in images])
+            try:
+                return digitize_photos([as_photo(p, c) for p, c in images])
+            except ValueError as e:
+                raise ValueError(web_wording(str(e))) from e
 
         # A malformed file is the sender's error (400 with the reason), whatever the
         # parser raised underneath: truncated SCP sections, junk EDF, a 0-d CSV (D135).

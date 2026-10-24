@@ -24,7 +24,7 @@ def test_cases_listed():
 
 def test_index_served():
     r = client.get("/")
-    assert r.status_code == 200 and "CardioLens" in r.text
+    assert r.status_code == 200 and "CardioVision" in r.text
 
 
 def test_analyze_synthetic_hyperk_mode_b_escalates():
@@ -192,3 +192,14 @@ def test_heic_and_pdf_photos_are_read(tmp_path):
             r = client.post("/api/analyze", data={"mode": "A"}, files={"files": (name, f, mime)})
         assert r.status_code == 200, (name, r.text)
         assert r.json()["measurements"]["heart_rate_bpm"] == pytest.approx(72, abs=4), name
+
+
+# --- a messenger-sized photo is refused with the web page's wording (D159) --------------------
+
+def test_small_photo_refusal_speaks_of_the_gallery_not_telegram(tmp_path):
+    with open(_page_png(tmp_path, px_per_mm=4), "rb") as f:
+        r = client.post("/api/analyze", data={"mode": "A"},
+                        files={"files": ("page.png", f, "image/png")})
+    assert r.status_code == 400, r.text
+    detail = r.json()["detail"]
+    assert "файлом" not in detail and "оригинал" in detail, detail

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CardioLens — заключение по ЭКГ</title>
+<title>CardioVision — заключение по ЭКГ</title>
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --ink: #1a1f26; --muted: #5b6672;
@@ -79,7 +79,7 @@
 </head>
 <body>
 <header>
-  <h1>CardioLens</h1>
+  <h1>CardioVision</h1>
   <span class="sub">заключение по фото ЭКГ · поддержка решений врача</span>
   <span class="llm" id="llm" title="Кто пишет текст заключения (/health)">Текст заключения: …</span>
 </header>
@@ -96,7 +96,9 @@
            accept="image/*,.heic,.heif,.pdf,.hea,.dat,.edf,.bdf,.csv,.txt,.dcm,.scp">
     <div class="hint">Подойдёт фото бумажной ЭКГ или экрана прибора (JPG, PNG, HEIC), PDF, а также
       файл записи (WFDB, EDF, CSV, DICOM, SCP). Снимайте прямо сверху, без бликов, чтобы лист занимал
-      весь кадр; отправляйте оригинал, не сжатую копию. Несколько фото одной ЭКГ можно выбрать вместе.</div>
+      весь кадр. Берите оригинал из галереи: фото, пересланное через Telegram или WhatsApp, сжато и
+      не прочитается. Несколько фото одной ЭКГ можно выбрать вместе.</div>
+    <div class="err" id="filewarn"></div>
   </div>
 
   <div class="card">
@@ -207,6 +209,26 @@ function showChosen() {
   const names = [...files.files].map(f => f.name);
   $('chosen').textContent = names.length ? '✓ ' + names.join(', ') : '';
   if (names.length) $('case').value = '';
+  checkPhotoSize();
+}
+
+// A messenger copy is ~1280 px wide: an A4 sheet on it has ~4 px/mm, and the readers need 8.
+// Said at once, before a 30-second wait (D159); the server still decides.
+const SMALL_PX = 2000;
+async function checkPhotoSize() {
+  $('filewarn').textContent = '';
+  for (const f of files.files) {
+    if (!/^image\//.test(f.type)) continue;
+    try {
+      const bmp = await createImageBitmap(f);
+      const w = bmp.width, h = bmp.height; bmp.close();
+      if (Math.max(w, h) < SMALL_PX) {
+        $('filewarn').textContent = `Снимок «${f.name}» маленький (${w}×${h}) — похоже, сжатая копия из мессенджера. ` +
+          'Такой, скорее всего, не прочитается: возьмите оригинал из галереи или снимите заново.';
+        return;
+      }
+    } catch (e) { /* HEIC and the like: the browser cannot decode it, the server will */ }
+  }
 }
 files.addEventListener('change', showChosen);
 ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
@@ -240,7 +262,7 @@ async function loadHealth() {
     const r = await fetch('/health'); const d = await r.json(); const l = d.llm || {};
     const el = $('llm'); el.className = 'llm ' + (l.active || 'stub');
     el.textContent = 'Текст заключения: ' + providerLabel(l.active, l.model);
-    el.title = 'Анализ ЭКГ делает CardioLens; эта модель только пишет текст по его находкам';
+    el.title = 'Анализ ЭКГ делает CardioVision; эта модель только пишет текст по его находкам';
   } catch (e) { $('llm').textContent = 'Текст заключения: ?'; }
 }
 

@@ -303,7 +303,7 @@ def render_review_png(result: PipelineResult, path: str | Path, *, seconds: floa
         ax.set_ylim(-1.5, 2.0)
         ax.set_xlim(0, seconds)
     codes = ", ".join(sorted(result.findings.codes())) or "—"
-    axes[0].set_title(f"CardioLens — оцифровано с фото · находки: {codes}", fontsize=10)
+    axes[0].set_title(f"CardioVision — оцифровано с фото · находки: {codes}", fontsize=10)
     axes[-1].set_xlabel("с (25 мм/с, 10 мм/мВ)")
     fig.tight_layout()
     path = Path(path)

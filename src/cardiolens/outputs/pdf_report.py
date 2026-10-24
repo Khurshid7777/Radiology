@@ -58,8 +58,8 @@ def write_pdf(result: PipelineResult, path: str) -> str:
     h2 = ParagraphStyle("h2", parent=styles["Heading2"], fontName=font + "-Bold"
                         if font != "Helvetica" else "Helvetica-Bold", fontSize=10)
 
-    doc = SimpleDocTemplate(path, pagesize=A4, title="CardioLens ECG Report")
-    flow = [Paragraph("CardioLens — заключение по ЭКГ", h1), Spacer(1, 0.3 * cm)]
+    doc = SimpleDocTemplate(path, pagesize=A4, title="CardioVision ECG Report")
+    flow = [Paragraph("CardioVision — заключение по ЭКГ", h1), Spacer(1, 0.3 * cm)]
 
     m = result.measurements
     meas = (f"ЧСС: {m.heart_rate_bpm} /мин · PR: {m.intervals.pr_ms} мс · "
