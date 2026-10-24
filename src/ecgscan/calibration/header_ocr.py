@@ -75,18 +75,26 @@ def read_bands(bgr: np.ndarray, *, header_frac: float = 0.25, footer_frac: float
     h, w = bgr.shape[:2]
     bands = [bgr[: int(h * header_frac)], bgr[h - int(h * footer_frac):]]
     texts: list[str] = []
+
+    def settled() -> bool:
+        speeds, gains = parse_settings(texts)
+        return bool(speeds) and bool(gains)
+
     for band in bands:
         bh = band.shape[0]
         if bh < min_band_px:
             continue
-        if texts and parse_settings(texts)[0] and parse_settings(texts)[1]:
+        if texts and settled():
             break                                   # the header already gave speed and gain
         step = max(64, int(bh * tile_aspect))
         x = 0
         while True:
             res, _ = _engine()(band[:, x:x + step])
-            texts += [r[1] for r in (res or [])]
-            if x + step >= w:
+            new = [r[1] for r in (res or [])]
+            texts += new
+            # Speed and gain read: the rest of the band is not read either (as the footer is
+            # not read after the header; ~0.3-0.5 s a tile, SD-069).
+            if x + step >= w or (new and settled()):
                 break
             x += step * 3 // 4
     speeds, gains = parse_settings(texts)

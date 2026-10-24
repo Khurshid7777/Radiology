@@ -90,6 +90,40 @@ def _fits(works: list[np.ndarray], b_cfg: dict, *, whole_zone: bool) -> list:
             for w in works]
 
 
+def _page_crop(zone: np.ndarray, wppm: float, b_cfg: dict) -> np.ndarray:
+    """The part of the zone the page covers, with ``crop_pad_mm`` around it (SD-069).
+
+    The A3 zone is 340 x 217 mm and an A4 page or a strip covers half of it or less; the
+    segmenter and OCR cost scales with the area. Page pixels are those darker or more
+    coloured than the white board (grid lines, traces, thermal paper tint). A band of
+    ``crop_edge_mm`` along the zone edge is ignored (the printed zone outline sits on it).
+    Nothing is cropped when the page fills most of the zone or no page is found."""
+    pad_mm = b_cfg.get("crop_pad_mm")
+    if pad_mm is None:
+        return zone
+    h, w = zone.shape[:2]
+    small = zone[::4, ::4].astype(np.int16)                       # 2.5 px/mm is plenty for a box
+    chroma = small.max(axis=2) - small.min(axis=2)
+    gray = small.mean(axis=2)
+    page = (chroma > int(b_cfg.get("crop_chroma_min", 14))) | (gray < float(b_cfg.get("crop_gray_max", 200)))
+    e = max(1, int(round(float(b_cfg.get("crop_edge_mm", 3.0)) * wppm / 4)))
+    page[:e, :] = page[-e:, :] = False
+    page[:, :e] = page[:, -e:] = False
+    # A column / row belongs to the page when a few per cent of it is page pixels: dust and
+    # a stray pen mark on the board do not move the box.
+    frac = float(b_cfg.get("crop_line_fraction", 0.02))
+    cols = np.flatnonzero(page.mean(axis=0) > frac)
+    rows = np.flatnonzero(page.mean(axis=1) > frac)
+    if cols.size == 0 or rows.size == 0:
+        return zone
+    pad = int(round(float(pad_mm) * wppm))
+    x0, x1 = max(0, cols[0] * 4 - pad), min(w, (cols[-1] + 1) * 4 + pad)
+    y0, y1 = max(0, rows[0] * 4 - pad), min(h, (rows[-1] + 1) * 4 + pad)
+    if (x1 - x0) * (y1 - y0) > float(b_cfg.get("crop_min_gain", 0.85)) * w * h:
+        return zone
+    return np.ascontiguousarray(zone[y0:y1, x0:x1])
+
+
 def _zone_rect(zone: np.ndarray, raw: GridEstimate, wppm: float, name: str, cfg: dict,
                *, rescale_to_grid: bool) -> Rectified | None:
     """The rectified zone, cross-checked with the paper grid. The paper is the ECG's own
@@ -98,6 +132,7 @@ def _zone_rect(zone: np.ndarray, raw: GridEstimate, wppm: float, name: str, cfg:
     parts (no grid path for them): the zone is rescaled so the grid is exact."""
     import cv2
 
+    zone = _page_crop(zone, wppm, cfg.get("board") or {})
     grid = estimate_grid(zone)
     if (grid.px_per_mm is not None and grid.confidence >= cfg["quality"]["min_grid_confidence"]
             and abs(grid.px_per_mm / wppm - 1) > float(cfg["board"].get("grid_mismatch", 0.03))):
