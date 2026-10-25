@@ -95,14 +95,17 @@ def test_verdict_without_public_url_shows_the_id(result_factory):
 # --- analyze mode: the CardioVision conclusion and the PDF (D161) ---------------------------
 
 def test_caption_gives_age_and_sex():
-    from ecgscan_bot.logic import parse_caption
+    from ecgscan_bot.logic import Patient, parse_caption
 
-    assert parse_caption("54 м") == (54.0, "male")
-    assert parse_caption("ж, 7 лет") == (7.0, "female")
-    assert parse_caption("erkak 63") == (63.0, "male")
-    assert parse_caption("ayol") == (None, "female")
-    assert parse_caption("ЭКГ 2026") == (None, None)      # a year is not an age
-    assert parse_caption(None) == (None, None)
+    assert parse_caption("54 м") == Patient(age_years=54.0, sex="male")
+    assert parse_caption("ж, 7 лет") == Patient(age_years=7.0, sex="female")
+    assert parse_caption("erkak 63") == Patient(age_years=63.0, sex="male")
+    assert parse_caption("ayol") == Patient(sex="female")
+    assert parse_caption("3 мес м") == Patient(age_days=pytest.approx(91.2), sex="male")   # an infant: days
+    assert parse_caption("10 kun a") == Patient(age_days=10.0, sex="female")
+    assert parse_caption("ЭКГ 2026") == Patient()                      # a year is not an age
+    assert parse_caption(None) == Patient() and not Patient(age_years=5).given
+    assert Patient(age_years=5, sex="male").given
 
 
 def _page_png(tmp_path, px_per_mm=10):
@@ -126,15 +129,28 @@ def analyze_api():
 def test_analyze_mode_answers_with_the_conclusion_and_a_pdf(analyze_api, tmp_path):
     from ecgscan_bot.logic import handle_analysis
 
-    text, aid = handle_analysis(_cfg(), analyze_api, _page_png(tmp_path), "page.png", "ru", "54 м")
+    page = _page_png(tmp_path)
+    text, aid = handle_analysis(_cfg(), analyze_api, [("page.png", page)], "ru", "54 м")
     assert aid and "Не заменяет врача" in text and "Критические" not in text, text
+    assert "Возраст и пол не указаны" not in text
     assert analyze_api.pdf(aid)[:4] == b"%PDF"
-    uz, _ = handle_analysis(_cfg(), analyze_api, _page_png(tmp_path), "page.png", "uz", "54 e")
+    uz, _ = handle_analysis(_cfg(), analyze_api, [("page.png", page)], "uz", "54 e")
     assert "Shifokor" in uz
+    # No caption: the analysis still runs, the reply says the norms were an adult's.
+    bare, aid2 = handle_analysis(_cfg(), analyze_api, [("page.png", page)], "ru", None)
+    assert aid2 and "Возраст и пол не указаны" in bare
+
+
+def test_analyze_mode_takes_an_album_as_one_record(analyze_api, tmp_path):
+    from ecgscan_bot.logic import handle_analysis
+
+    page = _page_png(tmp_path)
+    text, aid = handle_analysis(_cfg(), analyze_api, [("a.png", page), ("b.png", page)], "ru", "40 ж")
+    assert aid and "Не заменяет врача" in text, text
 
 
 def test_analyze_mode_refusal_keeps_the_telegram_wording(analyze_api, tmp_path):
     from ecgscan_bot.logic import handle_analysis
 
-    text, aid = handle_analysis(_cfg(), analyze_api, _page_png(tmp_path, px_per_mm=4), "page.png", "ru")
+    text, aid = handle_analysis(_cfg(), analyze_api, [("page.png", _page_png(tmp_path, px_per_mm=4))], "ru")
     assert aid is None and "файлом" in text and "галере" not in text, text

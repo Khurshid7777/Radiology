@@ -52,16 +52,40 @@ _SEX_WORDS = {"male": ("м", "муж", "мужской", "мужчина", "male
               "female": ("ж", "жен", "женский", "женщина", "female", "f", "ayol", "a")}
 
 
-def parse_caption(text: str | None) -> tuple[float | None, str | None]:
-    """(age in years, sex) from a caption: the first number 0–120 and the first sex word;
-    anything else is ignored, anything missing is None."""
+_MONTH_WORDS = ("мес", "месяц", "месяца", "месяцев", "oy", "oylik", "month", "months", "mo")
+_DAY_WORDS = ("дн", "дней", "дня", "день", "kun", "kunlik", "day", "days", "d")
+
+
+@dataclass(frozen=True)
+class Patient:
+    age_years: float | None = None
+    age_days: float | None = None      # infants: "3 мес", "10 дней" (the norms differ by days)
+    sex: str | None = None
+
+    @property
+    def given(self) -> bool:
+        return (self.age_years is not None or self.age_days is not None) and self.sex is not None
+
+
+def parse_caption(text: str | None) -> Patient:
+    """The patient from a caption: the first number 0–120 is the age in years, unless a
+    month/day word follows it ("3 мес", "10 kun"); the first sex word is the sex. Anything
+    else is ignored, anything missing stays None."""
     if not text:
-        return None, None
-    ages = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", text.replace(",", "."))]
-    age = next((a for a in ages if 0 <= a <= 120), None)
-    words = re.findall(r"[^\W\d_]+", text.lower())
+        return Patient()
+    low = text.lower().replace(",", ".")
+    age_years = age_days = None
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*([^\W\d_]*)", low):
+        value, unit = float(m.group(1)), m.group(2)
+        if unit in _MONTH_WORDS and age_days is None:
+            age_days = value * 30.4
+        elif unit in _DAY_WORDS and age_days is None:
+            age_days = value
+        elif age_years is None and age_days is None and 0 <= value <= 120:
+            age_years = value
+    words = re.findall(r"[^\W\d_]+", low)
     sex = next((s for w in words for s, forms in _SEX_WORDS.items() if w in forms), None)
-    return age, sex
+    return Patient(age_years=None if age_days is not None else age_years, age_days=age_days, sex=sex)
 
 
 def lang_of(language_code: str | None) -> str:
@@ -165,13 +189,18 @@ class AnalyzeApi:
         self.http = http or httpx.Client(base_url=cfg.api_url, timeout=180.0)
         self.headers = {"X-API-Key": cfg.api_key or ""}
 
-    def analyze(self, data: bytes, filename: str, *, age: float | None = None, sex: str | None = None) -> dict:
+    def analyze(self, files: list[tuple[str, bytes]], *, patient: Patient = Patient()) -> dict:
+        """One analysis of one or several files (an album is one record: pages of a device,
+        parts of a strip, parts of a page on the capture board — D155)."""
         form = {"mode": "A", "client": "telegram"}
-        if age is not None:
-            form["age_years"] = str(age)
-        if sex:
-            form["sex"] = sex
-        r = self.http.post("/api/analyze", files={"files": (filename, data)}, data=form, headers=self.headers)
+        if patient.age_years is not None:
+            form["age_years"] = str(patient.age_years)
+        if patient.age_days is not None:
+            form["age_days"] = str(patient.age_days)
+        if patient.sex:
+            form["sex"] = patient.sex
+        r = self.http.post("/api/analyze", files=[("files", (name, data)) for name, data in files],
+                           data=form, headers=self.headers)
         if r.status_code == 400:
             raise AnalyzeRefused(r.json().get("detail", r.text))
         r.raise_for_status()
@@ -182,9 +211,10 @@ class AnalyzeApi:
         return r.content if r.status_code == 200 else None
 
 
-def conclusion_reply(body: dict, lang: str) -> str:
+def conclusion_reply(body: dict, lang: str, *, patient_given: bool = True) -> str:
     """The reply in ``analyze`` mode: the critical alerts first, then the conclusion as the
-    web page prints it (it ends with the disclaimer), then why a doctor must look, if so."""
+    web page prints it (it ends with the disclaimer), why a doctor must look, if so, and a
+    reminder when the caption named no age or sex (the norms then are an adult's)."""
     lines = []
     alerts = body.get("critical_alerts") or []
     if alerts:
@@ -194,21 +224,23 @@ def conclusion_reply(body: dict, lang: str) -> str:
     lines.append(body["conclusion_uz" if lang == "uz" else "conclusion_ru"])
     if body.get("mode") == "escalate" and body.get("escalation_reason"):
         lines += ["", t("bot.escalate", lang, reason=body["escalation_reason"])]
+    if not patient_given:
+        lines += ["", t("bot.no_patient", lang)]
     return "\n".join(lines)
 
 
-def handle_analysis(cfg: BotConfig, api: AnalyzeApi, data: bytes, filename: str, lang: str,
+def handle_analysis(cfg: BotConfig, api: AnalyzeApi, files: list[tuple[str, bytes]], lang: str,
                     caption: str | None = None) -> tuple[str, str | None]:
     """Analyse through ``/api/analyze``: (reply text, analysis id). A refusal is said in the
     readers' words; server trouble is answered, never raised."""
-    age, sex = parse_caption(caption)
+    patient = parse_caption(caption)
     try:
-        body = api.analyze(data, filename, age=age, sex=sex)
+        body = api.analyze(files, patient=patient)
     except AnalyzeRefused as e:
         return str(e), None
     except Exception:  # network, HTTP error: the user gets a plain answer
         return t("bot.server_error", lang), None
-    return conclusion_reply(body, lang), body.get("analysis_id")
+    return conclusion_reply(body, lang, patient_given=patient.given), body.get("analysis_id")
 
 
 def handle_file(cfg: BotConfig, api: ScanApi, data: bytes, filename: str, lang: str) -> tuple[str, str | None]:
