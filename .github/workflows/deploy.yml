@@ -97,13 +97,19 @@ jobs:
       - name: The server's settings (keys are made on the server once)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_ALLOWED: ${{ secrets.TELEGRAM_BOT_ALLOWED }}
         run: |
-          printf '%s' "$ANTHROPIC_API_KEY" | ssh server "cd $APP_DIR && $SUDO bash deploy/server_env.sh $DOMAIN \"\$(cat)\""
+          printf 'ANTHROPIC_API_KEY=%s\nTELEGRAM_BOT_TOKEN=%s\nTELEGRAM_BOT_ALLOWED=%s\n' \
+            "$ANTHROPIC_API_KEY" "$TELEGRAM_BOT_TOKEN" "$TELEGRAM_BOT_ALLOWED" \
+            | ssh server "cd $APP_DIR && $SUDO bash deploy/server_env.sh $DOMAIN"
+          # The bot runs only when its token is set (compose profile "bot", D161).
+          if [ "${{ secrets.TELEGRAM_BOT_TOKEN != '' }}" = "true" ]; then echo "PROFILES=--profile bot" >> "$GITHUB_ENV"; else echo "PROFILES=" >> "$GITHUB_ENV"; fi
 
       - name: Build and start
         run: |
           ssh server "cd $APP_DIR && $SUDO bash deploy/server_setup.sh && \
-            $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build --remove-orphans && \
+            $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env $PROFILES up -d --build --remove-orphans && \
             $SUDO docker image prune -f"
 
       - name: The site answers

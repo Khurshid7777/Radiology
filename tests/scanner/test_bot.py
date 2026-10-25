@@ -33,7 +33,8 @@ def test_compressed_photo_is_refused_with_advice():
     cfg = _cfg()
     assert "файлом" in intake(cfg, kind="photo", mime=None, size=None, lang="ru")
     assert "fayl" in intake(cfg, kind="photo", mime=None, size=None, lang="uz")
-    assert intake(cfg, kind="document", mime="application/pdf", size=10, lang="ru").startswith("Нужен файл")
+    assert intake(_cfg(mode="scan"), kind="document", mime="application/pdf", size=10, lang="ru").startswith("Нужен файл")
+    assert intake(cfg, kind="document", mime="application/pdf", size=10, lang="ru") is None   # analyze mode reads PDF (D158)
     assert "20" in intake(cfg, kind="document", mime="image/jpeg", size=30 * 1024 * 1024, lang="ru")
     assert intake(cfg, kind="document", mime="image/jpeg", size=1000, lang="ru") is None
 
@@ -89,3 +90,51 @@ def test_verdict_without_public_url_shows_the_id(result_factory):
     body = {"scan_id": "abc", "status": "ok", "result": result_factory(status="ok").model_dump(mode="json"),
             "messages": {"ru": {"status": "Готово", "reasons": [], "warnings": []}}}
     assert "scan_id: abc" in verdict(_cfg(public_url=None), body, "ru")
+
+
+# --- analyze mode: the CardioVision conclusion and the PDF (D161) ---------------------------
+
+def test_caption_gives_age_and_sex():
+    from ecgscan_bot.logic import parse_caption
+
+    assert parse_caption("54 м") == (54.0, "male")
+    assert parse_caption("ж, 7 лет") == (7.0, "female")
+    assert parse_caption("erkak 63") == (63.0, "male")
+    assert parse_caption("ayol") == (None, "female")
+    assert parse_caption("ЭКГ 2026") == (None, None)      # a year is not an age
+    assert parse_caption(None) == (None, None)
+
+
+def _page_png(tmp_path, px_per_mm=10):
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from cardiolens.layer1_ingestion.digitize import render_ecg_page
+
+    png = tmp_path / f"page{px_per_mm}.png"
+    render_ecg_page(generate_synthetic_ecg(heart_rate_bpm=72, seed=5), png,
+                    px_per_mm=px_per_mm, calibration_pulse=True)
+    return png.read_bytes()
+
+
+@pytest.fixture
+def analyze_api():
+    from cardiolens.api.app import app as cardiolens_app
+    from ecgscan_bot.logic import AnalyzeApi
+
+    return AnalyzeApi(_cfg(api_key="test-key", mode="analyze"), http=TestClient(cardiolens_app))
+
+
+def test_analyze_mode_answers_with_the_conclusion_and_a_pdf(analyze_api, tmp_path):
+    from ecgscan_bot.logic import handle_analysis
+
+    text, aid = handle_analysis(_cfg(), analyze_api, _page_png(tmp_path), "page.png", "ru", "54 м")
+    assert aid and "Не заменяет врача" in text and "Критические" not in text, text
+    assert analyze_api.pdf(aid)[:4] == b"%PDF"
+    uz, _ = handle_analysis(_cfg(), analyze_api, _page_png(tmp_path), "page.png", "uz", "54 e")
+    assert "Shifokor" in uz
+
+
+def test_analyze_mode_refusal_keeps_the_telegram_wording(analyze_api, tmp_path):
+    from ecgscan_bot.logic import handle_analysis
+
+    text, aid = handle_analysis(_cfg(), analyze_api, _page_png(tmp_path, px_per_mm=4), "page.png", "ru")
+    assert aid is None and "файлом" in text and "галере" not in text, text

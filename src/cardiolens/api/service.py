@@ -118,6 +118,7 @@ def signal_from_uploads(
     *,
     sampling_rate_hz: float | None = None,
     unit: str = "uv",
+    wording: str = "web",
 ):
     """Persist uploaded files to a temp dir and dispatch to a parser.
 
@@ -152,7 +153,8 @@ def signal_from_uploads(
             try:
                 return digitize_photos([as_photo(p, c) for p, c in images])
             except ValueError as e:
-                raise ValueError(web_wording(str(e))) from e
+                # The Telegram bot keeps "send it as a file" (D161); the page says "the gallery".
+                raise ValueError(str(e) if wording == "bot" else web_wording(str(e))) from e
 
         # A malformed file is the sender's error (400 with the reason), whatever the
         # parser raised underneath: truncated SCP sections, junk EDF, a 0-d CSV (D135).

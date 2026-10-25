@@ -21,6 +21,24 @@ services:
     expose:
       - "8000"
 
+  # The Telegram bot (D161): the same image, started only with the "bot" profile, i.e. when
+  # deploy/.env holds a bot token; it talks to the app over the compose network.
+  bot:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    profiles: ["bot"]
+    command: ["python", "-m", "ecgscan_bot"]
+    restart: unless-stopped
+    depends_on:
+      - cardiolens
+    environment:
+      ECGSCAN_BOT_TOKEN: ${ECGSCAN_BOT_TOKEN:?set ECGSCAN_BOT_TOKEN in deploy/.env}
+      ECGSCAN_BOT_API_KEY: ${ECGSCAN_BOT_API_KEY:?set ECGSCAN_BOT_API_KEY in deploy/.env}
+      ECGSCAN_BOT_ALLOWED: ${ECGSCAN_BOT_ALLOWED:?set ECGSCAN_BOT_ALLOWED in deploy/.env}
+      ECGSCAN_BOT_API_URL: http://cardiolens:8000
+      ECGSCAN_BOT_MODE: analyze
+
   caddy:
     image: caddy:2.8.4
     restart: unless-stopped

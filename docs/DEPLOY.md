@@ -53,3 +53,19 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env restart
 Ключ клиники: `sudo sed -n 's/^ECGSCAN_API_KEYS=clinic1://p' /opt/cardiolens/deploy/.env`. Врачу
 достаточно один раз открыть `https://cardio.vision-ai.uz/?key=КЛЮЧ` — страница запомнит ключ в браузере
 и уберёт его из адреса (D157).
+
+## 6. Бот Telegram (D161)
+
+Бот отвечает врачу заключением и PDF по фото, отправленному **файлом** (скрепка → «Файл»); возраст и пол —
+в подписи к файлу («54 м»). Доступ — только по белому списку Telegram id.
+
+1. В Telegram откройте @BotFather → `/newbot` → имя и username (например, `cardiovision_ecg_bot`) →
+   скопируйте токен вида `123456789:AA…`.
+2. Секрет `TELEGRAM_BOT_TOKEN` — токен; секрет `TELEGRAM_BOT_ALLOWED` — Telegram id врачей через запятую
+   (свой id бот сам покажет в ответе на первое сообщение, или спросите @userinfobot):
+   https://github.com/Khurshid7777/Radiology/settings/secrets/actions/new
+3. Выкладка (Actions → Deploy): когда токен есть, поднимается сервис `bot` (профиль compose `bot`).
+   Добавить врача — обновить `TELEGRAM_BOT_ALLOWED` и выложить снова.
+
+Логи бота на сервере: `sudo docker compose -f /opt/cardiolens/deploy/docker-compose.yml --env-file
+/opt/cardiolens/deploy/.env --profile bot logs -f bot`.

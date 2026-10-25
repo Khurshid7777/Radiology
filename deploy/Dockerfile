@@ -14,7 +14,7 @@ COPY src ./src
 COPY configs ./configs
 COPY models ./models
 COPY data/samples ./data/samples
-RUN pip install --upgrade pip && pip install -e ".[digitize,scanner,llm,dicom]"
+RUN pip install --upgrade pip && pip install -e ".[digitize,scanner,llm,dicom,bot]"
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD python -c \

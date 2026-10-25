@@ -112,6 +112,7 @@ async def analyze(
     potassium: float | None = Form(default=None),
     calcium: float | None = Form(default=None),
     prior_ecg_id: str | None = Form(default=None),
+    client: str | None = Form(default=None),     # "telegram": refusals keep the bot's wording (D161)
     files: list[UploadFile] = File(default=[]),
     who: str = Depends(actor),
 ) -> JSONResponse:
@@ -126,7 +127,8 @@ async def analyze(
                     raise ValueError(f"upload too large (> {service.MAX_UPLOAD_BYTES} bytes)")
                 uploads.append(service.UploadFile(filename=f.filename or "upload", content=content))
             sig = await _in_analysis_thread(
-                service.signal_from_uploads, uploads, sampling_rate_hz=sampling_rate_hz, unit=unit
+                service.signal_from_uploads, uploads, sampling_rate_hz=sampling_rate_hz, unit=unit,
+                wording="bot" if client == "telegram" else "web",
             )
         elif case:
             sig = service.signal_from_case(case)
