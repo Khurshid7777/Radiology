@@ -1,5 +1,6 @@
 """M4: the /scans API (TZ §4, §6.3, §9, §12; SD-004, SD-005, SD-008)."""
 
+import hashlib
 import json
 import threading
 
@@ -320,3 +321,22 @@ def test_service_loads_its_models_at_start_by_default(tmp_path):
 
     assert Settings.load().warm_up is True
     assert _settings(tmp_path).warm_up is False
+
+
+def test_api_takes_the_capture_record_and_keeps_the_original_byte_for_byte(make_client):
+    from test_capture_record import CAPTURE
+
+    fake = FakeScan()
+    client, svc = make_client(fake)
+    jpg = cv2.imencode(".jpg", np.full((40, 60, 3), 200, np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 97])[1].tobytes()
+    r = client.post("/scans", files={"file": ("ecg.jpg", jpg, "image/jpeg")},
+                    data={"client": "flutter", "capture": json.dumps(CAPTURE)}, headers=KEY)
+    assert r.status_code == 202, r.text
+    sid = r.json()["scan_id"]
+    svc.wait(sid)
+    assert fake.calls[0].capture["corners"]["final"] == CAPTURE["corners"]["final"]
+    assert svc.vault.get(sid) == jpg                                  # stored as sent, not re-encoded
+    assert svc.store.get(sid).sha256 == hashlib.sha256(jpg).hexdigest()
+    bad = client.post("/scans", files={"file": ("ecg.jpg", jpg, "image/jpeg")},
+                      data={"capture": '{"capture_mode": "x"}'}, headers=KEY)
+    assert bad.status_code == 422

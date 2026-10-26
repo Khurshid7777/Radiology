@@ -1,7 +1,8 @@
 {
  "scale_to_capture": 2.979687,
  "expected_hints": [
-  "level"
+  "level",
+  "frame"
  ],
  "metrics": {
   "width": 1280,
@@ -15,8 +16,31 @@
   "px_per_mm": 12.279,
   "sheet": 0.5204,
   "hints": [
-   "level"
+   "level",
+   "frame"
   ],
-  "ok": false
+  "ok": false,
+  "shadow": 0.0425,
+  "corners": [
+   [
+    715.1,
+    286.0
+   ],
+   [
+    3289.6,
+    0.0
+   ],
+   [
+    3432.6,
+    2431.4
+   ],
+   [
+    429.1,
+    2431.4
+   ]
+  ],
+  "sheet_whole": false,
+  "sheet_area": 0.7059,
+  "sheet_brightness": 226.494
  }
 }

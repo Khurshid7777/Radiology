@@ -18,26 +18,41 @@ class ApiError implements Exception {
 }
 
 class ScanHints {
-  const ScanHints({this.paperSpeedMmS, this.gainMmMv, this.headerMasked = false});
+  const ScanHints({this.paperSpeedMmS, this.gainMmMv, this.headerMasked = false, this.capture, this.device});
 
   final double? paperSpeedMmS;
   final double? gainMmMv;
   final bool headerMasked;
+
+  /// How the photo was taken (TZ addendum §18.13): ecgscan.contract.Capture as JSON.
+  final Map<String, dynamic>? capture;
+
+  /// The phone model, no personal data.
+  final String? device;
 
   Map<String, String> toFields() => {
         'client': 'flutter',
         'header_masked': '$headerMasked',
         if (paperSpeedMmS != null) 'paper_speed_mm_s': '$paperSpeedMmS',
         if (gainMmMv != null) 'gain_mm_mv': '$gainMmMv',
+        if (capture != null) 'capture': jsonEncode(capture),
+        'device': ?device,
       };
 
-  Map<String, dynamic> toJson() =>
-      {'paper_speed_mm_s': paperSpeedMmS, 'gain_mm_mv': gainMmMv, 'header_masked': headerMasked};
+  Map<String, dynamic> toJson() => {
+        'paper_speed_mm_s': paperSpeedMmS,
+        'gain_mm_mv': gainMmMv,
+        'header_masked': headerMasked,
+        'capture': capture,
+        'device': device,
+      };
 
   factory ScanHints.fromJson(Map<String, dynamic> j) => ScanHints(
         paperSpeedMmS: (j['paper_speed_mm_s'] as num?)?.toDouble(),
         gainMmMv: (j['gain_mm_mv'] as num?)?.toDouble(),
         headerMasked: j['header_masked'] as bool? ?? false,
+        capture: j['capture'] as Map<String, dynamic>?,
+        device: j['device'] as String?,
       );
 }
 

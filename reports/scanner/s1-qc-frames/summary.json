@@ -1,0 +1,95 @@
+{
+ "command": "python -m ecgscan.bench.qc_frames --n 20 --good 60 --seed 500 --out <dir>",
+ "note": "holdout: thresholds were set on seed 0, this set (seed 500) was not used for them",
+ "summary": {
+  "good": {
+   "n": 60,
+   "refused": 4,
+   "share": 0.067,
+   "hints": {
+    "frame": 4
+   }
+  },
+  "blur": {
+   "n": 20,
+   "refused": 20,
+   "share": 1.0,
+   "hints": {
+    "steady": 20,
+    "frame": 3
+   }
+  },
+  "glare": {
+   "n": 20,
+   "refused": 20,
+   "share": 1.0,
+   "hints": {
+    "glare": 20,
+    "frame": 2,
+    "shadow": 2
+   }
+  },
+  "dark": {
+   "n": 20,
+   "refused": 20,
+   "share": 1.0,
+   "hints": {
+    "light": 20,
+    "frame": 11,
+    "shadow": 1,
+    "closer": 5
+   }
+  },
+  "bright": {
+   "n": 20,
+   "refused": 20,
+   "share": 1.0,
+   "hints": {
+    "glare": 20,
+    "bright": 15,
+    "frame": 16,
+    "closer": 2
+   }
+  },
+  "shadow": {
+   "n": 20,
+   "refused": 17,
+   "share": 0.85,
+   "hints": {
+    "shadow": 15,
+    "frame": 3
+   }
+  },
+  "far": {
+   "n": 20,
+   "refused": 20,
+   "share": 1.0,
+   "hints": {
+    "closer": 20,
+    "frame": 3
+   }
+  },
+  "cut": {
+   "n": 20,
+   "refused": 20,
+   "share": 1.0,
+   "hints": {
+    "frame": 20
+   }
+  },
+  "rotated": {
+   "n": 20,
+   "refused": 20,
+   "share": 1.0,
+   "hints": {
+    "level": 20,
+    "frame": 2
+   }
+  },
+  "_acceptance": {
+   "bad_refused": 0.981,
+   "good_refused": 0.067,
+   "passed": true
+  }
+ }
+}

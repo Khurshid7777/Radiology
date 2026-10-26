@@ -17,6 +17,28 @@
   "hints": [
    "closer"
   ],
-  "ok": false
+  "ok": false,
+  "shadow": 0.0017,
+  "corners": [
+   [
+    119.1,
+    119.1
+   ],
+   [
+    1786.9,
+    119.1
+   ],
+   [
+    1786.9,
+    1131.7
+   ],
+   [
+    119.1,
+    1131.7
+   ]
+  ],
+  "sheet_whole": true,
+  "sheet_area": 0.7469,
+  "sheet_brightness": 221.088
  }
 }

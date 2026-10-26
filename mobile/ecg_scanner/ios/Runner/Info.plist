@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Вход в сканер ЭКГ по Face ID / Face ID orqali kirish</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Камера нужна, чтобы сфотографировать ЭКГ / Kamera EKGni suratga olish uchun kerak</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

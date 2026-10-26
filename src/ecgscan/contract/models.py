@@ -42,6 +42,41 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CaptureQC(_Strict):
+    """The phone's frame checks at the moment of capture (TZ addendum §18.13, SD-071).
+    Same names and meaning as ``ecgscan.capture_qc.FrameQC``; ``failed_checks`` = its hints."""
+    brightness: float | None = Field(default=None, ge=0, le=255)
+    glare: float | None = Field(default=None, ge=0, le=1)
+    sharpness: float | None = Field(default=None, ge=0)
+    shadow: float | None = Field(default=None, ge=0, le=1)
+    px_per_mm: float | None = Field(default=None, gt=0)
+    tilt_deg: float | None = None
+    sheet_area: float | None = Field(default=None, ge=0, le=1)
+    passed: bool
+    failed_checks: list[str] = []
+
+
+class CaptureCorners(_Strict):
+    auto: list[list[float]] | None = Field(default=None, min_length=4, max_length=4)
+    final: list[list[float]] | None = Field(default=None, min_length=4, max_length=4)
+    edited_by_user: bool = False
+
+
+class Capture(_Strict):
+    """How the photo was taken (TZ addendum §18.13). Device model, resolution and the
+    masking flag are in ``Source`` already (``device``, ``width_px``/``height_px``,
+    ``header_masked``) and are not repeated; ``corners.final`` is also ``client_crop``."""
+    capture_mode: Literal["custom_camera", "gallery"] = "custom_camera"
+    auto_capture: bool = False
+    corners: CaptureCorners | None = None
+    camera_tilt_deg: float | None = Field(default=None, ge=0, le=90)   # gyroscope: phone vs the sheet's plane
+    # The doctor's quarter turn on the crop screen, clockwise: applied by the server before
+    # reading, the photo itself is never re-encoded (§18.1). Corners are before the turn.
+    rotate_deg: Literal[0, 90, 180, 270] = 0
+    qc: CaptureQC | None = None
+    mask_method: Literal["template_zone", "profile_zones", "manual", "none"] | None = None
+
+
 class Source(_Strict):
     modality: Literal["photo", "scan", "pdf"] = "photo"
     original_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -59,6 +94,7 @@ class Source(_Strict):
     # A page photographed in parts on a capture board (SD-066): every part's hash, in the
     # order sent; original_sha256 is then the hash of their concatenated hex digests.
     parts_sha256: list[str] | None = None
+    capture: Capture | None = None
     pipeline_version: str = PIPELINE_VERSION
 
 

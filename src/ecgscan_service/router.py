@@ -85,14 +85,29 @@ def view(row: ScanRow) -> dict:
             "error": row.error, "analysis_id": row.analysis_id, "messages": messages(row), "result": row.result}
 
 
+def _capture_form(raw: str | None) -> dict | None:
+    """``capture``: ecgscan.contract.Capture as JSON (TZ addendum §18.13, SD-071); a malformed
+    one is refused, not dropped: the record would silently lose the phone's checks."""
+    if not raw:
+        return None
+    from pydantic import ValidationError
+
+    from ecgscan.contract import Capture
+
+    try:
+        return Capture.model_validate_json(raw).model_dump(exclude_none=True)
+    except ValidationError as exc:
+        raise HTTPException(422, "capture: not a valid capture record") from exc
+
+
 @router.post("", status_code=202)
 async def submit_scan(file: UploadFile = File(...), parts: list[UploadFile] | None = File(None),
                       paper_speed_mm_s: float | None = Form(None),
                       gain_mm_mv: float | None = Form(None), layout: str | None = Form(None),
                       client: Literal["flutter", "telegram_bot", "api", "web", "cli"] | None = Form(None),
                       device: str | None = Form(None),
-                      header_masked: bool = Form(False), who: str = Depends(actor),
-                      svc: ScanService = Depends(get_service)) -> dict:
+                      header_masked: bool = Form(False), capture: str | None = Form(None),
+                      who: str = Depends(actor), svc: ScanService = Depends(get_service)) -> dict:
     # ``parts``: more photos of the same page on a capture board, after ``file`` (SD-066).
     if parts and len(parts) + 1 > svc.settings.max_parts:
         raise HTTPException(400, f"1 to {svc.settings.max_parts} photos per scan")
@@ -100,7 +115,8 @@ async def submit_scan(file: UploadFile = File(...), parts: list[UploadFile] | No
     if parts:
         data = [data] + [await f.read(svc.settings.max_bytes + 1) for f in parts]
     hints = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv, "layout": layout,
-             "client": client, "device": device, "header_masked": header_masked}
+             "client": client, "device": device, "header_masked": header_masked,
+             "capture": _capture_form(capture)}
     try:
         scan_id = svc.submit(data, owner=who, hints=hints)
     except ScanError as exc:

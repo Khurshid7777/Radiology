@@ -13,6 +13,28 @@
   "px_per_mm": 11.988,
   "sheet": 0.6906,
   "hints": [],
-  "ok": true
+  "ok": true,
+  "shadow": 0.0009,
+  "corners": [
+   [
+    476.7,
+    119.2
+   ],
+   [
+    3456.4,
+    238.4
+   ],
+   [
+    3456.4,
+    2264.6
+   ],
+   [
+    357.6,
+    2264.6
+   ]
+  ],
+  "sheet_whole": true,
+  "sheet_area": 0.6922,
+  "sheet_brightness": 230.721
  }
 }

@@ -167,6 +167,16 @@
           },
           "description": "A page photographed in parts on a capture board: each part's SHA-256."
         },
+        "capture": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/capture"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "pipeline_version": {
           "type": "string"
         }
@@ -682,6 +692,157 @@
         "FADED_PAPER",
         "STITCHED"
       ]
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the photo was taken (TZ addendum 18.13). Device, resolution and masking are in source already.",
+      "properties": {
+        "capture_mode": {
+          "enum": [
+            "custom_camera",
+            "gallery"
+          ]
+        },
+        "auto_capture": {
+          "type": "boolean"
+        },
+        "corners": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "auto": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/point"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "final": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/point"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "edited_by_user": {
+              "type": "boolean"
+            }
+          }
+        },
+        "camera_tilt_deg": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 90,
+          "description": "Gyroscope: the phone against the sheet's plane."
+        },
+        "rotate_deg": {
+          "enum": [
+            0,
+            90,
+            180,
+            270
+          ],
+          "description": "Quarter turn chosen on the phone, clockwise; applied by the server before reading. Corners are before the turn."
+        },
+        "qc": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "passed"
+          ],
+          "description": "The phone's frame checks at capture (ecgscan.capture_qc); failed_checks are its hints.",
+          "properties": {
+            "brightness": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 255
+            },
+            "glare": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "sharpness": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "shadow": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "px_per_mm": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "exclusiveMinimum": 0
+            },
+            "tilt_deg": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sheet_area": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "passed": {
+              "type": "boolean"
+            },
+            "failed_checks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "mask_method": {
+          "enum": [
+            "template_zone",
+            "profile_zones",
+            "manual",
+            "none",
+            null
+          ]
+        }
+      }
     }
   }
 }

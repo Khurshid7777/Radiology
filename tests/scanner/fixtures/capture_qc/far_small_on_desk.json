@@ -17,6 +17,11 @@
   "hints": [
    "frame"
   ],
-  "ok": false
+  "ok": false,
+  "shadow": null,
+  "corners": null,
+  "sheet_whole": null,
+  "sheet_area": 0.0,
+  "sheet_brightness": null
  }
 }

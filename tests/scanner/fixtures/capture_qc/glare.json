@@ -17,6 +17,28 @@
   "hints": [
    "glare"
   ],
-  "ok": false
+  "ok": false,
+  "shadow": 0.0341,
+  "corners": [
+   [
+    1072.7,
+    238.4
+   ],
+   [
+    3456.4,
+    238.4
+   ],
+   [
+    3456.4,
+    2264.6
+   ],
+   [
+    357.6,
+    2264.6
+   ]
+  ],
+  "sheet_whole": true,
+  "sheet_area": 0.5578,
+  "sheet_brightness": 233.172
  }
 }

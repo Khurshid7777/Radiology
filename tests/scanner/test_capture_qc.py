@@ -20,7 +20,7 @@ CASES = sorted(p.stem for p in FIX.glob("*.json") if p.stem != "config")
 # tilt by 0.35 deg. The hints must still agree; the numbers are checked exactly on the
 # lossless frame in exact/ (Dart and Python agree there to the last digit).
 TOL = {"px_per_mm": 0.02, "sharpness": 0.10, "brightness": 0.01}
-ABS = {"tilt_deg": 0.5, "sheet": 0.25, "glare": 0.005}
+ABS = {"tilt_deg": 0.5, "sheet": 0.25, "glare": 0.005, "shadow": 0.10}
 DECIMALS = {"brightness": 3, "glare": 5, "sharpness": 3, "tilt_deg": 3, "period_px": 3, "px_per_mm": 3, "sheet": 4}
 
 
@@ -81,7 +81,7 @@ def test_config_endpoint_serves_thresholds_and_hints(monkeypatch):
     body = TestClient(app).get("/scans/config/capture-qc", headers={"X-API-Key": "k1"}).json()
     assert body["config"] == config()
     assert body["hints"]["ru"]["closer"].startswith("Приблизьтесь")
-    assert set(body["hints"]["uz"]) == {"closer", "glare", "steady", "level", "light", "frame", "ready"}
+    assert set(body["hints"]["uz"]) == {"closer", "glare", "steady", "level", "light", "bright", "shadow", "frame", "ready"}
 
 
 def test_scan_records_the_server_side_frame_check(synth_mv):

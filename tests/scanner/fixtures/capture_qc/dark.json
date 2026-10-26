@@ -19,6 +19,28 @@
    "light",
    "frame"
   ],
-  "ok": false
+  "ok": false,
+  "shadow": 0.0015,
+  "corners": [
+   [
+    1191.9,
+    238.4
+   ],
+   [
+    3575.6,
+    0.0
+   ],
+   [
+    3575.6,
+    2145.4
+   ],
+   [
+    953.5,
+    2145.4
+   ]
+  ],
+  "sheet_whole": false,
+  "sheet_area": 0.4828,
+  "sheet_brightness": 67.289
  }
 }

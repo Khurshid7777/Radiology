@@ -56,6 +56,9 @@ void main() {
       abs('tilt_deg', q.tiltDeg, 0.5);
       abs('sheet', q.sheet, 0.25);
       abs('glare', q.glare, 0.005);
+      abs('shadow', q.shadow, 0.10);
+      abs('sheet_area', q.sheetArea, 0.25); // as sheet // follows the sheet blocks, which shift with the decoder (sheet: 0.25)
+      expect(q.sheetWhole, m['sheet_whole'], reason: 'sheet_whole');
     });
   }
 
@@ -76,5 +79,10 @@ void main() {
     decimals.forEach((key, dec) {
       expect(got[key], closeTo((m[key] as num).toDouble(), 0.6 * math.pow(10, -dec)), reason: key);
     });
+    expect(q.shadow, closeTo((m['shadow'] as num).toDouble(), 6e-5), reason: 'shadow');
+    expect(q.sheetWhole, m['sheet_whole']);
+    expect(q.sheetArea, closeTo((m['sheet_area'] as num).toDouble(), 6e-5));
+    expect(q.sheetBrightness, closeTo((m['sheet_brightness'] as num).toDouble(), 6e-4));
+    expect(q.corners, (m['corners'] as List).map((p) => (p as List).map((v) => (v as num).toDouble()).toList()).toList());
   });
 }

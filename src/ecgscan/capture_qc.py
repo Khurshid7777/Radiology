@@ -47,7 +47,28 @@ Algorithm (all arithmetic in float64):
    mean |q(x, y) - q(x + h, y + dh)| exceeds ``paper_ratio`` × the mean
    |q(x, y) - q(x + P, y + dP)| (P = round(period), h = P // 2; dP = -round(P tan(tilt)),
    dh = -round(h tan(tilt)) follow the tilted horizontal lines; as the server's paper
-   mask at its period); sheet = share of paper blocks.
+   mask at its period); sheet = share of paper blocks;
+9. the sheet (SD-070, TZ addendum §18.2): the paper blocks closed on the block grid (a
+   block is added when it, after setting every block that is paper or has a paper
+   4-neighbour, has all four 4-neighbours set inside the grid: lone misread blocks inside
+   the sheet are filled and the sheet never grows onto the frame edge), then the
+   largest 4-connected group (row-major scan, the first of equal sizes). Its corners are the block corners with the
+   least x + y (top left), the most x - y (top right), the most x + y (bottom right) and
+   the least x - y (bottom left), the first in row-major block order and TL, TR, BR, BL
+   point order on ties; in captured-photo px (× k × scale_to_capture). sheet_area =
+   the group's blocks / all blocks. The sheet is whole when none of the four outer block
+   lines (first / last row, first / last column) holds ``edge_blocks`` or more of its
+   blocks (a misread desk block next to the sheet is one or two; a cut sheet runs along
+   the edge);
+10. shadow: over the sheet's inner blocks (all 4 neighbours in the sheet: an edge block is
+   part desk), or all its blocks when no inner one is left. Their bounding box (in blocks)
+   is cut into 4 × 4 zones, zone =
+   floor(4 (b - b0) / n) per axis, a block's level is its mean ``w``; sheet_brightness =
+   the mean of all the sheet's block levels (the TZ's "brightness of the ROI": a white
+   sheet filling the frame is not over-exposed; the frame mean is used without a sheet);
+   shadow = (max - min) / max over the zones with sheet blocks
+   (``None`` below 2 zones). A zone's level is the 75th percentile of its block levels
+   (sorted ascending, index floor(0.75 (n - 1))): a block half on the desk is darker.
 """
 
 from __future__ import annotations
@@ -59,7 +80,7 @@ import numpy as np
 
 from ecgscan.config import load_yaml
 
-HINTS = ("closer", "glare", "steady", "level", "light", "frame")
+HINTS = ("closer", "glare", "steady", "level", "light", "bright", "shadow", "frame")
 
 
 @dataclass
@@ -76,6 +97,11 @@ class FrameQC:
     sheet: float
     hints: list[str]
     ok: bool
+    shadow: float | None = None      # brightness spread over 4 x 4 zones of the sheet
+    corners: list[list[float]] | None = None   # sheet TL, TR, BR, BL in captured-photo px
+    sheet_whole: bool | None = None  # the sheet does not run along an edge of the frame
+    sheet_area: float = 0.0          # share of the frame the sheet covers (step 9)
+    sheet_brightness: float | None = None   # mean grey of the sheet (step 10)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -172,24 +198,113 @@ def _shift_diff(b: np.ndarray, dx: int, dy: int) -> float:
     return float(np.abs(b[y0:y1, : b.shape[1] - dx] - b[y0 + dy:y1 + dy, dx:]).mean())
 
 
-def sheet_fraction(q: np.ndarray, period: float | None, tilt: float | None, *, block: int, ratio: float) -> float:
+def paper_blocks(q: np.ndarray, period: float | None, tilt: float | None, *, block: int,
+                 ratio: float) -> tuple[list[list[bool]], int]:
+    """Step 8: paper flag per block (rows of blocks) and the block size in working px."""
     if period is None:
-        return 0.0
+        return [], block
     big = max(2, int(round(period)))
     half = max(1, big // 2)
     tan = math.tan(math.radians(tilt or 0.0))
     d_big, d_half = -int(round(big * tan)), -int(round(half * tan))
     block = max(block, 2 * (big + abs(d_big)))
     hb, wb = q.shape[0] // block, q.shape[1] // block
-    if hb == 0 or wb == 0:
-        return 0.0
-    paper = 0
+    rows = []
     for by in range(hb):
+        row = []
         for bx in range(wb):
             b = q[by * block:(by + 1) * block, bx * block:(bx + 1) * block]
-            if _shift_diff(b, half, d_half) > ratio * _shift_diff(b, big, d_big) + 1e-9:
-                paper += 1
-    return paper / (hb * wb)
+            row.append(_shift_diff(b, half, d_half) > ratio * _shift_diff(b, big, d_big) + 1e-9)
+        rows.append(row)
+    return (rows if wb > 0 else []), block
+
+
+def sheet_fraction(q: np.ndarray, period: float | None, tilt: float | None, *, block: int, ratio: float) -> float:
+    rows, _ = paper_blocks(q, period, tilt, block=block, ratio=ratio)
+    n = sum(len(r) for r in rows)
+    return 0.0 if n == 0 else sum(sum(r) for r in rows) / n
+
+
+def close_blocks(rows: list[list[bool]]) -> list[list[bool]]:
+    """Step 9: paper blocks OR their closing (dilation, then erosion with outside the grid unset)."""
+    hb = len(rows)
+    wb = len(rows[0]) if hb else 0
+    nb = ((-1, 0), (1, 0), (0, -1), (0, 1))
+    dil = [[rows[y][x] or any(0 <= y + dy < hb and 0 <= x + dx < wb and rows[y + dy][x + dx] for dy, dx in nb)
+            for x in range(wb)] for y in range(hb)]
+    return [[rows[y][x] or (dil[y][x] and all(0 <= y + dy < hb and 0 <= x + dx < wb and dil[y + dy][x + dx]
+                                              for dy, dx in nb))
+             for x in range(wb)] for y in range(hb)]
+
+
+def largest_group(rows: list[list[bool]]) -> list[tuple[int, int]]:
+    """Step 9: the largest 4-connected group of True blocks, as (by, bx) in visit order."""
+    hb = len(rows)
+    wb = len(rows[0]) if hb else 0
+    seen = [[False] * wb for _ in range(hb)]
+    best: list[tuple[int, int]] = []
+    for y in range(hb):
+        for x in range(wb):
+            if not rows[y][x] or seen[y][x]:
+                continue
+            group, stack = [], [(y, x)]
+            seen[y][x] = True
+            while stack:
+                cy, cx = stack.pop()
+                group.append((cy, cx))
+                for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+                    if 0 <= ny < hb and 0 <= nx < wb and rows[ny][nx] and not seen[ny][nx]:
+                        seen[ny][nx] = True
+                        stack.append((ny, nx))
+            if len(group) > len(best):
+                best = group
+    return sorted(best)
+
+
+def sheet_corners(group: list[tuple[int, int]], block: int) -> list[tuple[float, float]] | None:
+    """Step 9: TL, TR, BR, BL of the group's block corners (working px)."""
+    if not group:
+        return None
+    keys = (lambda x, y: -(x + y), lambda x, y: x - y, lambda x, y: x + y, lambda x, y: y - x)
+    best: list[tuple[float, float] | None] = [None] * 4
+    score = [-math.inf] * 4
+    for by, bx in group:
+        for x, y in ((bx * block, by * block), ((bx + 1) * block, by * block),
+                     ((bx + 1) * block, (by + 1) * block), (bx * block, (by + 1) * block)):
+            for i, f in enumerate(keys):
+                v = f(x, y)
+                if v > score[i]:
+                    score[i], best[i] = v, (float(x), float(y))
+    return best  # type: ignore[return-value]
+
+
+def sheet_brightness(w: np.ndarray, group: list[tuple[int, int]], block: int) -> float | None:
+    """Step 10: the mean of the sheet's block levels."""
+    if not group:
+        return None
+    return sum(float(w[by * block:(by + 1) * block, bx * block:(bx + 1) * block].mean()) for by, bx in group) / len(group)
+
+
+def shadow_spread(w: np.ndarray, group: list[tuple[int, int]], block: int) -> float | None:
+    """Step 10: (max - min) / max of the zone levels over a 4 x 4 split of the sheet."""
+    if not group:
+        return None
+    members = set(group)
+    inner = [(by, bx) for by, bx in group
+             if {(by - 1, bx), (by + 1, bx), (by, bx - 1), (by, bx + 1)} <= members]
+    group = inner or group
+    y0, y1 = min(b[0] for b in group), max(b[0] for b in group)
+    x0, x1 = min(b[1] for b in group), max(b[1] for b in group)
+    ny, nx = y1 - y0 + 1, x1 - x0 + 1
+    zones: dict[tuple[int, int], list[float]] = {}
+    for by, bx in group:
+        level = float(w[by * block:(by + 1) * block, bx * block:(bx + 1) * block].mean())
+        zones.setdefault((4 * (by - y0) // ny, 4 * (bx - x0) // nx), []).append(level)
+    if len(zones) < 2:
+        return None
+    levels = [sorted(v)[int(0.75 * (len(v) - 1))] for v in zones.values()]
+    top = max(levels)
+    return 0.0 if top <= 0 else (top - min(levels)) / top
 
 
 def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | None = None,
@@ -228,7 +343,22 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
             break
     tilt = None if period is None else tilt_deg(prof, period, band=a["band"])
     ppm = None if period is None else period * k * scale_to_capture / 5.0
-    sheet = sheet_fraction(q, period, tilt, block=a["block"], ratio=a["paper_ratio"])
+    rows, blk = paper_blocks(q, period, tilt, block=a["block"], ratio=a["paper_ratio"])
+    n_blocks = sum(len(r) for r in rows)
+    sheet = 0.0 if n_blocks == 0 else sum(sum(r) for r in rows) / n_blocks
+    group = largest_group(close_blocks(rows))
+    corners_w = sheet_corners(group, blk)
+    corners = None if corners_w is None else [[round(x * k * scale_to_capture, 1), round(y * k * scale_to_capture, 1)]
+                                              for x, y in corners_w]
+    whole, area = None, 0.0
+    if group:
+        hb, wb, e = len(rows), len(rows[0]), int(a.get("edge_blocks", 1))
+        on = [sum(1 for by, _ in group if by == 0), sum(1 for by, _ in group if by == hb - 1),
+              sum(1 for _, bx in group if bx == 0), sum(1 for _, bx in group if bx == wb - 1)]
+        whole = max(on) < e
+        area = len(group) / (hb * wb)
+    shadow = shadow_spread(w, group, blk)
+    roi = sheet_brightness(w, group, blk)
     hints = []
     if ppm is None or ppm < t["min_px_per_mm"]:
         hints.append("closer")
@@ -240,11 +370,17 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
         hints.append("level")
     if bright < t["min_brightness"]:
         hints.append("light")
-    if sheet < t["min_sheet"]:
+    if (bright if roi is None else roi) > t.get("max_brightness", 255.0):
+        hints.append("bright")
+    if shadow is not None and shadow > t.get("max_shadow", 1.0):
+        hints.append("shadow")
+    if area < t["min_sheet"] or (t.get("require_whole_sheet", False) and whole is False):
         hints.append("frame")
     return FrameQC(width=int(rgb.shape[1]), height=int(rgb.shape[0]), factor=k, brightness=round(bright, 3),
                    glare=round(glare, 5), sharpness=round(sharp, 3),
                    tilt_deg=None if tilt is None else round(tilt, 3),
                    period_px=None if period is None else round(period, 3),
                    px_per_mm=None if ppm is None else round(ppm, 3), sheet=round(sheet, 4), hints=hints,
-                   ok=not hints)
+                   ok=not hints, shadow=None if shadow is None else round(shadow, 4), corners=corners,
+                   sheet_whole=whole, sheet_area=round(area, 4),
+                   sheet_brightness=None if roi is None else round(roi, 3))

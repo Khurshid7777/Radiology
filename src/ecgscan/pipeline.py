@@ -55,6 +55,7 @@ class ScanHints:
     client: str | None = None
     device: str | None = None
     header_masked: bool = False
+    capture: dict | None = None      # ecgscan.contract.Capture as JSON: how the phone took the photo (SD-071)
 
 
 @dataclass
@@ -192,6 +193,18 @@ def _board_set(works: list[np.ndarray], cfg: dict, dbg: ScanDebug) -> tuple[Rect
     return _zone_rect(comp.bgr, raw, wppm, fits[0].spec.name, cfg, rescale_to_grid=True), raw, comp.min_px_per_mm
 
 
+def _capture(hints: ScanHints):
+    from ecgscan.contract import Capture
+
+    return None if not hints.capture else Capture.model_validate(hints.capture)
+
+
+def _client_crop(hints: ScanHints) -> list[list[float]] | None:
+    """The page corners the doctor confirmed on the phone (``capture.corners.final``)."""
+    cap = _capture(hints)
+    return None if cap is None or cap.corners is None else cap.corners.final
+
+
 def pipeline_config() -> dict:
     return load_yaml("pipeline.yaml")
 
@@ -244,13 +257,20 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
             scan_id=str(uuid.uuid4()), status="rejected", reject_reasons=[exc.code],
             source=Source(modality="photo", original_sha256=hashlib.sha256(data).hexdigest(),
                           original_bytes=len(data), mime_type=_mime(data), client=hints.client,
+                          capture=_capture(hints), client_crop=_client_crop(hints),
                           device=hints.device, header_masked=hints.header_masked, pipeline_version=PIPELINE_VERSION),
             calibration=Calibration(confidence=0.0), layout=Layout(confidence=0.0), sampling_rate_hz=fs_out,
             quality=QualitySummary(overall=0.0, processing_ms=int((time.perf_counter() - t_start) * 1000)))
+    turn = _capture(hints).rotate_deg if hints.capture else 0
+    if turn:
+        # The doctor's quarter turn (SD-071): on the decoded copy only, the original is as sent.
+        for im in imgs:
+            im.bgr = np.ascontiguousarray(np.rot90(im.bgr, k=-turn // 90))
     img = imgs[0]
     source = Source(modality="photo", original_sha256=img.original_sha256, original_bytes=img.original_bytes,
                     mime_type=img.mime_type, width_px=img.width_px, height_px=img.height_px,
                     exif_orientation=img.exif_orientation, client=hints.client, device=hints.device,
+                    capture=_capture(hints), client_crop=_client_crop(hints),
                     header_masked=hints.header_masked, pipeline_version=PIPELINE_VERSION)
     if len(imgs) > 1:
         shas = [i.original_sha256 for i in imgs]

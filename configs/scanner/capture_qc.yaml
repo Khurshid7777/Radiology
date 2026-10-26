@@ -15,6 +15,7 @@ algorithm:
   min_lag: 6               # shortest 5-mm period searched (working px)
   block: 32                # sheet blocks, working px (at least 2 × (period + tilt shift))
   paper_ratio: 1.15        # half-period / full-period difference ratio of paper (as the server's paper mask)
+  edge_blocks: 3          # SD-070: a sheet runs out of the frame when an outer block line holds this many sheet blocks
 
 thresholds:                # PROVISIONAL until real phone frames (M5 data): see SD-046
   min_px_per_mm: 8.0       # on the captured photo (TZ §6.1: mandatory for auto-capture)
@@ -22,7 +23,14 @@ thresholds:                # PROVISIONAL until real phone frames (M5 data): see 
   min_sharpness: 15.0      # synthetic: sigma 0.25 mm blur 107-110 / 27 (1280 / 1920 px previews), 0.5 mm 8-9 / 2
   max_tilt_deg: 5.0
   min_brightness: 90.0
-  min_sheet: 0.5
+  min_sheet: 0.35         # SD-070: share of the frame covered by the sheet (step 9; good frames 0.42-0.74); was 0.5 of the paper-texture share
+  # TZ addendum §18.2 (SD-070): start values, calibrated on the bad-frame set (S1b)
+  max_brightness: 240.0    # mean grey of the sheet (TZ: of the ROI); TZ start 200; good sheets 207-222, over-exposed ~250 (SD-070)
+  max_shadow: 0.25         # spread over 4 x 4 zones of the sheet; TZ start 0.35; good frames <= 0.11 (SD-070)
+  require_whole_sheet: true   # no sheet block on the frame's outer ring; the client turns it off for parts
+  max_camera_tilt_deg: 10.0   # phone only (gyroscope / accelerometer): the camera against a sheet lying flat (TZ §18.2)
 
 auto_capture:
   consecutive_frames: 5    # all checks pass this many frames in a row
+  stable_ms: 700           # ... and the sheet's corners stay put this long (TZ §18.2: ~0.7 s)
+  corner_jitter: 0.02      # a corner moving more than this share of the sheet's diagonal restarts the wait

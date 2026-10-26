@@ -1,12 +1,15 @@
 // Upload queue for a weak network (TZ §6.4): photos wait on the phone, uploads are
 // retried with a growing pause, the state survives an app restart. A photo is deleted
 // from the phone once the server has accepted it (the server keeps it encrypted).
+// With a vault (the app always has one) the waiting photo is encrypted on disk
+// (TZ addendum §18.9); a plain `.jpg` left by an older version is still sent.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../api/scan_api.dart';
+import '../security/local_vault.dart';
 
 enum UploadState { queued, uploading, sent, failed }
 
@@ -59,11 +62,15 @@ class UploadItem {
 
 class UploadQueue {
   UploadQueue(this.dir, this.api,
-      {DateTime Function()? clock, this.baseDelay = const Duration(seconds: 5), this.maxDelay = const Duration(minutes: 5)})
+      {DateTime Function()? clock,
+      this.baseDelay = const Duration(seconds: 5),
+      this.maxDelay = const Duration(minutes: 5),
+      this.vault})
       : _clock = clock ?? DateTime.now;
 
   final Directory dir;
   ScanApi api;
+  final LocalVault? vault;
   final DateTime Function() _clock;
   final Duration baseDelay;
   final Duration maxDelay;
@@ -71,7 +78,26 @@ class UploadQueue {
   bool _pumping = false;
 
   File get _index => File('${dir.path}/index.json');
-  File _photo(String id) => File('${dir.path}/$id.jpg');
+  File _plain(String id) => File('${dir.path}/$id.jpg');
+  File _sealed(String id) => File('${dir.path}/$id.bin');
+
+  Future<void> _write(String id, Uint8List jpeg) async {
+    final v = vault;
+    if (v == null) return _plain(id).writeAsBytes(jpeg, flush: true).then((_) {});
+    await _sealed(id).writeAsBytes(await v.seal(jpeg), flush: true);
+  }
+
+  Future<Uint8List> _read(String id) async {
+    final v = vault;
+    if (v != null && await _sealed(id).exists()) return v.open(await _sealed(id).readAsBytes());
+    return _plain(id).readAsBytes();
+  }
+
+  Future<void> _delete(String id) async {
+    for (final f in [_sealed(id), _plain(id)]) {
+      if (await f.exists()) await f.delete();
+    }
+  }
 
   Future<void> load() async {
     await dir.create(recursive: true);
@@ -91,7 +117,7 @@ class UploadQueue {
   Future<UploadItem> add(Uint8List jpeg, ScanHints hints) async {
     final now = _clock();
     final id = '${now.microsecondsSinceEpoch}-${math.Random().nextInt(1 << 32).toRadixString(16)}';
-    await _photo(id).writeAsBytes(jpeg, flush: true);
+    await _write(id, jpeg);
     final item = UploadItem(localId: id, createdAt: now, hints: hints);
     items.insert(0, item);
     await _save();
@@ -113,11 +139,11 @@ class UploadQueue {
         if (item.nextTryAt != null && item.nextTryAt!.isAfter(_clock())) continue;
         item.state = UploadState.uploading;
         try {
-          item.scanId = await api.submit(await _photo(item.localId).readAsBytes(), item.hints);
+          item.scanId = await api.submit(await _read(item.localId), item.hints);
           item.state = UploadState.sent;
           item.error = null;
           item.nextTryAt = null;
-          await _photo(item.localId).delete();
+          await _delete(item.localId);
           sent++;
         } on ApiError catch (e) {
           item.attempts++;

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';
-import '../state/settings.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, required this.app});
@@ -18,6 +17,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late String _lang = widget.app.settings.lang;
   late bool _mask = widget.app.settings.maskHeader;
   late bool _auto = widget.app.settings.autoCapture;
+  late bool _bio = widget.app.settings.biometrics;
+  late int _lockAfter = widget.app.settings.lockAfterMinutes;
 
   @override
   Widget build(BuildContext context) {
@@ -47,11 +48,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onChanged: (v) => setState(() => _mask = v),
         ),
         SwitchListTile(title: Text(app.t('app.auto_capture')), value: _auto, onChanged: (v) => setState(() => _auto = v)),
+        SwitchListTile(title: Text(app.t('app.biometrics')), value: _bio, onChanged: (v) => setState(() => _bio = v)),
+        ListTile(
+          title: Text(app.t('app.lock_after')),
+          trailing: DropdownButton<int>(
+            value: _lockAfter,
+            items: [for (final m in const [0, 1, 5, 15]) DropdownMenuItem(value: m, child: Text('$m'))],
+            onChanged: (v) => setState(() => _lockAfter = v ?? _lockAfter),
+          ),
+        ),
         const SizedBox(height: 16),
         FilledButton(
           onPressed: () async {
-            await app.saveSettings(Settings(serverUrl: _url.text.trim(), apiKey: _key.text.trim(), lang: _lang,
-                maskHeader: _mask, autoCapture: _auto, headerBand: app.settings.headerBand));
+            await app.saveSettings(app.settings.copyWith(serverUrl: _url.text.trim(), apiKey: _key.text.trim(),
+                lang: _lang, maskHeader: _mask, autoCapture: _auto, biometrics: _bio, lockAfterMinutes: _lockAfter));
             app.start();
             if (context.mounted) Navigator.pop(context);
           },

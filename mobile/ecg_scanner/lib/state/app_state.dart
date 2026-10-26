@@ -7,13 +7,14 @@ import 'package:flutter/foundation.dart';
 import '../api/scan_api.dart';
 import '../i18n/strings.dart';
 import '../masking/header_mask.dart';
+import '../security/local_vault.dart';
 import '../upload/upload_queue.dart';
 import 'settings.dart';
 
 class AppState extends ChangeNotifier {
-  AppState({required this.dataDir, required this.settings, required this.strings, ScanApi? api})
+  AppState({required this.dataDir, required this.settings, required this.strings, ScanApi? api, KeyStore? keys})
       : api = api ?? ScanApi(baseUrl: settings.serverUrl, apiKey: settings.apiKey) {
-    queue = UploadQueue(Directory('${dataDir.path}/queue'), this.api);
+    queue = UploadQueue(Directory('${dataDir.path}/queue'), this.api, vault: LocalVault(keys ?? MemoryKeyStore()));
   }
 
   final Directory dataDir;
@@ -31,9 +32,11 @@ class AppState extends ChangeNotifier {
 
   File get _settingsFile => File('${dataDir.path}/settings.json');
 
-  static Future<AppState> open(Directory dataDir, {ScanApi? api}) async {
+  /// `keys`: the platform keystore in the app (main.dart); tests pass none (memory).
+  static Future<AppState> open(Directory dataDir, {ScanApi? api, KeyStore? keys}) async {
     final settings = await Settings.load(File('${dataDir.path}/settings.json'));
-    final s = AppState(dataDir: dataDir, settings: settings, strings: await Strings.load(settings.lang), api: api);
+    final s = AppState(
+        dataDir: dataDir, settings: settings, strings: await Strings.load(settings.lang), api: api, keys: keys);
     await s.queue.load();
     return s;
   }
@@ -84,11 +87,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// A taken photo: header masked when set (TZ §6.2), queued, upload attempted.
-  Future<void> addPhoto(Uint8List jpeg, {double? speed, double? gain, double? band}) async {
+  /// A taken photo: header masked when set (TZ §6.2), queued, upload attempted. Unmasked,
+  /// the bytes are the camera's own, sent as they are (TZ addendum §18.1); `capture` is the
+  /// capture record (§18.13) the masking method is added to.
+  Future<void> addPhoto(Uint8List jpeg, {double? speed, double? gain, double? band, Map<String, dynamic>? capture}) async {
     final masked = settings.maskHeader && (band ?? settings.headerBand) > 0;
     final bytes = masked ? await compute(_mask, (jpeg, band ?? settings.headerBand)) : jpeg;
-    await queue.add(bytes, ScanHints(paperSpeedMmS: speed, gainMmMv: gain, headerMasked: masked));
+    final record = capture == null ? null : {...capture, 'mask_method': masked ? 'template_zone' : 'none'};
+    await queue.add(bytes, ScanHints(paperSpeedMmS: speed, gainMmMv: gain, headerMasked: masked, capture: record));
     notifyListeners();
     unawaited(tick());
   }

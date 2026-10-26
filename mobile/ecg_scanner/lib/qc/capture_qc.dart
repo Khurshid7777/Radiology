@@ -8,7 +8,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-const hintOrder = ['closer', 'glare', 'steady', 'level', 'light', 'frame'];
+const hintOrder = ['closer', 'glare', 'steady', 'level', 'light', 'bright', 'shadow', 'frame'];
 
 class FrameQc {
   FrameQc({
@@ -23,6 +23,11 @@ class FrameQc {
     required this.pxPerMm,
     required this.sheet,
     required this.hints,
+    this.shadow,
+    this.corners,
+    this.sheetWhole,
+    this.sheetArea = 0.0,
+    this.sheetBrightness,
   });
 
   final int width;
@@ -36,6 +41,11 @@ class FrameQc {
   final double? pxPerMm; // on the captured photo
   final double sheet;
   final List<String> hints;
+  final double? shadow; // brightness spread over 4 x 4 zones of the sheet
+  final List<List<double>>? corners; // sheet TL, TR, BR, BL in captured-photo px
+  final bool? sheetWhole; // the sheet does not run along an edge of the frame
+  final double sheetArea; // share of the frame the sheet covers (step 9)
+  final double? sheetBrightness; // mean grey of the sheet (step 10)
 
   bool get ok => hints.isEmpty;
 }
@@ -264,25 +274,164 @@ double _shiftDiff(Plane q, int bx0, int by0, int block, int dx, int dy) {
   return cnt == 0 ? 0.0 : s / cnt;
 }
 
-double sheetFraction(Plane q, double? period, double? tilt, {required int block, required double ratio}) {
-  if (period == null) return 0.0;
+/// Step 8: paper flag per block (rows of blocks) and the block size in working px.
+(List<List<bool>>, int) paperBlocks(Plane q, double? period, double? tilt, {required int block, required double ratio}) {
+  if (period == null) return (<List<bool>>[], block);
   final big = math.max(2, _roundHalfEven(period));
   final half = math.max(1, big ~/ 2);
   final tan = math.tan((tilt ?? 0.0) * math.pi / 180.0);
   final dBig = -_roundHalfEven(big * tan), dHalf = -_roundHalfEven(half * tan);
   final b = math.max(block, 2 * (big + dBig.abs()));
   final hb = q.h ~/ b, wb = q.w ~/ b;
-  if (hb == 0 || wb == 0) return 0.0;
-  var paper = 0;
+  if (wb == 0) return (<List<bool>>[], b);
+  final rows = <List<bool>>[];
   for (var by = 0; by < hb; by++) {
+    final row = <bool>[];
     for (var bx = 0; bx < wb; bx++) {
-      if (_shiftDiff(q, bx * b, by * b, b, half, dHalf) > ratio * _shiftDiff(q, bx * b, by * b, b, big, dBig) + 1e-9) {
-        paper++;
+      row.add(_shiftDiff(q, bx * b, by * b, b, half, dHalf) > ratio * _shiftDiff(q, bx * b, by * b, b, big, dBig) + 1e-9);
+    }
+    rows.add(row);
+  }
+  return (rows, b);
+}
+
+double sheetFraction(Plane q, double? period, double? tilt, {required int block, required double ratio}) {
+  final (rows, _) = paperBlocks(q, period, tilt, block: block, ratio: ratio);
+  var n = 0, paper = 0;
+  for (final r in rows) {
+    n += r.length;
+    paper += r.where((v) => v).length;
+  }
+  return n == 0 ? 0.0 : paper / n;
+}
+
+const _nb = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+
+/// Step 9: paper blocks OR their closing (dilation, then erosion with outside the grid unset).
+List<List<bool>> closeBlocks(List<List<bool>> rows) {
+  final hb = rows.length, wb = hb == 0 ? 0 : rows[0].length;
+  bool inGrid(int y, int x) => y >= 0 && y < hb && x >= 0 && x < wb;
+  final dil = List.generate(
+      hb, (y) => List.generate(wb, (x) => rows[y][x] || _nb.any((d) => inGrid(y + d.$1, x + d.$2) && rows[y + d.$1][x + d.$2])));
+  return List.generate(
+      hb,
+      (y) => List.generate(
+          wb, (x) => rows[y][x] || (dil[y][x] && _nb.every((d) => inGrid(y + d.$1, x + d.$2) && dil[y + d.$1][x + d.$2]))));
+}
+
+/// Step 9: the largest 4-connected group of set blocks, as (by, bx) sorted row-major.
+List<(int, int)> largestGroup(List<List<bool>> rows) {
+  final hb = rows.length, wb = hb == 0 ? 0 : rows[0].length;
+  final seen = List.generate(hb, (_) => List<bool>.filled(wb, false));
+  var best = <(int, int)>[];
+  for (var y = 0; y < hb; y++) {
+    for (var x = 0; x < wb; x++) {
+      if (!rows[y][x] || seen[y][x]) continue;
+      final group = <(int, int)>[];
+      final stack = <(int, int)>[(y, x)];
+      seen[y][x] = true;
+      while (stack.isNotEmpty) {
+        final (cy, cx) = stack.removeLast();
+        group.add((cy, cx));
+        for (final (ny, nx) in [(cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)]) {
+          if (ny >= 0 && ny < hb && nx >= 0 && nx < wb && rows[ny][nx] && !seen[ny][nx]) {
+            seen[ny][nx] = true;
+            stack.add((ny, nx));
+          }
+        }
+      }
+      if (group.length > best.length) best = group;
+    }
+  }
+  best.sort((a, b) => a.$1 != b.$1 ? a.$1.compareTo(b.$1) : a.$2.compareTo(b.$2));
+  return best;
+}
+
+/// Step 9: TL, TR, BR, BL of the group's block corners (working px).
+List<List<double>>? sheetCorners(List<(int, int)> group, int block) {
+  if (group.isEmpty) return null;
+  final keys = <double Function(int, int)>[
+    (x, y) => -(x + y).toDouble(),
+    (x, y) => (x - y).toDouble(),
+    (x, y) => (x + y).toDouble(),
+    (x, y) => (y - x).toDouble(),
+  ];
+  final best = List<List<double>?>.filled(4, null);
+  final score = List<double>.filled(4, double.negativeInfinity);
+  for (final (by, bx) in group) {
+    for (final (x, y) in [
+      (bx * block, by * block),
+      ((bx + 1) * block, by * block),
+      ((bx + 1) * block, (by + 1) * block),
+      (bx * block, (by + 1) * block),
+    ]) {
+      for (var i = 0; i < 4; i++) {
+        final v = keys[i](x, y);
+        if (v > score[i]) {
+          score[i] = v;
+          best[i] = [x.toDouble(), y.toDouble()];
+        }
       }
     }
   }
-  return paper / (hb * wb);
+  return best.cast<List<double>>();
 }
+
+double _blockMean(Plane w, int by, int bx, int block) {
+  var s = 0.0;
+  for (var y = by * block; y < (by + 1) * block; y++) {
+    for (var x = bx * block; x < (bx + 1) * block; x++) {
+      s += w.at(y, x);
+    }
+  }
+  return s / (block * block);
+}
+
+/// Step 10: the mean of the sheet's block levels.
+double? sheetBrightness(Plane w, List<(int, int)> group, int block) {
+  if (group.isEmpty) return null;
+  var s = 0.0;
+  for (final (by, bx) in group) {
+    s += _blockMean(w, by, bx, block);
+  }
+  return s / group.length;
+}
+
+/// Step 10: (max - min) / max of the zone levels over a 4 x 4 split of the sheet.
+double? shadowSpread(Plane w, List<(int, int)> group, int block) {
+  if (group.isEmpty) return null;
+  final members = group.toSet();
+  final inner = group
+      .where((b) =>
+          members.contains((b.$1 - 1, b.$2)) &&
+          members.contains((b.$1 + 1, b.$2)) &&
+          members.contains((b.$1, b.$2 - 1)) &&
+          members.contains((b.$1, b.$2 + 1)))
+      .toList();
+  final use = inner.isEmpty ? group : inner;
+  var y0 = use.first.$1, y1 = y0, x0 = use.first.$2, x1 = x0;
+  for (final (by, bx) in use) {
+    y0 = math.min(y0, by);
+    y1 = math.max(y1, by);
+    x0 = math.min(x0, bx);
+    x1 = math.max(x1, bx);
+  }
+  final ny = y1 - y0 + 1, nx = x1 - x0 + 1;
+  final zones = <(int, int), List<double>>{};
+  for (final (by, bx) in use) {
+    zones.putIfAbsent((4 * (by - y0) ~/ ny, 4 * (bx - x0) ~/ nx), () => []).add(_blockMean(w, by, bx, block));
+  }
+  if (zones.length < 2) return null;
+  final levels = zones.values.map((v) {
+    final sv = [...v]..sort();
+    return sv[(0.75 * (sv.length - 1)).floor()];
+  }).toList();
+  final top = levels.reduce(math.max);
+  return top <= 0 ? 0.0 : (top - levels.reduce(math.min)) / top;
+}
+
+/// Python's round(x, 1).
+double _round1(double x) => _roundHalfEven(x * 10) / 10.0;
 
 /// QC of one frame. `scaleToCapture` = captured photo width / this frame's width.
 /// `config` is the `config` object of GET /scans/config/capture-qc.
@@ -316,14 +465,42 @@ FrameQc checkFrame(Uint8List rgb, int width, int height, Map<String, dynamic> co
   }
   final tilt = period == null ? null : tiltDeg(prof, period, band: n(a, 'band').toInt());
   final ppm = period == null ? null : period * k * scaleToCapture / 5.0;
-  final sheet = sheetFraction(q, period, tilt, block: n(a, 'block').toInt(), ratio: n(a, 'paper_ratio').toDouble());
+  final (rows, blk) = paperBlocks(q, period, tilt, block: n(a, 'block').toInt(), ratio: n(a, 'paper_ratio').toDouble());
+  var nBlocks = 0, nPaper = 0;
+  for (final r in rows) {
+    nBlocks += r.length;
+    nPaper += r.where((v) => v).length;
+  }
+  final sheet = nBlocks == 0 ? 0.0 : nPaper / nBlocks;
+  final group = largestGroup(closeBlocks(rows));
+  final cw = sheetCorners(group, blk);
+  final corners = cw?.map((p) => [_round1(p[0] * k * scaleToCapture), _round1(p[1] * k * scaleToCapture)]).toList();
+  bool? whole;
+  var area = 0.0;
+  if (group.isNotEmpty) {
+    final hb = rows.length, wb = rows[0].length, e = ((a['edge_blocks'] as num?) ?? 1).toInt();
+    final on = [
+      group.where((b) => b.$1 == 0).length,
+      group.where((b) => b.$1 == hb - 1).length,
+      group.where((b) => b.$2 == 0).length,
+      group.where((b) => b.$2 == wb - 1).length,
+    ];
+    whole = on.reduce(math.max) < e;
+    area = group.length / (hb * wb);
+  }
+  final shadow = shadowSpread(w, group, blk);
+  final roi = sheetBrightness(w, group, blk);
   final hints = <String>[];
   if (ppm == null || ppm < n(t, 'min_px_per_mm')) hints.add('closer');
   if (glare > n(t, 'max_glare')) hints.add('glare');
   if (sharp < n(t, 'min_sharpness')) hints.add('steady');
   if (tilt != null && tilt.abs() > n(t, 'max_tilt_deg')) hints.add('level');
   if (bright < n(t, 'min_brightness')) hints.add('light');
-  if (sheet < n(t, 'min_sheet')) hints.add('frame');
+  if ((roi ?? bright) > ((t['max_brightness'] as num?) ?? 255.0)) hints.add('bright');
+  if (shadow != null && shadow > ((t['max_shadow'] as num?) ?? 1.0)) hints.add('shadow');
+  if (area < n(t, 'min_sheet') || ((t['require_whole_sheet'] as bool?) ?? false) && whole == false) {
+    hints.add('frame');
+  }
   return FrameQc(
     width: width,
     height: height,
@@ -336,5 +513,10 @@ FrameQc checkFrame(Uint8List rgb, int width, int height, Map<String, dynamic> co
     pxPerMm: ppm,
     sheet: sheet,
     hints: hints,
+    shadow: shadow,
+    corners: corners,
+    sheetWhole: whole,
+    sheetArea: area,
+    sheetBrightness: roi,
   );
 }
