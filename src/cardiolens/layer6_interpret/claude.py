@@ -17,6 +17,7 @@ import os
 
 from cardiolens.contracts.report import Claim, InterpretationReport
 from cardiolens.layer6_interpret.provider import InterpretationInput, LLMProvider
+from cardiolens.layer6_interpret.stub import StubProvider
 
 _SYSTEM = (
     "You are a cardiology ECG interpretation assistant. You are given structured "
@@ -70,18 +71,27 @@ class ClaudeProvider(LLMProvider):
         }
 
     def generate(self, data: InterpretationInput) -> InterpretationReport:
-        import anthropic
-
-        client = anthropic.Anthropic()
         prompt = PROMPT_INSTRUCTIONS + json.dumps(self._payload(data), ensure_ascii=False, indent=2)
-        msg = client.messages.create(
-            model=self.model, max_tokens=self.max_tokens, system=_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-        report = report_from_json(json.loads(_extract_json(text)), data)
-        report.provider, report.provider_model = self.name, self.model
-        return report
+        # The narrative is the last layer: a refused key, an unpaid account, an outage or
+        # malformed JSON must not fail the whole analysis (D154) — same as the local provider.
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic()
+            msg = client.messages.create(
+                model=self.model, max_tokens=self.max_tokens, system=_SYSTEM,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+            report = report_from_json(json.loads(_extract_json(text)), data)
+            report.provider, report.provider_model = self.name, self.model
+            report.reasoning_trace.insert(0, f"narrative by Claude {self.model}")
+            return report
+        except Exception as e:
+            report = StubProvider().generate(data)   # provider stays "stub": the UI must not claim a model
+            report.reasoning_trace.insert(
+                0, f"Claude unavailable ({type(e).__name__}) -> deterministic offline narrative")
+            return report
 
 
 # Findings that mean the numbers were not read from a trustworthy signal (D128): the

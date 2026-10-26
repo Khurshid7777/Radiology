@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CardioLens — интерпретация ЭКГ</title>
+<title>CardioVision — заключение по ЭКГ</title>
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --ink: #1a1f26; --muted: #5b6672;
@@ -18,140 +18,194 @@
   body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
     background: var(--bg); color: var(--ink); line-height: 1.45; }
   header { background: var(--card); border-bottom: 1px solid var(--line);
-    padding: 16px 20px; display:flex; align-items:baseline; gap:12px; }
+    padding: 14px 16px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
   header h1 { margin:0; font-size: 20px; }
   header .sub { color: var(--muted); font-size: 13px; }
   header .llm { margin-left:auto; font-size:12px; padding:3px 10px; border-radius:999px;
     border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
   header .llm.local { color:var(--ok); border-color:var(--ok); }
   header .llm.claude { color:var(--brand2); border-color:var(--brand2); }
-  details { margin-top:10px; }
-  details summary { cursor:pointer; color:var(--muted); font-size:13px; }
-  .trace li { font-family: ui-monospace, Menlo, monospace; font-size:12px; margin:2px 0; }
-  .wrap { max-width: 1100px; margin: 20px auto; padding: 0 16px;
-    display:grid; grid-template-columns: 320px 1fr; gap:16px; }
-  @media (max-width: 820px) { .wrap { grid-template-columns: 1fr; } }
-  .card { background: var(--card); border:1px solid var(--line); border-radius:12px;
-    padding:16px; }
-  .card h2 { margin:0 0 12px; font-size:14px; text-transform:uppercase;
-    letter-spacing:.04em; color:var(--muted); }
+  .wrap { max-width: 720px; margin: 16px auto; padding: 0 16px; display:grid; gap:14px; }
+  .card { background: var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
+  .card h2 { margin:0 0 10px; font-size:15px; }
+  .step { display:inline-block; width:24px; height:24px; line-height:24px; text-align:center;
+    border-radius:50%; background:var(--brand); color:#fff; font-size:13px; margin-right:8px; }
   label { display:block; font-size:13px; margin:10px 0 4px; color:var(--muted); }
-  select, input, button { width:100%; padding:9px 10px; border-radius:8px;
-    border:1px solid var(--line); background:var(--bg); color:var(--ink); font-size:14px; }
-  .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  select, input, button { width:100%; padding:11px 12px; border-radius:10px;
+    border:1px solid var(--line); background:var(--bg); color:var(--ink); font-size:16px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .drop { display:block; border:2px dashed var(--line); border-radius:12px; padding:22px 14px;
+    text-align:center; cursor:pointer; color:var(--muted); background:var(--bg); }
+  .drop.over { border-color:var(--brand2); color:var(--brand2); }
+  .drop b { display:block; color:var(--ink); font-size:16px; margin-bottom:4px; }
+  .drop .chosen { color:var(--ok); font-weight:600; margin-top:6px; word-break:break-all; }
+  .seg { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .seg button { background:var(--bg); cursor:pointer; }
+  .seg button.on { background: color-mix(in srgb, var(--brand2) 16%, transparent);
+    border-color:var(--brand2); color:var(--brand2); font-weight:600; }
   button.primary { background: var(--brand); color:#fff; border:none; cursor:pointer;
-    font-weight:600; margin-top:14px; }
+    font-weight:600; font-size:17px; padding:14px; margin-top:6px; }
   button.primary:disabled { opacity:.6; cursor:progress; }
-  .banner { padding:12px 14px; border-radius:10px; font-weight:600; margin-bottom:14px; }
+  .progress { color:var(--brand2); font-size:14px; margin-top:8px; min-height:20px; }
+  .err { color:var(--crit); font-size:14px; margin-top:8px; }
+  .hint { color:var(--muted); font-size:12.5px; margin-top:6px; }
+  details { margin-top:6px; }
+  details summary { cursor:pointer; color:var(--brand2); font-size:14px; }
+  .banner { padding:12px 14px; border-radius:10px; font-weight:600; margin-bottom:12px; }
   .banner.A { background: color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok); }
   .banner.B { background: color-mix(in srgb, var(--brand2) 15%, transparent); color:var(--brand2); }
   .banner.escalate { background: color-mix(in srgb, var(--crit) 18%, transparent); color:var(--crit); }
   .crit { border-left:4px solid var(--crit); background: color-mix(in srgb, var(--crit) 8%, transparent);
-    padding:8px 12px; border-radius:6px; margin:6px 0; }
+    padding:8px 12px; border-radius:6px; margin:6px 0; font-weight:600; }
   .chip { display:inline-block; padding:3px 9px; border-radius:999px; font-size:12px;
     background: color-mix(in srgb, var(--brand2) 12%, transparent); color:var(--brand2); margin:3px 4px 3px 0; }
-  .chip.crit { background: color-mix(in srgb, var(--crit) 14%, transparent); color:var(--crit); border:none; }
-  pre { white-space:pre-wrap; font-family: ui-monospace, Menlo, monospace; font-size:12.5px;
-    background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px; overflow:auto; }
+  .chip.crit { background: color-mix(in srgb, var(--crit) 14%, transparent); color:var(--crit); }
+  pre { white-space:pre-wrap; font-family: inherit; font-size:15px; line-height:1.5;
+    background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:12px; overflow:auto; }
+  pre.mono { font-family: ui-monospace, Menlo, monospace; font-size:12.5px; }
   img { max-width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   @media (max-width:700px){ .grid2 { grid-template-columns:1fr; } }
   .muted { color:var(--muted); font-size:12.5px; }
   .disclaimer { color:var(--muted); font-size:12px; margin-top:10px; font-style:italic; }
   .hidden { display:none; }
-  a.btn { display:inline-block; text-decoration:none; text-align:center; }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
-  td { padding:4px 8px; border-bottom:1px solid var(--line); }
+  a.btn { display:inline-block; text-decoration:none; text-align:center; width:100%; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:5px 8px; border-bottom:1px solid var(--line); }
   td:first-child { color:var(--muted); }
+  .trace li { font-family: ui-monospace, Menlo, monospace; font-size:12px; margin:2px 0; }
+  h3 { font-size:14px; margin:14px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
 </style>
 </head>
 <body>
 <header>
-  <h1>CardioLens</h1>
-  <span class="sub">интерпретация ЭКГ · поддержка решений врача</span>
-  <span class="llm" id="llm" title="Источник нарратива Слоя 6 (/health)">LLM: …</span>
+  <h1>CardioVision</h1>
+  <span class="sub">заключение по фото ЭКГ · поддержка решений врача</span>
+  <span class="llm" id="llm" title="Кто пишет текст заключения (/health)">Текст заключения: …</span>
 </header>
 
 <div class="wrap">
   <div class="card">
-    <h2>Входные данные</h2>
-    <label>Ключ доступа API (X-API-Key)</label>
-    <input id="apikey" type="password" autocomplete="off" placeholder="выдаёт администратор">
-    <label>Демо-случай (синтетика)</label>
-    <select id="case"></select>
-
-    <label>или загрузить файл (WFDB .hea+.dat, EDF, CSV, DICOM ECG, SCP-ECG)</label>
-    <input id="files" type="file" multiple>
-    <div class="row">
-      <div><label>Частота, Гц (для CSV)</label><input id="fs" type="number" placeholder="500"></div>
-      <div><label>Единицы CSV</label>
-        <select id="unit"><option value="uv">µV</option><option value="mv">mV</option></select></div>
-    </div>
-
-    <h2 style="margin-top:18px">Параметры</h2>
-    <label>Режим</label>
-    <select id="mode">
-      <option value="A">A — поддержка врача</option>
-      <option value="B">B — автономный (gated)</option>
-    </select>
-    <div class="row">
-      <div><label>Возраст, лет</label><input id="age" type="number" placeholder="—"></div>
-      <div><label>Пол</label><select id="sex">
-        <option value="">—</option><option value="male">муж</option><option value="female">жен</option>
-      </select></div>
-    </div>
-    <label>Калий K⁺, ммоль/л (контекст)</label>
-    <input id="k" type="number" step="0.1" placeholder="—">
-
-    <button class="primary" id="run">Анализировать</button>
-    <div class="disclaimer" id="err"></div>
+    <h2><span class="step">1</span>Снимок или файл ЭКГ</h2>
+    <label class="drop" id="drop" for="files">
+      <b>Нажмите, чтобы выбрать фото</b>
+      с телефона или компьютера — или перетащите сюда
+      <div class="chosen" id="chosen"></div>
+    </label>
+    <input id="files" type="file" multiple class="hidden"
+           accept="image/*,.heic,.heif,.pdf,.hea,.dat,.edf,.bdf,.csv,.txt,.dcm,.scp">
+    <div class="hint">Подойдёт фото бумажной ЭКГ или экрана прибора (JPG, PNG, HEIC), PDF, а также
+      файл записи (WFDB, EDF, CSV, DICOM, SCP). Снимайте прямо сверху, без бликов, чтобы лист занимал
+      весь кадр. Берите оригинал из галереи: фото, пересланное через Telegram или WhatsApp, сжато и
+      не прочитается. Несколько фото одной ЭКГ можно выбрать вместе.</div>
+    <div class="err" id="filewarn"></div>
   </div>
 
-  <div class="card" id="results">
-    <h2>Результат</h2>
-    <p class="muted" id="placeholder">Выберите случай или загрузите файл и нажмите «Анализировать».</p>
-    <div id="out" class="hidden">
-      <div id="banner" class="banner"></div>
-      <div id="critical"></div>
+  <div class="card">
+    <h2><span class="step">2</span>О пациенте</h2>
+    <div class="row">
+      <div><label>Возраст, лет <span style="color:var(--crit)">*</span></label>
+        <input id="age" type="number" inputmode="decimal" min="0" max="120" step="any" placeholder="например, 54"></div>
+      <div><label>Пол <span style="color:var(--crit)">*</span></label>
+        <div class="seg">
+          <button type="button" id="sex_m" data-v="male">Муж</button>
+          <button type="button" id="sex_f" data-v="female">Жен</button>
+        </div></div>
+    </div>
 
-      <table id="meas"></table>
-
-      <h2 style="margin-top:16px">Находки</h2>
-      <div id="findings"></div>
-
-      <div class="grid2" style="margin-top:14px">
-        <div><h2>Кривая ЭКГ</h2><img id="wave" alt="ЭКГ"></div>
-        <div><h2>Каузальный граф</h2><img id="graph" alt="граф"></div>
+    <details id="more">
+      <summary>Дополнительно (необязательно)</summary>
+      <div class="row">
+        <div><label>Калий K⁺, ммоль/л</label><input id="k" type="number" inputmode="decimal" step="0.1" placeholder="—"></div>
+        <div><label>Кальций Ca²⁺, ммоль/л</label><input id="ca" type="number" inputmode="decimal" step="0.01" placeholder="—"></div>
       </div>
+      <label>Режим</label>
+      <select id="mode">
+        <option value="A">A — поддержка врача</option>
+        <option value="B">B — автономный (с проверкой)</option>
+      </select>
+      <div class="row">
+        <div><label>Частота, Гц (только для CSV)</label><input id="fs" type="number" placeholder="500"></div>
+        <div><label>Единицы (только для CSV)</label>
+          <select id="unit"><option value="uv">µV</option><option value="mv">mV</option></select></div>
+      </div>
+      <label>Демо-случай (вместо файла, синтетика)</label>
+      <select id="case"></select>
+      <label>Ключ клиники</label>
+      <input id="apikey" type="password" autocomplete="off" placeholder="выдаёт администратор">
+      <div class="hint" id="keyhint"></div>
+    </details>
 
-      <h2 style="margin-top:16px">Заключение (RU)</h2>
-      <pre id="concl_ru"></pre>
-      <h2>Xulosa (UZ)</h2>
+    <button class="primary" id="run">Получить заключение</button>
+    <div class="progress" id="progress"></div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card hidden" id="results">
+    <div id="banner" class="banner"></div>
+    <div id="critical"></div>
+    <h3>Заключение</h3>
+    <pre id="concl_ru"></pre>
+    <a class="btn" id="pdf" download><button class="primary">Скачать PDF</button></a>
+    <div class="muted" id="narr_src" style="margin-top:8px"></div>
+    <div id="overlay_box" class="hidden" style="margin-top:12px">
+      <h3>Что прочитано с фото</h3>
+      <div class="muted">Цветные линии должны лежать на кривых ЭКГ: зелёные — прочитано уверенно, оранжевые —
+        сомнительно, красные — плохо. Если линии не на кривых, заключению верить нельзя — переснимите лист.</div>
+      <img id="overlay" alt="прочитанные трассы на снимке" style="max-width:100%;margin-top:8px;border:1px solid #ddd;border-radius:6px">
+    </div>
+
+    <details style="margin-top:12px">
+      <summary>Подробно: измерения, находки, кривая, заключение на узбекском</summary>
+      <h3>Измерения</h3>
+      <table id="meas"></table>
+      <h3>Находки</h3>
+      <div id="findings"></div>
+      <div class="grid2" style="margin-top:14px">
+        <div><h3>Кривая ЭКГ</h3><img id="wave" alt="ЭКГ"></div>
+        <div><h3>Причинный граф</h3><img id="graph" alt="граф"></div>
+      </div>
+      <h3>Xulosa (UZ)</h3>
       <pre id="concl_uz"></pre>
-
-      <div class="muted" id="narr_src"></div>
       <details>
-        <summary>Трасса рассуждений (reasoning trace, ТЗ §9)</summary>
+        <summary>Ход рассуждений</summary>
         <ol class="trace" id="trace"></ol>
       </details>
-
-      <a class="btn" id="pdf" download><button class="primary">Скачать PDF-заключение</button></a>
-      <div class="disclaimer" id="disc"></div>
-    </div>
+    </details>
+    <div class="disclaimer" id="disc"></div>
   </div>
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
 
-// Every /api/analyze and /api/analysis call carries the key (D136). It lives only in this
-// tab (sessionStorage), never in a URL: images and the PDF are fetched and shown as blobs.
-try { $('apikey').value = sessionStorage.getItem('apikey') || ''; } catch (e) {}
+// The clinic key (D136) is remembered in this browser (localStorage). A link with #key=…
+// stores it and is cleaned at once, so a doctor gets one link and never types the key. The
+// key travels in the fragment: a fragment never reaches the server or its logs (D162); the
+// older ?key=… form still works and is cleaned from the address the same way.
+const KEY = 'cardiolens_key';
+(function () {
+  try {
+    const u = new URL(location.href);
+    const hk = (u.hash.match(/[#&]key=([^&]+)/) || [])[1];
+    const k = u.searchParams.get('key') || (hk ? decodeURIComponent(hk) : null);
+    if (k) { localStorage.setItem(KEY, k); u.searchParams.delete('key');
+      history.replaceState(null, '', u.pathname + u.search); }
+    $('apikey').value = localStorage.getItem(KEY) || '';
+  } catch (e) {}
+  keyStatus();
+})();
 $('apikey').addEventListener('change', () => {
-  try { sessionStorage.setItem('apikey', $('apikey').value); } catch (e) {}
+  try { localStorage.setItem(KEY, $('apikey').value.trim()); } catch (e) {}
+  keyStatus();
 });
+function keyStatus() {
+  const has = !!$('apikey').value.trim();
+  $('keyhint').textContent = has ? 'Ключ сохранён в этом браузере.' : 'Без ключа клиники анализ не запустится.';
+  if (!has) $('more').open = true;
+}
 function authed(url, opts = {}) {
-  return fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-API-Key': $('apikey').value } });
+  return fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-API-Key': $('apikey').value.trim() } });
 }
 async function blobUrl(url) {
   const r = await authed(url);
@@ -159,66 +213,131 @@ async function blobUrl(url) {
   return URL.createObjectURL(await r.blob());
 }
 
-async function loadCases() {
-  const r = await fetch('/api/cases'); const d = await r.json();
-  $('case').innerHTML = '<option value="">—</option>' +
-    d.cases.map(c => `<option value="${c}">${c}</option>`).join('');
-  $('case').value = 'hyperk';
+// Step 1: the file picker and the drop zone.
+const drop = $('drop'), files = $('files');
+function showChosen() {
+  const names = [...files.files].map(f => f.name);
+  $('chosen').textContent = names.length ? '✓ ' + names.join(', ') : '';
+  if (names.length) $('case').value = '';
+  checkPhotoSize();
 }
 
-const PROVIDER_RU = { local: 'локальная модель', claude: 'Claude (облако)', stub: 'заглушка (офлайн, без LLM)' };
+// A messenger copy is ~1280 px wide: an A4 sheet on it has ~4 px/mm, and the readers need 8.
+// Said at once, before a 30-second wait (D159); the server still decides.
+const SMALL_PX = 2000;
+async function checkPhotoSize() {
+  $('filewarn').textContent = '';
+  for (const f of files.files) {
+    if (!/^image\//.test(f.type)) continue;
+    try {
+      const bmp = await createImageBitmap(f);
+      const w = bmp.width, h = bmp.height; bmp.close();
+      if (Math.max(w, h) < SMALL_PX) {
+        $('filewarn').textContent = `Снимок «${f.name}» маленький (${w}×${h}) — похоже, сжатая копия из мессенджера. ` +
+          'Такой, скорее всего, не прочитается: возьмите оригинал из галереи или снимите заново.';
+        return;
+      }
+    } catch (e) { /* HEIC and the like: the browser cannot decode it, the server will */ }
+  }
+}
+files.addEventListener('change', showChosen);
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => { files.files = e.dataTransfer.files; showChosen(); });
 
+// Step 2: sex as two buttons.
+let sex = '';
+for (const id of ['sex_m', 'sex_f']) {
+  $(id).addEventListener('click', () => {
+    sex = $(id).dataset.v;
+    $('sex_m').classList.toggle('on', sex === 'male');
+    $('sex_f').classList.toggle('on', sex === 'female');
+  });
+}
+
+async function loadCases() {
+  try {
+    const r = await fetch('/api/cases'); const d = await r.json();
+    $('case').innerHTML = '<option value="">—</option>' +
+      d.cases.map(c => `<option value="${c}">${c}</option>`).join('');
+  } catch (e) {}
+}
+
+const PROVIDER_RU = { local: 'локальная модель', claude: 'Claude', stub: 'офлайн-шаблон' };
 function providerLabel(name, model) {
   return (PROVIDER_RU[name] || name) + (model ? ' · ' + model : '');
 }
-
 async function loadHealth() {
   try {
     const r = await fetch('/health'); const d = await r.json(); const l = d.llm || {};
     const el = $('llm'); el.className = 'llm ' + (l.active || 'stub');
-    el.textContent = 'LLM: ' + providerLabel(l.active, l.model);
-    el.title = `настроено: ${l.configured} · локальный сервер ${l.local_base_url}: ` +
-      (l.local_server_up ? 'отвечает' : 'не отвечает') +
-      (l.claude_available ? ' · ключ Claude есть' : '');
-  } catch (e) { $('llm').textContent = 'LLM: ?'; }
+    el.textContent = 'Текст заключения: ' + providerLabel(l.active, l.model);
+    el.title = 'Анализ ЭКГ делает CardioVision; эта модель только пишет текст по его находкам';
+  } catch (e) { $('llm').textContent = 'Текст заключения: ?'; }
 }
+
+// What the page says while the server works: reading a photo through the scanner, the
+// analysis and the narrative take tens of seconds together.
+const STAGES = [[0, 'Отправляю…'], [2, 'Читаю ЭКГ со снимка…'], [10, 'Измеряю и ищу находки…'],
+                [20, 'Пишу заключение…'], [45, 'Ещё немного — сложный снимок…']];
+let timer = null;
+function startProgress() {
+  const t0 = Date.now();
+  const tick = () => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    const stage = STAGES.filter(x => x[0] <= s).pop()[1];
+    $('progress').textContent = `${stage} ${s} с`;
+  };
+  tick(); timer = setInterval(tick, 1000);
+}
+function stopProgress() { clearInterval(timer); timer = null; $('progress').textContent = ''; }
 
 $('run').addEventListener('click', async () => {
   $('err').textContent = '';
   const fd = new FormData();
-  const files = $('files').files;
-  if (files.length) { for (const f of files) fd.append('files', f); }
+  if (files.files.length) { for (const f of files.files) fd.append('files', f); }
   else if ($('case').value) fd.append('case', $('case').value);
-  else { $('err').textContent = 'Выберите случай или файл.'; return; }
+  else { $('err').textContent = 'Сначала выберите фото или файл ЭКГ.'; return; }
+
+  const age = parseFloat($('age').value);
+  if (!(age >= 0 && age <= 120)) { $('err').textContent = 'Укажите возраст пациента.'; $('age').focus(); return; }
+  if (!sex) { $('err').textContent = 'Укажите пол пациента.'; return; }
+  if (!$('apikey').value.trim()) { $('err').textContent = 'Нужен ключ клиники — его выдаёт администратор (раздел «Дополнительно»).'; $('more').open = true; return; }
 
   fd.append('mode', $('mode').value);
+  fd.append('age_years', String(age));
+  fd.append('sex', sex);
   if ($('fs').value) fd.append('sampling_rate_hz', $('fs').value);
   fd.append('unit', $('unit').value);
-  if ($('age').value) fd.append('age_years', $('age').value);
-  if ($('sex').value) fd.append('sex', $('sex').value);
   if ($('k').value) fd.append('potassium', $('k').value);
+  if ($('ca').value) fd.append('calcium', $('ca').value);
 
-  $('run').disabled = true; $('run').textContent = 'Анализ…';
+  $('run').disabled = true; $('results').classList.add('hidden'); startProgress();
   try {
-    const r = await authed('/api/analyze', { method:'POST', body: fd });
-    if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
+    const r = await authed('/api/analyze', { method: 'POST', body: fd });
+    if (r.status === 401) { $('more').open = true; throw new Error('ключ клиники не подходит — проверьте его в разделе «Дополнительно»'); }
+    if (!r.ok) {
+      let detail = r.statusText;
+      try { detail = (await r.json()).detail || detail; } catch (e) {}
+      throw new Error(detail);
+    }
     render(await r.json());
-  } catch (e) { $('err').textContent = 'Ошибка: ' + e.message; }
-  finally { $('run').disabled = false; $('run').textContent = 'Анализировать'; }
+  } catch (e) {
+    $('err').textContent = (e.message === 'Failed to fetch' || e.message === 'Load failed')
+      ? 'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.' : e.message;
+  } finally { $('run').disabled = false; stopProgress(); }
 });
 
 function render(d) {
-  $('placeholder').classList.add('hidden');
-  $('out').classList.remove('hidden');
-
-  const modeLabel = { A:'Режим A — поддержка врача', B:'Режим B — автономная интерпретация',
-    escalate:'⚠ ТРЕБУЕТСЯ ПРОСМОТР ВРАЧА' };
+  $('results').classList.remove('hidden');
+  const modeLabel = { A: 'Готово — заключение для врача', B: 'Готово — автономное заключение',
+    escalate: '⚠ Требуется просмотр врача' };
   const b = $('banner'); b.className = 'banner ' + d.mode;
   b.textContent = modeLabel[d.mode] || d.mode;
   if (d.escalation_reason) b.textContent += ' — ' + d.escalation_reason;
 
   $('critical').innerHTML = (d.critical_alerts || [])
-    .map(a => `<div class="crit">⚠ ${a.label_ru} / ${a.label_uz}</div>`).join('');
+    .map(a => `<div class="crit">⚠ ${esc(a.label_ru)} / ${esc(a.label_uz)}</div>`).join('');
 
   const m = d.measurements, iv = m.intervals;
   $('meas').innerHTML = `
@@ -230,24 +349,30 @@ function render(d) {
         <td>Уверенность</td><td>${d.interpretation.confidence.value} (${d.interpretation.confidence.word_ru})</td></tr>`;
 
   $('findings').innerHTML = (d.findings || [])
-    .map(f => `<span class="chip ${f.critical?'crit':''}">${f.label_ru}</span>`).join('') || '<span class="muted">—</span>';
+    .map(f => `<span class="chip ${f.critical ? 'crit' : ''}">${esc(f.label_ru)}</span>`).join('') || '<span class="muted">—</span>';
 
   blobUrl(`/api/analysis/${d.analysis_id}/waveform.svg`).then(u => { $('wave').src = u; }).catch(() => {});
   blobUrl(`/api/analysis/${d.analysis_id}/graph.png`).then(u => { $('graph').src = u; }).catch(() => {});
   $('concl_ru').textContent = d.conclusion_ru;
   $('concl_uz').textContent = d.conclusion_uz;
   const it = d.interpretation;
-  $('narr_src').textContent = 'Нарратив: ' + providerLabel(it.provider, it.provider_model) +
-    ' · все утверждения проверены заземлением (ungrounded — отброшены)';
+  $('narr_src').textContent = 'Текст: ' + providerLabel(it.provider, it.provider_model) +
+    ' · каждое утверждение проверено по находкам';
+  // A photo the scanner read (D163): the traces it read, drawn over the page.
+  $('overlay_box').classList.toggle('hidden', !d.overlay_available);
+  $('overlay').removeAttribute('src');
+  if (d.overlay_available) blobUrl(`/api/analysis/${d.analysis_id}/overlay.jpg`)
+    .then(u => { $('overlay').src = u; }).catch(() => $('overlay_box').classList.add('hidden'));
   $('trace').innerHTML = (it.reasoning_trace || []).map(t => `<li>${esc(t)}</li>`).join('');
   $('pdf').removeAttribute('href');
   blobUrl(`/api/analysis/${d.analysis_id}/report.pdf`).then(u => {
     $('pdf').href = u; $('pdf').download = `cardiolens_${d.analysis_id}.pdf`;
   }).catch(() => {});
   $('disc').textContent = it.disclaimer.ru;
+  $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 loadCases();
 loadHealth();

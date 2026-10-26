@@ -1,0 +1,122 @@
+name: Deploy
+
+# Updates the server from main (D153). Only by hand: the owner confirms every update, so
+# the main session asks first and starts this workflow (Actions -> Deploy -> Run workflow)
+# only after a yes. The commit must have passed CI.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit or branch to deploy (normally main)"
+        required: true
+        default: main
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    env:
+      APP_DIR: /opt/cardiolens
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Where to deploy (deploy/target.env)
+        run: |
+          set -a; . deploy/target.env; set +a
+          for v in DOMAIN SERVER_HOST SERVER_USER; do
+            if [ -z "${!v}" ]; then echo "$v is empty in deploy/target.env"; exit 1; fi
+            echo "$v=${!v}" >> "$GITHUB_ENV"
+          done
+          # root needs no sudo (a minimal Debian may not even have it)
+          if [ "$SERVER_USER" = root ]; then echo "SUDO=" >> "$GITHUB_ENV"; else echo "SUDO=sudo" >> "$GITHUB_ENV"; fi
+          if [ "${{ secrets.SERVER_SSH_KEY != '' }}" != "true" ]; then
+            echo "GitHub secret SERVER_SSH_KEY is not set (docs/DEPLOY.md)"; exit 1
+          fi
+
+      - name: The commit passed CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          ok=$(gh run list --workflow CI --commit "$sha" --json conclusion --jq '[.[] | select(.conclusion=="success")] | length')
+          if [ "${ok:-0}" -lt 1 ]; then echo "CI is not green on $sha - not deploying"; exit 1; fi
+          echo "deploying $sha"
+
+      - name: SSH access
+        env:
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          # A key copied from a server console often loses its line breaks or gains \r:
+          # rebuild it from the base64 body between the BEGIN/END lines.
+          k=$(printf '%s' "$SSH_KEY" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          # what it looks like, without showing it: length, lines, kind of the first word
+          first=$(printf '%s' "$k" | head -c 11 | tr -c 'A-Za-z0-9-' '.')
+          case "$first" in -----BEGIN*|ssh-ed25519|ssh-rsa*) ;; *) first="(other: $(printf '%s' "$k" | head -c 40 | tr -c 'A-Za-z0-9+/=\n' '?' | sed 's/[A-Za-z0-9+/=]/x/g'))";; esac
+          echo "SERVER_SSH_KEY: $(printf '%s' "$k" | wc -c) chars, $(printf '%s\n' "$k" | wc -l) lines, starts with: $first"
+          case "$k" in ssh-ed25519*|ssh-rsa*|ecdsa-*) echo "SERVER_SSH_KEY holds the PUBLIC key (.pub) - the private one is needed"; exit 1;; esac
+          # also taken as one line: base64 -w0 ~/.ssh/cardiolens_deploy (nothing to break when copying)
+          if ! printf '%s' "$k" | grep -q -- '-----BEGIN'; then
+            k=$(printf '%s' "$k" | tr -d ' \n\t' | base64 -d 2>/dev/null | tr -d '\r' || true)
+          fi
+          head=$(printf '%s' "$k" | grep -o -- '-----BEGIN [A-Z ]*KEY-----' | head -1 || true)
+          foot=$(printf '%s' "$k" | grep -o -- '-----END [A-Z ]*KEY-----' | head -1 || true)
+          if [ -z "$head" ] || [ -z "$foot" ]; then
+            echo "SERVER_SSH_KEY has no BEGIN/END lines - paste the whole key"; exit 1
+          fi
+          body=${k#*"$head"}; body=${body%%"$foot"*}
+          { echo "$head"; printf '%s' "$body" | tr -d ' \n\t' | fold -w 70; echo; echo "$foot"; } > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if ! ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null; then
+            echo "SERVER_SSH_KEY is not a valid private key (cut short?) - copy it again"; exit 1
+          fi
+          echo "key ok: $(ssh-keygen -l -f ~/.ssh/id_deploy)"
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          printf 'Host server\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  ServerAliveInterval 30\n' \
+            "$SERVER_HOST" "$SERVER_USER" > ~/.ssh/config
+
+      - name: Copy the code
+        run: |
+          ssh server "command -v rsync >/dev/null || ($SUDO apt-get update -q && $SUDO apt-get install -y -q rsync)"
+          ssh server "$SUDO mkdir -p $APP_DIR && $SUDO chown \$(id -u):\$(id -g) $APP_DIR"
+          rsync -az --delete \
+            --exclude .git --exclude mobile --exclude tools --exclude reports \
+            --exclude 'data/*' \
+            --exclude deploy/.env \
+            ./ server:$APP_DIR/
+          rsync -az data/samples/ server:$APP_DIR/data/samples/
+
+      - name: The server's settings (keys are made on the server once)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_ALLOWED: ${{ secrets.TELEGRAM_BOT_ALLOWED }}
+        run: |
+          printf 'ANTHROPIC_API_KEY=%s\nTELEGRAM_BOT_TOKEN=%s\nTELEGRAM_BOT_ALLOWED=%s\n' \
+            "$ANTHROPIC_API_KEY" "$TELEGRAM_BOT_TOKEN" "$TELEGRAM_BOT_ALLOWED" \
+            | ssh server "cd $APP_DIR && $SUDO bash deploy/server_env.sh $DOMAIN"
+          # The bot runs only when its token is set (compose profile "bot", D161).
+          if [ "${{ secrets.TELEGRAM_BOT_TOKEN != '' }}" = "true" ]; then echo "PROFILES=--profile bot" >> "$GITHUB_ENV"; else echo "PROFILES=" >> "$GITHUB_ENV"; fi
+
+      - name: Build and start
+        run: |
+          ssh server "cd $APP_DIR && $SUDO bash deploy/server_setup.sh && \
+            $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env $PROFILES up -d --build --remove-orphans && \
+            $SUDO docker image prune -f"
+
+      - name: The site answers
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "https://$DOMAIN/health"; then echo; echo "up"; exit 0; fi
+            sleep 10
+          done
+          ssh server "cd $APP_DIR && $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs --tail 80"
+          exit 1

@@ -1,0 +1,10 @@
+# HTTPS for the CardioLens site: Caddy gets a Let's Encrypt certificate for {$DOMAIN}
+# (the domain's A record must point at this server, ports 80 and 443 open).
+{$DOMAIN} {
+	encode gzip
+	# 4 photos x 25 MB on /scans (SD-066) plus form fields.
+	request_body {
+		max_size 110MB
+	}
+	reverse_proxy cardiolens:8000
+}

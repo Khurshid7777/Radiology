@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -83,6 +85,21 @@ def scale_unknown(result) -> bool:
             and "RHYTHM_INCONSISTENT" in warnings)
 
 
+def scan_keeping_overlay(scan, image):
+    """``scan()`` with its confirmation overlay kept in memory (D163): the traces drawn over
+    the rectified page, header and footer bands blanked (SD-050, D136), as JPEG bytes — or
+    None when the scanner refused (it draws nothing then). The artifact files live only
+    for the call."""
+    tmp = Path(tempfile.mkdtemp(prefix="cardiolens_overlay_"))
+    try:
+        result = scan(image, artifacts_dir=tmp)
+        p = (result.artifacts or {}).get("trace_overlay_preview")
+        overlay = Path(p).read_bytes() if p and Path(p).exists() else None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return result, overlay
+
+
 def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
     """The bot's photo reader (D139): the ECG scanner first — on its benchmark it reads paper
     pages at r 0.98 with no unflagged bad case, where the CardioLens readers have 23 % —
@@ -99,10 +116,11 @@ def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
         if in_parts:
             raise ValueError("photos in parts need the scanner") from None
         return digitize_auto_to_signal(path)
-    result = scan([str(p) for p in path] if in_parts else path)
+    result, overlay = scan_keeping_overlay(scan, [str(p) for p in path] if in_parts else path)
     readers = None if in_parts else (lambda: digitize_auto_to_signal(path))
     if result.status != "rejected":
         sig = to_signal_representation(result)
+        sig.provenance.overlay_jpeg = overlay      # what was read, for the doctor's eye (D163)
         if not scale_unknown(result):
             return sig
         # D144: read, but with no time or gain scale it trusts and its own rhythm row at
@@ -187,24 +205,25 @@ def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[
         return None, error_text(e)
 
 
-def analyse_photos(paths: list[str | Path], *, mode: str = "A",
-                   provider=None) -> tuple[PipelineResult | None, str | None]:
-    """Several photos sent together (a Telegram album). Photos of one recorder's pages —
-    TeleECG's limb page and chest page — become one record (D123), as do photos of
-    the parts of one three-channel strip (D125); anything else is
-    analysed from the first photo that digitises."""
+def digitize_photos(paths: list[str | Path]) -> SignalRepresentation:
+    """Photos sent together as one record — the bot's album, the web page's upload (D155).
+    Photos of one recorder's pages — TeleECG's limb page and chest page — become one record
+    (D123), as do photos of the parts of one three-channel strip (D125); one page in parts on
+    the capture board is composed by the scanner (D145); anything else is read from the
+    first photo that digitises. Raises ValueError with the reason in words (D142)."""
     if len(paths) == 1:
-        return analyse_photo(paths[0], mode=mode, provider=provider)
+        try:
+            return digitize_photo(paths[0])
+        except Exception as e:  # digitiser raises on pages it cannot read — that is data too
+            raise ValueError(error_text(e)) from e
     from cardiolens.layer1_ingestion.screen import combine_screen_signals
 
-    # One page in parts on the capture board (D145): the scanner composes them into one page.
-    # A set it refuses is said as such; the parts are not read one by one (each is a piece).
+    # A set the scanner refuses is said as such; the parts are not read one by one (each is a piece).
     if on_capture_board(paths):
         try:
-            sig = digitize_photo(list(paths))
-            return run_pipeline(sig, mode=mode, provider=provider or StubProvider()), None
+            return digitize_photo(list(paths))
         except Exception as e:
-            return None, error_text(e)
+            raise ValueError(error_text(e)) from e
     sigs, errors = [], []
     for p in paths:
         try:
@@ -216,22 +235,33 @@ def analyse_photos(paths: list[str | Path], *, mode: str = "A",
                                      for n in s.provenance.notes)]
     try:
         if len(screens) >= 2:
-            sig = combine_screen_signals(screens)
-        elif len(strips) >= 2:     # parts of one strip, in the order sent (D125)
-            sig = combine_screen_signals(strips, drop_repeats=True)
-        elif sigs:
-            sig = sigs[0]
-        else:
-            # One reason for all the photos is said once (D142: three parts of one strip
-            # repeated the same refusal three times).
-            reasons = {t.split(_PPM_NOTE)[0] for _, t in errors}
-            if len(reasons) == 1:
-                ppm = sorted({t.split(_PPM_NOTE)[1].split()[0] for _, t in errors if _PPM_NOTE in t})
-                return None, reasons.pop() + (f"{_PPM_NOTE}{'–'.join(ppm[::max(1, len(ppm) - 1)])} точки на мм."
-                                              if ppm else "")
-            return None, "; ".join(f"{name}: {t}" for name, t in errors)
+            return combine_screen_signals(screens)
+        if len(strips) >= 2:       # parts of one strip, in the order sent (D125)
+            return combine_screen_signals(strips, drop_repeats=True)
     except ValueError:            # the pages repeat leads: two photos of the same page
-        sig = sigs[0]
+        return sigs[0]
+    if sigs:
+        return sigs[0]
+    # One reason for all the photos is said once (D142: three parts of one strip
+    # repeated the same refusal three times).
+    reasons = {t.split(_PPM_NOTE)[0] for _, t in errors}
+    if len(reasons) == 1:
+        ppm = sorted({t.split(_PPM_NOTE)[1].split()[0] for _, t in errors if _PPM_NOTE in t})
+        raise ValueError(reasons.pop() + (f"{_PPM_NOTE}{'–'.join(ppm[::max(1, len(ppm) - 1)])} точки на мм."
+                                          if ppm else ""))
+    raise ValueError("; ".join(f"{name}: {t}" for name, t in errors))
+
+
+def analyse_photos(paths: list[str | Path], *, mode: str = "A",
+                   provider=None) -> tuple[PipelineResult | None, str | None]:
+    """Several photos sent together (a Telegram album) -> (result, None) or (None, error text);
+    ``digitize_photos`` says which photos make one record."""
+    if len(paths) == 1:
+        return analyse_photo(paths[0], mode=mode, provider=provider)
+    try:
+        sig = digitize_photos(paths)
+    except ValueError as e:
+        return None, str(e)
     try:
         return run_pipeline(sig, mode=mode, provider=provider or StubProvider()), None
     except Exception as e:
@@ -291,7 +321,7 @@ def render_review_png(result: PipelineResult, path: str | Path, *, seconds: floa
         ax.set_ylim(-1.5, 2.0)
         ax.set_xlim(0, seconds)
     codes = ", ".join(sorted(result.findings.codes())) or "—"
-    axes[0].set_title(f"CardioLens — оцифровано с фото · находки: {codes}", fontsize=10)
+    axes[0].set_title(f"CardioVision — оцифровано с фото · находки: {codes}", fontsize=10)
     axes[-1].set_xlabel("с (25 мм/с, 10 мм/мВ)")
     fig.tight_layout()
     path = Path(path)

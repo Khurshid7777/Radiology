@@ -2,8 +2,11 @@
 #   ECGSCAN_BOT_TOKEN    — the bot token from @BotFather
 #   ECGSCAN_BOT_API_KEY  — the bot's key for the /scans API (one of ECGSCAN_API_KEYS)
 #   ECGSCAN_BOT_ALLOWED  — comma-separated Telegram user ids allowed to use the bot
+#   ECGSCAN_BOT_API_URL  — overrides api_url (in Docker: http://cardiolens:8000)
+#   ECGSCAN_BOT_MODE     — overrides mode
 
-api_url: http://127.0.0.1:8000     # the /scans service
+api_url: http://127.0.0.1:8000     # the CardioVision API (/api/analyze) or the /scans service
+mode: analyze                      # analyze: conclusion + PDF via /api/analyze (D161); scan: the scanner's verdict via /scans
 max_mb: 20                         # Telegram Bot API download limit
 poll_interval_s: 1.0
 poll_timeout_s: 90                 # then the user gets a link instead of the verdict

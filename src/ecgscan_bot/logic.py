@@ -1,8 +1,15 @@
-"""Bot behaviour without Telegram: whitelist, intake rules, API calls, the RU/UZ verdict."""
+"""Bot behaviour without Telegram: whitelist, intake rules, API calls, the RU/UZ verdict.
+
+Two modes (``bot.yaml`` ``mode`` or ``ECGSCAN_BOT_MODE``): ``analyze`` (D161, the default)
+answers with the CardioVision conclusion and the PDF through ``/api/analyze`` — the same
+route as the web page, the scanner first and then the CardioLens readers; ``scan``
+(SD-041) answers with the scanner's own verdict through ``/scans``.
+"""
 
 from __future__ import annotations
 
 import os
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -11,7 +18,10 @@ from ecgscan.i18n import t
 
 ALLOWED_ENV = "ECGSCAN_BOT_ALLOWED"
 API_KEY_ENV = "ECGSCAN_BOT_API_KEY"
-IMAGE_MIME = ("image/jpeg", "image/png", "image/tiff")
+API_URL_ENV = "ECGSCAN_BOT_API_URL"
+MODE_ENV = "ECGSCAN_BOT_MODE"
+IMAGE_MIME = ("image/jpeg", "image/png", "image/tiff")                     # what /scans takes
+ANALYZE_MIME = IMAGE_MIME + ("image/heic", "image/heif", "application/pdf")  # /api/analyze reads these too (D158)
 
 
 @dataclass
@@ -24,15 +34,58 @@ class BotConfig:
     public_url: str | None
     allowed: set[int] = field(default_factory=set)
     api_key: str | None = None
+    mode: str = "analyze"
 
     @classmethod
     def load(cls) -> BotConfig:
         c = load_yaml("bot")
         allowed = {int(x) for x in os.environ.get(ALLOWED_ENV, "").replace(" ", "").split(",") if x}
-        return cls(api_url=c["api_url"].rstrip("/"), max_mb=float(c["max_mb"]),
+        return cls(api_url=os.environ.get(API_URL_ENV, c["api_url"]).rstrip("/"), max_mb=float(c["max_mb"]),
                    poll_interval_s=float(c["poll_interval_s"]), poll_timeout_s=float(c["poll_timeout_s"]),
                    send_overlay=bool(c["send_overlay"]), public_url=load_yaml("service").get("public_url"),
-                   allowed=allowed, api_key=os.environ.get(API_KEY_ENV))
+                   allowed=allowed, api_key=os.environ.get(API_KEY_ENV),
+                   mode=os.environ.get(MODE_ENV, c.get("mode", "analyze")))
+
+
+# The photo's caption names the patient: "54 м", "ж 7", "erkak 63" (D161).
+_SEX_WORDS = {"male": ("м", "муж", "мужской", "мужчина", "male", "m", "erkak", "e"),
+              "female": ("ж", "жен", "женский", "женщина", "female", "f", "ayol", "a")}
+
+
+_MONTH_WORDS = ("мес", "месяц", "месяца", "месяцев", "oy", "oylik", "month", "months", "mo")
+_DAY_WORDS = ("дн", "дней", "дня", "день", "kun", "kunlik", "day", "days", "d")
+
+
+@dataclass(frozen=True)
+class Patient:
+    age_years: float | None = None
+    age_days: float | None = None      # infants: "3 мес", "10 дней" (the norms differ by days)
+    sex: str | None = None
+
+    @property
+    def given(self) -> bool:
+        return (self.age_years is not None or self.age_days is not None) and self.sex is not None
+
+
+def parse_caption(text: str | None) -> Patient:
+    """The patient from a caption: the first number 0–120 is the age in years, unless a
+    month/day word follows it ("3 мес", "10 kun"); the first sex word is the sex. Anything
+    else is ignored, anything missing stays None."""
+    if not text:
+        return Patient()
+    low = text.lower().replace(",", ".")
+    age_years = age_days = None
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*([^\W\d_]*)", low):
+        value, unit = float(m.group(1)), m.group(2)
+        if unit in _MONTH_WORDS and age_days is None:
+            age_days = value * 30.4
+        elif unit in _DAY_WORDS and age_days is None:
+            age_days = value
+        elif age_years is None and age_days is None and 0 <= value <= 120:
+            age_years = value
+    words = re.findall(r"[^\W\d_]+", low)
+    sex = next((s for w in words for s, forms in _SEX_WORDS.items() if w in forms), None)
+    return Patient(age_years=None if age_days is not None else age_years, age_days=age_days, sex=sex)
 
 
 def lang_of(language_code: str | None) -> str:
@@ -51,7 +104,7 @@ def intake(cfg: BotConfig, *, kind: str, mime: str | None, size: int | None, lan
     'document' or 'other'. ``None`` means: download the file and scan it."""
     if kind == "photo":
         return t("bot.send_as_document", lang)       # Telegram's photo is ~4 px/mm, below 8 (SD-009, D72)
-    if kind != "document" or mime not in IMAGE_MIME:
+    if kind != "document" or mime not in (ANALYZE_MIME if cfg.mode == "analyze" else IMAGE_MIME):
         return t("bot.not_an_image", lang)
     if size is not None and size > cfg.max_mb * 1024 * 1024:
         return t("bot.too_large", lang, max_mb=int(cfg.max_mb))
@@ -119,6 +172,81 @@ def verdict(cfg: BotConfig, body: dict, lang: str) -> str:
         lines += ["", t("result.link", lang, url=link(cfg, body["scan_id"]))]
     lines += ["", t("bot.disclaimer", lang)]
     return "\n".join(lines)
+
+
+class AnalyzeRefused(Exception):
+    """The analysis said no in words (HTTP 400): the text is the reply."""
+
+
+class AnalyzeApi:
+    """The CardioVision calls the bot makes in ``analyze`` mode (D161): ``/api/analyze`` with
+    ``client=telegram`` (the refusals keep their Telegram wording) and the PDF report."""
+
+    def __init__(self, cfg: BotConfig, http=None):
+        import httpx
+
+        self.cfg = cfg
+        self.http = http or httpx.Client(base_url=cfg.api_url, timeout=180.0)
+        self.headers = {"X-API-Key": cfg.api_key or ""}
+
+    def analyze(self, files: list[tuple[str, bytes]], *, patient: Patient = Patient()) -> dict:
+        """One analysis of one or several files (an album is one record: pages of a device,
+        parts of a strip, parts of a page on the capture board — D155)."""
+        form = {"mode": "A", "client": "telegram"}
+        if patient.age_years is not None:
+            form["age_years"] = str(patient.age_years)
+        if patient.age_days is not None:
+            form["age_days"] = str(patient.age_days)
+        if patient.sex:
+            form["sex"] = patient.sex
+        r = self.http.post("/api/analyze", files=[("files", (name, data)) for name, data in files],
+                           data=form, headers=self.headers)
+        if r.status_code == 400:
+            raise AnalyzeRefused(r.json().get("detail", r.text))
+        r.raise_for_status()
+        return r.json()
+
+    def pdf(self, analysis_id: str) -> bytes | None:
+        r = self.http.get(f"/api/analysis/{analysis_id}/report.pdf", headers=self.headers)
+        return r.content if r.status_code == 200 else None
+
+    def overlay(self, analysis_id: str) -> bytes | None:
+        """The scanner's confirmation overlay of the photo (D163): the traces it read, drawn
+        over the page. None for a photo the CardioLens readers read, or a signal file."""
+        r = self.http.get(f"/api/analysis/{analysis_id}/overlay.jpg", headers=self.headers)
+        return r.content if r.status_code == 200 else None
+
+
+def conclusion_reply(body: dict, lang: str, *, patient_given: bool = True) -> str:
+    """The reply in ``analyze`` mode: the critical alerts first, then the conclusion as the
+    web page prints it (it ends with the disclaimer), why a doctor must look, if so, and a
+    reminder when the caption named no age or sex (the norms then are an adult's)."""
+    lines = []
+    alerts = body.get("critical_alerts") or []
+    if alerts:
+        lines.append(t("bot.alerts", lang))
+        lines += [f"⚠ {a['label_' + lang]}" for a in alerts]
+        lines.append("")
+    lines.append(body["conclusion_uz" if lang == "uz" else "conclusion_ru"])
+    if body.get("mode") == "escalate" and body.get("escalation_reason"):
+        lines += ["", t("bot.escalate", lang, reason=body["escalation_reason"])]
+    if not patient_given:
+        lines += ["", t("bot.no_patient", lang)]
+    return "\n".join(lines)
+
+
+def handle_analysis(cfg: BotConfig, api: AnalyzeApi, files: list[tuple[str, bytes]], lang: str,
+                    caption: str | None = None) -> tuple[str, str | None]:
+    """Analyse through ``/api/analyze``: (reply text, analysis id). A refusal is said in the
+    readers' words; server trouble is answered, never raised."""
+    patient = parse_caption(caption)
+    try:
+        body = api.analyze(files, patient=patient)
+    except AnalyzeRefused as e:
+        return str(e), None
+    except Exception:  # network, HTTP error: the user gets a plain answer
+        return t("bot.server_error", lang), None
+    return conclusion_reply(body, lang, patient_given=patient.given), body.get("analysis_id")
 
 
 def handle_file(cfg: BotConfig, api: ScanApi, data: bytes, filename: str, lang: str) -> tuple[str, str | None]:

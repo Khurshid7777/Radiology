@@ -17,6 +17,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Image,
+    KeepTogether,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -28,6 +29,16 @@ from cardiolens.outputs.waveform import render_waveform
 from cardiolens.pipeline import PipelineResult
 
 _FONT = "DejaVuSans"
+
+# A photo read by the scanner (D163): what the overlay shows and how to read it, RU and UZ.
+OVERLAY_NOTE_RU = ("Источник — фото бумажной ЭКГ, оцифровано. Цветные линии — трассы, прочитанные с листа: "
+                   "зелёный — уверенно, оранжевый — сомнительно, красный — плохо; число у отведения — качество "
+                   "чтения. Если линии не лежат на кривых, заключению верить нельзя — переснимите лист. "
+                   "Шапка с данными пациента закрыта.")
+OVERLAY_NOTE_UZ = ("Manba — qog‘oz EKG surati, raqamlashtirilgan. Rangli chiziqlar — varaqdan o‘qilgan chiziqlar: "
+                   "yashil — ishonchli, to‘q sariq — shubhali, qizil — yomon; tarmoq yonidagi son — o‘qish sifati. "
+                   "Chiziqlar EKG egri chiziqlari ustida yotmasa, xulosaga ishonib bo‘lmaydi — varaqni qayta "
+                   "suratga oling. Bemor ma’lumotlari bo‘lgan sarlavha yopilgan.")
 
 
 def _register_font() -> str:
@@ -58,8 +69,8 @@ def write_pdf(result: PipelineResult, path: str) -> str:
     h2 = ParagraphStyle("h2", parent=styles["Heading2"], fontName=font + "-Bold"
                         if font != "Helvetica" else "Helvetica-Bold", fontSize=10)
 
-    doc = SimpleDocTemplate(path, pagesize=A4, title="CardioLens ECG Report")
-    flow = [Paragraph("CardioLens — заключение по ЭКГ", h1), Spacer(1, 0.3 * cm)]
+    doc = SimpleDocTemplate(path, pagesize=A4, title="CardioVision ECG Report")
+    flow = [Paragraph("CardioVision — заключение по ЭКГ", h1), Spacer(1, 0.3 * cm)]
 
     m = result.measurements
     meas = (f"ЧСС: {m.heart_rate_bpm} /мин · PR: {m.intervals.pr_ms} мс · "
@@ -71,6 +82,25 @@ def write_pdf(result: PipelineResult, path: str) -> str:
     flow.append(Paragraph("Кривая ЭКГ", h2))
     flow.append(Image(wave_png, width=17 * cm, height=17 * cm * 0.5))
     flow.append(Spacer(1, 0.2 * cm))
+
+    overlay = result.signal.provenance.overlay_jpeg
+    if overlay:
+        # A photo read by the scanner: the traces drawn over the page, as the doctor's
+        # confirmation screen shows them (TZ scanner §6.3; D163).
+        from PIL import Image as PILImage
+
+        ov_path = tmp / "overlay.jpg"
+        ov_path.write_bytes(overlay)
+        with PILImage.open(ov_path) as im:
+            w, h = im.size
+        # Heading, notes and picture stay on one page (the picture is most of a page).
+        flow.append(KeepTogether([
+            Paragraph("Снимок: прочитанные трассы / Suratdagi o‘qilgan chiziqlar", h2),
+            Paragraph(_esc(OVERLAY_NOTE_RU), body),
+            Paragraph(_esc(OVERLAY_NOTE_UZ), body),
+            Image(str(ov_path), width=17 * cm, height=17 * cm * h / max(1, w)),
+        ]))
+        flow.append(Spacer(1, 0.2 * cm))
 
     flow.append(Paragraph("Причинно-следственный граф", h2))
     flow.append(Image(graph_png, width=15 * cm, height=15 * cm * 0.55))
