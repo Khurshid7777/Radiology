@@ -8,15 +8,28 @@ traceability backbone for regulator-readiness (TZ §1, §11, §12).
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from cardiolens.pipeline import PipelineResult
 
 
+def finite(obj: Any) -> Any:
+    """``obj`` with every NaN or infinite float replaced by None (D165): JSON has no NaN,
+    and a measurement that is not a number is "not measured", never a crash."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: finite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [finite(v) for v in obj]
+    return obj
+
+
 def result_to_dict(result: PipelineResult) -> dict[str, Any]:
     cfg = result.config
     r = result.report
-    return {
+    return finite({
         "versions": {
             "schema": cfg.versions.schema_version,
             "rules_base": cfg.versions.rules_base,
@@ -56,7 +69,7 @@ def result_to_dict(result: PipelineResult) -> dict[str, Any]:
             "disclaimer": {"ru": r.disclaimer_ru, "uz": r.disclaimer_uz},
         },
         "audit_log": result.audit_log,
-    }
+    })
 
 
 def write_json(result: PipelineResult, path: str) -> str:

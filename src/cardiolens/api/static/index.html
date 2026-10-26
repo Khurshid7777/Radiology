@@ -233,8 +233,10 @@ async function checkPhotoSize() {
       const bmp = await createImageBitmap(f);
       const w = bmp.width, h = bmp.height; bmp.close();
       if (Math.max(w, h) < SMALL_PX) {
-        $('filewarn').textContent = `Снимок «${f.name}» маленький (${w}×${h}) — похоже, сжатая копия из мессенджера. ` +
-          'Такой, скорее всего, не прочитается: возьмите оригинал из галереи или снимите заново.';
+        $('filewarn').textContent = `Снимок «${f.name}» маленький (${w}×${h}) — похоже, сжатая копия из мессенджера ` +
+          'или картинка с экрана. Бумажная ЭКГ с такого не читается: нужно не меньше 8 точек на миллиметр сетки, ' +
+          'это ≥ 2000 px по длинной стороне (оригинал с камеры телефона даёт 3000–4000). Фото экрана прибора ' +
+          'читается, но с ограничениями. Лучше выбрать оригинал из галереи, а не копию из чата.';
         return;
       }
     } catch (e) { /* HEIC and the like: the browser cannot decode it, the server will */ }
@@ -271,7 +273,9 @@ async function loadHealth() {
   try {
     const r = await fetch('/health'); const d = await r.json(); const l = d.llm || {};
     const el = $('llm'); el.className = 'llm ' + (l.active || 'stub');
-    el.textContent = 'Текст заключения: ' + providerLabel(l.active, l.model);
+    const ml = d.ml || {};
+    el.textContent = 'Текст заключения: ' + providerLabel(l.active, l.model) +
+      ' · анализ: ' + (ml.model === 'loaded' ? 'правила + обученная модель' : 'правила (модель не загружена)');
     el.title = 'Анализ ЭКГ делает CardioVision; эта модель только пишет текст по его находкам';
   } catch (e) { $('llm').textContent = 'Текст заключения: ?'; }
 }

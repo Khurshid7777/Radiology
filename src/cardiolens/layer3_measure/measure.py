@@ -1111,6 +1111,8 @@ def _sokolow_lyon(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float) -> f
         for r in rpeaks[_lead_mask(sig, lead, rpeaks, fs)]:
             a, b = max(0, r - win), min(len(row), r + win)
             vals.append(abs(min(row[a:b])))
+        if not vals:
+            raise ValueError(f"no beats inside the {lead} window")   # median([]) is NaN (D165)
         return float(np.median(vals))
 
     def tall_r(lead: str) -> float:
@@ -1119,12 +1121,15 @@ def _sokolow_lyon(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float) -> f
         for r in rpeaks[_lead_mask(sig, lead, rpeaks, fs)]:
             a, b = max(0, r - win), min(len(row), r + win)
             vals.append(max(row[a:b]))
+        if not vals:
+            raise ValueError(f"no beats inside the {lead} window")
         return float(np.median(vals))
 
     try:
-        return round(deep_s("V1") + max(tall_r("V5"), tall_r("V6")), 1)
+        value = round(deep_s("V1") + max(tall_r("V5"), tall_r("V6")), 1)
     except ValueError:  # a lead with no beats inside its window
         return None
+    return value if np.isfinite(value) else None
 
 
 def _p_amplitude(sig: SignalRepresentation, p_on: np.ndarray, p_off: np.ndarray) -> float | None:

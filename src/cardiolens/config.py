@@ -151,6 +151,11 @@ _LLM_ENV = {
 }
 
 
+# ... and of the learnable layer's artifact (D167): the server keeps the 18-MB model outside the
+# image, under its data volume (docker-compose: CARDIOLENS_ML_MODEL_PATH=/data/models/rhythm_hgb.joblib).
+_ML_ENV = {"CARDIOLENS_ML_MODEL_PATH": "model_path"}
+
+
 def _apply_llm_env(raw: dict[str, Any]) -> dict[str, Any]:
     llm = dict(raw.get("llm") or {})
     for var, key in _LLM_ENV.items():
@@ -158,6 +163,12 @@ def _apply_llm_env(raw: dict[str, Any]) -> dict[str, Any]:
         if value:
             llm[key] = value
     raw["llm"] = llm
+    ml = dict(raw.get("ml") or {})
+    for var, key in _ML_ENV.items():
+        value = os.environ.get(var)
+        if value:
+            ml[key] = value
+    raw["ml"] = ml
     return raw
 
 

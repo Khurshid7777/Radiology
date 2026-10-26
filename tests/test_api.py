@@ -14,6 +14,16 @@ _SAMPLES = os.path.join(os.path.dirname(__file__), "..", "data", "samples")
 def test_health():
     r = client.get("/health")
     assert r.status_code == 200 and r.json()["status"] == "ok"
+    # D167: the owner sees whether the learnable layer's model is on this server.
+    assert r.json()["ml"]["model"] in ("loaded", "absent") and "path" in r.json()["ml"]
+
+
+def test_json_never_carries_nan():
+    """D165: a 6x2 screen photo gave sokolow_lyon_uv = NaN and /api/analyze a 500."""
+    from cardiolens.outputs.json_out import finite
+
+    assert finite({"a": float("nan"), "b": [1.0, float("inf"), {"c": -float("inf")}], "d": 2}) == \
+        {"a": None, "b": [1.0, None, {"c": None}], "d": 2}
 
 
 def test_cases_listed():

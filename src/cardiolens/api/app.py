@@ -89,10 +89,15 @@ def index() -> str:
 
 @app.get("/health")
 def health() -> dict:
-    """Liveness plus the Layer-6 narrative source the next analysis will use (TZ §12)."""
+    """Liveness plus the Layer-6 narrative source the next analysis will use (TZ §12) and
+    whether the learnable layer's model is loaded (D167: rules-only when the file is absent)."""
+    from cardiolens.pipeline import ml_status
+
+    cfg = load_app_config()
     return {
         "status": "ok", "service": "cardiolens", "version": "0.1.0",
-        "llm": provider_status(load_app_config().llm),
+        "llm": provider_status(cfg.llm),
+        "ml": ml_status(cfg),
     }
 
 

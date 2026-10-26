@@ -493,12 +493,24 @@ def _load_ml(path: str):
     return load_model(path)
 
 
+def _ml_path(cfg: AppConfig) -> Path:
+    p = Path(cfg.ml.model_path)
+    return p if p.is_absolute() else configs_dir().parent / p
+
+
 def _ml_model(cfg: AppConfig):
     """The learnable-layer model named in the config, or None (rules-only)."""
-    p = Path(cfg.ml.model_path)
-    if not p.is_absolute():
-        p = configs_dir().parent / p
-    return _load_ml(str(p))
+    return _load_ml(str(_ml_path(cfg)))
+
+
+def ml_status(cfg: AppConfig) -> dict:
+    """What /health reports about the learnable layer (D167): ``loaded`` when the model file
+    is present and usable, ``absent`` when the pipeline runs on rules alone."""
+    p = _ml_path(cfg)
+    model = _ml_model(cfg) if cfg.ml.enabled else None
+    return {"enabled": cfg.ml.enabled, "model": "loaded" if model is not None else "absent",
+            "path": str(p), "file_present": p.exists(),
+            "classes": sorted(model.classes) if model is not None and hasattr(model, "classes") else []}
 
 
 def _quality_ok(quality, threshold: float) -> bool:
