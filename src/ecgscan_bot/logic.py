@@ -210,6 +210,12 @@ class AnalyzeApi:
         r = self.http.get(f"/api/analysis/{analysis_id}/report.pdf", headers=self.headers)
         return r.content if r.status_code == 200 else None
 
+    def overlay(self, analysis_id: str) -> bytes | None:
+        """The scanner's confirmation overlay of the photo (D163): the traces it read, drawn
+        over the page. None for a photo the CardioLens readers read, or a signal file."""
+        r = self.http.get(f"/api/analysis/{analysis_id}/overlay.jpg", headers=self.headers)
+        return r.content if r.status_code == 200 else None
+
 
 def conclusion_reply(body: dict, lang: str, *, patient_given: bool = True) -> str:
     """The reply in ``analyze`` mode: the critical alerts first, then the conclusion as the

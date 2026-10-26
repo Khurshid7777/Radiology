@@ -83,6 +83,10 @@ class Provenance(BaseModel):
     # and only bridged so the filters can run (ECG scanner SD-006). Not data.
     sample_mask: dict[str, list[tuple[float, float]]] | None = None   # lead -> (t0_s, t1_s)
     notes: list[str] = Field(default_factory=list)
+    # A photo read by the ECG scanner: its confirmation overlay — the traces drawn over the
+    # rectified page, header and footer blanked (SD-050, D136) — as JPEG bytes, for the web
+    # page, the bot and the PDF (D163). Never serialised: an image for the eye, not data.
+    overlay_jpeg: bytes | None = Field(default=None, exclude=True, repr=False)
 
 
 class SignalRepresentation(BaseModel):

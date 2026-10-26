@@ -3,9 +3,9 @@
 Needs ``pip install aiogram`` and the environment described in
 ``configs/scanner/bot.yaml``. Each message is handled in a worker thread (the API
 calls block); the photo bytes live only in memory for the upload. In ``analyze``
-mode (D161) the reply is the CardioVision conclusion and its PDF; several files
-sent together (a Telegram album) are one record; in ``scan`` mode the scanner's
-verdict (SD-041).
+mode (D161) the reply is the CardioVision conclusion, the traces read drawn over the
+photo (D163) and the PDF; several files sent together (a Telegram album) are one record;
+in ``scan`` mode the scanner's verdict (SD-041).
 """
 
 from __future__ import annotations
@@ -72,6 +72,12 @@ async def main() -> None:
             log.info("analysis %s answered (%d file(s))", aid, len(files))
             await message.answer(text)
             if aid:
+                # What was read, drawn over the page (D163): the doctor checks that the
+                # coloured lines lie on the curves before trusting the conclusion.
+                overlay = await asyncio.to_thread(api.overlay, aid)
+                if overlay:
+                    await message.answer_photo(BufferedInputFile(overlay, "overlay.jpg"),
+                                               caption=t("app.overlay_hint", lang))
                 pdf = await asyncio.to_thread(api.pdf, aid)
                 if pdf:
                     await message.answer_document(BufferedInputFile(pdf, f"cardiovision_{aid}.pdf"))

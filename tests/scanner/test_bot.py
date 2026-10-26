@@ -134,6 +134,7 @@ def test_analyze_mode_answers_with_the_conclusion_and_a_pdf(analyze_api, tmp_pat
     assert aid and "Не заменяет врача" in text and "Критические" not in text, text
     assert "Возраст и пол не указаны" not in text
     assert analyze_api.pdf(aid)[:4] == b"%PDF"
+    assert analyze_api.overlay(aid)[:3] == b"\xff\xd8\xff"      # the traces over the page (D163)
     uz, _ = handle_analysis(_cfg(), analyze_api, [("page.png", page)], "uz", "54 e")
     assert "Shifokor" in uz
     # No caption: the analysis still runs, the reply says the norms were an adult's.

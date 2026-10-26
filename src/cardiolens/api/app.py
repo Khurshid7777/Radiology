@@ -6,6 +6,7 @@ Endpoints:
   GET  /api/cases                -> available synthetic demo cases
   POST /api/analyze              -> run pipeline (synthetic case or file upload)
   GET  /api/analysis/{id}/report.pdf
+  GET  /api/analysis/{id}/overlay.jpg   (a photo read by the scanner: the traces over the page, D163)
   GET  /api/analysis/{id}/waveform.svg
   GET  /api/analysis/{id}/graph.png
   GET  /api/analysis/{id}/conclusion?lang=ru|uz
@@ -29,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.background import BackgroundTask
 
 from cardiolens.api import service
@@ -149,6 +150,8 @@ async def analyze(
     payload["analysis_id"] = analysis_id
     payload["conclusion_ru"] = format_conclusion(result, "ru")
     payload["conclusion_uz"] = format_conclusion(result, "uz")
+    # A photo the scanner read: the page shows what was read (D163), the bot sends it.
+    payload["overlay_available"] = result.signal.provenance.overlay_jpeg is not None
     return JSONResponse(payload)
 
 
@@ -168,6 +171,18 @@ def report_pdf(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
     return FileResponse(path, media_type="application/pdf",
                         filename=f"cardiolens_{analysis_id}.pdf",
                         background=_cleanup(tmp))
+
+
+@app.get("/api/analysis/{analysis_id}/overlay.jpg")
+def overlay_jpg(analysis_id: str, who: str = Depends(actor)) -> Response:
+    """The scanner's confirmation overlay of a photo (D163): the traces it read, drawn over
+    the page, patient header blanked. 404 for a signal file, a synthetic case, or a photo
+    the CardioLens readers read instead of the scanner."""
+    result = _require(analysis_id, who)
+    data = result.signal.provenance.overlay_jpeg
+    if data is None:
+        raise HTTPException(status_code=404, detail="no overlay for this analysis")
+    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/analysis/{analysis_id}/waveform.svg")

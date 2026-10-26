@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -83,6 +85,21 @@ def scale_unknown(result) -> bool:
             and "RHYTHM_INCONSISTENT" in warnings)
 
 
+def scan_keeping_overlay(scan, image):
+    """``scan()`` with its confirmation overlay kept in memory (D163): the traces drawn over
+    the rectified page, header and footer bands blanked (SD-050, D136), as JPEG bytes — or
+    None when the scanner refused (it draws nothing then). The artifact files live only
+    for the call."""
+    tmp = Path(tempfile.mkdtemp(prefix="cardiolens_overlay_"))
+    try:
+        result = scan(image, artifacts_dir=tmp)
+        p = (result.artifacts or {}).get("trace_overlay_preview")
+        overlay = Path(p).read_bytes() if p and Path(p).exists() else None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return result, overlay
+
+
 def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
     """The bot's photo reader (D139): the ECG scanner first — on its benchmark it reads paper
     pages at r 0.98 with no unflagged bad case, where the CardioLens readers have 23 % —
@@ -99,10 +116,11 @@ def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
         if in_parts:
             raise ValueError("photos in parts need the scanner") from None
         return digitize_auto_to_signal(path)
-    result = scan([str(p) for p in path] if in_parts else path)
+    result, overlay = scan_keeping_overlay(scan, [str(p) for p in path] if in_parts else path)
     readers = None if in_parts else (lambda: digitize_auto_to_signal(path))
     if result.status != "rejected":
         sig = to_signal_representation(result)
+        sig.provenance.overlay_jpeg = overlay      # what was read, for the doctor's eye (D163)
         if not scale_unknown(result):
             return sig
         # D144: read, but with no time or gain scale it trusts and its own rhythm row at

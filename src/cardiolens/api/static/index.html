@@ -148,6 +148,12 @@
     <pre id="concl_ru"></pre>
     <a class="btn" id="pdf" download><button class="primary">Скачать PDF</button></a>
     <div class="muted" id="narr_src" style="margin-top:8px"></div>
+    <div id="overlay_box" class="hidden" style="margin-top:12px">
+      <h3>Что прочитано с фото</h3>
+      <div class="muted">Цветные линии должны лежать на кривых ЭКГ: зелёные — прочитано уверенно, оранжевые —
+        сомнительно, красные — плохо. Если линии не на кривых, заключению верить нельзя — переснимите лист.</div>
+      <img id="overlay" alt="прочитанные трассы на снимке" style="max-width:100%;margin-top:8px;border:1px solid #ddd;border-radius:6px">
+    </div>
 
     <details style="margin-top:12px">
       <summary>Подробно: измерения, находки, кривая, заключение на узбекском</summary>
@@ -173,14 +179,18 @@
 <script>
 const $ = id => document.getElementById(id);
 
-// The clinic key (D136) is remembered in this browser (localStorage). A link with ?key=…
-// stores it and is cleaned at once, so a doctor gets one link and never types the key.
+// The clinic key (D136) is remembered in this browser (localStorage). A link with #key=…
+// stores it and is cleaned at once, so a doctor gets one link and never types the key. The
+// key travels in the fragment: a fragment never reaches the server or its logs (D162); the
+// older ?key=… form still works and is cleaned from the address the same way.
 const KEY = 'cardiolens_key';
 (function () {
   try {
-    const u = new URL(location.href); const k = u.searchParams.get('key');
+    const u = new URL(location.href);
+    const hk = (u.hash.match(/[#&]key=([^&]+)/) || [])[1];
+    const k = u.searchParams.get('key') || (hk ? decodeURIComponent(hk) : null);
     if (k) { localStorage.setItem(KEY, k); u.searchParams.delete('key');
-      history.replaceState(null, '', u.pathname + u.search + u.hash); }
+      history.replaceState(null, '', u.pathname + u.search); }
     $('apikey').value = localStorage.getItem(KEY) || '';
   } catch (e) {}
   keyStatus();
@@ -348,6 +358,11 @@ function render(d) {
   const it = d.interpretation;
   $('narr_src').textContent = 'Текст: ' + providerLabel(it.provider, it.provider_model) +
     ' · каждое утверждение проверено по находкам';
+  // A photo the scanner read (D163): the traces it read, drawn over the page.
+  $('overlay_box').classList.toggle('hidden', !d.overlay_available);
+  $('overlay').removeAttribute('src');
+  if (d.overlay_available) blobUrl(`/api/analysis/${d.analysis_id}/overlay.jpg`)
+    .then(u => { $('overlay').src = u; }).catch(() => $('overlay_box').classList.add('hidden'));
   $('trace').innerHTML = (it.reasoning_trace || []).map(t => `<li>${esc(t)}</li>`).join('');
   $('pdf').removeAttribute('href');
   blobUrl(`/api/analysis/${d.analysis_id}/report.pdf`).then(u => {

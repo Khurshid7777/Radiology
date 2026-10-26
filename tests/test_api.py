@@ -120,6 +120,23 @@ def test_photo_upload_is_read_like_the_bot_does(tmp_path):
     d = r.json()
     assert d["measurements"]["heart_rate_bpm"] == pytest.approx(72, abs=4)
     assert d["conclusion_ru"]
+    # D163: what was read, drawn over the page — for the doctor's eye, the bot and the PDF.
+    assert d["overlay_available"] is True
+    ov = client.get(f"/api/analysis/{d['analysis_id']}/overlay.jpg")
+    assert ov.status_code == 200 and ov.headers["content-type"] == "image/jpeg"
+    assert ov.content[:3] == b"\xff\xd8\xff"
+    pdf = client.get(f"/api/analysis/{d['analysis_id']}/report.pdf")
+    assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
+
+
+def test_a_synthetic_case_has_no_overlay_and_the_overlay_never_reaches_json():
+    from cardiolens.contracts.signal import Provenance
+
+    r = client.post("/api/analyze", data={"case": "normal", "mode": "A"})
+    d = r.json()
+    assert d["overlay_available"] is False
+    assert client.get(f"/api/analysis/{d['analysis_id']}/overlay.jpg").status_code == 404
+    assert "overlay_jpeg" not in Provenance(overlay_jpeg=b"\xff").model_dump()
 
 
 def test_photo_without_an_ecg_is_refused_in_words(tmp_path):
