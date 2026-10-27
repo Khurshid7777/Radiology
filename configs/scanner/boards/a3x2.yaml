@@ -3,7 +3,7 @@
 # overlap by 20 mm: sheet 1 is cut along the line at x = 200 and laid over sheet 2.
 # No marker on the seam; 4 corner markers + 2 side ones, 3 on each sheet (min_markers).
 name: a3x2
-title: "Cardiolens A3 (2 x A4)"
+title: "Cardiolens A3x2"     # the last word is the board's name in the web advice (D177)
 size_mm: [400, 297]
 dictionary: DICT_4X4_50
 marker_mm: 20
