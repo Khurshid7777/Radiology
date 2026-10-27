@@ -65,3 +65,19 @@ def test_coarse_photo_small_st_is_not_called():
     assert not any(f.group == "ischemia" for f in res.findings.findings)
     plain = run_pipeline(generate_synthetic_ecg(heart_rate_bpm=72, st_elevation_uv=120, st_leads=["II", "III", "aVF"]), mode="A")
     assert "st_elevation" in plain.findings.codes()        # the same ECG at full scale is called
+
+
+def test_a_page_photographed_sideways_is_refused_with_the_turn_advice(tmp_path):
+    """D171: the scanner refuses the layout of a tall photo; the readers used to read it as a
+    12x1 strip (time running down the page). Now it is refused with the advice to turn it."""
+    import cv2
+    import pytest
+
+    from cardiolens.layer1_ingestion.digitize import render_ecg_page
+    from cardiolens.telegram.analyze import digitize_photo
+
+    png = tmp_path / "p.png"
+    render_ecg_page(generate_synthetic_ecg(heart_rate_bpm=72, seed=5), png, px_per_mm=10, calibration_pulse=True)
+    cv2.imwrite(str(tmp_path / "rot.png"), cv2.rotate(cv2.imread(str(png)), cv2.ROTATE_90_CLOCKWISE))
+    with pytest.raises(ValueError, match="Поверните"):
+        digitize_photo(tmp_path / "rot.png")
