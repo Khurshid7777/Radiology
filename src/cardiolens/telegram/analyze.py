@@ -69,6 +69,7 @@ SCANNER_FINAL_REFUSALS = frozenset({"LOW_RESOLUTION", "GLARE", "BLUR", "TRACE_BR
 
 
 PHOTO_GATES = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_implausible"})
+COARSE_WARNING = "LOW_RESOLUTION_COARSE"     # the scanner's coarse mode (D170, SD-074)
 
 
 def scale_unknown(result) -> bool:
@@ -121,7 +122,10 @@ def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
     if result.status != "rejected":
         sig = to_signal_representation(result)
         sig.provenance.overlay_jpeg = overlay      # what was read, for the doctor's eye (D163)
-        if not scale_unknown(result):
+        # A compressed photo read in the scanner's coarse mode (D170) stays with the scanner:
+        # the CardioLens readers read 3-4 px/mm worse, and the core withholds what the
+        # scale cannot give (photo_coarse).
+        if COARSE_WARNING in (result.warnings or []) or not scale_unknown(result):
             return sig
         # D144: read, but with no time or gain scale it trusts and its own rhythm row at
         # odds with the panels (on a strip turned by 2 deg: a rate of 55 read as 100.6). The

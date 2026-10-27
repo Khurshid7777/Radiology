@@ -105,6 +105,11 @@ def _measurements(data: InterpretationInput) -> dict:
     if withheld:
         return {"withheld": f"not measured reliably ({', '.join(withheld)}); do not state any rate or interval"}
     m = data.measurements
+    if "photo_coarse" in codes:
+        # D170: a compressed photo — the rate and rhythm are read, nothing else is.
+        return {"heart_rate_bpm": m.heart_rate_bpm,
+                "withheld": "PR, QRS, QT, ST and voltages are not measured on a compressed photo "
+                            "(photo_coarse); state the rate and the rhythm only, say the rest needs the original photo"}
     return {
         "heart_rate_bpm": m.heart_rate_bpm,
         "pr_ms": m.intervals.pr_ms,

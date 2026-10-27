@@ -73,9 +73,13 @@ def write_pdf(result: PipelineResult, path: str) -> str:
     flow = [Paragraph("CardioVision — заключение по ЭКГ", h1), Spacer(1, 0.3 * cm)]
 
     m = result.measurements
-    meas = (f"ЧСС: {m.heart_rate_bpm} /мин · PR: {m.intervals.pr_ms} мс · "
-            f"QRS: {m.intervals.qrs_ms} мс · QTc(F/B): {m.intervals.qtc_fridericia_ms}/{m.intervals.qtc_bazett_ms} мс · "
-            f"ось QRS: {m.axes.qrs_deg}°")
+
+    def n(v) -> str:            # a measurement that was not made prints as a dash, not "None"
+        return "—" if v is None else f"{v:g}" if isinstance(v, float) else str(v)
+
+    meas = (f"ЧСС: {n(m.heart_rate_bpm)} /мин · PR: {n(m.intervals.pr_ms)} мс · "
+            f"QRS: {n(m.intervals.qrs_ms)} мс · QTc(F/B): {n(m.intervals.qtc_fridericia_ms)}/{n(m.intervals.qtc_bazett_ms)} мс · "
+            f"ось QRS: {n(m.axes.qrs_deg)}°")
     flow.append(Paragraph(meas, body))
     flow.append(Spacer(1, 0.3 * cm))
 
