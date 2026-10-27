@@ -49,6 +49,8 @@
   .progress { color:var(--brand2); font-size:14px; margin-top:8px; min-height:20px; }
   .err { color:var(--crit); font-size:14px; margin-top:8px; }
   .hint { color:var(--muted); font-size:12.5px; margin-top:6px; }
+  .notice { color:#8a5a00; background:#fff6e0; border-radius:6px; padding:8px 10px; font-size:13.5px; margin-top:8px; }
+  .notice:empty { display:none; }
   details { margin-top:6px; }
   details summary { cursor:pointer; color:var(--brand2); font-size:14px; }
   .banner { padding:12px 14px; border-radius:10px; font-weight:600; margin-bottom:12px; }
@@ -96,9 +98,9 @@
            accept="image/*,.heic,.heif,.pdf,.hea,.dat,.edf,.bdf,.csv,.txt,.dcm,.scp">
     <div class="hint">Подойдёт фото бумажной ЭКГ или экрана прибора (JPG, PNG, HEIC), PDF, а также
       файл записи (WFDB, EDF, CSV, DICOM, SCP). Снимайте прямо сверху, без бликов, чтобы лист занимал
-      весь кадр. Берите оригинал из галереи: фото, пересланное через Telegram или WhatsApp, сжато и
-      не прочитается. Несколько фото одной ЭКГ можно выбрать вместе.</div>
-    <div class="err" id="filewarn"></div>
+      весь кадр. Лучше всего — оригинал из галереи: фото, пересланное через Telegram или WhatsApp, сжато
+      и читается только ориентировочно. Несколько фото одной ЭКГ можно выбрать вместе.</div>
+    <div class="notice" id="filewarn"></div>
   </div>
 
   <div class="card">
@@ -222,8 +224,9 @@ function showChosen() {
   checkPhotoSize();
 }
 
-// A messenger copy is ~1280 px wide: an A4 sheet on it has ~4 px/mm, and the readers need 8.
-// Said at once, before a 30-second wait (D159); the server still decides.
+// A messenger copy is ~1280 px wide: an A4 sheet on it has ~4 px/mm. Since D170 it is read in the
+// coarse mode (rate, rhythm, approximate ST; no intervals). Said at once as a notice, not an error
+// (D173): the upload goes on, the server decides.
 const SMALL_PX = 2000;
 async function checkPhotoSize() {
   $('filewarn').textContent = '';
@@ -233,10 +236,10 @@ async function checkPhotoSize() {
       const bmp = await createImageBitmap(f);
       const w = bmp.width, h = bmp.height; bmp.close();
       if (Math.max(w, h) < SMALL_PX) {
-        $('filewarn').textContent = `Снимок «${f.name}» маленький (${w}×${h}) — похоже, сжатая копия из мессенджера ` +
-          'или картинка с экрана. Бумажная ЭКГ с такого не читается: нужно не меньше 8 точек на миллиметр сетки, ' +
-          'это ≥ 2000 px по длинной стороне (оригинал с камеры телефона даёт 3000–4000). Фото экрана прибора ' +
-          'читается, но с ограничениями. Лучше выбрать оригинал из галереи, а не копию из чата.';
+        $('filewarn').textContent = `Снимок «${f.name}» небольшой (${w}×${h}) — похоже, сжатая копия из мессенджера. ` +
+          'Его можно отправить: будут ЧСС, ритм и ориентировочно ST, но без интервалов и вольтажа, ' +
+          'а заключение пойдёт на подтверждение врачу. Для полного анализа выберите оригинал из галереи ' +
+          '(с камеры телефона он 3000–4000 px).';
         return;
       }
     } catch (e) { /* HEIC and the like: the browser cannot decode it, the server will */ }
