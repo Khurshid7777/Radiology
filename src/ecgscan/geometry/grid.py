@@ -298,20 +298,24 @@ def _coarse_axes(img: np.ndarray, lo: float, hi: float, *, max_lines: int = 400,
     return out
 
 
-def _square(axes: dict[str, list[tuple[float | None, float]]], min_score: float) -> tuple[float, float, float, str] | None:
-    """The best channel whose x and y pitches agree (``SQUARE_TOL``) with both scores >= ``min_score``."""
+def _square(axes: dict[str, list[tuple[float | None, float]]], min_score: float,
+            first: bool = False) -> tuple[float, float, float, str] | None:
+    """The best channel whose x and y pitches agree (``SQUARE_TOL``) with both scores >= ``min_score``;
+    ``first``: the first such channel in order (chroma before grey)."""
     best = None
     for name, ((px, sx), (py, sy)) in axes.items():
         if px is None or py is None or abs(px - py) > SQUARE_TOL * max(px, py) or min(sx, sy) < min_score:
             continue
         if best is None or min(sx, sy) > min(best[2], best[3]):
             best = (px, py, sx, sy, name)
+        if first:
+            break
     return None if best is None else (best[0], best[1], min(best[2], best[3]), best[4])  # type: ignore[return-value]
 
 
 def estimate_coarse_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm: float = 8.0,
                          min_score: float = 0.3, tile_px: int = 320, tile_score: float = 1.0,
-                         tile_agree: float = 0.06, min_tiles: int = 2) -> GridEstimate | None:
+                         tile_agree: float = 0.06, min_tiles: int = 2, reread: bool = False) -> GridEstimate | None:
     """The grid of a copy too coarse for the 1-mm lines (a messenger copy: ~3 px/mm, the
     1-mm lines lost to JPEG; D170, SD-074), read from the 5-mm lines alone.
 
@@ -323,11 +327,16 @@ def estimate_coarse_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_
        diluted below ``min_score``: the image is cut into overlapping ``tile_px`` tiles, each
        votes with its own square comb (>= ``tile_score``), and the pitch at least
        ``min_tiles`` tiles agree on (± ``tile_agree``) is taken.
+    ``reread``: the scale re-read on the straightened, upscaled copy near a known scale —
+    chroma first and no tiles (on that copy the grey trace rows and the tiles both drifted
+    the scale and cost 140-300 ms of RR on six bench pages).
     ``None``: no 5-mm grid (a device screen, a non-ECG picture)."""
-    whole = _square(_coarse_axes(img, min_px_per_mm, max_px_per_mm), min_score)
+    whole = _square(_coarse_axes(img, min_px_per_mm, max_px_per_mm), min_score, first=reread)
     if whole is not None:
         px, py, sc, name = whole
         return GridEstimate(px, py, sc, sc, f"{name}:5mm", round(float(np.clip(sc / CONF_SCALE, 0.0, 1.0)), 3))
+    if reread:
+        return None
     h, w = img.shape[:2]
     votes: list[tuple[float, float]] = []
     step = max(1, tile_px // 2)
