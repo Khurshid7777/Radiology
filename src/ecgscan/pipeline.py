@@ -172,6 +172,49 @@ def _zone_rect(zone: np.ndarray, raw: GridEstimate, wppm: float, name: str, cfg:
                      method=f"board:{name}")
 
 
+def _beyond_zone(zone: np.ndarray, cover: np.ndarray, spec, area: tuple[float, float, float, float], wppm: float,
+                 stretch: tuple[float, float], b_cfg: dict) -> np.ndarray | None:
+    """The area up to the markers with the board's own print cleared (SD-077).
+
+    Between the zone and the markers the board has rulers, the zone outline and its title:
+    grey, untinted print. They are kept only where paper lies over them, i.e. where the
+    paper's tint or colour grid reaches; elsewhere in that band (and outside the photo) the
+    area is board white. Inside the zone, less ``print_inset_mm`` (the outline's width),
+    nothing changes. ``None``: no such paper found (a grey grid on white is not told from
+    the board); the zone alone is read, as before."""
+    import cv2
+
+    fx, fy = stretch
+    h, w = zone.shape[:2]
+    inset = float(b_cfg.get("print_inset_mm", 2.0))
+    x0, y0, x1, y1 = spec.zone_mm
+    ix0, iy0 = int(round((x0 + inset - area[0]) * wppm * fx)), int(round((y0 + inset - area[1]) * wppm * fy))
+    ix1, iy1 = int(round((x1 - inset - area[0]) * wppm * fx)), int(round((y1 - inset - area[1]) * wppm * fy))
+    band = np.ones((h, w), bool)
+    band[max(0, iy0):max(0, iy1), max(0, ix0):max(0, ix1)] = False
+    # Paper: its tint or colour grid, closed over the grid's white cells, in pieces of paper
+    # size (dust and a coloured pen mark on the board are not paper), widened by a millimetre.
+    q = 4
+    small = zone[::q, ::q].astype(np.int16)
+    chroma = (small.max(axis=2) - small.min(axis=2)) > int(b_cfg.get("crop_chroma_min", 14))
+    mm = wppm / q
+    k = max(3, int(round(float(b_cfg.get("paper_close_mm", 3.0)) * mm)) | 1)
+    paper = cv2.morphologyEx(chroma.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(paper, 8)
+    big = np.zeros(n, bool)
+    big[1:] = stats[1:, cv2.CC_STAT_AREA] >= float(b_cfg.get("paper_min_mm2", 400.0)) * mm * mm
+    if not big.any():
+        return None
+    paper = big[lab].astype(np.uint8)
+    d = max(1, int(round(mm))) * 2 + 1
+    paper = cv2.dilate(paper, np.ones((d, d), np.uint8))
+    paper = cv2.resize(paper, (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
+    clear = band & (~paper | ~cover)
+    out = zone.copy()
+    out[clear] = 255
+    return out
+
+
 def _board(work: np.ndarray, cfg: dict, dbg: ScanDebug) -> tuple[Rectified | None, GridEstimate, float] | None:
     """The zone of a capture board in the photo rectified at the working scale, the
     photo's scale as a grid estimate (the board's mean) and its worst px/mm over the
@@ -188,9 +231,20 @@ def _board(work: np.ndarray, cfg: dict, dbg: ScanDebug) -> tuple[Rectified | Non
     raw = GridEstimate(fit.mean_px_per_mm, fit.mean_px_per_mm, 0.0, 0.0, "board", 1.0)
     if fit.min_px_per_mm < cfg["quality"]["min_px_per_mm"]:
         return None, raw, fit.min_px_per_mm
-    rect = _zone_rect(warp_zone(work, fit, wppm), raw, wppm, fit.spec.name, cfg, rescale_to_grid=False,
-                      need_flat_grid=fit.corners_only,
-                      rewarp=lambda fx, fy: warp_zone(work, fit, wppm, stretch=(fx, fy)))
+    area = fit.spec.read_mm(float(b_cfg.get("read_margin_mm", 1.5))) if b_cfg.get("read_beyond_zone") else None
+
+    def board_zone(fx: float = 1.0, fy: float = 1.0) -> np.ndarray:
+        nonlocal area
+        if area is not None:
+            zone, cover = warp_zone(work, fit, wppm, with_mask=True, stretch=(fx, fy), area_mm=area)
+            out = _beyond_zone(zone, cover, fit.spec, area, wppm, (fx, fy), b_cfg)
+            if out is not None:
+                return out
+            area = None                    # no tinted paper: the zone alone, now and on the re-warp
+        return warp_zone(work, fit, wppm, stretch=(fx, fy))
+
+    rect = _zone_rect(board_zone(), raw, wppm, fit.spec.name, cfg, rescale_to_grid=False,
+                      need_flat_grid=fit.corners_only, rewarp=board_zone)
     if isinstance(rect, str):
         fit.ok = False
         fit.reason = rect

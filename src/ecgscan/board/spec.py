@@ -37,6 +37,19 @@ class BoardSpec:
         ext = [(min(xs), min(ys)), (max(xs), min(ys)), (max(xs), max(ys)), (min(xs), max(ys))]
         return sorted(i for i, p in self.markers.items() if tuple(p) in ext)
 
+    def read_mm(self, margin_mm: float = 1.5) -> tuple[float, float, float, float]:
+        """The rectangle bounded by the markers' inner edges (less ``margin_mm``), around the
+        zone (SD-077): paper laid over the rulers is read up to there."""
+        h = self.marker_mm / 2
+        x0, y0, x1, y1 = self.zone_mm
+        pts = self.markers.values()
+        left = max([cx + h for cx, _ in pts if cx < x0], default=0.0)
+        right = min([cx - h for cx, _ in pts if cx > x1], default=self.size_mm[0])
+        top = max([cy + h for _, cy in pts if cy < y0], default=0.0)
+        bottom = min([cy - h for _, cy in pts if cy > y1], default=self.size_mm[1])
+        return (min(x0, left + margin_mm), min(y0, top + margin_mm), max(x1, right - margin_mm),
+                max(y1, bottom - margin_mm))
+
     @property
     def zone_size_mm(self) -> tuple[float, float]:
         x0, y0, x1, y1 = self.zone_mm

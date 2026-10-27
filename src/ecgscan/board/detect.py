@@ -136,7 +136,8 @@ def detect_board(bgr: np.ndarray, specs: list[BoardSpec], *, min_markers: int = 
     return fit
 
 
-def _zone_transform(fit: BoardFit, px_per_mm: float, shape: tuple[int, int]) -> tuple[np.ndarray, float]:
+def _zone_transform(fit: BoardFit, px_per_mm: float, shape: tuple[int, int],
+                    origin_mm: tuple[float, float] | None = None) -> tuple[np.ndarray, float]:
     """Photo px -> zone canvas px, and the factor the photo is first reduced by (never
     upscaled by more than the photo holds: a finer photo is area-averaged down first,
     a 3x reduction inside warpPerspective would alias the grid)."""
@@ -145,7 +146,7 @@ def _zone_transform(fit: BoardFit, px_per_mm: float, shape: tuple[int, int]) -> 
     if f < 1.0:
         h, w = shape
         H = H @ np.diag([w / round(w * f), h / round(h * f), 1.0])
-    x0, y0, _, _ = fit.spec.zone_mm
+    x0, y0 = origin_mm or fit.spec.zone_mm[:2]
     S = np.array([[px_per_mm, 0, -x0 * px_per_mm], [0, px_per_mm, -y0 * px_per_mm], [0, 0, 1]], np.float64)
     return S @ H, f
 
@@ -156,16 +157,21 @@ def zone_shape(spec: BoardSpec, px_per_mm: float) -> tuple[int, int]:
 
 
 def warp_zone(bgr: np.ndarray, fit: BoardFit, px_per_mm: float, *, with_mask: bool = False,
-              stretch: tuple[float, float] = (1.0, 1.0)) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+              stretch: tuple[float, float] = (1.0, 1.0),
+              area_mm: tuple[float, float, float, float] | None = None) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """The zone at exactly ``px_per_mm`` pixels per board millimetre; with ``with_mask``
     also where the photo covers it (bool). ``stretch``: x and y factors on top, in the same
-    warp (SD-075: the paper grid's correction of the board scale, without a second resample)."""
+    warp (SD-075: the paper grid's correction of the board scale, without a second resample).
+    ``area_mm``: another board rectangle instead of the zone (SD-077: up to the markers)."""
     import cv2
 
     h, w = bgr.shape[:2]
-    M, f = _zone_transform(fit, px_per_mm, (h, w))
+    M, f = _zone_transform(fit, px_per_mm, (h, w), None if area_mm is None else area_mm[:2])
     src = bgr if f == 1.0 else cv2.resize(bgr, (int(round(w * f)), int(round(h * f))), interpolation=cv2.INTER_AREA)
-    zh, zw = zone_shape(fit.spec, px_per_mm)
+    if area_mm is None:
+        zh, zw = zone_shape(fit.spec, px_per_mm)
+    else:
+        zh, zw = int(round((area_mm[3] - area_mm[1]) * px_per_mm)), int(round((area_mm[2] - area_mm[0]) * px_per_mm))
     if stretch != (1.0, 1.0):
         M = np.diag([stretch[0], stretch[1], 1.0]) @ M
         zh, zw = int(round(zh * stretch[1])), int(round(zw * stretch[0]))

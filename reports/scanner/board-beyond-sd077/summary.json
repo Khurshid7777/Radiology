@@ -1,0 +1,283 @@
+{
+ "criterion": [
+  "SD-077 criterion, written before the run (2026-10-27).",
+  "Synthetic: A3 board, 12 px/mm, the test tilt. Page 6x2 (rows pitch 33 mm, margins cropped: 274 x 216 mm,",
+  "the bottom row ~10 mm from the paper edge). Control: the page wholly inside the zone (y 40.5).",
+  "Case: the same page 9 mm lower, over the bottom ruler (bottom edge at 265.5, markers start at 267).",
+  "Pass when:",
+  " 1. over the ruler (red grid): read on the board, 12 leads, each lead's r within 0.03 of the control,",
+  "    status not worse than the control;",
+  " 2. the board's own print is never read: a bare board is rejected, no lead; the zone outline, rulers and",
+  "    title never become a trace (control and test_board page: r of every lead within 0.02 of before);",
+  " 3. pages inside the zone: test_board.py / test_board_print_sd075.py pass unchanged;",
+  " 4. grey-grid paper over the ruler: no worse than before (the band beyond the zone may stay unread)."
+ ],
+ "before": {
+  "inside (test_board page)": {
+   "status": "ok",
+   "reject": [],
+   "warnings": [],
+   "method": "board:a3",
+   "zone": [
+    1804,
+    2904
+   ],
+   "layout": "3x4+rhythm",
+   "leads": 12,
+   "r_med": 0.901,
+   "r": {
+    "I": 0.923,
+    "aVR": 0.942,
+    "V1": 0.923,
+    "V4": 0.869,
+    "II": 0.901,
+    "aVL": 0.945,
+    "V2": 0.937,
+    "V5": 0.849,
+    "III": 0.862,
+    "aVF": 0.861,
+    "V3": 0.902,
+    "V6": 0.871
+   }
+  },
+  "6x2 inside the zone": {
+   "status": "ok",
+   "reject": [],
+   "warnings": [],
+   "method": "board:a3",
+   "zone": [
+    2170,
+    3400
+   ],
+   "layout": "6x2",
+   "leads": 12,
+   "r_med": 0.901,
+   "r": {
+    "I": 0.927,
+    "V1": 0.926,
+    "II": 0.902,
+    "V2": 0.936,
+    "III": 0.857,
+    "V3": 0.9,
+    "aVR": 0.936,
+    "V4": 0.87,
+    "aVL": 0.946,
+    "V5": 0.863,
+    "aVF": 0.879,
+    "V6": 0.891
+   }
+  },
+  "6x2 over the bottom ruler": {
+   "status": "needs_confirmation",
+   "reject": [],
+   "warnings": [
+    "LEAD_INCOMPLETE",
+    "LEAD_OVERLAP",
+    "TRACE_GAPS"
+   ],
+   "method": "board:a3",
+   "zone": [
+    2154,
+    2900
+   ],
+   "layout": "6x2",
+   "leads": 12,
+   "r_med": 0.903,
+   "r": {
+    "I": 0.923,
+    "V1": 0.925,
+    "II": 0.9,
+    "V2": 0.934,
+    "III": 0.856,
+    "V3": 0.906,
+    "aVR": 0.936,
+    "V4": 0.876,
+    "aVL": 0.946,
+    "V5": 0.88,
+    "aVF": 0.875,
+    "V6": 0.825
+   }
+  },
+  "6x2 over the bottom ruler, grey grid": {
+   "status": "needs_confirmation",
+   "reject": [],
+   "warnings": [
+    "LEAD_INCOMPLETE",
+    "LEAD_OVERLAP",
+    "TRACE_GAPS"
+   ],
+   "method": "board:a3",
+   "zone": [
+    2110,
+    2764
+   ],
+   "layout": "6x2",
+   "leads": 12,
+   "r_med": 0.903,
+   "r": {
+    "I": 0.925,
+    "V1": 0.925,
+    "II": 0.901,
+    "V2": 0.937,
+    "III": 0.857,
+    "V3": 0.904,
+    "aVR": 0.936,
+    "V4": 0.876,
+    "aVL": 0.945,
+    "V5": 0.877,
+    "aVF": 0.878,
+    "V6": 0.767
+   }
+  },
+  "bare board": {
+   "status": "rejected",
+   "reject": [
+    "LAYOUT_UNKNOWN"
+   ],
+   "warnings": [
+    "FADED_PAPER"
+   ],
+   "method": "board:a3",
+   "zone": [
+    2170,
+    3400
+   ],
+   "layout": null,
+   "leads": 0,
+   "r_med": null,
+   "r": {}
+  }
+ },
+ "after": {
+  "inside (test_board page)": {
+   "status": "ok",
+   "reject": [],
+   "warnings": [],
+   "method": "board:a3",
+   "zone": [
+    1800,
+    2900
+   ],
+   "layout": "3x4+rhythm",
+   "leads": 12,
+   "r_med": 0.899,
+   "r": {
+    "I": 0.924,
+    "aVR": 0.94,
+    "V1": 0.923,
+    "V4": 0.864,
+    "II": 0.897,
+    "aVL": 0.946,
+    "V2": 0.938,
+    "V5": 0.847,
+    "III": 0.863,
+    "aVF": 0.862,
+    "V3": 0.901,
+    "V6": 0.876
+   }
+  },
+  "6x2 inside the zone": {
+   "status": "ok",
+   "reject": [],
+   "warnings": [],
+   "method": "board:a3",
+   "zone": [
+    2336,
+    2900
+   ],
+   "layout": "6x2",
+   "leads": 12,
+   "r_med": 0.905,
+   "r": {
+    "I": 0.927,
+    "V1": 0.927,
+    "II": 0.904,
+    "V2": 0.937,
+    "III": 0.858,
+    "V3": 0.906,
+    "aVR": 0.936,
+    "V4": 0.869,
+    "aVL": 0.942,
+    "V5": 0.862,
+    "aVF": 0.879,
+    "V6": 0.891
+   }
+  },
+  "6x2 over the bottom ruler": {
+   "status": "ok",
+   "reject": [],
+   "warnings": [],
+   "method": "board:a3",
+   "zone": [
+    2240,
+    2900
+   ],
+   "layout": "6x2",
+   "leads": 12,
+   "r_med": 0.907,
+   "r": {
+    "I": 0.924,
+    "V1": 0.926,
+    "II": 0.907,
+    "V2": 0.938,
+    "III": 0.858,
+    "V3": 0.906,
+    "aVR": 0.935,
+    "V4": 0.874,
+    "aVL": 0.946,
+    "V5": 0.875,
+    "aVF": 0.879,
+    "V6": 0.889
+   }
+  },
+  "6x2 over the bottom ruler, grey grid": {
+   "status": "needs_confirmation",
+   "reject": [],
+   "warnings": [
+    "LEAD_INCOMPLETE",
+    "LEAD_OVERLAP",
+    "TRACE_GAPS"
+   ],
+   "method": "board:a3",
+   "zone": [
+    2110,
+    2764
+   ],
+   "layout": "6x2",
+   "leads": 12,
+   "r_med": 0.903,
+   "r": {
+    "I": 0.925,
+    "V1": 0.925,
+    "II": 0.901,
+    "V2": 0.937,
+    "III": 0.857,
+    "V3": 0.904,
+    "aVR": 0.936,
+    "V4": 0.876,
+    "aVL": 0.945,
+    "V5": 0.877,
+    "aVF": 0.878,
+    "V6": 0.767
+   }
+  },
+  "bare board": {
+   "status": "rejected",
+   "reject": [
+    "LAYOUT_UNKNOWN"
+   ],
+   "warnings": [
+    "FADED_PAPER"
+   ],
+   "method": "board:a3",
+   "zone": [
+    2170,
+    3400
+   ],
+   "layout": null,
+   "leads": 0,
+   "r_med": null,
+   "r": {}
+  }
+ }
+}

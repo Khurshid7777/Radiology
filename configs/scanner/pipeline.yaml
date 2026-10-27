@@ -116,6 +116,14 @@ board:                           # capture board with ArUco markers (SD-065); no
   grid_mismatch: 0.03            # paper grid vs board scale apart by more: the page is not flat / not 1:1 -> grid path
   # SD-075: the paper is the ECG's scale, the board only the plane. Within grid_mismatch the zone is
   # rescaled per axis to the paper grid (a printer's feed error ~1 % stays out of the timing).
+  # SD-077: one photo is read up to the markers' inner edges, not only inside the zone: paper laid over
+  # the rulers is read whole (an A4 board holds ~248 x 161 mm). The board's print there (rulers, zone
+  # outline, title: grey, untinted) is cleared except where tinted / colour-grid paper lies over it.
+  read_beyond_zone: true
+  read_margin_mm: 1.5            # kept off the markers' inner edges
+  print_inset_mm: 2.0            # the band cleared of board print starts this far inside the zone edge (the outline)
+  paper_close_mm: 3.0            # paper = tint or colour grid closed over the grid's white cells ...
+  paper_min_mm2: 400             # ... in pieces at least this big
   grid_rescale_min: 0.001        # grid and board this close: left as is (the grid reads to ~0.02 %)
   corner_fit_max_spread: 0.005   # board fitted to its 4 corners (middle markers off): grid pitch over the page tiles must agree this well
   detect_max_side_px: 2000       # markers are searched on a copy no larger than this (speed); corners refined at full size
