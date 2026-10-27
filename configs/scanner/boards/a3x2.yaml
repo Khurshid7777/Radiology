@@ -7,13 +7,13 @@ title: "Cardiolens A3 (2 x A4)"
 size_mm: [400, 297]
 dictionary: DICT_4X4_50
 marker_mm: 20
-markers:                       # ids 20-27 belong to this board only (21 and 25 would be on the seam)
-  20: [20, 20]
-  22: [380, 20]
-  23: [380, 148.5]
-  24: [380, 277]
-  26: [20, 277]
-  27: [20, 148.5]
+markers:                       # ids 30-37 belong to this board only (31 and 35 would be on the seam)
+  30: [20, 20]
+  32: [380, 20]
+  33: [380, 148.5]
+  34: [380, 277]
+  36: [20, 277]
+  37: [20, 148.5]
 zone_mm: [40, 40, 360, 257]    # 320 x 217: an A4 page landscape with ~10 mm to spare
 sheets: [[0, 210], [190, 400]] # board x printed on each A4 sheet (210 mm wide)
 cut_mm: 200                    # sheet 1 is cut here; its edge meets the rulers of sheet 2

@@ -21,7 +21,7 @@ from cardiolens.layer6_interpret.claude import (
     _SYSTEM,
     PROMPT_INSTRUCTIONS,
     ClaudeProvider,
-    _extract_json,
+    parse_json_object,
     report_from_json,
 )
 from cardiolens.layer6_interpret.provider import InterpretationInput
@@ -71,7 +71,7 @@ class LocalOpenAIProvider(ClaudeProvider):
         prompt = PROMPT_INSTRUCTIONS + json.dumps(self._payload(data), ensure_ascii=False, indent=2)
         try:
             text = self._request(prompt)
-            report = report_from_json(json.loads(_extract_json(text)), data)
+            report = report_from_json(parse_json_object(text), data)
             report.provider, report.provider_model = self.name, self.model
             report.reasoning_trace.insert(0, f"narrative by local model {self.model} at {self.base_url}")
             return report

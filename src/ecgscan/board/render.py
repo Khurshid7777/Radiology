@@ -32,12 +32,12 @@ def render_board(spec: BoardSpec, px_per_mm: float = 300 / 25.4) -> np.ndarray:
     cv2.rectangle(img, (p(x0), p(y0)), (p(x1), p(y1)), 150, line)
     # Rulers outside the zone (the scan never sees them): 1 mm ticks, 5 and 10 mm longer.
     for mm in range(int(x1 - x0) + 1):
-        ln = 6 if mm % 10 == 0 else 4 if mm % 5 == 0 else 2
+        ln = spec.ruler_mm * (1.0 if mm % 10 == 0 else 2 / 3 if mm % 5 == 0 else 1 / 3)
         x = p(x0 + mm)
         cv2.line(img, (x, p(y0) - p(1)), (x, p(y0 - 1 - ln)), 120, line)
         cv2.line(img, (x, p(y1) + p(1)), (x, p(y1 + 1 + ln)), 120, line)
     for mm in range(int(y1 - y0) + 1):
-        ln = 6 if mm % 10 == 0 else 4 if mm % 5 == 0 else 2
+        ln = spec.ruler_mm * (1.0 if mm % 10 == 0 else 2 / 3 if mm % 5 == 0 else 1 / 3)
         y = p(y0 + mm)
         cv2.line(img, (p(x0) - p(1), y), (p(x0 - 1 - ln), y), 120, line)
         cv2.line(img, (p(x1) + p(1), y), (p(x1 + 1 + ln), y), 120, line)

@@ -123,7 +123,7 @@ def test_the_two_sheet_board_holds_an_a4_page_and_prints_on_a4(synth_mv):
     spec = load_board("a3x2")
     zw, zh = spec.zone_size_mm
     assert zw >= 297 + 10 and zh >= 210 + 5                         # an A4 page landscape, with room
-    assert spec.corner_ids == [20, 22, 24, 26] and len(spec.markers) == 6
+    assert spec.corner_ids == [30, 32, 34, 36] and len(spec.markers) == 6
     sheets = render_sheets(spec, 10.0)
     assert [s.shape for s in sheets] == [(2970, 2100), (2970, 2100)]  # A4 portrait each
     cut = int(spec.cut_mm * 10)

@@ -81,3 +81,26 @@ def test_a_page_photographed_sideways_is_refused_with_the_turn_advice(tmp_path):
     cv2.imwrite(str(tmp_path / "rot.png"), cv2.rotate(cv2.imread(str(png)), cv2.ROTATE_90_CLOCKWISE))
     with pytest.raises(ValueError, match="Поверните"):
         digitize_photo(tmp_path / "rot.png")
+
+
+def test_coarse_scan_of_a_device_screen_goes_to_the_screen_readers(monkeypatch, tmp_path):
+    """D172: the coarse estimator took a screen's lattice for a 5-mm grid (a 10-s limb page:
+    tiles voted a third of the lattice, SD-074); the route hands such a photo to the screen
+    readers, which read it whole."""
+    import cardiolens.telegram.analyze as A
+    from cardiolens.layer1_ingestion.screen import LIMB_6, render_device_screen
+
+    class Cal:
+        confidence = 0.0
+
+    class Res:
+        status, warnings, calibration, artifacts = "needs_confirmation", ["LOW_RESOLUTION_COARSE"], Cal(), {}
+
+    import ecgscan.contract.cardiolens_adapter as AD
+    import ecgscan.pipeline as P
+    monkeypatch.setattr(P, "scan", lambda image, **kw: Res())
+    monkeypatch.setattr(AD, "to_signal_representation", lambda r: _coarse(heart_rate_bpm=72))
+    page = render_device_screen(generate_synthetic_ecg(heart_rate_bpm=80, duration_s=10.0, seed=5), tmp_path / "limb.png", leads=LIMB_6)
+    sig = A.digitize_photo(page)
+    assert any(n.startswith("device screen photo") for n in sig.provenance.notes)
+    assert not any(n.startswith("coarse:") for n in sig.provenance.notes)

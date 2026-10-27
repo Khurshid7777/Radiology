@@ -92,6 +92,20 @@ def _portrait(path) -> bool:
     return h > 1.15 * w
 
 
+def _is_device_screen(path) -> bool:
+    """The photo shows a device screen by the CardioLens detector (a lit panel in a dark
+    frame); a file OpenCV cannot open (HEIC, PDF) is not called one."""
+    try:
+        import cv2
+
+        from cardiolens.layer1_ingestion.screen import is_device_screen
+
+        img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    except Exception:
+        return False
+    return img is not None and bool(is_device_screen(img))
+
+
 def _guard_orientation(path, sig):
     """``sig`` as read by the CardioLens readers, unless the photo stands on end and they
     took it for a paper format — then the read is refused (D171)."""
@@ -153,7 +167,15 @@ def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
         # A compressed photo read in the scanner's coarse mode (D170) stays with the scanner:
         # the CardioLens readers read 3-4 px/mm worse, and the core withholds what the
         # scale cannot give (photo_coarse).
-        if COARSE_WARNING in (result.warnings or []) or not scale_unknown(result):
+        if COARSE_WARNING in (result.warnings or []):
+            # D172: a device screen (a dark lit panel, no paper) whose lattice the coarse
+            # estimator took for a 5-mm grid: the screen readers read it whole, the coarse
+            # read has the traces in pieces. The scanner's own screen test is its; this is
+            # the route's belt and braces.
+            if readers is not None and _is_device_screen(path):
+                return readers()
+            return sig
+        if not scale_unknown(result):
             return sig
         # D144: read, but with no time or gain scale it trusts and its own rhythm row at
         # odds with the panels (on a strip turned by 2 deg: a rate of 55 read as 100.6). The

@@ -82,3 +82,29 @@ def test_mode_A_always_decision_support():
                     min_overall=cfg.confidence.autonomous_min_overall, quality_ok=True)
     assert rep.mode == "A"  # stays A even with a critical finding
     assert rep.red_flags     # but red flags are shown
+
+
+def test_offline_chain_says_only_what_the_record_shows():
+    """D174: an LBBB record's bundle-branch rule printed "Блокада ножки → БПНПГ" too; a
+    quality note alone was called implausible."""
+    from cardiolens.contracts.findings import Finding, FindingSet
+    from cardiolens.layer5_causal import analyze
+    from cardiolens.pipeline import load_rule_base
+
+    rb = load_rule_base()
+    lbbb = FindingSet(findings=[Finding(code="lbbb", group="conduction", label_ru="Полная блокада левой ножки",
+                                        label_uz="Chap oyoqcha blokadasi", confidence=0.8)])
+    g = analyze(lbbb, rb)
+    edges = {f"{e.from_}->{e.to}" for e in g.edges}
+    assert "bundle_branch_block->rbbb" in edges        # the engine keeps the rule whole
+    from cardiolens.layer6_interpret.stub import StubProvider
+
+    data = type("D", (), {})()
+    data.findings, data.causal_graph, data.mode, data.critical_labels = lbbb, g, "A", []
+    data.disclaimer_ru = data.disclaimer_uz = ""
+    rep = StubProvider().generate(data)
+    text = " ".join(c.text_ru for c in rep.causal_explanation)
+    assert "БЛНПГ" in text and "БПНПГ" not in text and "causes" not in text
+    bad = FindingSet(findings=[Finding(code="photo_unreliable", group="quality", label_ru="x", label_uz="x",
+                                       confidence=0.9)])
+    assert analyze(bad, rb).implausible_flags == []

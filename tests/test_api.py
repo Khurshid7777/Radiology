@@ -256,3 +256,106 @@ def test_messenger_sized_photo_is_read_coarse(tmp_path):
     assert "photo_coarse" in {f["code"] for f in d["findings"]}
     assert d["measurements"]["heart_rate_bpm"] == pytest.approx(72, abs=5)
     assert d["measurements"]["intervals"]["qrs_ms"] is None
+
+
+# --- D175: the web camera's live frame check -------------------------------------------------
+
+def test_capture_check_says_closer_on_a_small_frame_and_reads_the_capture_scale(tmp_path):
+    import cv2
+
+    page = cv2.imread(str(_page_png(tmp_path, px_per_mm=4)))
+    _ok, buf = cv2.imencode(".jpg", page)
+    small = client.post("/api/capture/check", data={"capture_width": str(page.shape[1])},
+                        files={"frame": ("f.jpg", buf.tobytes(), "image/jpeg")})
+    assert small.status_code == 200, small.text
+    d = small.json()
+    # D177: the page already fills the frame, so "come closer" would cut it: parts instead.
+    assert d["ok"] is False and {"closer", "parts"} & {h["code"] for h in d["hints"]}
+    assert all(h["ru"] for h in d["hints"]) and d["frame"] == [page.shape[1], page.shape[0]]
+    # The same frame, but the camera's photo is 3x wider: the grid is fine there.
+    big = client.post("/api/capture/check", data={"capture_width": str(3 * page.shape[1])},
+                      files={"frame": ("f.jpg", buf.tobytes(), "image/jpeg")}).json()
+    assert big["px_per_mm"] and big["px_per_mm"] > d["px_per_mm"] * 2.5
+    assert "closer" not in {h["code"] for h in big["hints"]}
+
+
+def test_capture_check_sees_the_capture_board_and_refuses_garbage():
+    import cv2
+
+    from ecgscan.board.render import render_board
+    from ecgscan.board.spec import load_boards
+
+    board = render_board(load_boards(["a4"])[0], px_per_mm=4)
+    if board.ndim == 2:
+        board = cv2.cvtColor(board, cv2.COLOR_GRAY2BGR)
+    buf = cv2.imencode(".jpg", board)[1].tobytes()
+    d = client.post("/api/capture/check", files={"frame": ("b.jpg", buf, "image/jpeg")}).json()
+    assert d["board"] is True
+    bad = client.post("/api/capture/check", files={"frame": ("x.jpg", b"not an image", "image/jpeg")})
+    assert bad.status_code == 400
+
+
+# --- D177: the camera tells a screen, a sheet and a strip apart, and a big sheet goes in parts ---
+
+def _frame(img):
+    import cv2
+
+    return {"frame": ("f.jpg", cv2.imencode(".jpg", img)[1].tobytes(), "image/jpeg")}
+
+
+def test_capture_check_tells_a_device_screen_from_paper(tmp_path):
+    import cv2
+
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from cardiolens.layer1_ingestion.screen import CHEST_6, render_device_screen
+
+    scr = cv2.imread(str(render_device_screen(generate_synthetic_ecg(heart_rate_bpm=72, seed=5),
+                                              tmp_path / "s.png", leads=CHEST_6)))
+    d = client.post("/api/capture/check", files=_frame(scr)).json()
+    assert d["mode"] == "screen" and "closer" not in {h["code"] for h in d["hints"]}
+    page = cv2.imread(str(_page_png(tmp_path, px_per_mm=10)))
+    p = client.post("/api/capture/check", data={"capture_width": str(page.shape[1])}, files=_frame(page)).json()
+    assert p["mode"] in ("sheet", "strip", "paper")
+
+
+def test_capture_check_sizes_a_sheet_and_sends_a_big_one_to_parts(tmp_path):
+    import cv2
+
+    page = cv2.imread(str(_page_png(tmp_path, px_per_mm=10)))
+    h, w = page.shape[:2]
+    pad = cv2.copyMakeBorder(page, h // 6, h // 6, w // 6, w // 6, cv2.BORDER_CONSTANT, value=(40, 40, 40))
+    small = cv2.resize(pad, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+    d = client.post("/api/capture/check", data={"capture_width": str(small.shape[1] * 2)}, files=_frame(small)).json()
+    if d["sheet_mm"]:                                   # the whole page in view: its size in mm
+        assert abs(d["sheet_mm"][0] - w / 10) < 0.15 * w / 10
+    # Only the middle of a page at a coarse scale: it fills the frame and runs off it.
+    mid = page[h // 4: 3 * h // 4, w // 4: 3 * w // 4]
+    coarse = cv2.resize(mid, None, fx=0.45, fy=0.45, interpolation=cv2.INTER_AREA)
+    c = client.post("/api/capture/check", data={"capture_width": str(coarse.shape[1])}, files=_frame(coarse)).json()
+    assert c["suggest_parts"] is True and "parts" in {x["code"] for x in c["hints"]}
+
+
+def test_capture_check_measures_paper_on_the_board_and_names_a_board_that_fits():
+    """D177: on the owner's a4 board a 148-mm strip read as 161 x 77 mm from the preview grid;
+    the board's markers measure it, and a strip wider than the zone gets the board that fits."""
+    import cv2
+    import numpy as np
+
+    from ecgscan.board.render import render_board
+    from ecgscan.board.spec import load_boards
+
+    ppm = 4.0
+    a4 = load_boards(["a4"])[0]
+    img = cv2.cvtColor(render_board(a4, ppm), cv2.COLOR_GRAY2BGR)
+    x0, y0 = int((33 - 2) * ppm), int((33 - 2) * ppm)        # pink paper 235 x 148 mm, 2 mm past the zone
+    x1, y1 = x0 + int(235 * ppm), y0 + int(148 * ppm)
+    img[y0:y1, x0:x1] = (200, 205, 250)
+    for x in range(x0, x1, int(5 * ppm)):
+        img[y0:y1, x] = (120, 120, 230)
+    big = cv2.copyMakeBorder(img, 40, 40, 40, 40, cv2.BORDER_CONSTANT, value=(60, 60, 60))
+    d = client.post("/api/capture/check", files=_frame(big)).json()
+    assert d["board_name"] == "a4" and d["sheet_mm"] is not None
+    assert abs(d["sheet_mm"][0] - 235) <= 4 and abs(d["sheet_mm"][1] - 148) <= 4
+    advice = [h["ru"] for h in d["hints"] if h["code"] == "board_small"]
+    assert advice and "A4W" in advice[0]
+    assert np.isclose(d["px_per_mm"], ppm, rtol=0.1)
