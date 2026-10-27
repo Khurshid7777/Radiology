@@ -1,0 +1,79 @@
+{
+ "suite": "coarse",
+ "pipeline_version": "0.1.0",
+ "git": "41e46a8",
+ "python": "3.13.16",
+ "generated_at": "2026-10-27T10:46:12+0000",
+ "n_cases": 12,
+ "digitizers": [
+  "ecgscan"
+ ],
+ "unavailable": {},
+ "skipped_slices": {},
+ "slices": [
+  "coarse_6x2_thermal"
+ ],
+ "by_slice": {
+  "ecgscan": {
+   "coarse_6x2_thermal": {
+    "n": 12,
+    "ok": 0,
+    "needs_confirmation": 11,
+    "rejected": 1,
+    "errors": 0,
+    "r_median": 0.904,
+    "rmse_mv_median": 0.046,
+    "snr_db_median": 7.85,
+    "r_amp_err_mv_median": 0.017,
+    "leads_missing_mean": 0.0,
+    "speed_ok": 0.917,
+    "gain_ok": 0.917,
+    "px_per_mm_err_median": 0.006,
+    "bad": 0.0,
+    "unflagged_bad": 0.0,
+    "time_s_median": 4.271,
+    "time_s_max": 5.267,
+    "rr_ms_mae": 0.473,
+    "rr_ms_unmeasured": 0.0,
+    "qrs_ms_mae": 3.727,
+    "qrs_ms_unmeasured": 0.0,
+    "qt_ms_mae": 2.327,
+    "qt_ms_unmeasured": 0.0,
+    "pr_ms_mae": 4.273,
+    "pr_ms_unmeasured": 0.0
+   }
+  }
+ },
+ "overall": {
+  "ecgscan": {
+   "n": 12,
+   "ok": 0,
+   "needs_confirmation": 11,
+   "rejected": 1,
+   "errors": 0,
+   "r_median": 0.904,
+   "rmse_mv_median": 0.046,
+   "snr_db_median": 7.85,
+   "r_amp_err_mv_median": 0.017,
+   "leads_missing_mean": 0.0,
+   "speed_ok": 0.917,
+   "gain_ok": 0.917,
+   "px_per_mm_err_median": 0.006,
+   "bad": 0.0,
+   "unflagged_bad": 0.0,
+   "time_s_median": 4.271,
+   "time_s_max": 5.267,
+   "rr_ms_mae": 0.473,
+   "rr_ms_unmeasured": 0.0,
+   "qrs_ms_mae": 3.727,
+   "qrs_ms_unmeasured": 0.0,
+   "qt_ms_mae": 2.327,
+   "qt_ms_unmeasured": 0.0,
+   "pr_ms_mae": 4.273,
+   "pr_ms_unmeasured": 0.0
+  }
+ },
+ "acceptance": {},
+ "wall_s": 78.7,
+ "acceptance_scope": "фото чистой бумаги"
+}

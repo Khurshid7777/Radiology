@@ -403,16 +403,22 @@ def estimate_coarse_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_
     def coarse(g: tuple[float, float, float, str] | None) -> tuple[float, float, float, str] | None:
         return g if g is not None and np.sqrt(g[0] * g[1]) < max_px_per_mm else None
 
-    whole = coarse(_square(_coarse_axes(img, min_px_per_mm, hi), min_score, first=True))
+    whole_any = _square(_coarse_axes(img, min_px_per_mm, hi), min_score, first=True)
+    whole = coarse(whole_any)
     if whole is not None:
         px, py, sc, name = whole
         return GridEstimate(px, py, sc, sc, f"{name}:5mm", round(float(np.clip(sc / CONF_SCALE, 0.0, 1.0)), 3))
     if reread:
         return None
-    anchored = coarse(_anchored(img, min_px_per_mm, hi, anchor_min=anchor_min, weak_min=weak_min, page_mm=page_mm))
+    anchored_any = _anchored(img, min_px_per_mm, hi, anchor_min=anchor_min, weak_min=weak_min, page_mm=page_mm)
+    anchored = coarse(anchored_any)
     if anchored is not None:
         px, py, sc, name = anchored
         return GridEstimate(px, py, sc, sc, f"{name}:5mm-anchored", round(float(np.clip(sc / CONF_SCALE, 0.0, 1.0)), 3))
+    if whole_any is not None or anchored_any is not None:
+        # The frame holds a lattice, and it is coarser than the 5-mm grid (a device screen's
+        # cells): the tiles must not vote for a third of it (a 6-lead limb screen read as 3.0).
+        return None
     h, w = img.shape[:2]
     votes: list[tuple[float, float]] = []
     step = max(1, tile_px // 2)
