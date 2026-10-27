@@ -1,0 +1,122 @@
+{
+ "name": "rhythm_hgb",
+ "kind": "per-class HistGradientBoostingClassifier over Layer-3 features (TZ §17 v2)",
+ "file": "rhythm_hgb.joblib",
+ "bytes": 18745387,
+ "sha256": "030444ef04908a6aaacc54e6c07e3dda2081c47c72efafbc55856e6d9003523e",
+ "trained_at": "2026-10-26",
+ "decision": "D168 (criterion), D169 (result, owner's decision to deploy)",
+ "feature_set": "v2",
+ "n_features": 391,
+ "classes": [
+  "atrial_fibrillation",
+  "atrial_flutter",
+  "sinus_rhythm",
+  "sinus_bradycardia",
+  "sinus_tachycardia",
+  "first_degree_av_block",
+  "rbbb",
+  "lbbb",
+  "lvh",
+  "low_qrs_voltage",
+  "long_qt",
+  "st_depression",
+  "st_elevation",
+  "left_axis_deviation",
+  "right_axis_deviation",
+  "wpw_preexcitation"
+ ],
+ "train_records": 2910,
+ "train_sets": [
+  "data/ecg-arrhythmia-train",
+  "data/ecg-arrhythmia",
+  "data/ptbxl"
+ ],
+ "threshold": 0.5,
+ "suggest_classes": [],
+ "role": "adds ml_p evidence to rule findings and a confidence bump on agreement; creates or removes no finding; the safety layer never reads it",
+ "holdout_ecg_arrhythmia_balanced_model_sens_spec": {
+  "atrial_fibrillation": [
+   0.713,
+   0.832,
+   80
+  ],
+  "atrial_flutter": [
+   0.436,
+   0.877,
+   195
+  ],
+  "sinus_rhythm": [
+   0.938,
+   0.928,
+   80
+  ],
+  "sinus_bradycardia": [
+   0.898,
+   0.978,
+   128
+  ],
+  "sinus_tachycardia": [
+   0.94,
+   0.993,
+   117
+  ],
+  "first_degree_av_block": [
+   0.759,
+   0.981,
+   87
+  ],
+  "rbbb": [
+   0.786,
+   0.994,
+   84
+  ],
+  "lbbb": [
+   0.642,
+   0.984,
+   81
+  ],
+  "lvh": [
+   0.758,
+   0.961,
+   66
+  ],
+  "low_qrs_voltage": [
+   0.476,
+   0.974,
+   82
+  ],
+  "long_qt": [
+   0.457,
+   0.975,
+   35
+  ],
+  "st_depression": [
+   0.561,
+   0.934,
+   82
+  ],
+  "st_elevation": [
+   0.259,
+   0.99,
+   81
+  ],
+  "left_axis_deviation": [
+   0.674,
+   0.948,
+   86
+  ],
+  "right_axis_deviation": [
+   0.829,
+   0.965,
+   82
+  ],
+  "wpw_preexcitation": [
+   0.25,
+   0.999,
+   12
+  ]
+ },
+ "report": "configs/models/rhythm_hgb.report.2026-10-26.json",
+ "note": "D168 strict criterion (±0.05 vs the 2026-10-14 report) missed on 6 classes' sensitivity (both directions); specificity within ±0.03 everywhere; the 14.10 hold-out sample is not reproducible (re-sampled PhysioNet selection)."
+}

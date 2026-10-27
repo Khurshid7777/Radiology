@@ -43,7 +43,7 @@ llm:
 # consumes it.
 ml:
   enabled: true
-  model_path: "configs/models/rhythm_hgb.joblib"
+  model_path: "models/cardiolens/rhythm_hgb.joblib"   # D169: in git next to the ONNX segmenter; card in models/cardiolens
 
 # Confidence gating for autonomous mode B (TZ §2, §16).
 confidence:
