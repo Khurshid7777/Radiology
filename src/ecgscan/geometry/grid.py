@@ -373,7 +373,8 @@ def estimate_coarse_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_
                          min_score: float = 0.3, tile_px: int = 320, tile_score: float = 1.0,
                          tile_agree: float = 0.06, min_tiles: int = 2, reread: bool = False,
                          anchor_min: float = 0.25, weak_min: float = 0.0,
-                         page_mm: tuple[float, float] = (100.0, 450.0)) -> GridEstimate | None:
+                         page_mm: tuple[float, float] = (100.0, 450.0),
+                         search_max_px_per_mm: float = 12.0) -> GridEstimate | None:
     """The grid of a copy too coarse for the 1-mm lines (a messenger copy: ~3 px/mm, the
     1-mm lines lost to JPEG; D170, SD-074), read from the 5-mm lines alone.
 
@@ -391,14 +392,24 @@ def estimate_coarse_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_
     ``reread``: the scale re-read on the straightened, upscaled copy near a known scale —
     step 1 only (on that copy the anchoring and the tiles drifted the scale and cost
     140-300 ms of RR on six bench pages).
+    Every step searches up to ``search_max_px_per_mm`` and keeps only a result below
+    ``max_px_per_mm``: a lattice coarser than the 5-mm grid (a device screen's 9-mm cells, the
+    trace rows of a 6x2 page) then finds its own period, instead of a third or a tenth of it
+    inside the coarse range (a synthetic screen read as 3.0 px/mm; a 6x2 thermal copy's rows
+    as 2.7). A true 5-mm grid does not move: a comb at twice its period scores half.
     ``None``: no 5-mm grid (a device screen, a non-ECG picture)."""
-    whole = _square(_coarse_axes(img, min_px_per_mm, max_px_per_mm), min_score, first=True)
+    hi = max_px_per_mm if reread else max(max_px_per_mm, search_max_px_per_mm)
+
+    def coarse(g: tuple[float, float, float, str] | None) -> tuple[float, float, float, str] | None:
+        return g if g is not None and np.sqrt(g[0] * g[1]) < max_px_per_mm else None
+
+    whole = coarse(_square(_coarse_axes(img, min_px_per_mm, hi), min_score, first=True))
     if whole is not None:
         px, py, sc, name = whole
         return GridEstimate(px, py, sc, sc, f"{name}:5mm", round(float(np.clip(sc / CONF_SCALE, 0.0, 1.0)), 3))
     if reread:
         return None
-    anchored = _anchored(img, min_px_per_mm, max_px_per_mm, anchor_min=anchor_min, weak_min=weak_min, page_mm=page_mm)
+    anchored = coarse(_anchored(img, min_px_per_mm, hi, anchor_min=anchor_min, weak_min=weak_min, page_mm=page_mm))
     if anchored is not None:
         px, py, sc, name = anchored
         return GridEstimate(px, py, sc, sc, f"{name}:5mm-anchored", round(float(np.clip(sc / CONF_SCALE, 0.0, 1.0)), 3))
@@ -407,7 +418,7 @@ def estimate_coarse_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_
     step = max(1, tile_px // 2)
     for y in range(0, max(1, h - tile_px + 1), step):
         for x in range(0, max(1, w - tile_px + 1), step):
-            t = _square(_coarse_axes(img[y:y + tile_px, x:x + tile_px], min_px_per_mm, max_px_per_mm,
+            t = _square(_coarse_axes(img[y:y + tile_px, x:x + tile_px], min_px_per_mm, hi,
                                      max_lines=200, min_periods=6.0, refine=False), tile_score)
             if t is not None:
                 votes.append((float(np.sqrt(t[0] * t[1])), t[2]))
@@ -421,6 +432,8 @@ def estimate_coarse_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_
     if m.sum() < min_tiles:
         return None
     pitch, score = float(np.median(p[m])), float(np.median(sc[m]))
+    if pitch >= max_px_per_mm:
+        return None
     return GridEstimate(pitch, pitch, score, score, "tiles:5mm", round(float(np.clip(score / CONF_SCALE, 0.0, 1.0)), 3))
 
 
