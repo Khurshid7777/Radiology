@@ -243,7 +243,9 @@ def _board_advice(sheet_mm, current: str) -> str:
     specs = load_boards(list((pipeline_config().get("board") or {}).get("specs", [])))
     fits = sorted((s.zone_size_mm[0] * s.zone_size_mm[1], s) for s in specs
                   if max(s.zone_size_mm) + 2 >= sheet_mm[0] and min(s.zone_size_mm) + 2 >= sheet_mm[1])
-    tail = f"подойдёт подложка {fits[0][1].title.split()[-1]}" if fits else "снимите её частями или без подложки"
+    names = {"A3x2": "A3x2 (A3 из двух листов A4)", "A4W": "A4W (A4 с широкой рамкой)"}
+    name = fits[0][1].title.split()[-1] if fits else ""
+    tail = f"подойдёт подложка {names.get(name, name)}" if fits else "снимите её частями или без подложки"
     return (f"Бумага {sheet_mm[0]} × {sheet_mm[1]} мм шире рамки этой подложки ({current.upper()}) — "
             f"край будет обрезан; {tail}.")
 
