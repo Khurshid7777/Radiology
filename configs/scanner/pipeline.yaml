@@ -110,10 +110,14 @@ artifacts:
 
 board:                           # capture board with ArUco markers (SD-065); no board in the photo -> the grid path
   enabled: true
-  specs: [a3, a4]                # configs/scanner/boards/<name>.yaml
+  specs: [a3, a4, a3x2]          # configs/scanner/boards/<name>.yaml; a3x2: A3 printed on two A4 sheets (SD-076)
   min_markers: 3                 # fewer: the board is not trusted (one marker's 4 corners fit a plane badly)
   max_residual_mm: 1.0           # marker corners off the fitted homography by more than this: not used
   grid_mismatch: 0.03            # paper grid vs board scale apart by more: the page is not flat / not 1:1 -> grid path
+  # SD-075: the paper is the ECG's scale, the board only the plane. Within grid_mismatch the zone is
+  # rescaled per axis to the paper grid (a printer's feed error ~1 % stays out of the timing).
+  grid_rescale_min: 0.001        # grid and board this close: left as is (the grid reads to ~0.02 %)
+  corner_fit_max_spread: 0.005   # board fitted to its 4 corners (middle markers off): grid pitch over the page tiles must agree this well
   detect_max_side_px: 2000       # markers are searched on a copy no larger than this (speed); corners refined at full size
   # SD-069: the zone is cropped to the page (+ pad) before reading; the A3 zone is 340 x 217 mm, a page half of it.
   crop_pad_mm: 8.0               # null: no crop

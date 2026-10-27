@@ -36,18 +36,25 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     if args.cmd == "board":
-        from ecgscan.board import load_board, render_board
+        from ecgscan.board import load_board, render_sheets
 
-        img = render_board(load_board(args.name), px_per_mm=args.dpi / 25.4)
+        spec = load_board(args.name)
+        sheets = render_sheets(spec, px_per_mm=args.dpi / 25.4)
         if args.out.lower().endswith(".pdf"):
             from PIL import Image
 
-            Image.fromarray(img).save(args.out, resolution=float(args.dpi))   # page size = board size
+            pages = [Image.fromarray(s) for s in sheets]                    # page size = sheet size
+            pages[0].save(args.out, resolution=float(args.dpi), save_all=True, append_images=pages[1:])
+            outs = [args.out]
         else:
             import cv2
 
-            cv2.imwrite(args.out, img)
-        print(f"{args.name}: {img.shape[1]}x{img.shape[0]} px at {args.dpi} dpi -> {args.out}; print at 100 %")
+            stem, _, ext = args.out.rpartition(".")
+            outs = [args.out] if len(sheets) == 1 else [f"{stem}_{k + 1}.{ext}" for k in range(len(sheets))]
+            for path, img in zip(outs, sheets, strict=True):
+                cv2.imwrite(path, img)
+        size = " + ".join(f"{s.shape[1]}x{s.shape[0]}" for s in sheets)
+        print(f"{args.name}: {size} px at {args.dpi} dpi -> {', '.join(outs)}; print at 100 %")
         return 0
 
     if args.cmd == "generate":

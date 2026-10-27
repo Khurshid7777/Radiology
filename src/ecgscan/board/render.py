@@ -45,3 +45,38 @@ def render_board(spec: BoardSpec, px_per_mm: float = 300 / 25.4) -> np.ndarray:
     cv2.putText(img, f"{spec.title}  |  ECG inside the frame, flat, 100% print", (p(x0) + p(5), p(y0) - p(12)),
                 cv2.FONT_HERSHEY_SIMPLEX, scale, 90, max(1, int(round(2 * scale))), cv2.LINE_AA)
     return img
+
+
+def render_sheets(spec: BoardSpec, px_per_mm: float = 300 / 25.4) -> list[np.ndarray]:
+    """The board as the sheets it is printed on (SD-076); one image for a one-sheet board.
+
+    Sheet 1 carries a dashed cut line at ``cut_mm``: cut along it and lay it over sheet 2 so
+    its edge meets the zone outline and rulers printed there."""
+    import cv2
+
+    full = render_board(spec, px_per_mm)
+    if not spec.sheets:
+        return [full]
+
+    def p(v: float) -> int:
+        return int(round(v * px_per_mm))
+
+    out = []
+    n = len(spec.sheets)
+    scale = px_per_mm / 12
+    for k, (a, b) in enumerate(spec.sheets):
+        tile = np.ascontiguousarray(full[:, p(a):p(b)])
+        cut = spec.cut_mm
+        if cut is not None and a < cut < b:
+            x = p(cut - a)
+            on = k == 0                                  # cut this one; the next shows where it goes
+            for y in range(0, tile.shape[0], p(6)):
+                cv2.line(tile, (x, y), (x, min(tile.shape[0], y + p(3 if on else 6))), 60 if on else 170,
+                         max(1, p(0.3)))
+            text = "cut along the dashed line, lay over sheet 2" if on else "sheet 1 edge here"
+            cv2.putText(tile, text, (x - p(120) if on else x + p(2), tile.shape[0] - p(12)), cv2.FONT_HERSHEY_SIMPLEX,
+                        scale, 90, max(1, int(round(2 * scale))), cv2.LINE_AA)
+        cv2.putText(tile, f"{k + 1} / {n}", (p(8) if k else tile.shape[1] - p(30), p(12)), cv2.FONT_HERSHEY_SIMPLEX,
+                    scale, 90, max(1, int(round(2 * scale))), cv2.LINE_AA)
+        out.append(tile)
+    return out

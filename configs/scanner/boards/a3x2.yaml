@@ -1,0 +1,19 @@
+# Capture board "A3 from two A4 sheets" (SD-076): for an office printer without A3. An A4 ECG
+# page (297 x 210 mm, landscape) lies in the zone; printed as two A4 portrait sheets that
+# overlap by 20 mm: sheet 1 is cut along the line at x = 200 and laid over sheet 2.
+# No marker on the seam; 4 corner markers + 2 side ones, 3 on each sheet (min_markers).
+name: a3x2
+title: "Cardiolens A3 (2 x A4)"
+size_mm: [400, 297]
+dictionary: DICT_4X4_50
+marker_mm: 20
+markers:                       # ids 20-27 belong to this board only (21 and 25 would be on the seam)
+  20: [20, 20]
+  22: [380, 20]
+  23: [380, 148.5]
+  24: [380, 277]
+  26: [20, 277]
+  27: [20, 148.5]
+zone_mm: [40, 40, 360, 257]    # 320 x 217: an A4 page landscape with ~10 mm to spare
+sheets: [[0, 210], [190, 400]] # board x printed on each A4 sheet (210 mm wide)
+cut_mm: 200                    # sheet 1 is cut here; its edge meets the rulers of sheet 2

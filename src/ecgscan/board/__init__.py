@@ -14,7 +14,7 @@ No board in the photo: the grid path is unchanged.
 
 from ecgscan.board.compose import Composite, compose_zone
 from ecgscan.board.detect import BoardFit, detect_board, warp_zone
-from ecgscan.board.render import render_board
+from ecgscan.board.render import render_board, render_sheets
 from ecgscan.board.spec import BoardSpec, load_board, load_boards
 
-__all__ = ["BoardFit", "BoardSpec", "Composite", "compose_zone", "detect_board", "load_board", "load_boards", "render_board", "warp_zone"]
+__all__ = ["BoardFit", "BoardSpec", "Composite", "compose_zone", "detect_board", "load_board", "load_boards", "render_board", "render_sheets", "warp_zone"]

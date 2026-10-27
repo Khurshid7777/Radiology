@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -131,23 +132,42 @@ def _page_crop(zone: np.ndarray, wppm: float, b_cfg: dict) -> np.ndarray:
 
 
 def _zone_rect(zone: np.ndarray, raw: GridEstimate, wppm: float, name: str, cfg: dict,
-               *, rescale_to_grid: bool) -> Rectified | None:
-    """The rectified zone, cross-checked with the paper grid. The paper is the ECG's own
-    scale: a page printed scaled or lifted off the board disagrees with the board by more
-    than ``grid_mismatch``. One photo: ``None`` (the grid path reads it instead); a set of
-    parts (no grid path for them): the zone is rescaled so the grid is exact."""
+               *, rescale_to_grid: bool, need_flat_grid: bool = False,
+               rewarp: Callable[[float, float], np.ndarray] | None = None) -> Rectified | str:
+    """The rectified zone, cross-checked with the paper grid; a string: why the board is
+    not used. The paper is the ECG's own scale, the board gives the plane (SD-075):
+
+    * a confident grid within ``grid_mismatch`` of the board: the zone is rescaled per axis
+      so the grid is exact (a printer's feed error of ~1 % no longer reaches the timing);
+    * further apart: a page printed scaled or lifted off the board. One photo: refused
+      here (the grid path reads it instead); a set of parts (no grid path for them): rescaled;
+    * ``need_flat_grid`` (the board fitted to its corners only): the grid must be found and
+      even over the page, else a bent board could pass for an unevenly printed one.
+
+    ``rewarp(fx, fy)``: the zone warped again from the photo with the correction (one
+    resample); without it (a composed set) the zone itself is resized."""
     import cv2
 
-    zone = _page_crop(zone, wppm, cfg.get("board") or {})
+    b_cfg = cfg.get("board") or {}
+    zone = _page_crop(zone, wppm, b_cfg)
     grid = estimate_grid(zone)
-    if (grid.px_per_mm is not None and grid.confidence >= cfg["quality"]["min_grid_confidence"]
-            and abs(grid.px_per_mm / wppm - 1) > float(cfg["board"].get("grid_mismatch", 0.03))):
-        if not rescale_to_grid:
-            return None
-        zone = cv2.resize(zone, None, fx=wppm / grid.px_per_mm_x, fy=wppm / grid.px_per_mm_y,
-                          interpolation=cv2.INTER_AREA)
-        grid = estimate_grid(zone)
+    confident = grid.px_per_mm is not None and grid.confidence >= cfg["quality"]["min_grid_confidence"]
+    if need_flat_grid and not confident:
+        return "corner fit without a paper grid to check it"
+    if confident:
+        if abs(grid.px_per_mm / wppm - 1) > float(b_cfg.get("grid_mismatch", 0.03)) and not rescale_to_grid:
+            return "the paper grid disagrees with the board scale"
+        fx, fy = wppm / (grid.px_per_mm_x or grid.px_per_mm), wppm / (grid.px_per_mm_y or grid.px_per_mm)
+        if max(abs(fx - 1), abs(fy - 1)) > float(b_cfg.get("grid_rescale_min", 0.0)):
+            if rewarp is not None:
+                zone = _page_crop(rewarp(fx, fy), wppm, b_cfg)
+            else:
+                zone = cv2.resize(zone, None, fx=fx, fy=fy,
+                                  interpolation=cv2.INTER_LINEAR if max(fx, fy) > 1 else cv2.INTER_AREA)
+            grid = estimate_grid(zone)
     residual, pitches = tile_residual(zone, wppm)
+    if need_flat_grid and (len(pitches) < 3 or np.std(pitches) / np.mean(pitches) > float(b_cfg.get("corner_fit_max_spread", 0.005))):
+        return "corner fit and the paper grid uneven over the page (board or page not flat)"
     return Rectified(zone, cv2.cvtColor(zone, cv2.COLOR_BGR2GRAY), wppm, grid, grid, residual, pitches,
                      method=f"board:{name}")
 
@@ -168,10 +188,12 @@ def _board(work: np.ndarray, cfg: dict, dbg: ScanDebug) -> tuple[Rectified | Non
     raw = GridEstimate(fit.mean_px_per_mm, fit.mean_px_per_mm, 0.0, 0.0, "board", 1.0)
     if fit.min_px_per_mm < cfg["quality"]["min_px_per_mm"]:
         return None, raw, fit.min_px_per_mm
-    rect = _zone_rect(warp_zone(work, fit, wppm), raw, wppm, fit.spec.name, cfg, rescale_to_grid=False)
-    if rect is None:
+    rect = _zone_rect(warp_zone(work, fit, wppm), raw, wppm, fit.spec.name, cfg, rescale_to_grid=False,
+                      need_flat_grid=fit.corners_only,
+                      rewarp=lambda fx, fy: warp_zone(work, fit, wppm, stretch=(fx, fy)))
+    if isinstance(rect, str):
         fit.ok = False
-        fit.reason = "the paper grid disagrees with the board scale"
+        fit.reason = rect
         return None
     return rect, raw, fit.min_px_per_mm
 
@@ -195,7 +217,11 @@ def _board_set(works: list[np.ndarray], cfg: dict, dbg: ScanDebug) -> tuple[Rect
     raw = GridEstimate(comp.mean_px_per_mm, comp.mean_px_per_mm, 0.0, 0.0, "board", 1.0)
     if comp.min_px_per_mm < cfg["quality"]["min_px_per_mm"]:
         return None, raw, comp.min_px_per_mm
-    return _zone_rect(comp.bgr, raw, wppm, fits[0].spec.name, cfg, rescale_to_grid=True), raw, comp.min_px_per_mm
+    rect = _zone_rect(comp.bgr, raw, wppm, fits[0].spec.name, cfg, rescale_to_grid=True,
+                      need_flat_grid=any(f.corners_only for f in fits))
+    if isinstance(rect, str):
+        return "BOARD_NOT_FOUND"
+    return rect, raw, comp.min_px_per_mm
 
 
 def _coarse_grid(work: np.ndarray, raw: GridEstimate, cfg: dict, original: np.ndarray | None = None) -> GridEstimate | None:

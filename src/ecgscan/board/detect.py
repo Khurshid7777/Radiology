@@ -19,6 +19,7 @@ class BoardFit:
     mean_px_per_mm: float
     zone_in_frame: bool              # the whole zone was photographed
     ok: bool = True
+    corners_only: bool = False       # SD-075: fitted to the 4 corner markers, the middle ones were off
     reason: str = ""
     notes: list[str] = field(default_factory=list)
 
@@ -63,6 +64,15 @@ def _markers(gray: np.ndarray, dictionary: str, max_side: int) -> tuple[list[np.
     return out, [int(i) for i in ids.ravel()]
 
 
+def _errors(H: np.ndarray, img_pts: np.ndarray, mm_pts: np.ndarray) -> np.ndarray:
+    proj = np.c_[img_pts, np.ones(len(img_pts))] @ H.T
+    return np.linalg.norm(proj[:, :2] / proj[:, 2:] - mm_pts, axis=1)
+
+
+def _rms(H: np.ndarray, img_pts: np.ndarray, mm_pts: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(_errors(H, img_pts, mm_pts) ** 2)))
+
+
 def detect_board(bgr: np.ndarray, specs: list[BoardSpec], *, min_markers: int = 3, max_residual_mm: float = 1.0,
                  max_side_px: int = 2000, whole_zone: bool = True) -> BoardFit | None:
     """The board seen in ``bgr``, or ``None`` when no board marker is in the photo.
@@ -97,9 +107,19 @@ def detect_board(bgr: np.ndarray, specs: list[BoardSpec], *, min_markers: int = 
     if H is None:
         return BoardFit(spec, np.eye(3), sorted(ids), float("inf"), 0.0, 0.0, False, ok=False,
                         reason="no homography")
-    proj = np.c_[img_pts, np.ones(len(img_pts))] @ H.T
-    err = np.linalg.norm(proj[:, :2] / proj[:, 2:] - mm_pts, axis=1)
-    residual = float(np.sqrt(np.mean(err ** 2)))
+    residual = _rms(H, img_pts, mm_pts)
+    note = None
+    corner = spec.corner_ids
+    if residual > max_residual_mm and set(corner) <= set(ids):
+        # SD-075: a printer's uneven feed moves the middle markers by 2-3 mm and the corners
+        # least. The plane is fitted to the corners alone; the paper grid then has to give
+        # the scale and show the page flat (pipeline._zone_rect), else the board is not used.
+        pick = np.concatenate([np.arange(4) + 4 * ids.index(i) for i in corner])
+        Hc, _ = cv2.findHomography(img_pts[pick], mm_pts[pick], 0)
+        if Hc is not None and _rms(Hc, img_pts[pick], mm_pts[pick]) <= max_residual_mm:
+            off = _errors(Hc, img_pts, mm_pts).max()
+            note = f"middle markers up to {off:.1f} mm off the corner fit (uneven print): plane from the corners"
+            H, residual = Hc, _rms(Hc, img_pts[pick], mm_pts[pick])
     H_inv = np.linalg.inv(H)
     scales = _local_scale(H_inv, spec)
     x0, y0, x1, y1 = spec.zone_mm
@@ -107,7 +127,8 @@ def detect_board(bgr: np.ndarray, specs: list[BoardSpec], *, min_markers: int = 
     zc = zc[:, :2] / zc[:, 2:]
     h, w = gray.shape
     in_frame = bool((zc[:, 0] >= -1).all() and (zc[:, 0] <= w).all() and (zc[:, 1] >= -1).all() and (zc[:, 1] <= h).all())
-    fit = BoardFit(spec, H, sorted(ids), residual, float(scales.min()), float(scales.mean()), in_frame)
+    fit = BoardFit(spec, H, sorted(ids), residual, float(scales.min()), float(scales.mean()), in_frame,
+                   corners_only=note is not None, notes=[note] if note else [])
     if residual > max_residual_mm:
         fit.ok, fit.reason = False, f"marker corners {residual:.2f} mm off a plane (board bent or a marker misread)"
     elif whole_zone and not in_frame:
@@ -134,16 +155,20 @@ def zone_shape(spec: BoardSpec, px_per_mm: float) -> tuple[int, int]:
     return int(round(zh * px_per_mm)), int(round(zw * px_per_mm))
 
 
-def warp_zone(bgr: np.ndarray, fit: BoardFit, px_per_mm: float, *,
-              with_mask: bool = False) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+def warp_zone(bgr: np.ndarray, fit: BoardFit, px_per_mm: float, *, with_mask: bool = False,
+              stretch: tuple[float, float] = (1.0, 1.0)) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """The zone at exactly ``px_per_mm`` pixels per board millimetre; with ``with_mask``
-    also where the photo covers it (bool)."""
+    also where the photo covers it (bool). ``stretch``: x and y factors on top, in the same
+    warp (SD-075: the paper grid's correction of the board scale, without a second resample)."""
     import cv2
 
     h, w = bgr.shape[:2]
     M, f = _zone_transform(fit, px_per_mm, (h, w))
     src = bgr if f == 1.0 else cv2.resize(bgr, (int(round(w * f)), int(round(h * f))), interpolation=cv2.INTER_AREA)
     zh, zw = zone_shape(fit.spec, px_per_mm)
+    if stretch != (1.0, 1.0):
+        M = np.diag([stretch[0], stretch[1], 1.0]) @ M
+        zh, zw = int(round(zh * stretch[1])), int(round(zw * stretch[0]))
     out = cv2.warpPerspective(src, M, (zw, zh), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
     if not with_mask:
         return out
