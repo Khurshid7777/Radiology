@@ -198,7 +198,7 @@ def _board_set(works: list[np.ndarray], cfg: dict, dbg: ScanDebug) -> tuple[Rect
     return _zone_rect(comp.bgr, raw, wppm, fits[0].spec.name, cfg, rescale_to_grid=True), raw, comp.min_px_per_mm
 
 
-def _coarse_grid(work: np.ndarray, raw: GridEstimate, cfg: dict) -> GridEstimate | None:
+def _coarse_grid(work: np.ndarray, raw: GridEstimate, cfg: dict, original: np.ndarray | None = None) -> GridEstimate | None:
     """A messenger copy read in the coarse mode (D170, SD-074): the 5-mm grid of a small
     image whose fine grid is missing, below the floor or implausible (a 1280-px page read
     at 16 px/mm would be 80 mm wide). ``None``: not such an image, or no 5-mm grid either
@@ -215,9 +215,15 @@ def _coarse_grid(work: np.ndarray, raw: GridEstimate, cfg: dict) -> GridEstimate
     if (ppm is not None and raw.confidence >= q["min_grid_confidence"] and ppm >= q["min_px_per_mm"]
             and side / ppm >= float(c.get("min_page_mm", 120))):
         return None                                    # a small but sharp image: the usual path
-    g = estimate_coarse_grid(work, min_px_per_mm=float(c.get("min_px_per_mm", 2.5)),
-                             max_px_per_mm=float(q["min_px_per_mm"]), min_score=float(c.get("min_score", 0.5)))
-    return g if g is not None and g.px_per_mm < q["min_px_per_mm"] else None
+    # The photo as received first: the flattened copy of dark thermal paper (LOW_LIGHT) loses
+    # the faint 5-mm lines and kept the trace rows (the owner's GE MAC 5 copy: 2.7 px/mm on the
+    # flattened copy, 4.5 — right — on the photo itself).
+    for img in ([original] if original is not None and original is not work else []) + [work]:
+        g = estimate_coarse_grid(img, min_px_per_mm=float(c.get("min_px_per_mm", 2.5)),
+                                 max_px_per_mm=float(q["min_px_per_mm"]), min_score=float(c.get("min_score", 0.5)))
+        if g is not None and g.px_per_mm < q["min_px_per_mm"]:
+            return g
+    return None
 
 
 def _capture(hints: ScanHints):
@@ -380,7 +386,7 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
             tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
             if tiled is not None and tiled.confidence > raw.confidence:
                 raw = tiled
-        coarse = _coarse_grid(work, raw, cfg)
+        coarse = _coarse_grid(work, raw, cfg, original=img.bgr)
         if coarse is not None:
             # D170: below the floor, but the 5-mm grid gives the scale: read, never "ok".
             raw = coarse
