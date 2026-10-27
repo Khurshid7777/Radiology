@@ -127,7 +127,12 @@ def test_50_mm_s_without_header_is_never_ok(synth_mv):
 
 
 def test_low_resolution_and_no_grid_are_rejected(synth_mv):
-    low = scan(_encode(_page(synth_mv, ppm=6.0)))
+    # D170 / SD-074: a small image below the floor is read coarse, never "ok"; a large one
+    # (a phone original) below the floor is still refused.
+    small = scan(_encode(_page(synth_mv, ppm=6.0)))
+    assert small.status == "needs_confirmation" and "LOW_RESOLUTION_COARSE" in small.warnings
+    big = cv2.copyMakeBorder(_page(synth_mv, ppm=6.0), 400, 400, 400, 400, cv2.BORDER_CONSTANT, value=(120, 110, 100))
+    low = scan(_encode(big))
     assert low.status == "rejected" and low.reject_reasons == ["LOW_RESOLUTION"] and not low.leads
     blank = scan(_encode(np.full((900, 1400, 3), 250, np.uint8)))
     assert blank.status == "rejected" and blank.reject_reasons == ["GRID_NOT_FOUND"]
