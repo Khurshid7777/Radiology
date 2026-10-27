@@ -1,0 +1,20 @@
+# Capture board A4 wide (D176): the A4 sheet with a zone 152 mm high, for paper strips
+# 145-150 mm wide (6-12 channel thermal rolls) that overflow the a4 board's 144 mm zone.
+# Its own marker ids (20-27): an a4 board already printed keeps reading as a4.
+# Smaller markers (14 mm) and 3-mm ruler ticks leave >= 3 mm of white around each marker.
+name: a4w
+title: "Cardiolens A4W"
+size_mm: [297, 210]
+dictionary: DICT_4X4_50
+marker_mm: 14
+ruler_mm: 3
+markers:
+  20: [15, 15]
+  21: [148.5, 15]
+  22: [282, 15]
+  23: [282, 105]
+  24: [282, 195]
+  25: [148.5, 195]
+  26: [15, 195]
+  27: [15, 105]
+zone_mm: [30, 29, 267, 181]    # 237 x 152 mm

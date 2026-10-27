@@ -18,6 +18,7 @@ class BoardSpec:
     marker_mm: float
     markers: dict[int, tuple[float, float]]
     zone_mm: tuple[float, float, float, float]
+    ruler_mm: float = 6.0          # longest ruler tick (10 mm marks); shorter on a tight board (D176)
 
     def corners_mm(self, marker_id: int) -> np.ndarray:
         """The marker's 4 corners in board mm, in ArUco order (TL, TR, BR, BL)."""
@@ -36,7 +37,8 @@ def load_board(name: str) -> BoardSpec:
     spec = BoardSpec(name=d["name"], title=d.get("title", d["name"]), size_mm=tuple(d["size_mm"]),
                      dictionary=d["dictionary"], marker_mm=float(d["marker_mm"]),
                      markers={int(k): (float(v[0]), float(v[1])) for k, v in d["markers"].items()},
-                     zone_mm=tuple(float(v) for v in d["zone_mm"]))
+                     zone_mm=tuple(float(v) for v in d["zone_mm"]),
+                     ruler_mm=float(d.get("ruler_mm", 6.0)))
     x0, y0, x1, y1 = spec.zone_mm
     if not (0 <= x0 < x1 <= spec.size_mm[0] and 0 <= y0 < y1 <= spec.size_mm[1]):
         raise ValueError(f"board {name}: zone outside the board")

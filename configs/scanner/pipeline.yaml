@@ -110,7 +110,7 @@ artifacts:
 
 board:                           # capture board with ArUco markers (SD-065); no board in the photo -> the grid path
   enabled: true
-  specs: [a3, a4]                # configs/scanner/boards/<name>.yaml
+  specs: [a3, a4, a4w]           # configs/scanner/boards/<name>.yaml (a4w: D176, strips up to 152 mm)
   min_markers: 3                 # fewer: the board is not trusted (one marker's 4 corners fit a plane badly)
   max_residual_mm: 1.0           # marker corners off the fitted homography by more than this: not used
   grid_mismatch: 0.03            # paper grid vs board scale apart by more: the page is not flat / not 1:1 -> grid path

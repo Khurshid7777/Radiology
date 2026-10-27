@@ -145,3 +145,20 @@ def test_a_set_needs_markers_on_every_part_and_the_whole_zone(a3_parts, synth_mv
     assert _board_set([left, left], cfg, ScanDebug()) == "PAGE_INCOMPLETE"       # the right half never seen
     res = scan([_png(left), _png(plain)])
     assert res.reject_reasons == ["BOARD_NOT_FOUND"] and res.source.parts_sha256
+
+
+def test_wide_a4_board_holds_a_152_mm_strip_and_is_told_from_a4():
+    """D176: a 148-mm thermal strip overflowed the a4 zone (144 mm); a4w (ids 20-27, 14-mm
+    markers, 3-mm ruler ticks) holds 152 mm and an a4 print keeps reading as a4."""
+    specs = load_boards(["a3", "a4", "a4w"])
+    a4w = specs[2]
+    assert a4w.zone_size_mm[1] >= 150
+    img = cv2.cvtColor(render_board(a4w, 8.0), cv2.COLOR_GRAY2BGR)
+    fit = detect_board(img, specs)
+    assert fit.ok and fit.spec.name == "a4w"
+    old = cv2.cvtColor(render_board(specs[1], 8.0), cv2.COLOR_GRAY2BGR)
+    assert detect_board(old, specs).spec.name == "a4"
+    # >= 3 mm of white between every marker and the rulers (the ArUco quiet zone).
+    x0, y0, _x1, _y1 = a4w.zone_mm
+    h = a4w.marker_mm / 2
+    assert y0 - 1 - a4w.ruler_mm - (15 + h) >= 3 and x0 - 1 - a4w.ruler_mm - (15 + h) >= 3
