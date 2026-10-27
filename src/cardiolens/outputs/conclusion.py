@@ -37,6 +37,13 @@ def format_conclusion(result: PipelineResult, lang: str = "ru") -> str:
     lines.append("НАХОДКИ / TOPILMALAR:" if is_ru else "TOPILMALAR:")
     for c in r.summary:
         lines.append("  • " + (c.text_ru if is_ru else c.text_uz))
+    odd = _implausible_labels(result, is_ru)
+    if odd:
+        lines.append("  ⚠ " + (
+            f"Не складывается в общую картину: {', '.join(odd)}. Возможны артефакт или перепутанные "
+            "электроды — проверьте запись." if is_ru else
+            f"Umumiy manzaraga to'g'ri kelmaydi: {', '.join(odd)}. Artefakt yoki elektrodlar "
+            "almashgan bo'lishi mumkin — yozuvni tekshiring."))
 
     if r.causal_explanation:
         lines.append("")
@@ -72,9 +79,35 @@ def format_conclusion(result: PipelineResult, lang: str = "ru") -> str:
 
     lines.append("")
     lines.append("РАССУЖДЕНИЕ / MULOHAZA:" if is_ru else "MULOHAZA:")
-    for t in r.reasoning_trace:
-        lines.append("  - " + t)
+    if r.provider == "stub":
+        # The offline narrative's trace is the engine's own log (finding codes, edge ids):
+        # kept in the JSON for audit, said here in words (D174).
+        lines.append("  - " + _offline_trace_line(result, is_ru))
+    else:
+        for t in r.reasoning_trace:
+            lines.append("  - " + t)
 
     lines.append("")
     lines.append(r.disclaimer_ru if is_ru else r.disclaimer_uz)
     return "\n".join(lines)
+
+
+def _implausible_labels(result: PipelineResult, is_ru: bool) -> list[str]:
+    """Labels of the findings no mechanism explains (TZ §8.3, the engine's implausible set)."""
+    flags = set(result.causal_graph.implausible_flags or [])
+    return [(f.label_ru if is_ru else f.label_uz).split(" (")[0]
+            for f in result.findings.findings if f.code in flags]
+
+
+def _offline_trace_line(result: PipelineResult, is_ru: bool) -> str:
+    r = result.report
+    n_find = len(result.findings.findings)
+    n_chain = len(r.causal_explanation)
+    no_model = any(t.startswith(("Claude unavailable", "local LLM unavailable")) for t in r.reasoning_trace)
+    if is_ru:
+        head = ("Текст составлен по правилам (языковая модель не ответила)" if no_model
+                else "Текст составлен по правилам")
+        return f"{head}: находок — {n_find}, причинных связей — {n_chain}; каждое утверждение опирается на измерения записи."
+    head = ("Matn qoidalar asosida tuzildi (til modeli javob bermadi)" if no_model
+            else "Matn qoidalar asosida tuzildi")
+    return f"{head}: topilmalar — {n_find}, sabab bog'lanishlari — {n_chain}; har bir da'vo yozuv o'lchovlariga tayanadi."

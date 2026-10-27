@@ -13,11 +13,14 @@ absent, callers should fall back to ``StubProvider``.
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 from cardiolens.contracts.report import Claim, InterpretationReport
 from cardiolens.layer6_interpret.provider import InterpretationInput, LLMProvider
 from cardiolens.layer6_interpret.stub import StubProvider
+
+log = logging.getLogger(__name__)
 
 _SYSTEM = (
     "You are a cardiology ECG interpretation assistant. You are given structured "
@@ -44,7 +47,7 @@ def available() -> bool:
 class ClaudeProvider(LLMProvider):
     name = "claude"
 
-    def __init__(self, model: str | None = None, max_tokens: int = 2000):
+    def __init__(self, model: str | None = None, max_tokens: int = 8000):
         # Model is configurable; defaults to a current Claude model, overridable
         # via the ANTHROPIC_MODEL environment variable.
         self.model = model or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
@@ -74,20 +77,34 @@ class ClaudeProvider(LLMProvider):
         prompt = PROMPT_INSTRUCTIONS + json.dumps(self._payload(data), ensure_ascii=False, indent=2)
         # The narrative is the last layer: a refused key, an unpaid account, an outage or
         # malformed JSON must not fail the whole analysis (D154) — same as the local provider.
+        # D174: a bilingual reply cut at the token limit left an unclosed object and every
+        # narrative fell back to the offline one (JSONDecodeError). A larger limit, a strict
+        # parse of the first object, and one retry asking for a shorter reply.
         try:
             import anthropic
 
             client = anthropic.Anthropic()
-            msg = client.messages.create(
-                model=self.model, max_tokens=self.max_tokens, system=_SYSTEM,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-            report = report_from_json(json.loads(_extract_json(text)), data)
-            report.provider, report.provider_model = self.name, self.model
-            report.reasoning_trace.insert(0, f"narrative by Claude {self.model}")
-            return report
+            last: Exception | None = None
+            for attempt in range(2):
+                msg = client.messages.create(
+                    model=self.model, max_tokens=self.max_tokens, system=_SYSTEM,
+                    messages=[{"role": "user", "content": prompt + (RETRY_SHORTER if attempt else "")}],
+                )
+                text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+                try:
+                    parsed = parse_json_object(text)
+                except ValueError as e:
+                    last = e
+                    log.warning("Claude reply not parsed (attempt %d, stop_reason=%s, %d chars): %s",
+                                attempt + 1, getattr(msg, "stop_reason", None), len(text), e)
+                    continue
+                report = report_from_json(parsed, data)
+                report.provider, report.provider_model = self.name, self.model
+                report.reasoning_trace.insert(0, f"narrative by Claude {self.model}")
+                return report
+            raise last or ValueError("no reply")
         except Exception as e:
+            log.warning("Claude narrative failed, offline narrative used: %s: %s", type(e).__name__, e)
             report = StubProvider().generate(data)   # provider stays "stub": the UI must not claim a model
             report.reasoning_trace.insert(
                 0, f"Claude unavailable ({type(e).__name__}) -> deterministic offline narrative")
@@ -124,8 +141,13 @@ PROMPT_INSTRUCTIONS = (
     "causal_explanation[], differential[], red_flags[], "
     "confidence_word_ru, confidence_word_uz, next_step_ru, next_step_uz, "
     "reasoning_trace[]. Each summary/causal/red_flag item is "
-    "{text_ru, text_uz, grounded_by[]}.\n\nDATA:\n"
+    "{text_ru, text_uz, grounded_by[]}. Be concise: at most one item per finding, "
+    "reasoning_trace at most 6 short items in Russian. Output the JSON object only, "
+    "no code fences, no text before or after it.\n\nDATA:\n"
 )
+
+RETRY_SHORTER = ("\n\nYour previous reply was cut off or was not valid JSON. Reply again, "
+                 "shorter: one sentence per item, reasoning_trace at most 4 items.")
 
 
 def report_from_json(parsed: dict, data: InterpretationInput) -> InterpretationReport:
@@ -151,9 +173,14 @@ def report_from_json(parsed: dict, data: InterpretationInput) -> InterpretationR
     )
 
 
-def _extract_json(text: str) -> str:
+def parse_json_object(text: str) -> dict:
+    """The first complete JSON object in a model reply (D174): code fences and text after
+    the object are ignored; a reply cut before the object closes raises ValueError
+    (``json.JSONDecodeError`` is one)."""
     start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1:
+    if start == -1:
         raise ValueError("no JSON object in model output")
-    return text[start : end + 1]
+    obj, _end = json.JSONDecoder().raw_decode(text[start:])
+    if not isinstance(obj, dict):
+        raise ValueError("model output is not a JSON object")  # noqa: TRY004 — one failure kind for the caller
+    return obj

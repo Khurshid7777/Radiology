@@ -90,7 +90,10 @@ def analyze(
     # --- Implausibility: observed findings that no activated rule explains ---
     # (excluding benign standalone findings like plain sinus rhythm).
     benign = {"sinus_rhythm", "juvenile_t_pattern"}
-    implausible = sorted(c for c in observed - explained - benign - _standalone_codes()
+    # Quality notes (photo_unreliable, screen_photo_limited, photo_coarse ...) say how the
+    # record was read, not what the heart does: nothing is to explain them (D174).
+    quality = {f.code for f in findings.findings if f.group == "quality"}
+    implausible = sorted(c for c in observed - explained - benign - quality - _standalone_codes()
                          if not c.startswith("ml_suggested_"))
 
     # --- Critical flags come from findings the safety layer marked (TZ §10) + rules

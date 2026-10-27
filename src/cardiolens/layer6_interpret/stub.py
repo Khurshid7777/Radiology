@@ -24,6 +24,14 @@ def _conf_word(c: float) -> tuple[str, str]:
     return "низкая", "past"
 
 
+RELATION_WORDS = {
+    "causes": ("причина", "sabab"),
+    "progresses_to": ("ведёт к", "olib keladi"),
+    "reciprocal": ("реципрокно", "resiprok"),
+    "explained_by": ("объясняется", "izohlanadi"),
+}
+
+
 class StubProvider(LLMProvider):
     name = "stub"
 
@@ -36,17 +44,20 @@ class StubProvider(LLMProvider):
                                  grounded_by=grounds))
             trace.append(f"finding {f.code} (conf={f.confidence})")
 
-        # Causal explanation from graph edges (TZ §9b).
+        # Causal explanation from graph edges (TZ §9b). A rule carries all its branches (a
+        # bundle-branch rule: RBBB and LBBB); an edge to or from a finding the record does not
+        # show is not said (D174: "Блокада ножки → БПНПГ" was printed for an LBBB).
         causal: list[Claim] = []
+        nodes = {n.id: n for n in data.causal_graph.nodes}
         for edge in data.causal_graph.edges:
-            nodes = {n.id: n for n in data.causal_graph.nodes}
             a, b = nodes.get(edge.from_), nodes.get(edge.to)
-            if not (a and b):
+            if not (a and b) or any(n.kind == "finding" and not n.observed for n in (a, b)):
                 continue
             edge_id = f"{edge.from_}->{edge.to}"
+            rel_ru, rel_uz = RELATION_WORDS.get(edge.relation, (edge.relation, edge.relation))
             causal.append(Claim(
-                text_ru=f"{a.label_ru} → {b.label_ru} ({edge.relation})",
-                text_uz=f"{a.label_uz} → {b.label_uz} ({edge.relation})",
+                text_ru=f"{a.label_ru} → {b.label_ru} ({rel_ru})",
+                text_uz=f"{a.label_uz} → {b.label_uz} ({rel_uz})",
                 grounded_by=[edge_id],
             ))
             trace.append(f"edge {edge_id} [{edge.relation}]")

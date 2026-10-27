@@ -82,3 +82,53 @@ def test_malformed_reply_falls_back_to_offline_narrative(monkeypatch, ecg):
     r = run_pipeline(ecg, mode="A", provider=ClaudeProvider(model="test-model"))
     assert r.report.provider == "stub"
     assert any("Claude unavailable" in t for t in r.report.reasoning_trace)
+
+
+# --- D174: a reply cut at the token limit, fenced JSON, the offline trace in words ---------------
+
+def _scripted_anthropic(monkeypatch, replies):
+    """A stand-in ``anthropic`` answering the scripted texts in turn."""
+    mod = types.ModuleType("anthropic")
+    mod.calls = []
+
+    class _Messages:
+        def create(self, **kw):
+            mod.calls.append(kw)
+            text, stop = replies[min(len(mod.calls), len(replies)) - 1]
+            return types.SimpleNamespace(stop_reason=stop, content=[types.SimpleNamespace(type="text", text=text)])
+
+    class Anthropic:
+        def __init__(self):
+            self.messages = _Messages()
+
+    mod.Anthropic = Anthropic
+    monkeypatch.setitem(sys.modules, "anthropic", mod)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    return mod
+
+
+def test_reply_cut_at_the_limit_is_asked_again_shorter(monkeypatch, ecg):
+    cut = _REPLY[: len(_REPLY) // 2]                 # an unclosed object with inner braces closed
+    mod = _scripted_anthropic(monkeypatch, [(cut, "max_tokens"), (_REPLY, "end_turn")])
+    r = run_pipeline(ecg, mode="A", provider=ClaudeProvider(model="test-model"))
+    assert r.report.provider == "claude" and len(mod.calls) == 2
+    assert "shorter" in mod.calls[1]["messages"][0]["content"]
+    assert mod.calls[0]["max_tokens"] >= 8000
+
+
+def test_fenced_reply_with_text_after_it_is_read(monkeypatch, ecg):
+    mod = _scripted_anthropic(monkeypatch, [("```json\n" + _REPLY + "\n```\nNote: {see above}", "end_turn")])
+    r = run_pipeline(ecg, mode="A", provider=ClaudeProvider(model="test-model"))
+    assert r.report.provider == "claude" and len(mod.calls) == 1
+
+
+def test_offline_conclusion_has_no_engine_log(monkeypatch, ecg):
+    from cardiolens.outputs import format_conclusion
+
+    _scripted_anthropic(monkeypatch, [("{broken", "max_tokens")])
+    r = run_pipeline(ecg, mode="A", provider=ClaudeProvider(model="test-model"))
+    assert r.report.provider == "stub"
+    text = format_conclusion(r, "ru")
+    assert "Claude unavailable" not in text and "finding " not in text and "conf=" not in text
+    assert "языковая модель не ответила" in text
+    assert any("Claude unavailable" in t for t in r.report.reasoning_trace)   # kept for audit
