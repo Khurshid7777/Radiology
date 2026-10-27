@@ -51,6 +51,21 @@
   .hint { color:var(--muted); font-size:12.5px; margin-top:6px; }
   .notice { color:#8a5a00; background:#fff6e0; border-radius:6px; padding:8px 10px; font-size:13.5px; margin-top:8px; }
   .notice:empty { display:none; }
+  .cambtn { display:block; width:100%; margin-top:10px; padding:12px; border-radius:10px; font-size:16px;
+    border:1px solid var(--brand2); background:transparent; color:var(--brand2); cursor:pointer; }
+  #cam { position:fixed; inset:0; background:#000; z-index:50; display:none; flex-direction:column; }
+  #cam.on { display:flex; }
+  #camview { position:relative; flex:1; overflow:hidden; }
+  #camvideo, #camdraw { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  #camhint { color:#fff; font-size:17px; text-align:center; padding:10px 12px; min-height:48px; background:#111; }
+  #camhint.ok { background:#1b5e20; }
+  #cambar { display:flex; gap:8px; padding:10px; background:#111; align-items:center; }
+  #cambar button { flex:1; padding:14px 8px; border-radius:10px; font-size:16px; border:0; }
+  #camshot { background:#fff; color:#000; font-weight:700; }
+  #camdone { background:var(--ok); color:#fff; }
+  #camclose { background:#333; color:#fff; }
+  #camcount { color:#ccc; font-size:13px; min-width:64px; text-align:center; }
+  #camparts { color:#ccc; font-size:13px; padding:6px 12px 8px; background:#111; display:flex; gap:8px; align-items:center; }
   details { margin-top:6px; }
   details summary { cursor:pointer; color:var(--brand2); font-size:14px; }
   .banner { padding:12px 14px; border-radius:10px; font-weight:600; margin-bottom:12px; }
@@ -100,6 +115,7 @@
       файл записи (WFDB, EDF, CSV, DICOM, SCP). Снимайте прямо сверху, без бликов, чтобы лист занимал
       весь кадр. Лучше всего — оригинал из галереи: фото, пересланное через Telegram или WhatsApp, сжато
       и читается только ориентировочно. Несколько фото одной ЭКГ можно выбрать вместе.</div>
+    <button type="button" class="cambtn" id="camopen">📷 Снять камерой с подсказками</button>
     <div class="notice" id="filewarn"></div>
   </div>
 
@@ -178,6 +194,17 @@
   </div>
 </div>
 
+<div id="cam" role="dialog" aria-label="Камера">
+  <div id="camhint">Наведите камеру на ЭКГ…</div>
+  <div id="camview"><video id="camvideo" playsinline muted autoplay></video><canvas id="camdraw"></canvas></div>
+  <label id="camparts"><input type="checkbox" id="campartsbox"> Длинная лента — снимаю частями (каждая часть с перекрытием)</label>
+  <div id="cambar">
+    <button type="button" id="camclose">Отмена</button>
+    <button type="button" id="camshot">Снять</button>
+    <span id="camcount"></span>
+    <button type="button" id="camdone">Готово</button>
+  </div>
+</div>
 <script>
 const $ = id => document.getElementById(id);
 
@@ -245,6 +272,112 @@ async function checkPhotoSize() {
     } catch (e) { /* HEIC and the like: the browser cannot decode it, the server will */ }
   }
 }
+// D175: a camera with live hints (the scanner's frame check on the server, as the phone app
+// does) and auto-capture. The photo is the camera's own, full size: not a messenger copy.
+const cam = { stream: null, capture: null, photoW: 0, shots: [], timer: null, okRun: 0, busy: false };
+const CAM_OK_RUN = 3;          // checks in a row before the auto shot
+async function camOpen() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert('Этот браузер не даёт доступа к камере. Сфотографируйте ЭКГ камерой телефона и выберите оригинал.');
+    return;
+  }
+  try {
+    cam.stream = await navigator.mediaDevices.getUserMedia({ audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 3072 } } });
+  } catch (e) { alert('Нет доступа к камере: ' + e.message); return; }
+  const track = cam.stream.getVideoTracks()[0];
+  $('camvideo').srcObject = cam.stream;
+  cam.capture = null; cam.photoW = 0; cam.shots = []; cam.okRun = 0;
+  if ('ImageCapture' in window) {
+    try {
+      cam.capture = new ImageCapture(track);
+      const caps = await cam.capture.getPhotoCapabilities();
+      cam.photoW = (caps.imageWidth && caps.imageWidth.max) || 0;
+    } catch (e) { cam.capture = null; }
+  }
+  $('cam').classList.add('on'); camCount();
+  cam.timer = setInterval(camCheck, 900);
+}
+function camClose() {
+  clearInterval(cam.timer); cam.timer = null;
+  if (cam.stream) cam.stream.getTracks().forEach(t => t.stop());
+  cam.stream = null; $('cam').classList.remove('on');
+  const g = $('camdraw').getContext('2d'); g.clearRect(0, 0, $('camdraw').width, $('camdraw').height);
+}
+function camCount() { $('camcount').textContent = cam.shots.length ? 'снято: ' + cam.shots.length : ''; }
+function camFrame(maxW) {
+  const v = $('camvideo'), k = Math.min(1, maxW / v.videoWidth);
+  const c = document.createElement('canvas');
+  c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  return c;
+}
+async function camCheck() {
+  const v = $('camvideo');
+  if (cam.busy || !v.videoWidth) return;
+  cam.busy = true;
+  try {
+    const c = camFrame(1280);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+    const fd = new FormData();
+    fd.append('frame', blob, 'frame.jpg');
+    fd.append('capture_width', String(Math.max(cam.photoW, v.videoWidth)));
+    fd.append('parts', $('campartsbox').checked ? 'true' : 'false');
+    const r = await authed('/api/capture/check', { method: 'POST', body: fd });
+    if (!r.ok) { $('camhint').textContent = r.status === 401 || r.status === 403
+        ? 'Нужен ключ клиники (раздел «Дополнительно»).' : 'Проверка кадра недоступна — можно снять вручную.'; return; }
+    const d = await r.json();
+    camDraw(d, c.width, c.height);
+    const hint = $('camhint');
+    if (d.ok) {
+      cam.okRun += 1; hint.classList.add('ok');
+      hint.textContent = d.ready_ru + (d.px_per_mm ? ` (${d.px_per_mm.toFixed(1)} точек/мм)` : '');
+      if (cam.okRun >= CAM_OK_RUN) { cam.okRun = 0; await camShot(); }
+    } else {
+      cam.okRun = 0; hint.classList.remove('ok');
+      hint.textContent = d.hints.map(h => h.ru).join(' ') + (d.board ? ' Подложка найдена.' : '');
+    }
+  } catch (e) { /* a lost frame: the next one tries again */ }
+  finally { cam.busy = false; }
+}
+function camDraw(d, fw, fh) {
+  const cv = $('camdraw'), v = $('camvideo');
+  cv.width = cv.clientWidth; cv.height = cv.clientHeight;
+  const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
+  const k = Math.min(cv.width / fw, cv.height / fh), ox = (cv.width - fw * k) / 2, oy = (cv.height - fh * k) / 2;
+  // The guide: a landscape frame the sheet should fill.
+  g.setLineDash([10, 8]); g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 2;
+  g.strokeRect(ox + fw * k * 0.05, oy + fh * k * 0.08, fw * k * 0.9, fh * k * 0.84);
+  g.setLineDash([]);
+  if (d.corners) {
+    g.strokeStyle = d.ok ? '#4caf50' : '#ffb300'; g.lineWidth = 4; g.beginPath();
+    d.corners.forEach(([x, y], i) => (i ? g.lineTo : g.moveTo).call(g, ox + x * k, oy + y * k));
+    g.closePath(); g.stroke();
+  }
+}
+async function camShot() {
+  let blob = null;
+  if (cam.capture) { try { blob = await cam.capture.takePhoto(); } catch (e) { blob = null; } }
+  if (!blob) { const c = camFrame(10000); blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.95)); }
+  cam.shots.push(new File([blob], `camera_${Date.now()}_${cam.shots.length + 1}.jpg`, { type: 'image/jpeg' }));
+  camCount();
+  $('camhint').textContent = $('campartsbox').checked
+    ? 'Часть снята. Сдвиньте камеру на следующую часть (с перекрытием) или нажмите «Готово».'
+    : 'Снято. Нажмите «Готово» или снимите ещё раз.';
+  if (navigator.vibrate) navigator.vibrate(80);
+}
+function camDone() {
+  if (cam.shots.length) {
+    const dt = new DataTransfer();
+    cam.shots.forEach(f => dt.items.add(f));
+    files.files = dt.files; showChosen();
+  }
+  camClose();
+}
+$('camopen').addEventListener('click', camOpen);
+$('camclose').addEventListener('click', camClose);
+$('camshot').addEventListener('click', camShot);
+$('camdone').addEventListener('click', camDone);
 files.addEventListener('change', showChosen);
 ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));

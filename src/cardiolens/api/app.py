@@ -101,6 +101,67 @@ def health() -> dict:
     }
 
 
+# --- D175: the web camera's live frame check -------------------------------------------------
+CAPTURE_FRAME_MAX_BYTES = 2_000_000
+
+
+@app.post("/api/capture/check")
+async def capture_check(frame: UploadFile = File(...), capture_width: int = Form(default=0),
+                        parts: bool = Form(default=False), who: str = Depends(actor)) -> dict:
+    """One preview frame from the page's camera, checked as the phone app checks it (the
+    scanner's ``capture_qc``, SD-014/SD-070): the hints in words, px/mm on the photo the
+    camera will take (``capture_width``), the sheet's corners on this frame, and whether the
+    capture board's markers are in view. ``parts``: a sheet photographed in parts may run
+    off the frame. Nothing is stored."""
+    import cv2
+    import numpy as np
+
+    from ecgscan.capture_qc import check_frame, config
+    from ecgscan.i18n import strings
+
+    data = await frame.read(CAPTURE_FRAME_MAX_BYTES + 1)
+    if len(data) > CAPTURE_FRAME_MAX_BYTES:
+        raise HTTPException(413, "frame too large")
+    bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise HTTPException(400, "not an image")
+    h, w = bgr.shape[:2]
+    scale = (capture_width / w) if capture_width and capture_width >= w else 1.0
+    cfg = config()
+    if parts:
+        cfg = {**cfg, "thresholds": {**cfg["thresholds"], "require_whole_sheet": False}}
+    loop = asyncio.get_running_loop()
+    qc = await loop.run_in_executor(None, functools.partial(
+        check_frame, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), scale_to_capture=scale, cfg=cfg))
+    board = await loop.run_in_executor(None, _board_in_view, bgr)
+    hints = list(qc.hints)
+    if board and "closer" in hints and qc.px_per_mm is None:
+        hints.remove("closer")          # the board gives the scale; the paper grid may be pale
+    ru = strings("ru")
+    return {
+        "ok": not hints,
+        "hints": [{"code": c, "ru": ru.get(f"qc.{c}", c)} for c in hints],
+        "ready_ru": ru.get("qc.ready", ""),
+        "px_per_mm": qc.px_per_mm,
+        "tilt_deg": qc.tilt_deg,
+        "sheet_area": qc.sheet_area,
+        "corners": None if qc.corners is None else [[x / scale, y / scale] for x, y in qc.corners],
+        "board": board,
+        "frame": [w, h],
+    }
+
+
+def _board_in_view(bgr) -> bool:
+    try:
+        from ecgscan.board import detect_board, load_boards
+        from ecgscan.pipeline import pipeline_config
+    except ImportError:
+        return False
+    b_cfg = pipeline_config().get("board") or {}
+    specs = load_boards(list(b_cfg.get("specs", [])))
+    return detect_board(bgr, specs, min_markers=int(b_cfg.get("min_markers", 3)), whole_zone=False) is not None
+
+
 @app.get("/api/cases")
 def cases() -> dict:
     return {"cases": sorted(service.DEMO_CASES)}

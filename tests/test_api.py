@@ -256,3 +256,39 @@ def test_messenger_sized_photo_is_read_coarse(tmp_path):
     assert "photo_coarse" in {f["code"] for f in d["findings"]}
     assert d["measurements"]["heart_rate_bpm"] == pytest.approx(72, abs=5)
     assert d["measurements"]["intervals"]["qrs_ms"] is None
+
+
+# --- D175: the web camera's live frame check -------------------------------------------------
+
+def test_capture_check_says_closer_on_a_small_frame_and_reads_the_capture_scale(tmp_path):
+    import cv2
+
+    page = cv2.imread(str(_page_png(tmp_path, px_per_mm=4)))
+    _ok, buf = cv2.imencode(".jpg", page)
+    small = client.post("/api/capture/check", data={"capture_width": str(page.shape[1])},
+                        files={"frame": ("f.jpg", buf.tobytes(), "image/jpeg")})
+    assert small.status_code == 200, small.text
+    d = small.json()
+    assert d["ok"] is False and "closer" in {h["code"] for h in d["hints"]}
+    assert all(h["ru"] for h in d["hints"]) and d["frame"] == [page.shape[1], page.shape[0]]
+    # The same frame, but the camera's photo is 3x wider: the grid is fine there.
+    big = client.post("/api/capture/check", data={"capture_width": str(3 * page.shape[1])},
+                      files={"frame": ("f.jpg", buf.tobytes(), "image/jpeg")}).json()
+    assert big["px_per_mm"] and big["px_per_mm"] > d["px_per_mm"] * 2.5
+    assert "closer" not in {h["code"] for h in big["hints"]}
+
+
+def test_capture_check_sees_the_capture_board_and_refuses_garbage():
+    import cv2
+
+    from ecgscan.board.render import render_board
+    from ecgscan.board.spec import load_boards
+
+    board = render_board(load_boards(["a4"])[0], px_per_mm=4)
+    if board.ndim == 2:
+        board = cv2.cvtColor(board, cv2.COLOR_GRAY2BGR)
+    buf = cv2.imencode(".jpg", board)[1].tobytes()
+    d = client.post("/api/capture/check", files={"frame": ("b.jpg", buf, "image/jpeg")}).json()
+    assert d["board"] is True
+    bad = client.post("/api/capture/check", files={"frame": ("x.jpg", b"not an image", "image/jpeg")})
+    assert bad.status_code == 400
