@@ -28,7 +28,7 @@ from cardiolens.config import (
     norms_for_patient,
 )
 from cardiolens.contracts.causal import CausalGraph
-from cardiolens.contracts.features import Measurements
+from cardiolens.contracts.features import Intervals, Measurements, Morphology, Voltages
 from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
@@ -340,6 +340,26 @@ def run_pipeline(
             label_uz=f"{longest:.1f} s oynada {seen_uz}: YUT o'lchab bo'lmaydi, ehtimol "
                      f"{bound:.0f}/daq dan past (bradikardiya bo'lishi mumkin) — kamida 10 s yozing",
             evidence=[Evidence(feature="max_rate_bpm", value=f"{bound:.0f}")], confidence=0.8))
+    # A messenger-compressed photo read in the scanner's coarse mode (D170): at ~3-4 px/mm
+    # one pixel is 10-13 ms, so the rate and the rhythm hold (RR within ~15 ms) while the
+    # QRS and QT widths, the ST segments and the voltages do not. They are not measured,
+    # the findings that rest on them are withheld, and the report says why.
+    coarse = next((n for n in sig.provenance.notes if n.startswith(COARSE_NOTE_PREFIX)), None)
+    if coarse and not (no_ecg or bad_units or bad_photo):
+        px_mm = coarse.partition("px_per_mm=")[2].split()[0] if "px_per_mm=" in coarse else "?"
+        m.intervals, m.voltages, m.morphology, m.sokolow_lyon_uv = Intervals(), Voltages(), Morphology(), None
+        dropped = sorted(f.code for f in findings.findings if f.group in COARSE_WITHHELD_GROUPS)
+        findings.findings = [f for f in findings.findings if f.group not in COARSE_WITHHELD_GROUPS]
+        findings.findings.append(Finding(
+            code="photo_coarse", group="quality",
+            label_ru=f"Сжатый снимок (~{px_mm} пикс/мм, нужно от 8): ЧСС и ритм ориентировочны, "
+                     "интервалы, ST и вольтаж не измеряются — для полного заключения нужен оригинал с камеры",
+            label_uz=f"Siqilgan surat (~{px_mm} piksel/mm, kamida 8 kerak): YUT va ritm taxminiy, "
+                     "intervallar, ST va voltaj o'lchanmaydi — to'liq xulosa uchun kameradan asl surat kerak",
+            evidence=[Evidence(feature="px_per_mm", value=px_mm)], confidence=0.9))
+        quality_ok = False       # mode B escalates; any alert is marked "check against the record"
+        audit.append(f"[L2] coarse photo ({px_mm} px/mm, D170): intervals, ST and voltages not measured; "
+                     f"withheld {dropped}")
     # A device-screen photo (D120): the scale is assumed, only the leads on the screen
     # exist and the window is ~2 s. Findings stay, the limitation is said in the report.
     screen = next((n for n in sig.provenance.notes if n.startswith("device screen photo")), None)
@@ -440,6 +460,10 @@ def run_pipeline(
 
 # A file in mV read as µV is 1000x too small and looks like no ECG at all (D119).
 PHOTO_LOW_RES_PX_PER_MM = 6.0   # D126: an unreliable photo below this asks for a closer shot sent as a file
+# The scanner's coarse mode (D170) marks its signal with this provenance note:
+# "coarse: px_per_mm=3.1". The finding groups that need a fine time or voltage scale.
+COARSE_NOTE_PREFIX = "coarse:"
+COARSE_WITHHELD_GROUPS = frozenset({"interval", "ischemia", "hypertrophy"})
 SHORT_WINDOW_S = 4.0     # D122: below this, one visible QRS bounds the rate instead of measuring it
 SHORT_WINDOW_EDGE_S = 0.5
 _FILE_SOURCES = {"csv", "edf"}
