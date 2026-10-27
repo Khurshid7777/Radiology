@@ -32,6 +32,7 @@ class DegradeSpec:
     noise: float = 0.0          # sensor noise sigma, grey levels
     blur_px: float = 0.0        # Gaussian sigma, px
     scale: float = 1.0          # final resize factor
+    max_side_px: int | None = None   # then reduced so the long side is at most this (a messenger copy, SD-074)
     jpeg_quality: int | None = None
 
     def to_dict(self) -> dict:
@@ -163,6 +164,11 @@ def degrade(img: np.ndarray, spec: DegradeSpec, *, seed: int, px_per_mm: float) 
         h, w = out.shape[:2]
         out = cv2.resize(out, (max(1, int(w * spec.scale)), max(1, int(h * spec.scale))), interpolation=cv2.INTER_AREA)
         hm = np.diag([spec.scale, spec.scale, 1.0]) @ hm
+    if spec.max_side_px is not None and max(out.shape[:2]) > spec.max_side_px:
+        h, w = out.shape[:2]
+        f = spec.max_side_px / max(h, w)
+        out = cv2.resize(out, (max(1, round(w * f)), max(1, round(h * f))), interpolation=cv2.INTER_AREA)
+        hm = np.diag([f, f, 1.0]) @ hm
     if spec.jpeg_quality is not None:
         ok, buf = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, int(spec.jpeg_quality)])
         if not ok:

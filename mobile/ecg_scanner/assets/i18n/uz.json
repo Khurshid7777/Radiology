@@ -35,6 +35,7 @@
   "warning.LOW_LIGHT": "Surat qorong‘i: o‘qishdan oldin ishchi nusxaning yoritilishi tekislandi (asl nusxa o‘zgartirilmagan). Keyingi safar yaxshi yorug‘likda suratga oling.",
   "warning.LEAD_OVERLAP": "Qo‘shni qatorlar chiziqlari kesishadi — ustma-ustlikni tekshiring.",
   "warning.LOW_RESOLUTION_MARGINAL": "Ruxsat quyi chegarada — aniqlik pasayishi mumkin.",
+  "warning.LOW_RESOLUTION_COARSE": "Surat siqilgan, mm ga ≈{ppm} nuqta: YuQS va ritm taxminiy, intervallar o‘lchanmaydi. Kameradagi asl surat to‘liq xulosa beradi.",
   "warning.FADED_PAPER": "Qog‘oz rangi o‘chgan, chiziq xira — aniqlik pasayishi mumkin; suratdagi chiziqlarni tekshiring.",
   "warning.STITCHED": "Sahifa bir nechta suratdan yig‘ilgan.",
   "result.calibration": "Tezlik {speed} mm/s, kuchaytirish {gain} mm/mV.",

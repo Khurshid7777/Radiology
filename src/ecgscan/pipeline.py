@@ -33,7 +33,12 @@ from ecgscan.calibration.resolve import resolve
 from ecgscan.config import load_yaml
 from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, Source
 from ecgscan.contract.models import RHYTHM_MISMATCH
-from ecgscan.geometry.grid import GridEstimate, estimate_grid, estimate_grid_tiled
+from ecgscan.geometry.grid import (
+    GridEstimate,
+    estimate_coarse_grid,
+    estimate_grid,
+    estimate_grid_tiled,
+)
 from ecgscan.geometry.rectify import Rectified, rectify, tile_residual
 from ecgscan.io import ImageRefused, _mime, flat_field, load_image, paper_level
 from ecgscan.layout import get_layout
@@ -191,6 +196,28 @@ def _board_set(works: list[np.ndarray], cfg: dict, dbg: ScanDebug) -> tuple[Rect
     if comp.min_px_per_mm < cfg["quality"]["min_px_per_mm"]:
         return None, raw, comp.min_px_per_mm
     return _zone_rect(comp.bgr, raw, wppm, fits[0].spec.name, cfg, rescale_to_grid=True), raw, comp.min_px_per_mm
+
+
+def _coarse_grid(work: np.ndarray, raw: GridEstimate, cfg: dict) -> GridEstimate | None:
+    """A messenger copy read in the coarse mode (D170, SD-074): the 5-mm grid of a small
+    image whose fine grid is missing, below the floor or implausible (a 1280-px page read
+    at 16 px/mm would be 80 mm wide). ``None``: not such an image, or no 5-mm grid either
+    (then the usual GRID_NOT_FOUND / LOW_RESOLUTION refusal stands). Photos above
+    ``max_side_px`` (every phone original) never get here."""
+    c = cfg.get("coarse") or {}
+    if not c.get("enabled"):
+        return None
+    q = cfg["quality"]
+    side = max(work.shape[:2])
+    if side > int(c.get("max_side_px", 2000)):
+        return None
+    ppm = raw.px_per_mm
+    if (ppm is not None and raw.confidence >= q["min_grid_confidence"] and ppm >= q["min_px_per_mm"]
+            and side / ppm >= float(c.get("min_page_mm", 120))):
+        return None                                    # a small but sharp image: the usual path
+    g = estimate_coarse_grid(work, min_px_per_mm=float(c.get("min_px_per_mm", 2.5)),
+                             max_px_per_mm=float(q["min_px_per_mm"]), min_score=float(c.get("min_score", 0.5)))
+    return g if g is not None and g.px_per_mm < q["min_px_per_mm"] else None
 
 
 def _capture(hints: ScanHints):
@@ -353,21 +380,27 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
             tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
             if tiled is not None and tiled.confidence > raw.confidence:
                 raw = tiled
+        coarse = _coarse_grid(work, raw, cfg)
+        if coarse is not None:
+            # D170: below the floor, but the 5-mm grid gives the scale: read, never "ok".
+            raw = coarse
+            warnings.append("LOW_RESOLUTION_COARSE")
         t = tick("grid", t)
         raw_ppm = raw.px_per_mm
-        if raw_ppm is None or raw.confidence < q_cfg["min_grid_confidence"]:
+        if raw_ppm is None or (coarse is None and raw.confidence < q_cfg["min_grid_confidence"]):
             reasons.append("GRID_NOT_FOUND")
             return result("rejected", ppm=raw_ppm)
-        if raw_ppm < q_cfg["min_px_per_mm"]:
+        if raw_ppm < q_cfg["min_px_per_mm"] and coarse is None:
             reasons.append("LOW_RESOLUTION")
             return result("rejected", ppm=raw_ppm)
-        if raw_ppm < q_cfg["marginal_px_per_mm"]:
+        if raw_ppm < q_cfg["marginal_px_per_mm"] and coarse is None:
             warnings.append("LOW_RESOLUTION_MARGINAL")
 
         # 2. Rectify to the working scale.
         try:
+            up = float((cfg.get("coarse") or {}).get("max_upscale", 4.0)) if coarse is not None else float(g_cfg["max_upscale"])
             rect = rectify(work, working_px_per_mm=float(g_cfg["working_px_per_mm"]), raw_grid=raw,
-                           max_upscale=float(g_cfg["max_upscale"]), fit_px_per_mm=g_cfg.get("fit_px_per_mm"),
+                           max_upscale=up, fit_px_per_mm=g_cfg.get("fit_px_per_mm"),
                            shear_min_deg=g_cfg.get("shear_min_deg"),
                            reread_tolerance=float(g_cfg.get("reread_tolerance", 0.15)))
         except Exception:
@@ -514,7 +547,9 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
                         "RHYTHM_INCONSISTENT"} & set(warnings)
                # Light correction is verified on synthetic pages only: the doctor confirms (SD-062).
                and not ("LOW_LIGHT" in warnings and q_cfg.get("low_light_needs_confirmation", True))
-               and "FADED_PAPER" not in warnings)
+               and "FADED_PAPER" not in warnings
+               # D170: a coarse read is never "ok" by itself: the doctor confirms.
+               and "LOW_RESOLUTION_COARSE" not in warnings)
     status = "ok" if trusted else "needs_confirmation"
     layout = Layout(name=layout_name, registry_version=spec.registry_version, confidence=layout_conf)
     res = result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,

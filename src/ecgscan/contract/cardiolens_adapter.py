@@ -98,6 +98,9 @@ def to_signal_representation(result: ScanResult):
                      + ", ".join(f"{k}={v}" for k, v in sorted(bridged.items())))
     if DIGITIZED_FLAG in result.provenance_flags:
         notes.append(DIGITIZED_FLAG)
+    if "LOW_RESOLUTION_COARSE" in result.warnings:
+        # D170: CardioLens keys its photo_coarse descriptor on this line (intervals and ST not issued).
+        notes.append(f"coarse: px_per_mm={result.quality.px_per_mm:.1f}" if result.quality.px_per_mm else "coarse")
     return SignalRepresentation(
         signal=signal, sampling_rate_hz=fs, lead_names=list(STANDARD_LEADS), duration_s=n / fs,
         source="image",

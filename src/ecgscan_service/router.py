@@ -75,9 +75,18 @@ def messages(row: ScanRow) -> dict:
         out[lang] = {
             "status": t(f"status.{status}", lang),
             "reasons": [t(f"reject.{c}", lang) for c in res.get("reject_reasons", [])],
-            "warnings": [t(f"warning.{c}", lang) for c in res.get("warnings", [])],
+            "warnings": [t(f"warning.{c}", lang, **_fmt(res, lang)) for c in res.get("warnings", [])],
         }
     return out
+
+
+def _fmt(res: dict, lang: str) -> dict:
+    """Placeholders of the warning texts: the photo's px/mm (LOW_RESOLUTION_COARSE, D170)."""
+    ppm = (res.get("quality") or {}).get("px_per_mm")
+    if ppm is None:
+        return {"ppm": "?"}
+    s = f"{ppm:.1f}"
+    return {"ppm": s.replace(".", ",") if lang == "ru" else s}
 
 
 def view(row: ScanRow) -> dict:

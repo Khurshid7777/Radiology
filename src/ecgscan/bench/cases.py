@@ -57,7 +57,10 @@ def slice_settings(cfg: dict, name: str, suite: dict | None = None) -> dict:
 
 def suite_slices(cfg: dict, suite_name: str) -> tuple[dict, list[str]]:
     suite = cfg["suites"][suite_name]
-    names = list(cfg["slices"]) if suite.get("slices") == "all" else list(suite["slices"])
+    # "all": every slice but those kept for their own suite (``suite_only``: the coarse
+    # messenger copies, SD-074, must not change the standard suite).
+    names = ([n for n, s in cfg["slices"].items() if not s.get("suite_only")] if suite.get("slices") == "all"
+             else list(suite["slices"]))
     return suite, names
 
 

@@ -690,7 +690,8 @@
         "LEAD_OVERLAP",
         "LOW_RESOLUTION_MARGINAL",
         "FADED_PAPER",
-        "STITCHED"
+        "STITCHED",
+        "LOW_RESOLUTION_COARSE"
       ]
     },
     "capture": {

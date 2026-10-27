@@ -104,8 +104,9 @@ def _maxed(spec: np.ndarray) -> dict[int, np.ndarray]:
 
 
 def comb_scores(spec: np.ndarray, n: int, pitches: np.ndarray, *, max_k: int = 12, rel_tol: float = 0.01,
-                maxed: dict[int, np.ndarray] | None = None, explained: bool = True) -> np.ndarray:
-    """Vectorised ``comb_score`` for many candidate pitches (same definition)."""
+                maxed: dict[int, np.ndarray] | None = None, explained: bool = True, minor: bool = True) -> np.ndarray:
+    """Vectorised ``comb_score`` for many candidate pitches (same definition). ``minor=False``:
+    the 1-mm lines are not asked for (a messenger copy has lost them, SD-074)."""
     maxed = maxed or _maxed(spec)
     p = np.asarray(pitches, dtype=np.float64)[:, None]
     k = np.arange(1, max_k + 1, dtype=np.float64)[None, :]
@@ -129,8 +130,9 @@ def comb_scores(spec: np.ndarray, n: int, pitches: np.ndarray, *, max_k: int = 1
     score = np.where(cnt >= 3, (mean_t - mean_g) / base, 0.0)
     # The 1-mm lines themselves must show: energy at 1/pitch. Without it a sharp
     # lattice's harmonics also fit a comb at 2/5 of the pitch (8 px/mm read as 3.2).
-    minor = maxed[9][np.clip(np.rint(n / p[:, 0]).astype(int), 1, last)] / base
-    score = np.where(minor >= MINOR_MIN, score, score * 0.25)
+    minor_mag = maxed[9][np.clip(np.rint(n / p[:, 0]).astype(int), 1, last)] / base
+    if minor:
+        score = np.where(minor_mag >= MINOR_MIN, score, score * 0.25)
     return score * explained_fraction(spec, n, p[:, 0]) ** 2 if explained else score
 
 
@@ -160,11 +162,11 @@ def explained_fraction(spec: np.ndarray, n: int, pitches: np.ndarray) -> np.ndar
     return (on * a[None, :]).sum(axis=1) / a.sum()
 
 
-def _best_pitch(spec: np.ndarray, n: int, lo: float, hi: float) -> tuple[float | None, float]:
+def _best_pitch(spec: np.ndarray, n: int, lo: float, hi: float, *, minor: bool = True) -> tuple[float | None, float]:
     """Coarse log-spaced search, divisor check, then a fine search around the winner."""
     maxed = _maxed(spec)
     cands = np.exp(np.linspace(np.log(lo), np.log(hi), 400))
-    scores = comb_scores(spec, n, cands, maxed=maxed)
+    scores = comb_scores(spec, n, cands, maxed=maxed, minor=minor)
     i = int(np.argmax(scores))
     if scores[i] <= 0:
         return None, 0.0
@@ -174,7 +176,7 @@ def _best_pitch(spec: np.ndarray, n: int, lo: float, hi: float) -> tuple[float |
     # a divisor that scores at least half as well (a wrong divisor scores < 0 on its gaps).
     for d in (2, 3):
         if best / d >= lo:
-            sd = float(comb_scores(spec, n, best / d * np.linspace(0.98, 1.02, 9), maxed=maxed).max())
+            sd = float(comb_scores(spec, n, best / d * np.linspace(0.98, 1.02, 9), maxed=maxed, minor=minor).max())
             if sd >= SUBHARMONIC_ACCEPT * best_s:
                 best, best_s = best / d, sd
                 break
@@ -270,6 +272,39 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
         if best is None or min(sx, sy) > min(best.score_x, best.score_y):
             best = est
     return best  # type: ignore[return-value]
+
+
+def estimate_coarse_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm: float = 8.0,
+                         min_score: float = 0.5) -> GridEstimate | None:
+    """The grid of a copy too coarse for the 1-mm lines (a messenger copy: ~3 px/mm, the
+    1-mm lines lost to JPEG; D170, SD-074), read from the 5-mm lines alone.
+
+    The same comb on the major period, without asking for energy at 1/pitch, and raw
+    (``explained=False``): at 3 px/mm the strong low-frequency peaks of the page edge and
+    the trace rows are not grid harmonics, and weighting by the explained share scored
+    the right pitch at 0.01. Chroma first (the grid is coloured, the trace black), grey
+    as the fallback; both axes must agree within ``SQUARE_TOL``. ``None``: no 5-mm grid."""
+    lines = {ax: _channels(_sampled(img, ax)) for ax in (1, 0)}
+    for name in lines[1]:
+        res = []
+        for axis in (1, 0):
+            spec = _spectrum(lines[axis][name], 1)
+            n = img.shape[axis]
+            hi = min(max_px_per_mm, n / 60.0)
+            if hi <= min_px_per_mm:
+                res.append((None, 0.0))
+                continue
+            maxed = _maxed(spec)
+            cands = np.exp(np.linspace(np.log(min_px_per_mm), np.log(hi), 400))
+            sc = comb_scores(spec, n, cands, maxed=maxed, explained=False, minor=False)
+            i = int(np.argmax(sc))
+            p, s = float(cands[i]), float(sc[i])
+            res.append((_refine(spec, n, p, maxed=maxed) if s >= min_score else None, s))
+        (px, sx), (py, sy) = res
+        if px is None or py is None or abs(px - py) > SQUARE_TOL * max(px, py):
+            continue
+        return GridEstimate(px, py, sx, sy, f"{name}:5mm", round(float(np.clip(min(sx, sy) / CONF_SCALE, 0.0, 1.0)), 3))
+    return None
 
 
 def estimate_grid_tiled(img: np.ndarray, *, tiles: int = 3, **kw) -> GridEstimate | None:

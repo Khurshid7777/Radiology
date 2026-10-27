@@ -53,6 +53,12 @@ slices:
   layout_strip:    {layout: "3x4 strip", render: {header: false}, degrade: *photo}   # 3-channel recorder strip (SD-059); no printed speed
   low_res_6ppm:    {render: {px_per_mm: 6.0}, degrade: *photo}   # below the 8 px/mm floor: should be refused
   ptbxl_photo:     {source: ptbxl, degrade: *photo}
+  # A phone photo forwarded through a messenger (D170, SD-074): reduced to 1280 px on the long
+  # side and re-encoded at JPEG 80. The desk margin sets the page at ~3 or ~4 px/mm.
+  coarse_3x4_3ppm: {suite_only: true, degrade: {<<: *photo, background: 0.22, max_side_px: 1280, jpeg_quality: 80}}
+  coarse_3x4_4ppm: {suite_only: true, degrade: {<<: *photo, background: 0.03, max_side_px: 1280, jpeg_quality: 80}}
+  coarse_6x2_3ppm: {suite_only: true, layout: "6x2", degrade: {<<: *photo, background: 0.22, max_side_px: 1280, jpeg_quality: 80}}
+  coarse_6x2_4ppm: {suite_only: true, layout: "6x2", degrade: {<<: *photo, background: 0.03, max_side_px: 1280, jpeg_quality: 80}}
 
 suites:
   smoke:                        # unit tests: tiny and fast
@@ -62,6 +68,9 @@ suites:
   standard:
     cases_per_slice: 6
     slices: all
+  coarse:                       # D170 acceptance: messenger copies at ~3-4 px/mm
+    cases_per_slice: 6
+    slices: [coarse_3x4_3ppm, coarse_3x4_4ppm, coarse_6x2_3ppm, coarse_6x2_4ppm]
 
 # TZ §11 acceptance criteria, evaluated per slice in the report.
 acceptance:
