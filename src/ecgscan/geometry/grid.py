@@ -274,10 +274,25 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
     return best  # type: ignore[return-value]
 
 
+WEAK_SHARE = 0.25             # anchored: the other axis near the anchor's pitch scores at least this share
+GREY_CLIP = 30.0              # coarse grey channel: darkness clipped this far above the paper's
+
+
+def _coarse_channels(img: np.ndarray) -> dict[str, np.ndarray]:
+    """Chroma, and grey with the darkness clipped ``GREY_CLIP`` above the paper's median: on a
+    faded or thermal copy the black trace dominates the grey channel and its beats and rows
+    made strong wrong combs (7.3 px/mm for a 4.4 px/mm grid, score 3.8)."""
+    ch = _channels(img)
+    if img.ndim == 3:
+        dark = ch["gray"]
+        ch["gray"] = np.minimum(dark, float(np.median(dark)) + GREY_CLIP)
+    return ch
+
+
 def _coarse_axes(img: np.ndarray, lo: float, hi: float, *, max_lines: int = 400, min_periods: float = 12.0,
                  refine: bool = True) -> dict[str, list[tuple[float | None, float]]]:
     """Per channel, per axis (x, y): the best 5-mm comb pitch and its raw score."""
-    lines = {ax: _channels(_sampled(img, ax, max_lines)) for ax in (1, 0)}
+    lines = {ax: _coarse_channels(_sampled(img, ax, max_lines)) for ax in (1, 0)}
     out: dict[str, list[tuple[float | None, float]]] = {}
     for name in lines[1]:
         res: list[tuple[float | None, float]] = []
@@ -313,30 +328,80 @@ def _square(axes: dict[str, list[tuple[float | None, float]]], min_score: float,
     return None if best is None else (best[0], best[1], min(best[2], best[3]), best[4])  # type: ignore[return-value]
 
 
+def _anchored(img: np.ndarray, lo: float, hi: float, *, anchor_min: float, weak_min: float,
+              page_mm: tuple[float, float], min_periods: float = 12.0) -> tuple[float, float, float, str] | None:
+    """The paper grid is square: an axis that finds the 5-mm comb with confidence anchors the
+    other, re-read only near its pitch (±10 %). On a 6x2 thermal copy the y axis alone locks
+    on the trace rows (2.7 px/mm for a 4.5 px/mm grid) while x is right. Accepted when the
+    other axis has a comb there at all (>= ``weak_min``) and the long side of the image
+    then spans a plausible width of paper (``page_mm``)."""
+    lines = {ax: _coarse_channels(_sampled(img, ax)) for ax in (1, 0)}
+    best = None
+    for name in lines[1]:
+        specs = {}
+        for axis in (1, 0):
+            spec = _spectrum(lines[axis][name], 1)
+            specs[axis] = (spec, img.shape[axis], _maxed(spec))
+        for anchor, other in ((1, 0), (0, 1)):
+            spec, n, maxed = specs[anchor]
+            top = min(hi, n / (5.0 * min_periods))
+            if top <= lo:
+                continue
+            cands = np.exp(np.linspace(np.log(lo), np.log(top), 300))
+            sc = comb_scores(spec, n, cands, maxed=maxed, explained=False, minor=False)
+            i = int(np.argmax(sc))
+            if sc[i] < anchor_min:
+                continue
+            pa = _refine(spec, n, float(cands[i]), maxed=maxed)
+            ospec, on, omaxed = specs[other]
+            near = pa * np.linspace(0.9, 1.1, 41)
+            osc = comb_scores(ospec, on, near, maxed=omaxed, explained=False, minor=False)
+            j = int(np.argmax(osc))
+            if osc[j] < max(weak_min, WEAK_SHARE * float(sc[i])):
+                continue
+            po = _refine(ospec, on, float(near[j]), maxed=omaxed)
+            width_mm = max(img.shape[:2]) / min(pa, po)
+            if not page_mm[0] <= width_mm <= page_mm[1]:
+                continue
+            px, py = (pa, po) if anchor == 1 else (po, pa)
+            if best is None or sc[i] > best[2]:
+                best = (px, py, float(sc[i]), name)
+    return best
+
+
 def estimate_coarse_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm: float = 8.0,
                          min_score: float = 0.3, tile_px: int = 320, tile_score: float = 1.0,
-                         tile_agree: float = 0.06, min_tiles: int = 2, reread: bool = False) -> GridEstimate | None:
+                         tile_agree: float = 0.06, min_tiles: int = 2, reread: bool = False,
+                         anchor_min: float = 0.25, weak_min: float = 0.0,
+                         page_mm: tuple[float, float] = (100.0, 450.0)) -> GridEstimate | None:
     """The grid of a copy too coarse for the 1-mm lines (a messenger copy: ~3 px/mm, the
     1-mm lines lost to JPEG; D170, SD-074), read from the 5-mm lines alone.
 
     1. The whole image: the comb on the major period, without asking for energy at 1/pitch,
        raw (``explained=False``: at 3 px/mm the page edge and the trace rows make strong
-       peaks that are not grid harmonics). Chroma and grey on an equal footing (thermal
-       paper's grid is nearly grey): the channel whose x and y pitches agree best.
-    2. When the sheet is a small part of the frame (a strip on a carpet or a lap) its comb is
+       peaks that are not grid harmonics). Chroma first (the grid is coloured, the trace
+       black); grey — clipped above the paper so the trace does not dominate — when the
+       chroma comb is not square (thermal paper's grid is nearly grey).
+    2. One confident axis anchors the other (``_anchored``): the grid is square, and a 6x2
+       thermal copy's y axis alone reads the trace rows.
+    3. When the sheet is a small part of the frame (a strip on a carpet or a lap) its comb is
        diluted below ``min_score``: the image is cut into overlapping ``tile_px`` tiles, each
        votes with its own square comb (>= ``tile_score``), and the pitch at least
        ``min_tiles`` tiles agree on (± ``tile_agree``) is taken.
     ``reread``: the scale re-read on the straightened, upscaled copy near a known scale —
-    chroma first and no tiles (on that copy the grey trace rows and the tiles both drifted
-    the scale and cost 140-300 ms of RR on six bench pages).
+    step 1 only (on that copy the anchoring and the tiles drifted the scale and cost
+    140-300 ms of RR on six bench pages).
     ``None``: no 5-mm grid (a device screen, a non-ECG picture)."""
-    whole = _square(_coarse_axes(img, min_px_per_mm, max_px_per_mm), min_score, first=reread)
+    whole = _square(_coarse_axes(img, min_px_per_mm, max_px_per_mm), min_score, first=True)
     if whole is not None:
         px, py, sc, name = whole
         return GridEstimate(px, py, sc, sc, f"{name}:5mm", round(float(np.clip(sc / CONF_SCALE, 0.0, 1.0)), 3))
     if reread:
         return None
+    anchored = _anchored(img, min_px_per_mm, max_px_per_mm, anchor_min=anchor_min, weak_min=weak_min, page_mm=page_mm)
+    if anchored is not None:
+        px, py, sc, name = anchored
+        return GridEstimate(px, py, sc, sc, f"{name}:5mm-anchored", round(float(np.clip(sc / CONF_SCALE, 0.0, 1.0)), 3))
     h, w = img.shape[:2]
     votes: list[tuple[float, float]] = []
     step = max(1, tile_px // 2)

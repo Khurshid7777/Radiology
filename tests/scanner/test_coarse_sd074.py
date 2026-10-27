@@ -83,7 +83,7 @@ def test_coarse_slices_stay_out_of_the_standard_suite():
     _, std = suite_slices(cfg, "standard")
     _, coarse = suite_slices(cfg, "coarse")
     assert not [s for s in std if s.startswith("coarse_")] and "photo_clean" in std
-    assert coarse == ["coarse_3x4_3ppm", "coarse_3x4_4ppm", "coarse_6x2_3ppm", "coarse_6x2_4ppm"]
+    assert coarse == ["coarse_3x4_3ppm", "coarse_3x4_4ppm", "coarse_6x2_3ppm", "coarse_6x2_4ppm", "coarse_6x2_thermal"]
 
 
 def test_the_warning_says_how_coarse_in_both_languages():
@@ -106,7 +106,21 @@ def test_a_sheet_lost_in_a_busy_frame_is_found_by_tiles(synth_mv):
     strip = page[300:700, :1220]
     img[420:420 + strip.shape[0], 60:60 + strip.shape[1]] = strip
     img = cv2.imdecode(cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])[1], 1)
-    g = estimate_coarse_grid(img, min_score=99.0)                 # the whole-frame step refused: tiles only
+    g = estimate_coarse_grid(img, min_score=99.0, anchor_min=99.0)   # whole-frame and anchored steps off: tiles only
     assert g is not None and g.channel == "tiles:5mm" and g.px_per_mm == pytest.approx(5.0, rel=0.03)
-    assert estimate_coarse_grid(bg) is None and estimate_coarse_grid(bg, min_score=99.0) is None
+    assert estimate_coarse_grid(bg) is None and estimate_coarse_grid(bg, min_score=99.0, anchor_min=99.0) is None
+
+
+@pytest.mark.parametrize("grid", ["gray", "pink"])
+def test_a_dark_thermal_6x2_copy_is_scaled_by_its_anchored_axis(synth_mv, grid):
+    """D170 owner's GE MAC 5 copy: grey faded grid, dark paper. The plain grey channel read the
+    trace beats and rows (7.3 px/mm, score 3.8, for 4.4); clipped grey + the anchored axis read
+    the grid."""
+    page, _ = render_page(synth_mv, 500.0, get_layout("6x2"), RenderSpec(px_per_mm=8.0, grid=grid, trace_gray=40,
+                                                                        grid_fade=0.3))
+    img, info = degrade(page, DegradeSpec(background=0.03, rotation_deg=1, vignette=0.2, noise=3, blur_px=0.8,
+                                          max_side_px=1280, jpeg_quality=70), seed=4, px_per_mm=8.0)
+    img = np.clip(img.astype(np.float32) * 0.69, 0, 255).astype(np.uint8)
+    g = estimate_coarse_grid(img)
+    assert g is not None and g.px_per_mm == pytest.approx(8.0 * info["centre_scale"], rel=0.04)
 

@@ -59,6 +59,9 @@ slices:
   coarse_3x4_4ppm: {suite_only: true, degrade: {<<: *photo, background: 0.03, max_side_px: 1280, jpeg_quality: 80}}
   coarse_6x2_3ppm: {suite_only: true, layout: "6x2", degrade: {<<: *photo, background: 0.22, max_side_px: 1280, jpeg_quality: 80}}
   coarse_6x2_4ppm: {suite_only: true, layout: "6x2", degrade: {<<: *photo, background: 0.03, max_side_px: 1280, jpeg_quality: 80}}
+  # Dark thermal 6x2 (GE MAC 5-like, D170 real copy): grey faded grid, paper ~170, JPEG 70.
+  coarse_6x2_thermal: {suite_only: true, layout: "6x2", render: {grid: gray, grid_fade: 0.3, trace_gray: 40},
+                       degrade: {<<: *photo, background: 0.03, low_light: 0.31, max_side_px: 1280, jpeg_quality: 70}}
 
 suites:
   smoke:                        # unit tests: tiny and fast
@@ -70,7 +73,7 @@ suites:
     slices: all
   coarse:                       # D170 acceptance: messenger copies at ~3-4 px/mm
     cases_per_slice: 6
-    slices: [coarse_3x4_3ppm, coarse_3x4_4ppm, coarse_6x2_3ppm, coarse_6x2_4ppm]
+    slices: [coarse_3x4_3ppm, coarse_3x4_4ppm, coarse_6x2_3ppm, coarse_6x2_4ppm, coarse_6x2_thermal]
 
 # TZ §11 acceptance criteria, evaluated per slice in the report.
 acceptance:
