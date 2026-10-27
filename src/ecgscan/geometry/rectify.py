@@ -158,10 +158,15 @@ def _warp(img: np.ndarray, m: np.ndarray, size: tuple[int, int], border) -> np.n
 
 def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate | None = None,
             max_upscale: float = 1.0, fit_px_per_mm: float | None = None,
-            shear_min_deg: float | None = None, reread_tolerance: float = 0.15) -> Rectified:
+            shear_min_deg: float | None = None, reread_tolerance: float = 0.15,
+            coarse: bool = False) -> Rectified:
     """Area-downscale to the working scale once, then every step only *measures* on an
     intermediate image; the result is one warp by the composed matrix F * R * H (a 2-3 px
-    trace stroke loses detail at every resampling)."""
+    trace stroke loses detail at every resampling).
+
+    ``coarse`` (SD-074, a copy without 1-mm lines): the scale after the perspective warp is
+    re-read from the 5-mm lines (``estimate_coarse_grid`` near the predicted scale): the
+    fine re-read lands on harmonics of the blurred grid and left a page 10 % too wide."""
     import cv2
 
     raw = raw_grid or _fast_grid(bgr)
@@ -202,8 +207,15 @@ def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate
                          raw.confidence)
         bgr_r = bgr_i
     else:
-        g = estimate_grid(bgr_i)
         expected = raw.px_per_mm * s
+        if coarse:
+            from ecgscan.geometry.grid import estimate_coarse_grid
+
+            g = estimate_coarse_grid(bgr_i, min_px_per_mm=expected * (1 - reread_tolerance),
+                                     max_px_per_mm=expected * (1 + reread_tolerance), min_score=0.3) \
+                or GridEstimate(None, None, 0.0, 0.0, "coarse", 0.0)
+        else:
+            g = estimate_grid(bgr_i)
 
         def _axis(v: float | None) -> float | None:
             # A re-read far from the scale the photo's own grid predicts is a harmonic or the

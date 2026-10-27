@@ -400,7 +400,7 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
         try:
             up = float((cfg.get("coarse") or {}).get("max_upscale", 4.0)) if coarse is not None else float(g_cfg["max_upscale"])
             rect = rectify(work, working_px_per_mm=float(g_cfg["working_px_per_mm"]), raw_grid=raw,
-                           max_upscale=up, fit_px_per_mm=g_cfg.get("fit_px_per_mm"),
+                           max_upscale=up, fit_px_per_mm=g_cfg.get("fit_px_per_mm"), coarse=coarse is not None,
                            shear_min_deg=g_cfg.get("shear_min_deg"),
                            reread_tolerance=float(g_cfg.get("reread_tolerance", 0.15)))
         except Exception:
