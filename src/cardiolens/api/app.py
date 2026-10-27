@@ -29,6 +29,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.background import BackgroundTask
@@ -109,13 +110,15 @@ CAPTURE_FRAME_MAX_BYTES = 2_000_000
 async def capture_check(frame: UploadFile = File(...), capture_width: int = Form(default=0),
                         parts: bool = Form(default=False), who: str = Depends(actor)) -> dict:
     """One preview frame from the page's camera, checked as the phone app checks it (the
-    scanner's ``capture_qc``, SD-014/SD-070): the hints in words, px/mm on the photo the
-    camera will take (``capture_width``), the sheet's corners on this frame, and whether the
-    capture board's markers are in view. ``parts``: a sheet photographed in parts may run
-    off the frame. Nothing is stored."""
+    scanner's ``capture_qc``, SD-014/SD-070), with what is in view told apart (D177): a
+    device screen (no paper grid to check — light, glare and blur only), a sheet or a strip
+    (its size in mm from the paper grid), and whether it must be taken in parts — a sheet
+    running off the frame, or one that already fills the frame but is still too coarse.
+    ``capture_width``: the width of the photo the camera will take. Nothing is stored."""
     import cv2
     import numpy as np
 
+    from cardiolens.layer1_ingestion.screen import is_device_screen
     from ecgscan.capture_qc import check_frame, config
     from ecgscan.i18n import strings
 
@@ -127,39 +130,150 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
         raise HTTPException(400, "not an image")
     h, w = bgr.shape[:2]
     scale = (capture_width / w) if capture_width and capture_width >= w else 1.0
+    loop = asyncio.get_running_loop()
+    ru = strings("ru")
+    say = lambda codes: [{"code": c, "ru": ru.get(f"qc.{c}", c)} for c in codes]
+
+    screen = await loop.run_in_executor(None, is_device_screen, bgr)
+    if screen:
+        qc = await loop.run_in_executor(None, functools.partial(
+            check_frame, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), scale_to_capture=scale, grid=False))
+        hints = [c for c in qc.hints if c in ("glare", "steady", "light")]
+        return {"ok": not hints, "mode": "screen", "mode_ru": "Экран прибора: снимите весь экран, без бликов",
+                "hints": say(hints), "ready_ru": ru.get("qc.ready", ""), "px_per_mm": None,
+                "tilt_deg": None, "sheet_area": None, "sheet_mm": None, "corners": None,
+                "board": False, "suggest_parts": False, "frame": [w, h]}
+
     cfg = config()
     if parts:
         cfg = {**cfg, "thresholds": {**cfg["thresholds"], "require_whole_sheet": False}}
-    loop = asyncio.get_running_loop()
     qc = await loop.run_in_executor(None, functools.partial(
         check_frame, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), scale_to_capture=scale, cfg=cfg))
-    board = await loop.run_in_executor(None, _board_in_view, bgr)
+    fit = await loop.run_in_executor(None, _board_in_view, bgr)
+    board = fit is not None
     hints = list(qc.hints)
-    if board and "closer" in hints and qc.px_per_mm is None:
-        hints.remove("closer")          # the board gives the scale; the paper grid may be pale
-    ru = strings("ru")
+    corners = None if qc.corners is None else [[x / scale, y / scale] for x, y in qc.corners]
+    min_ppm = float(cfg["thresholds"]["min_px_per_mm"])
+    ppm = qc.px_per_mm
+    if board:
+        # The board's markers give the scale exactly; a preview misses a pale or fine paper
+        # grid (the owner's strip: 1.9 px/mm read for ~4.7). Resolution, framing and size
+        # follow the board (D177).
+        ppm = round(fit.min_px_per_mm * scale, 3)
+        hints = [c for c in hints if c not in ("closer", "frame")]
+        if ppm < min_ppm:
+            hints.insert(0, "closer")
+        if not fit.zone_in_frame:
+            hints.append("frame")
+        sheet_mm = await loop.run_in_executor(None, _sheet_mm_on_board, bgr, fit)
+    else:
+        sheet_mm = _sheet_mm(corners, qc.px_per_mm, scale)
+    # From large to small (D177): a sheet that runs off the frame, or fills it and is still
+    # under the floor, cannot be taken whole at the scale needed — it is taken in parts.
+    cut = qc.sheet_whole is False and (qc.sheet_area or 0) >= 0.5
+    too_big = ppm is not None and ppm < min_ppm and (qc.sheet_area or 0) >= 0.6
+    suggest_parts = not parts and not board and (cut or too_big)
+    if suggest_parts:
+        hints = [c for c in hints if c not in ("frame", "closer")] + ["parts"]
+    mode, mode_ru = _paper_kind(sheet_mm)
+    texts = say([c for c in hints if c != "parts"])
+    if board and sheet_mm:
+        zw, zh = fit.spec.zone_size_mm
+        if sheet_mm[0] > max(zw, zh) + 2 or sheet_mm[1] > min(zw, zh) + 2:
+            hints.append("board_small")
+            texts.append({"code": "board_small", "ru": _board_advice(sheet_mm, fit.spec.name)})
+    if "parts" in hints:
+        texts.append({"code": "parts", "ru": "Лист большой: снимите его частями, каждая часть с перекрытием "
+                                           "соседней — режим «частями» включён."})
     return {
         "ok": not hints,
-        "hints": [{"code": c, "ru": ru.get(f"qc.{c}", c)} for c in hints],
+        "mode": mode, "mode_ru": mode_ru,
+        "hints": texts,
         "ready_ru": ru.get("qc.ready", ""),
-        "px_per_mm": qc.px_per_mm,
+        "px_per_mm": ppm,
         "tilt_deg": qc.tilt_deg,
         "sheet_area": qc.sheet_area,
-        "corners": None if qc.corners is None else [[x / scale, y / scale] for x, y in qc.corners],
+        "sheet_mm": sheet_mm,
+        "board_name": fit.spec.name if board else None,
+        "corners": corners,
         "board": board,
+        "suggest_parts": suggest_parts,
         "frame": [w, h],
     }
 
 
-def _board_in_view(bgr) -> bool:
+def _sheet_mm(corners, px_per_mm, scale) -> list[float] | None:
+    """The sheet's long and short side in mm: its corners on the frame over the paper grid's
+    px/mm on the frame (``px_per_mm`` is on the captured photo, ``scale`` times larger)."""
+    if not corners or not px_per_mm:
+        return None
+    c = np.asarray(corners, float)
+    ppm = px_per_mm / scale
+    w = (np.linalg.norm(c[1] - c[0]) + np.linalg.norm(c[2] - c[3])) / 2 / ppm
+    h = (np.linalg.norm(c[3] - c[0]) + np.linalg.norm(c[2] - c[1])) / 2 / ppm
+    return _plausible([max(w, h), min(w, h)])
+
+
+def _sheet_mm_on_board(bgr, fit, res: float = 2.0) -> list[float] | None:
+    """The paper's size in board mm (D177): the board straightened by its markers at ``res``
+    px/mm, the paper found as the tinted area (grid lines, pink or cream paper) on the white
+    board — the printed rulers and markers are grey and black, not tinted."""
+    import cv2
+
+    bw, bh = fit.spec.size_mm
+    S = np.diag([res, res, 1.0]) @ fit.H
+    flat = cv2.warpPerspective(bgr, S, (int(bw * res), int(bh * res)))
+    chroma = flat.max(axis=2).astype(np.int16) - flat.min(axis=2).astype(np.int16)
+    mask = (chroma > 14).astype(np.uint8)
+    k = max(3, int(3 * res))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    n, _lab, stats, _c = cv2.connectedComponentsWithStats(mask, 8)
+    if n <= 1:
+        return None
+    i = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    w, h = stats[i, cv2.CC_STAT_WIDTH] / res, stats[i, cv2.CC_STAT_HEIGHT] / res
+    return _plausible([max(w, h), min(w, h)])
+
+
+def _board_advice(sheet_mm, current: str) -> str:
+    """Which capture board's zone holds a paper of ``sheet_mm`` (D177)."""
+    from ecgscan.board import load_boards
+    from ecgscan.pipeline import pipeline_config
+
+    specs = load_boards(list((pipeline_config().get("board") or {}).get("specs", [])))
+    fits = sorted((s.zone_size_mm[0] * s.zone_size_mm[1], s) for s in specs
+                  if max(s.zone_size_mm) + 2 >= sheet_mm[0] and min(s.zone_size_mm) + 2 >= sheet_mm[1])
+    tail = f"подойдёт подложка {fits[0][1].title.split()[-1]}" if fits else "снимите её частями или без подложки"
+    return (f"Бумага {sheet_mm[0]} × {sheet_mm[1]} мм шире рамки этой подложки ({current.upper()}) — "
+            f"край будет обрезан; {tail}.")
+
+
+def _plausible(sides) -> list[float] | None:
+    """An ECG paper is 40-600 mm long and 25-320 mm wide; anything else is a misread."""
+    long_, short = sides
+    return [round(long_), round(short)] if 40 <= long_ <= 600 and 25 <= short <= 320 else None
+
+
+def _paper_kind(sheet_mm) -> tuple[str, str]:
+    if not sheet_mm:
+        return "paper", "Бумажная ЭКГ"
+    long_, short = sheet_mm
+    kind = "strip" if short <= 160 else "sheet"
+    word = "Лента" if kind == "strip" else "Лист"
+    return kind, f"{word} ≈ {long_} × {short} мм"
+
+
+def _board_in_view(bgr):
+    """The capture board's fit when enough of its markers are in view and trusted, else None."""
     try:
         from ecgscan.board import detect_board, load_boards
         from ecgscan.pipeline import pipeline_config
     except ImportError:
-        return False
+        return None
     b_cfg = pipeline_config().get("board") or {}
     specs = load_boards(list(b_cfg.get("specs", [])))
-    return detect_board(bgr, specs, min_markers=int(b_cfg.get("min_markers", 3)), whole_zone=False) is not None
+    fit = detect_board(bgr, specs, min_markers=int(b_cfg.get("min_markers", 3)), whole_zone=False)
+    return fit if fit is not None and fit.ok else None
 
 
 @app.get("/api/cases")

@@ -57,6 +57,7 @@
   #cam.on { display:flex; }
   #camview { position:relative; flex:1; overflow:hidden; }
   #camvideo, #camdraw { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  #cammode { color:#9ecbff; font-size:14px; text-align:center; padding:6px 12px 0; background:#111; }
   #camhint { color:#fff; font-size:17px; text-align:center; padding:10px 12px; min-height:48px; background:#111; }
   #camhint.ok { background:#1b5e20; }
   #cambar { display:flex; gap:8px; padding:10px; background:#111; align-items:center; }
@@ -195,9 +196,10 @@
 </div>
 
 <div id="cam" role="dialog" aria-label="Камера">
+  <div id="cammode">Экран прибора, лист или лента — определится сам</div>
   <div id="camhint">Наведите камеру на ЭКГ…</div>
   <div id="camview"><video id="camvideo" playsinline muted autoplay></video><canvas id="camdraw"></canvas></div>
-  <label id="camparts"><input type="checkbox" id="campartsbox"> Длинная лента — снимаю частями (каждая часть с перекрытием)</label>
+  <label id="camparts"><input type="checkbox" id="campartsbox"> Снимаю частями (каждая часть с перекрытием) — включается сам, если лист большой</label>
   <div id="cambar">
     <button type="button" id="camclose">Отмена</button>
     <button type="button" id="camshot">Снять</button>
@@ -287,7 +289,8 @@ async function camOpen() {
   } catch (e) { alert('Нет доступа к камере: ' + e.message); return; }
   const track = cam.stream.getVideoTracks()[0];
   $('camvideo').srcObject = cam.stream;
-  cam.capture = null; cam.photoW = 0; cam.shots = []; cam.okRun = 0;
+  cam.capture = null; cam.photoW = 0; cam.shots = []; cam.okRun = 0; cam.partsDeclined = false;
+  $('campartsbox').checked = false;
   if ('ImageCapture' in window) {
     try {
       cam.capture = new ImageCapture(track);
@@ -328,6 +331,10 @@ async function camCheck() {
         ? 'Нужен ключ клиники (раздел «Дополнительно»).' : 'Проверка кадра недоступна — можно снять вручную.'; return; }
     const d = await r.json();
     camDraw(d, c.width, c.height);
+    // D177: what is in view is told apart on the server; a sheet too big to take whole
+    // switches the parts mode on by itself (the user can still switch it off).
+    $('cammode').textContent = (d.mode_ru || '') + (d.board ? ' · подложка найдена' : '');
+    if (d.suggest_parts && !$('campartsbox').checked && !cam.partsDeclined) $('campartsbox').checked = true;
     const hint = $('camhint');
     if (d.ok) {
       cam.okRun += 1; hint.classList.add('ok');
@@ -335,7 +342,7 @@ async function camCheck() {
       if (cam.okRun >= CAM_OK_RUN) { cam.okRun = 0; await camShot(); }
     } else {
       cam.okRun = 0; hint.classList.remove('ok');
-      hint.textContent = d.hints.map(h => h.ru).join(' ') + (d.board ? ' Подложка найдена.' : '');
+      hint.textContent = d.hints.map(h => h.ru).join(' ');
     }
   } catch (e) { /* a lost frame: the next one tries again */ }
   finally { cam.busy = false; }
@@ -374,6 +381,7 @@ function camDone() {
   }
   camClose();
 }
+$('campartsbox').addEventListener('change', e => { cam.partsDeclined = !e.target.checked; });
 $('camopen').addEventListener('click', camOpen);
 $('camclose').addEventListener('click', camClose);
 $('camshot').addEventListener('click', camShot);
