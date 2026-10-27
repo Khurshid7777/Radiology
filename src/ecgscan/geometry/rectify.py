@@ -212,7 +212,7 @@ def rectify(bgr: np.ndarray, *, working_px_per_mm: float, raw_grid: GridEstimate
             from ecgscan.geometry.grid import estimate_coarse_grid
 
             g = estimate_coarse_grid(bgr_i, min_px_per_mm=expected * (1 - reread_tolerance),
-                                     max_px_per_mm=expected * (1 + reread_tolerance), min_score=0.3) \
+                                     max_px_per_mm=expected * (1 + reread_tolerance), min_score=0.3, reread=True) \
                 or GridEstimate(None, None, 0.0, 0.0, "coarse", 0.0)
         else:
             g = estimate_grid(bgr_i)
