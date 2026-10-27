@@ -71,6 +71,34 @@ SCANNER_FINAL_REFUSALS = frozenset({"LOW_RESOLUTION", "GLARE", "BLUR", "TRACE_BR
 PHOTO_GATES = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_implausible"})
 COARSE_WARNING = "LOW_RESOLUTION_COARSE"     # the scanner's coarse mode (D170, SD-074)
 
+# A paper ECG photographed sideways (D171): the scanner says LAYOUT_UNKNOWN, but the
+# CardioLens readers then "read" the tall picture as a 12x1 strip — time runs down the
+# page, and the record is garbage. Turning it automatically was tried and rejected on the
+# scanner side (SD-074: the pulse and the QRS polarity pick the upside-down page too), so
+# a portrait photo that the readers took for paper is refused with the advice to turn it.
+PORTRAIT_HINT = ("Снимок вертикальный: строки ЭКГ должны идти слева направо. Поверните фото и "
+                 "загрузите снова")
+_PAPER_NOTES = ("12x1 strip", "3x4 page", "three-channel strip", "3x4+rhythm strip", "report sheet")
+
+
+def _portrait(path) -> bool:
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            w, h = im.size
+    except Exception:
+        return False
+    return h > 1.15 * w
+
+
+def _guard_orientation(path, sig):
+    """``sig`` as read by the CardioLens readers, unless the photo stands on end and they
+    took it for a paper format — then the read is refused (D171)."""
+    if _portrait(path) and any(n.startswith(_PAPER_NOTES) for n in sig.provenance.notes):
+        raise ValueError(PORTRAIT_HINT)
+    return sig
+
 
 def scale_unknown(result) -> bool:
     """The scanner read the page but asks to confirm it, trusts neither its calibration nor
@@ -118,7 +146,7 @@ def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
             raise ValueError("photos in parts need the scanner") from None
         return digitize_auto_to_signal(path)
     result, overlay = scan_keeping_overlay(scan, [str(p) for p in path] if in_parts else path)
-    readers = None if in_parts else (lambda: digitize_auto_to_signal(path))
+    readers = None if in_parts else (lambda: _guard_orientation(path, digitize_auto_to_signal(path)))
     if result.status != "rejected":
         sig = to_signal_representation(result)
         sig.provenance.overlay_jpeg = overlay      # what was read, for the doctor's eye (D163)
