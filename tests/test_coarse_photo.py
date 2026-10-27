@@ -34,3 +34,23 @@ def test_coarse_photo_escalates_in_mode_b_and_plain_signal_is_untouched():
     assert coarse.report.mode == "escalate"
     plain = run_pipeline(generate_synthetic_ecg(heart_rate_bpm=72), mode="A")
     assert "photo_coarse" not in plain.findings.codes() and plain.measurements.intervals.qrs_ms is not None
+
+
+def test_coarse_scan_is_not_handed_to_the_readers(monkeypatch, tmp_path):
+    """D170: a coarse scanner read stays with the scanner even when D144 would doubt its scale."""
+    import cardiolens.telegram.analyze as A
+
+    class Cal:
+        confidence = 0.0
+
+    class Res:
+        status, warnings, calibration, artifacts = "needs_confirmation", ["LOW_RESOLUTION_COARSE", "SPEED_UNCERTAIN", "RHYTHM_INCONSISTENT"], Cal(), {}
+
+    sig = _coarse(heart_rate_bpm=72)
+    import ecgscan.contract.cardiolens_adapter as AD
+    import ecgscan.pipeline as P
+    monkeypatch.setattr(P, "scan", lambda image, **kw: Res())
+    monkeypatch.setattr(AD, "to_signal_representation", lambda r: sig)
+    monkeypatch.setattr(A, "digitize_auto_to_signal", lambda p: (_ for _ in ()).throw(AssertionError("readers must not run")))
+    photo = tmp_path / "p.png"; photo.write_bytes(b"\x89PNG")
+    assert A.digitize_photo(photo) is sig
