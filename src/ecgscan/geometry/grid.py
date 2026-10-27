@@ -274,37 +274,80 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
     return best  # type: ignore[return-value]
 
 
+def _coarse_axes(img: np.ndarray, lo: float, hi: float, *, max_lines: int = 400, min_periods: float = 12.0,
+                 refine: bool = True) -> dict[str, list[tuple[float | None, float]]]:
+    """Per channel, per axis (x, y): the best 5-mm comb pitch and its raw score."""
+    lines = {ax: _channels(_sampled(img, ax, max_lines)) for ax in (1, 0)}
+    out: dict[str, list[tuple[float | None, float]]] = {}
+    for name in lines[1]:
+        res: list[tuple[float | None, float]] = []
+        for axis in (1, 0):
+            n = img.shape[axis]
+            top = min(hi, n / (5.0 * min_periods))      # at least ``min_periods`` 5-mm periods in view
+            if top <= lo:
+                res.append((None, 0.0))
+                continue
+            spec = _spectrum(lines[axis][name], 1, max_rows=max_lines)
+            maxed = _maxed(spec)
+            cands = np.exp(np.linspace(np.log(lo), np.log(top), 300))
+            sc = comb_scores(spec, n, cands, maxed=maxed, explained=False, minor=False)
+            i = int(np.argmax(sc))
+            p = float(cands[i])
+            res.append((_refine(spec, n, p, maxed=maxed) if refine else p, float(sc[i])))
+        out[name] = res
+    return out
+
+
+def _square(axes: dict[str, list[tuple[float | None, float]]], min_score: float) -> tuple[float, float, float, str] | None:
+    """The best channel whose x and y pitches agree (``SQUARE_TOL``) with both scores >= ``min_score``."""
+    best = None
+    for name, ((px, sx), (py, sy)) in axes.items():
+        if px is None or py is None or abs(px - py) > SQUARE_TOL * max(px, py) or min(sx, sy) < min_score:
+            continue
+        if best is None or min(sx, sy) > min(best[2], best[3]):
+            best = (px, py, sx, sy, name)
+    return None if best is None else (best[0], best[1], min(best[2], best[3]), best[4])  # type: ignore[return-value]
+
+
 def estimate_coarse_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm: float = 8.0,
-                         min_score: float = 0.5) -> GridEstimate | None:
+                         min_score: float = 0.3, tile_px: int = 320, tile_score: float = 1.0,
+                         tile_agree: float = 0.06, min_tiles: int = 2) -> GridEstimate | None:
     """The grid of a copy too coarse for the 1-mm lines (a messenger copy: ~3 px/mm, the
     1-mm lines lost to JPEG; D170, SD-074), read from the 5-mm lines alone.
 
-    The same comb on the major period, without asking for energy at 1/pitch, and raw
-    (``explained=False``): at 3 px/mm the strong low-frequency peaks of the page edge and
-    the trace rows are not grid harmonics, and weighting by the explained share scored
-    the right pitch at 0.01. Chroma first (the grid is coloured, the trace black), grey
-    as the fallback; both axes must agree within ``SQUARE_TOL``. ``None``: no 5-mm grid."""
-    lines = {ax: _channels(_sampled(img, ax)) for ax in (1, 0)}
-    for name in lines[1]:
-        res = []
-        for axis in (1, 0):
-            spec = _spectrum(lines[axis][name], 1)
-            n = img.shape[axis]
-            hi = min(max_px_per_mm, n / 60.0)
-            if hi <= min_px_per_mm:
-                res.append((None, 0.0))
-                continue
-            maxed = _maxed(spec)
-            cands = np.exp(np.linspace(np.log(min_px_per_mm), np.log(hi), 400))
-            sc = comb_scores(spec, n, cands, maxed=maxed, explained=False, minor=False)
-            i = int(np.argmax(sc))
-            p, s = float(cands[i]), float(sc[i])
-            res.append((_refine(spec, n, p, maxed=maxed) if s >= min_score else None, s))
-        (px, sx), (py, sy) = res
-        if px is None or py is None or abs(px - py) > SQUARE_TOL * max(px, py):
-            continue
-        return GridEstimate(px, py, sx, sy, f"{name}:5mm", round(float(np.clip(min(sx, sy) / CONF_SCALE, 0.0, 1.0)), 3))
-    return None
+    1. The whole image: the comb on the major period, without asking for energy at 1/pitch,
+       raw (``explained=False``: at 3 px/mm the page edge and the trace rows make strong
+       peaks that are not grid harmonics). Chroma and grey on an equal footing (thermal
+       paper's grid is nearly grey): the channel whose x and y pitches agree best.
+    2. When the sheet is a small part of the frame (a strip on a carpet or a lap) its comb is
+       diluted below ``min_score``: the image is cut into overlapping ``tile_px`` tiles, each
+       votes with its own square comb (>= ``tile_score``), and the pitch at least
+       ``min_tiles`` tiles agree on (± ``tile_agree``) is taken.
+    ``None``: no 5-mm grid (a device screen, a non-ECG picture)."""
+    whole = _square(_coarse_axes(img, min_px_per_mm, max_px_per_mm), min_score)
+    if whole is not None:
+        px, py, sc, name = whole
+        return GridEstimate(px, py, sc, sc, f"{name}:5mm", round(float(np.clip(sc / CONF_SCALE, 0.0, 1.0)), 3))
+    h, w = img.shape[:2]
+    votes: list[tuple[float, float]] = []
+    step = max(1, tile_px // 2)
+    for y in range(0, max(1, h - tile_px + 1), step):
+        for x in range(0, max(1, w - tile_px + 1), step):
+            t = _square(_coarse_axes(img[y:y + tile_px, x:x + tile_px], min_px_per_mm, max_px_per_mm,
+                                     max_lines=200, min_periods=6.0, refine=False), tile_score)
+            if t is not None:
+                votes.append((float(np.sqrt(t[0] * t[1])), t[2]))
+    if len(votes) < min_tiles:
+        return None
+    p = np.array([v[0] for v in votes])
+    sc = np.array([v[1] for v in votes])
+    support = [float(sc[np.abs(p / c - 1.0) <= tile_agree].sum()) for c in p]
+    c = p[int(np.argmax(support))]
+    m = np.abs(p / c - 1.0) <= tile_agree
+    if m.sum() < min_tiles:
+        return None
+    pitch, score = float(np.median(p[m])), float(np.median(sc[m]))
+    return GridEstimate(pitch, pitch, score, score, "tiles:5mm", round(float(np.clip(score / CONF_SCALE, 0.0, 1.0)), 3))
 
 
 def estimate_grid_tiled(img: np.ndarray, *, tiles: int = 3, **kw) -> GridEstimate | None:

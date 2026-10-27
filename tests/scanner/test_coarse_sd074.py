@@ -59,7 +59,7 @@ def test_large_or_sharp_images_never_take_the_coarse_path(synth_mv):
     fine = GridEstimate(12.0, 12.0, 3.0, 3.0, "chroma", 1.0)
     assert _coarse_grid(big, GridEstimate(None, None, 0, 0, "chroma", 0.0), cfg) is None    # a phone original
     small = np.full((900, 1280, 3), 250, np.uint8)
-    assert _coarse_grid(small, GridEstimate(9.0, 9.0, 3.0, 3.0, "chroma", 1.0), cfg) is None  # 142 mm: plausible
+    assert _coarse_grid(small, GridEstimate(8.0, 8.0, 3.0, 3.0, "chroma", 1.0), cfg) is None  # 160 mm: plausible
     # 12 px/mm on 1280 px would be a 107-mm page: a misread, so the 5-mm grid is asked (none here).
     assert _coarse_grid(small, fine, cfg) is None
     off = {**cfg, "coarse": {**cfg["coarse"], "enabled": False}}
@@ -94,3 +94,19 @@ def test_the_warning_says_how_coarse_in_both_languages():
     assert "≈3,1 " in t("warning.LOW_RESOLUTION_COARSE", "ru", **_fmt(res, "ru"))
     assert "≈3.1 " in t("warning.LOW_RESOLUTION_COARSE", "uz", **_fmt(res, "uz"))
     assert t("warning.LOW_RESOLUTION_MARGINAL", "ru", **_fmt({}, "ru"))     # other texts ignore the placeholder
+
+
+def test_a_sheet_lost_in_a_busy_frame_is_found_by_tiles(synth_mv):
+    """A strip on a carpet or a lap: when the whole frame's comb is diluted the tiles vote;
+    a frame with no grid (a device screen, a non-ECG picture) gives nothing either way."""
+    rng = np.random.default_rng(1)
+    page, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=5.0))
+    bg = cv2.GaussianBlur((rng.random((960, 1280, 3)) * 255).astype(np.uint8), (0, 0), 2.5)
+    img = bg.copy()
+    strip = page[300:700, :1220]
+    img[420:420 + strip.shape[0], 60:60 + strip.shape[1]] = strip
+    img = cv2.imdecode(cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])[1], 1)
+    g = estimate_coarse_grid(img, min_score=99.0)                 # the whole-frame step refused: tiles only
+    assert g is not None and g.channel == "tiles:5mm" and g.px_per_mm == pytest.approx(5.0, rel=0.03)
+    assert estimate_coarse_grid(bg) is None and estimate_coarse_grid(bg, min_score=99.0) is None
+

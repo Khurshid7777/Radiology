@@ -18,9 +18,9 @@ quality:
 coarse:
   enabled: true
   max_side_px: 2000              # only images this small (a phone original is 3000-4000 px: never coarse)
-  min_page_mm: 120               # a fine grid implying a narrower image than this is a misread, not the grid
+  min_page_mm: 160               # a fine grid implying a narrower image than this is a misread (a 1280-px copy read at 2x: 116-123 mm)
   min_px_per_mm: 2.5             # below: the 5-mm period (12.5 px) is not trusted -> LOW_RESOLUTION stands
-  min_score: 0.5                 # 5-mm comb score (spectral medians) to accept the grid
+  min_score: 0.3                 # 5-mm comb score (spectral medians), whole image; real messenger copies 0.3-0.5 (synthetic ~1-2)
   max_upscale: 4.0               # 2.5 px/mm x 4 = the 10 px/mm working scale
 
 geometry:
