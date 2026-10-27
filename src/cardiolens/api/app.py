@@ -178,7 +178,8 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
     mode, mode_ru = _paper_kind(sheet_mm)
     texts = say([c for c in hints if c != "parts"])
     if board and sheet_mm:
-        zw, zh = fit.spec.zone_size_mm
+        # Tinted paper is read up to the markers' inner edges (SD-077), not only the frame.
+        zw, zh = _read_size(fit.spec)
         if sheet_mm[0] > max(zw, zh) + 2 or sheet_mm[1] > min(zw, zh) + 2:
             hints.append("board_small")
             texts.append({"code": "board_small", "ru": _board_advice(sheet_mm, fit.spec.name)})
@@ -241,13 +242,26 @@ def _board_advice(sheet_mm, current: str) -> str:
     from ecgscan.pipeline import pipeline_config
 
     specs = load_boards(list((pipeline_config().get("board") or {}).get("specs", [])))
-    fits = sorted((s.zone_size_mm[0] * s.zone_size_mm[1], s) for s in specs
-                  if max(s.zone_size_mm) + 2 >= sheet_mm[0] and min(s.zone_size_mm) + 2 >= sheet_mm[1])
+    sizes = [(s, _read_size(s)) for s in specs]
+    fits = sorted((w * h, s.name, s) for s, (w, h) in sizes
+                  if max(w, h) + 2 >= sheet_mm[0] and min(w, h) + 2 >= sheet_mm[1])
     names = {"A3x2": "A3x2 (A3 из двух листов A4)", "A4W": "A4W (A4 с широкой рамкой)"}
-    name = fits[0][1].title.split()[-1] if fits else ""
+    name = fits[0][2].title.split()[-1] if fits else ""
     tail = f"подойдёт подложка {names.get(name, name)}" if fits else "снимите её частями или без подложки"
-    return (f"Бумага {sheet_mm[0]} × {sheet_mm[1]} мм шире рамки этой подложки ({current.upper()}) — "
+    return (f"Бумага {sheet_mm[0]} × {sheet_mm[1]} мм больше этой подложки ({current.upper()}) — "
             f"край будет обрезан; {tail}.")
+
+
+def _read_size(spec) -> tuple[float, float]:
+    """How much paper a board holds: up to its markers when the scanner reads beyond the
+    frame (SD-077, tinted paper or a coloured grid), else the frame."""
+    from ecgscan.pipeline import pipeline_config
+
+    b_cfg = pipeline_config().get("board") or {}
+    if b_cfg.get("read_beyond_zone") and hasattr(spec, "read_mm"):
+        x0, y0, x1, y1 = spec.read_mm(float(b_cfg.get("read_margin_mm", 1.5)))
+        return x1 - x0, y1 - y0
+    return spec.zone_size_mm
 
 
 def _plausible(sides) -> list[float] | None:
