@@ -28,7 +28,7 @@ from cardiolens.config import (
     norms_for_patient,
 )
 from cardiolens.contracts.causal import CausalGraph
-from cardiolens.contracts.features import Intervals, Measurements, Morphology, Voltages
+from cardiolens.contracts.features import Intervals, Measurements, Voltages
 from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
@@ -347,9 +347,23 @@ def run_pipeline(
     coarse = next((n for n in sig.provenance.notes if n.startswith(COARSE_NOTE_PREFIX)), None)
     if coarse and not (no_ecg or bad_units or bad_photo):
         px_mm = coarse.partition("px_per_mm=")[2].split()[0] if "px_per_mm=" in coarse else "?"
-        m.intervals, m.voltages, m.morphology, m.sokolow_lyon_uv = Intervals(), Voltages(), Morphology(), None
+        m.intervals, m.voltages, m.sokolow_lyon_uv = Intervals(), Voltages(), None
         dropped = sorted(f.code for f in findings.findings if f.group in COARSE_WITHHELD_GROUPS)
         findings.findings = [f for f in findings.findings if f.group not in COARSE_WITHHELD_GROUPS]
+        # ST is re-read with the thresholds raised by one millimetre (~3 px at 3 px/mm): a 2-mm
+        # elevation or depression is six pixels and shows; a 1-mm one is noise. What passes is
+        # said to be approximate; the alert it raises is marked "check against the record".
+        from cardiolens.layer4_findings.rules import _st_findings
+
+        st_fs = FindingSet(findings=list(findings.findings))
+        _st_findings(m, {**norms, "st_uv": coarse_st_thresholds(norms.get("st_uv", {}))}, st_fs,
+                     patient=sig.patient)
+        for f in st_fs.findings:
+            if f.group == "ischemia":
+                f.label_ru += " — по сжатому снимку, ориентировочно"
+                f.label_uz += " — siqilgan surat bo'yicha, taxminiy"
+                f.confidence = round(f.confidence * 0.8, 2)
+                findings.findings.append(f)
         findings.findings.append(Finding(
             code="photo_coarse", group="quality",
             label_ru=f"Сжатый снимок (~{px_mm} пикс/мм, нужно от 8): ЧСС и ритм ориентировочны, "
@@ -464,6 +478,22 @@ PHOTO_LOW_RES_PX_PER_MM = 6.0   # D126: an unreliable photo below this asks for 
 # "coarse: px_per_mm=3.1". The finding groups that need a fine time or voltage scale.
 COARSE_NOTE_PREFIX = "coarse:"
 COARSE_WITHHELD_GROUPS = frozenset({"interval", "ischemia", "hypertrophy"})
+COARSE_ST_MARGIN_UV = 100.0      # one millimetre on top of every ST threshold (provisional, D170)
+
+
+def coarse_st_thresholds(st: dict, margin: float = COARSE_ST_MARGIN_UV) -> dict:
+    """The ST thresholds for a compressed photo (D170): every significant level one
+    millimetre higher, the 0.5-1 mm descriptor off (below what 3 px/mm resolves)."""
+    out = dict(st)
+    for key in ("elevation_significant", "depression_significant", "any_elevation_uv",
+                "proportional_discordant_min_uv"):
+        if out.get(key) is not None:
+            out[key] = float(out[key]) + margin
+    if isinstance(out.get("elevation_v2_v3"), dict):
+        out["elevation_v2_v3"] = {k: float(v) + margin for k, v in out["elevation_v2_v3"].items()}
+    out.pop("depression_minor", None)
+    out.setdefault("any_elevation_uv", out.get("elevation_significant"))
+    return out
 SHORT_WINDOW_S = 4.0     # D122: below this, one visible QRS bounds the rate instead of measuring it
 SHORT_WINDOW_EDGE_S = 0.5
 _FILE_SOURCES = {"csv", "edf"}

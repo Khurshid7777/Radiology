@@ -18,12 +18,15 @@ def test_coarse_photo_keeps_rate_and_rhythm_and_withholds_intervals():
     res = run_pipeline(_coarse(heart_rate_bpm=72, st_elevation_uv=250, st_leads=["II", "III", "aVF"]), mode="A")
     codes = res.findings.codes()
     assert "photo_coarse" in codes and "sinus_rhythm" in codes
-    assert "st_elevation" not in codes and not any(f.group in ("interval", "ischemia", "hypertrophy")
-                                                   for f in res.findings.findings)
+    # ST of 2.5 mm survives the raised thresholds, said to be approximate; its alert is unverified.
+    st = next(f for f in res.findings.findings if f.code == "st_elevation")
+    assert "ориентировочно" in st.label_ru and st.confidence < 0.8
+    assert not any(f.group in ("interval", "hypertrophy") for f in res.findings.findings)
+    alert = next(a for a in res.safety.alerts if a.code == "st_elevation")
+    assert alert.unverified
     assert res.measurements.heart_rate_bpm is not None and abs(res.measurements.heart_rate_bpm - 72) < 4
     iv = res.measurements.intervals
     assert iv.pr_ms is None and iv.qrs_ms is None and iv.qt_ms is None and iv.qtc_bazett_ms is None
-    assert not any(a.code == "st_elevation" for a in res.safety.alerts)
     d = result_to_dict(res)
     assert d["measurements"]["intervals"]["qrs_ms"] is None
     assert "3.1" in format_conclusion(res, "ru") and "ritm" in format_conclusion(res, "uz").lower()
@@ -54,3 +57,11 @@ def test_coarse_scan_is_not_handed_to_the_readers(monkeypatch, tmp_path):
     monkeypatch.setattr(A, "digitize_auto_to_signal", lambda p: (_ for _ in ()).throw(AssertionError("readers must not run")))
     photo = tmp_path / "p.png"; photo.write_bytes(b"\x89PNG")
     assert A.digitize_photo(photo) is sig
+
+
+def test_coarse_photo_small_st_is_not_called():
+    """A 1-mm shift is three pixels at 3 px/mm: below the raised thresholds, not reported."""
+    res = run_pipeline(_coarse(heart_rate_bpm=72, st_elevation_uv=120, st_leads=["II", "III", "aVF"]), mode="A")
+    assert not any(f.group == "ischemia" for f in res.findings.findings)
+    plain = run_pipeline(generate_synthetic_ecg(heart_rate_bpm=72, st_elevation_uv=120, st_leads=["II", "III", "aVF"]), mode="A")
+    assert "st_elevation" in plain.findings.codes()        # the same ECG at full scale is called
