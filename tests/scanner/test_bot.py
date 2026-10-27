@@ -151,7 +151,15 @@ def test_analyze_mode_takes_an_album_as_one_record(analyze_api, tmp_path):
 
 
 def test_analyze_mode_refusal_keeps_the_telegram_wording(analyze_api, tmp_path):
+    # D170: a camera-sized photo with a coarse grid is still refused (a small copy is read coarse).
+    import cv2
+
     from ecgscan_bot.logic import handle_analysis
 
-    text, aid = handle_analysis(_cfg(), analyze_api, [("page.png", _page_png(tmp_path, px_per_mm=4))], "ru")
+    page = cv2.imdecode(np.frombuffer(_page_png(tmp_path, px_per_mm=6), np.uint8), cv2.IMREAD_COLOR)
+    big = cv2.copyMakeBorder(page, 400, 400, 400, 400, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    data = cv2.imencode(".png", big)[1].tobytes()
+    text, aid = handle_analysis(_cfg(), analyze_api, [("page.png", data)], "ru")
     assert aid is None and "файлом" in text and "галере" not in text, text
+    small, aid2 = handle_analysis(_cfg(), analyze_api, [("page.png", _page_png(tmp_path, px_per_mm=4))], "ru", "54 м")
+    assert aid2 and "сжат" in small.lower(), small

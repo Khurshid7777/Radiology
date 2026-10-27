@@ -122,6 +122,19 @@ def _page_png(tmp_path, px_per_mm=10):
     return png
 
 
+def _large_coarse_png(tmp_path, px_per_mm=6, pad=400):
+    """A camera-sized photo (long side > 2000 px) whose grid is still under 8 px/mm: this is
+    what the scanner keeps refusing (LOW_RESOLUTION); a small copy is read coarse (D170)."""
+    import cv2
+
+    png = _page_png(tmp_path, px_per_mm=px_per_mm)
+    img = cv2.imread(str(png))
+    big = cv2.copyMakeBorder(img, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    out = tmp_path / "big.png"
+    cv2.imwrite(str(out), big)
+    return out
+
+
 def test_photo_upload_is_read_like_the_bot_does(tmp_path):
     with open(_page_png(tmp_path), "rb") as f:
         r = client.post("/api/analyze", data={"mode": "A"},
@@ -224,9 +237,22 @@ def test_heic_and_pdf_photos_are_read(tmp_path):
 # --- a messenger-sized photo is refused with the web page's wording (D159) --------------------
 
 def test_small_photo_refusal_speaks_of_the_gallery_not_telegram(tmp_path):
-    with open(_page_png(tmp_path, px_per_mm=4), "rb") as f:
+    with open(_large_coarse_png(tmp_path), "rb") as f:
         r = client.post("/api/analyze", data={"mode": "A"},
                         files={"files": ("page.png", f, "image/png")})
     assert r.status_code == 400, r.text
     detail = r.json()["detail"]
     assert "файлом" not in detail and "оригинал" in detail, detail
+
+
+def test_messenger_sized_photo_is_read_coarse(tmp_path):
+    """D170: a small copy (4 px/mm, ~1000 px) is read in the coarse mode: rate and rhythm,
+    no intervals, the photo_coarse descriptor, never a refusal."""
+    with open(_page_png(tmp_path, px_per_mm=4), "rb") as f:
+        r = client.post("/api/analyze", data={"mode": "A"},
+                        files={"files": ("page.png", f, "image/png")})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert "photo_coarse" in {f["code"] for f in d["findings"]}
+    assert d["measurements"]["heart_rate_bpm"] == pytest.approx(72, abs=5)
+    assert d["measurements"]["intervals"]["qrs_ms"] is None
