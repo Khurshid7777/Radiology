@@ -66,6 +66,25 @@ def web_wording(text: str) -> str:
     return text
 
 
+def _upright_copy(path: Path, content: bytes) -> Path | None:
+    """A JPEG the phone stored on its side with an EXIF turn: a PNG turned upright, so every
+    reader (the scanner, the CardioLens readers, the portrait check) sees the same picture
+    (D180). None when there is nothing to turn."""
+    if not content.startswith(b"\xff\xd8"):
+        return None
+    try:
+        from PIL import Image, ImageOps
+
+        with Image.open(path) as im:
+            if (im.getexif() or {}).get(0x0112, 1) in (None, 1):
+                return None
+            out = path.with_name(path.stem + "_upright.png")
+            ImageOps.exif_transpose(im).convert("RGB").save(out)
+            return out
+    except Exception:
+        return None
+
+
 def as_photo(path: Path, content: bytes) -> Path:
     """The file as an image OpenCV reads: itself, or a PNG rendered next to it (D158). A PDF
     gives its first page at 300 dpi (11.8 px/mm, above the readers' 8 px/mm); a HEIC photo
@@ -78,6 +97,9 @@ def as_photo(path: Path, content: bytes) -> Path:
         out = path.with_suffix(".png")
         ImageOps.exif_transpose(Image.open(path)).convert("RGB").save(out)
         return out
+    turned = _upright_copy(path, content)
+    if turned is not None:
+        return turned
     if _is_pdf(content):
         import pymupdf
 

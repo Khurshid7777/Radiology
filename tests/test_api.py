@@ -385,3 +385,49 @@ def test_paper_speed_given_by_the_user_reaches_the_scanner(tmp_path):
     bad = client.post("/api/analyze", data={"mode": "A", "paper_speed_mm_s": "33"},
                       files={"files": ("page.png", _page_png(tmp_path).read_bytes(), "image/png")})
     assert bad.status_code == 400 and "33" in bad.json()["detail"]
+
+
+# --- D180: a phone photo stored on its side (EXIF); the camera says to turn the phone ------------
+
+def test_exif_turned_jpeg_is_read_upright(tmp_path):
+    """A landscape page stored as a portrait JPEG with EXIF Orientation 6 (the phone held
+    sideways): the portrait check used the stored size and refused it with "turn the photo"."""
+    import io
+
+    from PIL import Image
+
+    img = Image.open(_page_png(tmp_path)).convert("RGB").rotate(90, expand=True)   # stored on its side
+    exif = Image.Exif()
+    exif[0x0112] = 6                                                                 # display: turn 90° CW
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=95, exif=exif)
+    r = client.post("/api/analyze", data={"mode": "A"}, files={"files": ("phone.jpg", buf.getvalue(), "image/jpeg")})
+    assert r.status_code == 200, r.text
+    assert r.json()["measurements"]["heart_rate_bpm"] == pytest.approx(72, abs=6)
+
+
+def test_capture_check_says_turn_the_phone_for_a_page_on_end(tmp_path):
+    import cv2
+
+    page = cv2.imread(str(_page_png(tmp_path, px_per_mm=10)))
+    upright = cv2.rotate(page, cv2.ROTATE_90_CLOCKWISE)
+    pad = cv2.copyMakeBorder(upright, 60, 60, 60, 60, cv2.BORDER_CONSTANT, value=(40, 40, 40))
+    d = client.post("/api/capture/check", data={"capture_width": str(pad.shape[1])}, files=_frame(pad)).json()
+    assert "turn" in {h["code"] for h in d["hints"]}, d["hints"]
+    flat = cv2.copyMakeBorder(page, 60, 60, 60, 60, cv2.BORDER_CONSTANT, value=(40, 40, 40))
+    e = client.post("/api/capture/check", data={"capture_width": str(flat.shape[1])}, files=_frame(flat)).json()
+    assert "turn" not in {h["code"] for h in e["hints"]}
+
+
+def test_assumed_paper_speed_is_said_and_a_given_one_is_not(tmp_path):
+    """D180: a photo whose speed was not read from the strip says 25 mm/s was assumed; with
+    the user's speed it does not."""
+    def note(**form):
+        r = client.post("/api/analyze", data={"mode": "A", **form},
+                        files={"files": ("page.png", _page_png(tmp_path).read_bytes(), "image/png")})
+        assert r.status_code == 200, r.text
+        return r.json().get("speed_note_ru")
+
+    assumed = note()
+    assert assumed is None or "25 мм/с" in assumed
+    assert note(paper_speed_mm_s="25") is None

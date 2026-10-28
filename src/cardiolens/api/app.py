@@ -175,8 +175,12 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
     suggest_parts = not parts and not board and (cut or too_big)
     if suggest_parts:
         hints = [c for c in hints if c not in ("frame", "closer")] + ["parts"]
+    if _sheet_on_end(corners) and (qc.sheet_area or 0) >= 0.3:
+        hints.insert(0, "turn")        # D180: the rows run down the frame — the phone is held upright
     mode, mode_ru = _paper_kind(sheet_mm)
-    texts = say([c for c in hints if c != "parts"])
+    texts = say([c for c in hints if c not in ("parts", "turn")])
+    if "turn" in hints:
+        texts.insert(0, {"code": "turn", "ru": "Поверните телефон горизонтально: строки ЭКГ должны идти слева направо."})
     if board and sheet_mm:
         # Tinted paper is read up to the markers' inner edges (SD-077), not only the frame.
         zw, zh = _read_size(fit.spec)
@@ -201,6 +205,17 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
         "suggest_parts": suggest_parts,
         "frame": [w, h],
     }
+
+
+def _sheet_on_end(corners) -> bool:
+    """The sheet stands on end in the frame: its long side runs down (the strip photographed
+    with the phone upright; ECG rows run along the long side)."""
+    if not corners:
+        return False
+    c = np.asarray(corners, float)
+    w = (np.linalg.norm(c[1] - c[0]) + np.linalg.norm(c[2] - c[3])) / 2
+    h = (np.linalg.norm(c[3] - c[0]) + np.linalg.norm(c[2] - c[1])) / 2
+    return h > 1.3 * w
 
 
 def _sheet_mm(corners, px_per_mm, scale) -> list[float] | None:
@@ -361,6 +376,9 @@ async def analyze(
     payload["conclusion_uz"] = format_conclusion(result, "uz")
     # A photo the scanner read: the page shows what was read (D163), the bot sends it.
     payload["overlay_available"] = result.signal.provenance.overlay_jpeg is not None
+    from cardiolens.outputs.pdf_report import speed_assumed_note
+
+    payload["speed_note_ru"] = speed_assumed_note(result)       # D180
     return JSONResponse(payload)
 
 

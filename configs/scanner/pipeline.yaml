@@ -45,6 +45,7 @@ calibration:
     speed_conf: 0.35             # SD-011: pulse width is a weak speed hint
     retry_widen_px: 5            # no pulse found: retry on the mask widened this much across and
     retry_close_px: 7            # ... with vertical gaps up to this closed (a thin, slightly slanted real pulse, SD-059)
+    extend_max_gap_mm: 4.0       # D180: a found pulse is extended down while both edges go on, gaps up to this bridged
   ocr:
     enabled: true
     header_frac: 0.25

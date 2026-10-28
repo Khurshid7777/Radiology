@@ -45,6 +45,26 @@ OVERLAY_NOTE_UZ = ("Manba — qog‘oz EKG surati, raqamlashtirilgan. Rangli chi
 UNRELIABLE_CODES = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_implausible"})
 
 
+_SPEED_KNOWN = ("(header_ocr)", "(user)")
+
+
+def speed_assumed_note(result) -> str | None:
+    """A photo whose paper speed was neither read from the strip nor given by the user: the
+    time scale is the 25 mm/s default (D180). A strip printed at 50 mm/s read so halves the
+    rate — said next to the numbers, with what to do."""
+    prov = result.signal.provenance
+    if not prov.digitized:
+        return None
+    notes = prov.notes
+    if any(n.startswith("scale given by the user") for n in notes):
+        return None
+    cal = next((n for n in notes if n.startswith("calibration: speed=")), None)
+    if cal is not None and any(k in cal.split(" gain=")[0] for k in _SPEED_KNOWN):
+        return None
+    return ("Скорость ленты не прочитана со снимка — принята 25 мм/с. Если на ленте напечатано 50 мм/с, "
+            "выберите её в поле «Скорость ленты» и повторите анализ: иначе ЧСС будет вдвое ниже, интервалы вдвое длиннее.")
+
+
 def measurement_line(result) -> str:
     """The report's measurement line. A record the photo gates call unreliable carries no
     number a doctor could take for a measurement (D178; the narrative withholds them, D128)."""
@@ -56,9 +76,12 @@ def measurement_line(result) -> str:
     def n(v) -> str:            # a measurement that was not made prints as a dash, not "None"
         return "—" if v is None else f"{v:g}" if isinstance(v, float) else str(v)
 
-    return (f"ЧСС: {n(m.heart_rate_bpm)} /мин · PR: {n(m.intervals.pr_ms)} мс · "
+    line = (f"ЧСС: {n(m.heart_rate_bpm)} /мин · PR: {n(m.intervals.pr_ms)} мс · "
             f"QRS: {n(m.intervals.qrs_ms)} мс · QTc(F/B): {n(m.intervals.qtc_fridericia_ms)}/{n(m.intervals.qtc_bazett_ms)} мс · "
             f"ось QRS: {n(m.axes.qrs_deg)}°")
+    note = speed_assumed_note(result)
+    return line if note is None else f"{line}<br/><i>{note}</i>"
+
 
 def _register_font() -> str:
     try:

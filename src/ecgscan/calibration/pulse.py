@@ -116,6 +116,44 @@ def summarize_pulses(pulses: list[Pulse], *, agree: float = 0.08) -> dict | None
             "width_mm": float(np.median([p.width_mm for p in grp])), "n_agree": len(grp), "n_found": len(pulses)}
 
 
+def extend_pulses(mask: np.ndarray, pulses: list[Pulse], px_per_mm: float, *, max_gap_mm: float = 4.0,
+                  edge_tol_mm: float = 3.0, max_h_mm: float = 25.0) -> list[Pulse]:
+    """A pulse whose two edges were broken by the mask (a compressed copy, a faded print: the
+    owner's CardioTouch strip, a 20-mm pulse found as its top 5.2 mm, read as 5 mm/mV — D180)
+    is extended down while BOTH edges go on, gaps up to ``max_gap_mm`` bridged, to the same
+    level (``edge_tol_mm``: one edge may lose its last millimetres to the mask; the longer edge
+    sets the bottom). Only found pulses are extended: no new ones are made, so a page whose
+    pulses were right is unchanged unless both edges really continue."""
+    ppm = float(px_per_mm)
+    if not pulses:
+        return pulses
+    closed = widen_strokes(mask, max(1, int(round(0.4 * ppm))), max(1, int(round(max_gap_mm * ppm))))
+    half = max(1, int(round(0.4 * ppm)))
+    tol = max(2, int(round(edge_tol_mm * ppm)))
+    h, w = mask.shape
+
+    def run_end(x: int, y0: int) -> int:
+        col = closed[:, max(0, x - half):min(w, x + half + 1)].any(axis=1)
+        y = y0
+        while y + 1 < h and col[y + 1]:
+            y += 1
+        return y
+
+    out: list[Pulse] = []
+    for p in pulses:
+        mid = (p.top + p.bottom) // 2
+        el, er = run_end(p.x_left, mid), run_end(p.x_right, mid)
+        bottom = max(el, er)
+        band = max(1, int(round(0.3 * ppm)))
+        inner = mask[p.top + 2 * band:bottom - 2 * band, p.x_left + 2 * band:p.x_right - 2 * band]
+        if (min(el, er) > p.bottom + tol and abs(el - er) <= tol and (bottom - p.top) / ppm <= max_h_mm
+                and not (inner.size and (inner.mean(axis=0) > 0.8).any())):
+            out.append(Pulse(p.x_left, p.x_right, p.top, bottom, round((bottom - p.top) / ppm, 3), p.width_mm))
+        else:
+            out.append(p)
+    return out
+
+
 def widen_strokes(mask: np.ndarray, widen_px: int, close_px: int) -> np.ndarray:
     """A gap-tolerant copy of a mask for the pulse search: widened ``widen_px`` across (a
     slanted line spread over neighbouring columns) and with vertical gaps up to ``close_px``

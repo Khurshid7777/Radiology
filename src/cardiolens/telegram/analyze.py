@@ -83,10 +83,11 @@ _PAPER_NOTES = ("12x1 strip", "3x4 page", "three-channel strip", "3x4+rhythm str
 
 def _portrait(path) -> bool:
     try:
-        from PIL import Image
+        from PIL import Image, ImageOps
 
         with Image.open(path) as im:
-            w, h = im.size
+            # As the phone held it (EXIF): the scanner and OpenCV read it so (D180).
+            w, h = ImageOps.exif_transpose(im).size
     except Exception:
         return False
     return h > 1.15 * w
