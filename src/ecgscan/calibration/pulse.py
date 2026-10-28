@@ -96,20 +96,15 @@ def _grid_lattice(mask: np.ndarray, ppm: float, tol_mm: float = 1.0, gray: np.nd
     With the page's ``gray``, a pair whose edges are clearly darker than the grid's lines is
     a pulse drawn on them, not a cell (SD-084: ECG-Image-Kit draws its pulse on the 5-mm lines,
     trace grey 0-29 against grid 76): darkness (255 - grey) ``darker`` times the lines' and
-    ``darker_min`` grey levels below them."""
+    ``darker_min`` grey levels below them. Each edge is compared with its own line just above
+    the pair (below it at the page's top): a page-wide median of the lines' pixels in the mask
+    was mostly the pulses' legs and the trace's crossings on a page whose light grid is barely
+    in the mask (Kit 12390_hr, SD-084)."""
     period = 5.0 * ppm
     px = _line_phase(mask.mean(axis=0), period)
     if px is None:
         return None
     tol = max(2.0, tol_mm * ppm)
-    line_grey = None
-    if gray is not None:
-        cols = np.arange(mask.shape[1])
-        d = (cols - px) % period
-        on_cols = np.minimum(d, period - d) <= 1.0
-        vals = gray[:, on_cols][mask[:, on_cols]]
-        if vals.size:
-            line_grey = float(np.median(vals))
 
     def on(v: int) -> bool:
         d = (v - px) % period
@@ -128,17 +123,31 @@ def _grid_lattice(mask: np.ndarray, ppm: float, tol_mm: float = 1.0, gray: np.nd
 
     half = max(1, int(round(0.3 * ppm)))
 
-    def edge_grey(x: int, top: int, bottom: int) -> float:
-        """The edge's own grey: the darkest pixel across it, row by row, median."""
-        return float(np.median(gray[top:bottom, max(0, x - half):x + half + 1].min(axis=1)))
+    near, far = max(1, int(round(1.0 * ppm))), max(2, int(round(6.0 * ppm)))
+
+    def grey(x: int, y0: int, y1: int) -> float | None:
+        """The darkest pixel across a column band, row by row, median; ``None`` if no rows."""
+        y0, y1 = max(0, y0), min(gray.shape[0], y1)
+        if y1 - y0 < near:
+            return None
+        return float(np.median(gray[y0:y1, max(0, x - half):x + half + 1].min(axis=1)))
+
+    def darker_than_its_line(x: int, top: int, bottom: int) -> bool:
+        edge = grey(x, top, bottom)
+        line = grey(x, top - far, top - near)
+        if line is None:
+            line = grey(x, bottom + near, bottom + far)
+        if edge is None or line is None:
+            return False
+        dark, line_dark = 255.0 - edge, 255.0 - line
+        return dark >= darker * line_dark and dark - line_dark >= darker_min
 
     def cell(xa: int, xb: int, top: int, bottom: int) -> bool:
         if not ((on(xa) and on(xb)) or ruled(xa, xb, top)):
             return False
-        if line_grey is None or bottom <= top:
+        if gray is None:
             return True
-        dark = 255.0 - max(edge_grey(xa, top, bottom), edge_grey(xb, top, bottom))
-        return not (dark >= darker * (255.0 - line_grey) and dark - (255.0 - line_grey) >= darker_min)
+        return not (darker_than_its_line(xa, top, bottom) and darker_than_its_line(xb, top, bottom))
 
     return cell
 
