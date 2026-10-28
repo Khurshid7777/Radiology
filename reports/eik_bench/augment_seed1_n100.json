@@ -1,0 +1,16 @@
+{
+ "seed": 1,
+ "distortions": "--wrinkles --augment -rot 4",
+ "n": 100,
+ "read": 95,
+ "read_rate": 0.95,
+ "hr_ok_of_all": 0.13,
+ "qrs_ok_of_all": 0.53,
+ "gated": 93,
+ "silent_wrong_hr": 2,
+ "silent_wrong_rate": 0.02,
+ "by_route": {
+  "scanner": 1,
+  "readers": 94
+ }
+}

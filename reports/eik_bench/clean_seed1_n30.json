@@ -1,0 +1,16 @@
+{
+ "seed": 1,
+ "distortions": "",
+ "n": 30,
+ "read": 30,
+ "read_rate": 1.0,
+ "hr_ok_of_all": 0.5,
+ "qrs_ok_of_all": 0.6,
+ "gated": 27,
+ "silent_wrong_hr": 1,
+ "silent_wrong_rate": 0.033,
+ "by_route": {
+  "scanner": 28,
+  "readers": 2
+ }
+}
