@@ -322,6 +322,9 @@ def test_scanner_scale_doubt_with_inconsistency_is_not_trusted():
     assert scale_unknown(res(conf=0.6, warnings=["SPEED_UNCERTAIN", "RHYTHM_INCONSISTENT"]))
     assert not scale_unknown(res(warnings=["SPEED_UNCERTAIN", "LIMB_LEADS_INCONSISTENT"]))
     assert not scale_unknown(res(warnings=["SPEED_UNCERTAIN"]))
+    # D181: limb-lead inconsistency with broken traces (ECG-Image-Kit pages read as AF)
+    assert scale_unknown(res(warnings=["SPEED_UNCERTAIN", "LIMB_LEADS_INCONSISTENT", "TRACE_GAPS"]))
+    assert not scale_unknown(res(warnings=["SPEED_UNCERTAIN", "TRACE_GAPS"]))
     assert not scale_unknown(res(conf=0.8, warnings=["RHYTHM_INCONSISTENT"]))
     assert not scale_unknown(res(status="ok", warnings=["SPEED_UNCERTAIN", "RHYTHM_INCONSISTENT"]))
 

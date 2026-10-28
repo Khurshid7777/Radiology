@@ -120,13 +120,15 @@ def scale_unknown(result) -> bool:
     its paper speed, and finds its own rhythm row inconsistent with the panels (D144). The
     scale doubt alone is common on good reads (13 of the scanner's benchmark pages: strips,
     photos without a header); with the rhythm inconsistency it marked only bad reads there.
-    Limb-lead inconsistency is not enough: the synthetic generator's limb leads are only
-    roughly consistent, and a clean page of them carries it."""
+    Limb-lead inconsistency alone is not enough: the synthetic generator's limb leads are
+    only roughly consistent, and a clean page of them carries it. With broken traces as well
+    it is (D181: ECG-Image-Kit pages read as atrial fibrillation with no gate)."""
     cal = getattr(result, "calibration", None)
     warnings = set(result.warnings or [])
     return (result.status == "needs_confirmation"
             and ((cal is not None and cal.confidence == 0) or "SPEED_UNCERTAIN" in warnings)
-            and "RHYTHM_INCONSISTENT" in warnings)
+            and ("RHYTHM_INCONSISTENT" in warnings
+                 or {"LIMB_LEADS_INCONSISTENT", "TRACE_GAPS"} <= warnings))
 
 
 def scan_keeping_overlay(scan, image, hints=None):
