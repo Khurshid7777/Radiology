@@ -17,8 +17,11 @@ from functools import lru_cache
 
 import numpy as np
 
-SPEED_RE = re.compile(r"(\d{1,2}(?:[.,]\d)?)\s*mm\s*/\s*s(?![a-z])", re.IGNORECASE)
-GAIN_RE = re.compile(r"(\d{1,2}(?:[.,]\d)?)\s*mm\s*/\s*mv", re.IGNORECASE)
+# Russian units as printed by CIS recorders ("50.0 мм/сек", "20 мм/мВ", SD-078) and as the
+# Latin-script OCR model returns them: "MM/ceK", "MM/c", "MM/MB".
+_MM = r"(?:mm|мм)"
+SPEED_RE = re.compile(rf"(\d{{1,2}}(?:[.,]\d)?)\s*{_MM}\s*/\s*(?:sec|s|[cс][eе][kк]|[cс])(?![a-zа-я])", re.IGNORECASE)
+GAIN_RE = re.compile(rf"(\d{{1,2}}(?:[.,]\d)?)\s*{_MM}\s*/\s*(?:m|м)(?:v|в|b)(?![a-zа-я])", re.IGNORECASE)
 
 
 @dataclass
