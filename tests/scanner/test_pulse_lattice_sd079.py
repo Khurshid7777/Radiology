@@ -39,3 +39,36 @@ def test_a_page_without_grid_lines_in_the_mask_is_unchanged(synth_mv, gain):
     assert not grid_in_mask(ink, 10.0)
     s = summarize_pulses(find_pulses(ink, 10.0))
     assert s["n_agree"] == 4 and s["height_mm"] == pytest.approx(gain, rel=0.08)
+
+
+# --- SD-084: a pulse drawn on the grid's lines (ECG-Image-Kit) -------------------------
+
+def _kit_like(*, pulse_grey: int, line_grey: int = 76, ppm: float = 10.0) -> tuple[np.ndarray, np.ndarray]:
+    """A grey 5-mm grid in the mask and an open 10 x 5 mm pulse on two of its lines, its legs
+    stopping 1.5 mm above the trace (the kit's clean render: legs grey 29, lines 76)."""
+    h, w = 300, 400
+    g = np.full((h, w), 250, np.uint8)
+    for x in range(0, w, 50):
+        g[:, x:x + 3] = line_grey
+    for y in range(25, h, 50):
+        g[y:y + 3] = line_grey
+    top, foot = 80, 180
+    g[top:foot, 100:104] = pulse_grey
+    g[top:foot, 150:154] = pulse_grey
+    g[top:top + 4, 100:154] = pulse_grey
+    g[195:198, 156:w] = 0                                 # the trace, after the pulse
+    return g < 120, g
+
+
+def test_a_pulse_drawn_on_the_grid_lines_is_a_pulse():
+    """Before SD-084 its two legs, on 5-mm lines, were taken for a grid cell: no gain."""
+    mask, g = _kit_like(pulse_grey=29)
+    assert grid_in_mask(mask, 10.0)
+    assert find_pulses(mask, 10.0) == []                  # without the page's grey: a cell
+    (p,) = find_pulses(mask, 10.0, gray=g)
+    assert p.height_mm == pytest.approx(10.0, abs=0.3) and p.width_mm == pytest.approx(5.0, abs=0.3)
+
+
+def test_a_grid_cell_as_dark_as_its_lines_stays_a_cell():
+    mask, g = _kit_like(pulse_grey=76)
+    assert find_pulses(mask, 10.0, gray=g) == []
