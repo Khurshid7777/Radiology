@@ -45,7 +45,7 @@ def generate(kit: Path, kit_py: str, inp: Path, out: Path, seed: int, extra: lis
             shutil.copy(hea.with_suffix(ext), one)
         cmd = [kit_py, "gen_ecg_images_from_data_batch.py", "-i", str(one), "-o", str(out), "-se", str(seed),
                "-r", "300", "--print_header", "--store_config", "2", *extra]
-        r = subprocess.run(cmd, cwd=kit, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        r = subprocess.run(cmd, check=False, cwd=kit, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         if r.returncode:
             print(f"generator failed on {hea.stem}: {r.stderr.strip().splitlines()[-1:]}", file=sys.stderr)
 
@@ -65,9 +65,13 @@ def evaluate(out: Path, inp: Path) -> list[dict]:
             sig = digitize_photos([png])
             res = run_pipeline(sig)
             m = res.measurements
+            notes = sig.provenance.notes
+            scanned = notes[0].startswith("ecgscan")
             row.update(read=True, hr=m.heart_rate_bpm, qrs=m.intervals.qrs_ms,
-                       route="scanner" if sig.provenance.notes[0].startswith("ecgscan") else "readers",
-                       gated=bool(res.findings.codes() & GATES))
+                       route="scanner" if scanned else "readers",
+                       gated=bool(res.findings.codes() & GATES),
+                       scan=" | ".join(n for n in notes[:4] if n.split(":")[0] in ("calibration", "warnings")
+                                       or "status=" in n) if scanned else None)
         except Exception as e:  # a refusal is a result too
             row.update(read=False, error=str(e)[:200])
         rows.append(row)
