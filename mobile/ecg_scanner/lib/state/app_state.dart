@@ -99,6 +99,26 @@ class AppState extends ChangeNotifier {
     unawaited(tick());
   }
 
+  /// A sheet of a study on several pages (TZ addendum §18.4): masked like a single photo and
+  /// kept in the draft on disk until the doctor sends the study.
+  Future<void> addSheet(Uint8List jpeg, {double? band, Map<String, dynamic>? capture}) async {
+    final masked = settings.maskHeader && (band ?? settings.headerBand) > 0;
+    final bytes = masked ? await compute(_mask, (jpeg, band ?? settings.headerBand)) : jpeg;
+    final record = capture == null ? null : {...capture, 'mask_method': masked ? 'template_zone' : 'none'};
+    await queue.addSheet(bytes, ScanHints(headerMasked: masked, capture: record));
+    notifyListeners();
+  }
+
+  /// The draft goes to the queue as one study with the speed and gain the doctor chose.
+  Future<void> sendDraft({double? speed, double? gain}) async {
+    final d = queue.draft;
+    if (d == null) return;
+    await queue.send(d, ScanHints(paperSpeedMmS: speed, gainMmMv: gain, headerMasked: d.hints.headerMasked,
+        capture: d.hints.capture));
+    notifyListeners();
+    unawaited(tick());
+  }
+
   @override
   void dispose() {
     _timer?.cancel();

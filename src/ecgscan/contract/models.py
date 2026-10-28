@@ -31,7 +31,7 @@ WARNING_CODES = (
     "SPEED_UNCERTAIN", "GAIN_UNCERTAIN", "SPEED_SOURCES_DISAGREE", "GAIN_SOURCES_DISAGREE",
     "LAYOUT_UNCERTAIN", "LABEL_ORDER_CONFLICT", "LIMB_LEADS_INCONSISTENT", "TRACE_GAPS",
     "LEAD_INCOMPLETE", "BEATS_INCONSISTENT", "QRS_UNSTABLE", "RHYTHM_INCONSISTENT", "LOW_LIGHT", "LEAD_OVERLAP", "LOW_RESOLUTION_MARGINAL", "FADED_PAPER", "STITCHED",
-    "LOW_RESOLUTION_COARSE",
+    "LOW_RESOLUTION_COARSE", "PAGES_STITCHED", "SEAM_UNCERTAIN",
 )
 DIGITIZED_FLAG = "digitized_from_image"
 STANDARD_LEADS = ("I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6")
@@ -123,6 +123,8 @@ class Layout(_Strict):
     registry_version: str | None = None
     confidence: float = _Unit
     label_agreement: float | None = Field(default=None, ge=0.0, le=1.0)
+    confirmed_by_user: bool = False          # the layout came from the doctor (a hint or a correction), S2
+    device_profile_id: str | None = None     # configs/scanner/devices/<id>.yaml the layout came from, S2
 
 
 class Trace(_Strict):
@@ -167,6 +169,17 @@ class Confirmation(_Strict):
     changes: dict | None = None
 
 
+class Page(_Strict):
+    """One sheet of a multi-page study (TZ 18.4, S2), in the order the doctor gave."""
+
+    index: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: Status
+    layout: str | None = None
+    overlap_with_next: bool | None = None    # the next sheet repeats this one's last seconds (found, not assumed)
+    overlap_s: float | None = Field(default=None, ge=0.0)   # ... by this much
+
+
 class ScanResult(_Strict):
     schema_version: str = SCHEMA_VERSION
     scan_id: str
@@ -183,6 +196,7 @@ class ScanResult(_Strict):
     artifacts: dict[str, str] = Field(default_factory=dict)
     provenance_flags: list[str] = Field(default_factory=lambda: [DIGITIZED_FLAG])
     confirmation: Confirmation | None = None
+    pages: list[Page] | None = None          # a multi-page study (S2): the sheets, stitched in this order
 
     @model_validator(mode="after")
     def _rules(self) -> ScanResult:

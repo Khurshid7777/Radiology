@@ -340,3 +340,15 @@ def test_api_takes_the_capture_record_and_keeps_the_original_byte_for_byte(make_
     bad = client.post("/scans", files={"file": ("ecg.jpg", jpg, "image/jpeg")},
                       data={"capture": '{"capture_mode": "x"}'}, headers=KEY)
     assert bad.status_code == 422
+
+
+def test_layout_and_device_profile_hints_are_checked(make_client):
+    """S2: a layout must be a registry key or alias, a device profile a loaded one."""
+    client, _ = make_client()
+    r = client.post("/scans", files={"file": ("e.png", PNG, "image/png")}, data={"layout": "4x3"}, headers=KEY)
+    assert r.status_code == 422
+    r = client.post("/scans", files={"file": ("e.png", PNG, "image/png")}, data={"device_profile": "nobody"}, headers=KEY)
+    assert r.status_code == 422
+    sid = _submit(client, layout="single_strip")
+    r = client.post(f"/scans/{sid}/confirm", json={"decision": "corrected", "layout": "4x3"}, headers=KEY)
+    assert r.status_code == 422

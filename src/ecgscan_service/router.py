@@ -19,6 +19,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ecgscan.i18n import LANGS, t
+from ecgscan.layout.devices import device_profiles
 from ecgscan_service.service import ScanError, ScanService
 from ecgscan_service.store import ScanRow
 
@@ -109,6 +110,18 @@ def _capture_form(raw: str | None) -> dict | None:
         raise HTTPException(422, "capture: not a valid capture record") from exc
 
 
+def _check_layout(layout: str | None) -> None:
+    """A layout hint or correction must name a registry layout or its alias (S2)."""
+    from ecgscan.layout.registry import layout_name
+
+    if layout is None:
+        return
+    try:
+        layout_name(layout)
+    except KeyError as exc:
+        raise HTTPException(422, f"layout: unknown {layout!r}") from exc
+
+
 @router.post("", status_code=202)
 async def submit_scan(file: UploadFile = File(...), parts: list[UploadFile] | None = File(None),
                       paper_speed_mm_s: float | None = Form(None),
@@ -116,8 +129,13 @@ async def submit_scan(file: UploadFile = File(...), parts: list[UploadFile] | No
                       client: Literal["flutter", "telegram_bot", "api", "web", "cli"] | None = Form(None),
                       device: str | None = Form(None),
                       header_masked: bool = Form(False), capture: str | None = Form(None),
+                      device_profile: str | None = Form(None), pages: bool = Form(False),
                       who: str = Depends(actor), svc: ScanService = Depends(get_service)) -> dict:
-    # ``parts``: more photos of the same page on a capture board, after ``file`` (SD-066).
+    # ``parts``: more photos after ``file`` — the same page in parts on a capture board (SD-066),
+    # or, with ``pages``, the next sheets of a study on several pages (S2, TZ 18.4).
+    _check_layout(layout)
+    if device_profile is not None and device_profile not in device_profiles():
+        raise HTTPException(422, f"device_profile: unknown {device_profile!r}")
     if parts and len(parts) + 1 > svc.settings.max_parts:
         raise HTTPException(400, f"1 to {svc.settings.max_parts} photos per scan")
     data: bytes | list[bytes] = await file.read(svc.settings.max_bytes + 1)
@@ -125,7 +143,7 @@ async def submit_scan(file: UploadFile = File(...), parts: list[UploadFile] | No
         data = [data] + [await f.read(svc.settings.max_bytes + 1) for f in parts]
     hints = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv, "layout": layout,
              "client": client, "device": device, "header_masked": header_masked,
-             "capture": _capture_form(capture)}
+             "capture": _capture_form(capture), "device_profile": device_profile, "pages": pages}
     try:
         scan_id = svc.submit(data, owner=who, hints=hints)
     except ScanError as exc:
@@ -162,6 +180,7 @@ class ConfirmBody(BaseModel):
 @router.post("/{scan_id}/confirm")
 def confirm_scan(scan_id: str, body: ConfirmBody, who: str = Depends(actor),
                  svc: ScanService = Depends(get_service)) -> dict:
+    _check_layout(body.layout)
     try:
         return view(svc.confirm(scan_id, actor=who, **body.model_dump()))
     except ScanError as exc:

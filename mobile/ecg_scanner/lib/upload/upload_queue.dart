@@ -1,8 +1,10 @@
-// Upload queue for a weak network (TZ §6.4): photos wait on the phone, uploads are
-// retried with a growing pause, the state survives an app restart. A photo is deleted
+// Upload queue for a weak network (TZ §6.4, addendum §18.8): photos wait on the phone, uploads
+// are retried with a growing pause, the state survives an app restart. A photo is deleted
 // from the phone once the server has accepted it (the server keeps it encrypted).
 // With a vault (the app always has one) the waiting photo is encrypted on disk
 // (TZ addendum §18.9); a plain `.jpg` left by an older version is still sent.
+// A study on several sheets (§18.4) is one item with its sheets in order; while the doctor
+// is still taking them it is a draft: kept on disk, never sent until they send it.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -11,7 +13,7 @@ import 'dart:typed_data';
 import '../api/scan_api.dart';
 import '../security/local_vault.dart';
 
-enum UploadState { queued, uploading, sent, failed }
+enum UploadState { draft, queued, uploading, sent, failed }
 
 class UploadItem {
   UploadItem({
@@ -23,11 +25,15 @@ class UploadItem {
     this.attempts = 0,
     this.nextTryAt,
     this.error,
-  });
+    List<String>? partIds,
+  }) : partIds = partIds ?? [localId];
 
   final String localId;
+
+  /// The sheets' files in the order they are sent (one for a single photo).
+  final List<String> partIds;
   final DateTime createdAt;
-  final ScanHints hints;
+  ScanHints hints;
   UploadState state;
   String? scanId;
   int attempts;
@@ -43,6 +49,7 @@ class UploadItem {
         'attempts': attempts,
         'next_try_at': nextTryAt?.toIso8601String(),
         'error': error,
+        'part_ids': partIds,
       };
 
   factory UploadItem.fromJson(Map<String, dynamic> j) => UploadItem(
@@ -57,6 +64,7 @@ class UploadItem {
         attempts: j['attempts'] as int? ?? 0,
         nextTryAt: j['next_try_at'] == null ? null : DateTime.parse(j['next_try_at'] as String),
         error: j['error'] as String?,
+        partIds: (j['part_ids'] as List<dynamic>?)?.cast<String>(),
       );
 }
 
@@ -65,8 +73,10 @@ class UploadQueue {
       {DateTime Function()? clock,
       this.baseDelay = const Duration(seconds: 5),
       this.maxDelay = const Duration(minutes: 5),
-      this.vault})
-      : _clock = clock ?? DateTime.now;
+      this.vault,
+      Future<void> Function(File file, List<int> bytes)? writeFile})
+      : _clock = clock ?? DateTime.now,
+        _writeFile = writeFile ?? ((f, b) => f.writeAsBytes(b, flush: true));
 
   final Directory dir;
   ScanApi api;
@@ -76,6 +86,14 @@ class UploadQueue {
   final Duration maxDelay;
   final List<UploadItem> items = [];
   bool _pumping = false;
+  final Future<void> Function(File file, List<int> bytes) _writeFile;
+
+  /// Photos the phone could not write (no space left): kept in memory, sent from there, and
+  /// written again at the next pump (§18.8: the doctor's work is never lost).
+  final Map<String, Uint8List> _unsaved = {};
+
+  /// Photos waiting in memory because the disk refused them.
+  bool get diskFull => _unsaved.isNotEmpty;
 
   File get _index => File('${dir.path}/index.json');
   File _plain(String id) => File('${dir.path}/$id.jpg');
@@ -83,17 +101,34 @@ class UploadQueue {
 
   Future<void> _write(String id, Uint8List jpeg) async {
     final v = vault;
-    if (v == null) return _plain(id).writeAsBytes(jpeg, flush: true).then((_) {});
-    await _sealed(id).writeAsBytes(await v.seal(jpeg), flush: true);
+    try {
+      if (v == null) {
+        await _writeFile(_plain(id), jpeg);
+      } else {
+        await _writeFile(_sealed(id), await v.seal(jpeg));
+      }
+      _unsaved.remove(id);
+    } on FileSystemException catch (_) {
+      _unsaved[id] = jpeg;
+    }
+  }
+
+  Future<void> _flushUnsaved() async {
+    for (final e in _unsaved.entries.toList()) {
+      await _write(e.key, e.value);
+    }
   }
 
   Future<Uint8List> _read(String id) async {
+    final kept = _unsaved[id];
+    if (kept != null) return kept;
     final v = vault;
     if (v != null && await _sealed(id).exists()) return v.open(await _sealed(id).readAsBytes());
     return _plain(id).readAsBytes();
   }
 
   Future<void> _delete(String id) async {
+    _unsaved.remove(id);
     for (final f in [_sealed(id), _plain(id)]) {
       if (await f.exists()) await f.delete();
     }
@@ -110,18 +145,85 @@ class UploadQueue {
 
   Future<void> _save() async {
     final tmp = File('${_index.path}.tmp');
-    await tmp.writeAsString(jsonEncode(items.map((e) => e.toJson()).toList()));
-    await tmp.rename(_index.path); // atomic: a crash never leaves half an index
+    try {
+      await _writeFile(tmp, utf8.encode(jsonEncode(items.map((e) => e.toJson()).toList())));
+      await tmp.rename(_index.path); // atomic: a crash never leaves half an index
+    } on FileSystemException catch (_) {
+      // No space: the list lives in memory until a later save succeeds (the next pump).
+    }
   }
 
   Future<UploadItem> add(Uint8List jpeg, ScanHints hints) async {
     final now = _clock();
-    final id = '${now.microsecondsSinceEpoch}-${math.Random().nextInt(1 << 32).toRadixString(16)}';
+    final id = _newId();
     await _write(id, jpeg);
     final item = UploadItem(localId: id, createdAt: now, hints: hints);
     items.insert(0, item);
     await _save();
     return item;
+  }
+
+  String _newId() =>
+      '${_clock().microsecondsSinceEpoch}-${math.Random().nextInt(1 << 32).toRadixString(16)}';
+
+  /// The study being taken sheet by sheet, if any (one at a time).
+  UploadItem? get draft => items.where((e) => e.state == UploadState.draft).firstOrNull;
+
+  /// A sheet added to the draft (started if there is none); on disk at once.
+  Future<UploadItem> addSheet(Uint8List jpeg, ScanHints hints) async {
+    var d = draft;
+    if (d == null) {
+      d = UploadItem(localId: _newId(), createdAt: _clock(), hints: hints, state: UploadState.draft, partIds: []);
+      items.insert(0, d);
+    }
+    final id = d.partIds.isEmpty ? d.localId : _newId();
+    await _write(id, jpeg);
+    d.partIds.add(id);
+    await _save();
+    return d;
+  }
+
+  Future<Uint8List> sheet(UploadItem item, int index) => _read(item.partIds[index]);
+
+  Future<void> moveSheet(UploadItem item, int from, int to) async {
+    final id = item.partIds.removeAt(from);
+    item.partIds.insert(to.clamp(0, item.partIds.length), id);
+    await _save();
+  }
+
+  Future<void> removeSheet(UploadItem item, int index) async {
+    await _delete(item.partIds.removeAt(index));
+    if (item.partIds.isEmpty) items.remove(item);
+    await _save();
+  }
+
+  /// The draft goes to the queue as one study (several sheets: `pages`).
+  Future<void> send(UploadItem item, ScanHints hints) async {
+    item.hints = ScanHints(
+        paperSpeedMmS: hints.paperSpeedMmS,
+        gainMmMv: hints.gainMmMv,
+        headerMasked: hints.headerMasked,
+        capture: hints.capture,
+        device: hints.device,
+        pages: item.partIds.length > 1);
+    item.state = UploadState.queued;
+    await _save();
+  }
+
+  Future<void> discard(UploadItem item) async {
+    for (final id in item.partIds) {
+      await _delete(id);
+    }
+    items.remove(item);
+    await _save();
+  }
+
+  /// A refused upload sent again on the doctor's request (a fixed key, a new server).
+  Future<void> retry(UploadItem item) async {
+    if (item.state != UploadState.failed) return;
+    item.state = UploadState.queued;
+    item.nextTryAt = null;
+    await _save();
   }
 
   Duration _delay(int attempts) {
@@ -135,15 +237,22 @@ class UploadQueue {
     _pumping = true;
     var sent = 0;
     try {
+      if (_unsaved.isNotEmpty) {
+        await _flushUnsaved();
+        await _save();
+      }
       for (final item in items.where((e) => e.state == UploadState.queued).toList()) {
         if (item.nextTryAt != null && item.nextTryAt!.isAfter(_clock())) continue;
         item.state = UploadState.uploading;
         try {
-          item.scanId = await api.submit(await _read(item.localId), item.hints);
+          final sheets = [for (final id in item.partIds) await _read(id)];
+          item.scanId = await api.submit(sheets.first, item.hints, more: sheets.sublist(1));
           item.state = UploadState.sent;
           item.error = null;
           item.nextTryAt = null;
-          await _delete(item.localId);
+          for (final id in item.partIds) {
+            await _delete(id);
+          }
           sent++;
         } on ApiError catch (e) {
           item.attempts++;

@@ -1,5 +1,6 @@
 # One continuous lead (monitor/rhythm strip). Multi-frame stitching joins several of these (M3).
 name: "single"
+aliases: [single_strip]   # TZ 18.5 template name
 registry_version: "1"
 confidence: medium
 panel_s: 10.0

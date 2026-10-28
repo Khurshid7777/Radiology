@@ -296,6 +296,17 @@
           "minimum": 0,
           "maximum": 1,
           "description": "Fraction of OCR-read lead labels matching the layout order."
+        },
+        "confirmed_by_user": {
+          "type": "boolean",
+          "description": "The layout came from the doctor (a hint or a correction), not from detection (S2)."
+        },
+        "device_profile_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Device profile (configs/scanner/devices/<id>.yaml) the layout came from (S2)."
         }
       }
     },
@@ -466,6 +477,60 @@
         "changes": {
           "type": "object",
           "description": "Field path -> {from, to}, e.g. calibration.paper_speed_mm_s."
+        }
+      }
+    },
+    "pages": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "description": "A multi-page study (TZ 18.4): the sheets in the order given, stitched by overlap.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "sha256",
+          "status"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "needs_confirmation",
+              "rejected"
+            ]
+          },
+          "layout": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overlap_with_next": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "The next sheet repeats this one's last seconds."
+          },
+          "overlap_s": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          }
         }
       }
     }
@@ -691,7 +756,9 @@
         "LOW_RESOLUTION_MARGINAL",
         "FADED_PAPER",
         "STITCHED",
-        "LOW_RESOLUTION_COARSE"
+        "LOW_RESOLUTION_COARSE",
+        "PAGES_STITCHED",
+        "SEAM_UNCERTAIN"
       ]
     },
     "capture": {

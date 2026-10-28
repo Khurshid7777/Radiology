@@ -16,6 +16,7 @@ Status rules:
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import time
 import uuid
@@ -50,7 +51,9 @@ from ecgscan.geometry.rectify import Rectified, rectify, tile_residual
 from ecgscan.io import ImageRefused, _mime, flat_field, load_image, paper_level
 from ecgscan.layout import get_layout
 from ecgscan.layout.detect import detect_layout
+from ecgscan.layout.devices import device_profile
 from ecgscan.layout.panels import frame_page, panels
+from ecgscan.layout.registry import layout_name as registry_name
 from ecgscan.layout.rows import long_stroke_mask
 from ecgscan.segmentation import make_segmenter
 from ecgscan.validate import limb_consistency, measurement_check, rhythm_check
@@ -68,6 +71,9 @@ class ScanHints:
     device: str | None = None
     header_masked: bool = False
     capture: dict | None = None      # ecgscan.contract.Capture as JSON: how the phone took the photo (SD-071)
+    device_profile: str | None = None    # the recording machine's profile id (configs/scanner/devices, S2)
+    piece: bool = False              # a sheet of a multi-page study (S2): shorter than its layout by design
+    pages: bool = False              # a list of photos is a multi-page study (S2), not one page in parts on a board
 
 
 @dataclass
@@ -350,10 +356,17 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     """Digitise one photo/scan. ``artifacts_dir``: write rectified / mask / overlay images there.
 
     A list: one page photographed in parts on a capture board (SD-066); the parts are
-    composed by the board's markers, and a part without them refuses the set."""
+    composed by the board's markers, and a part without them refuses the set. With
+    ``hints.pages`` a list is a study on several sheets instead (``ecgscan.multipage``)."""
     t_start = time.perf_counter()
     cfg = config or pipeline_config()
     hints = hints or ScanHints()
+    if hints.pages and isinstance(image, (list, tuple)) and len(image) > 1:
+        # Several sheets of one study (TZ 18.4, S2): read one by one, stitched by overlap.
+        from ecgscan.multipage import scan_pages
+
+        return scan_pages(list(image), hints=dataclasses.replace(hints, pages=False), fs_out=fs_out,
+                          config=config)[0]
     dbg = debug if debug is not None else ScanDebug()
     q_cfg, g_cfg = cfg["quality"], cfg["geometry"]
 
@@ -539,12 +552,25 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses],
                           stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
     dbg.rows = guess.rows
+    profile = device_profile(hints.device_profile)
+    profile_id = None
     if hints.layout:
-        layout_name, layout_conf = hints.layout, 1.0
+        layout_name, layout_conf = registry_name(hints.layout), 1.0
     else:
         layout_name, layout_conf = guess.name, guess.confidence
-        if guess.uncertain and guess.name:
+        prior = profile.layouts[0] if profile is not None and len(profile.layouts) == 1 else None
+        if prior is not None and (guess.name is None or guess.uncertain or guess.name == prior):
+            # The machine's profile (S2): a prior when the rows leave the layout open, a
+            # confirmation when they agree; it never overrides what the page shows.
+            profile_id = profile.id
+            if guess.name == prior and not guess.uncertain:
+                layout_conf = max(layout_conf, 0.9)
+            else:
+                layout_name, layout_conf = prior, max(0.4, layout_conf if guess.name == prior else 0.4)
+                warnings.append("LAYOUT_UNCERTAIN")
+        elif guess.uncertain and guess.name:
             warnings.append("LAYOUT_UNCERTAIN")
+    mine = {"confirmed_by_user": bool(hints.layout), "device_profile_id": profile_id}
     frame = None
     if layout_name is not None:
         spec = get_layout(layout_name)
@@ -552,8 +578,8 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
                                                             exclude_boxes=pulse_boxes), ppm,
                            [p.x_right for p in pulses])
     dbg.frame = frame
-    if (frame is not None and not hints.layout and "LAYOUT_UNCERTAIN" in warnings
-            and abs(frame.pitch_px / ppm - spec.row_pitch_mm) <= cfg["layout"]["pitch_tolerance"] * spec.row_pitch_mm):
+    if (frame is not None and not hints.layout and "LAYOUT_UNCERTAIN" in warnings and not guess.repeats_open
+            and profile_id is None and abs(frame.pitch_px / ppm - spec.row_pitch_mm) <= cfg["layout"]["pitch_tolerance"] * spec.row_pitch_mm):
         # Rows filled/picked to the registry count at the registry pitch: the layout is settled.
         warnings.remove("LAYOUT_UNCERTAIN")
         layout_conf = max(layout_conf, 0.8)
@@ -564,11 +590,11 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
         # with groups missing, the photo does not show the whole strip (SD-059).
         reasons.append("PAGE_INCOMPLETE")
         return result("rejected", ppm=raw_ppm, contrast=contrast,
-                      layout=Layout(name=layout_name, confidence=layout_conf))
+                      layout=Layout(name=layout_name, confidence=layout_conf, **mine))
     if layout_name is None or frame is None:
         reasons.append("LAYOUT_UNKNOWN")
         return result("rejected", ppm=raw_ppm, contrast=contrast,
-                      layout=Layout(name=layout_name, confidence=layout_conf))
+                      layout=Layout(name=layout_name, confidence=layout_conf, **mine))
     # Header / footer OCR only outside the trace rows (TZ §5.4: never on the trace).
     ocr_speeds: list[float] = []
     ocr_gains: list[float] = []
@@ -601,11 +627,20 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
         return result("rejected", calibration=decision.calibration, ppm=raw_ppm, contrast=contrast)
     dbg.readings = readings
     t = tick("traces", t)
+    if hints.piece and frame.ink_x1 is not None:
+        # A sheet of a study on several pages (S2): its trace stops where its ink does; read
+        # on over the blank paper it would run into the paper's edge (a 3-6 mV spike).
+        end_s = (frame.ink_x1 - frame.x0) / (decision.speed_for_traces * ppm)
+        for r in readings:
+            tr = r.trace
+            stop = max(0, int(round((end_s - tr.start_s) * fs_out)))
+            if stop < len(tr.samples_mv):
+                tr.samples_mv = tr.samples_mv[:stop] + [None] * (len(tr.samples_mv) - stop)
     leads = {r.panel.lead: r.trace for r in readings if r.panel.kind == "panel"}
     rhythm = [r.trace for r in readings if r.panel.kind == "rhythm"]
     val = cfg.get("validate", {})
     cover = [r.trace.coverage or 0.0 for r in readings]
-    if float(np.median(cover)) < val.get("min_median_coverage", 0.5):
+    if float(np.median(cover)) < val.get("min_median_coverage", 0.5) and not hints.piece:
         # The ink ends well before the layout's last column: the photo shows part of the
         # page (a piece of a strip), not broken traces. Only the reason differs; both refuse,
         # and a part of a page is a layout matter for the callers (SD-067).
@@ -614,7 +649,7 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
         partial = shown is not None and shown < val.get("min_page_extent", 0.8)
         reasons.append("PAGE_INCOMPLETE" if partial else "TRACE_BROKEN")
         return result("rejected", calibration=decision.calibration, ppm=raw_ppm, contrast=contrast,
-                      layout=Layout(name=layout_name, confidence=layout_conf))
+                      layout=Layout(name=layout_name, confidence=layout_conf, **mine))
     cons = limb_consistency([(r.panel.lead, r.trace) for r in readings], fs_out)
     dbg.consistency = cons
     if cons.score is not None and cons.score < val.get("limb_warn", 0.7):
@@ -635,7 +670,7 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
         warnings.append("TRACE_GAPS")
     if any("LEAD_OVERLAP" in r.trace.flags for r in readings):
         warnings.append("LEAD_OVERLAP")
-    if min(cover) < val.get("lead_min_coverage", 0.8):
+    if min(cover) < val.get("lead_min_coverage", 0.8) and not hints.piece:
         warnings.append("LEAD_INCOMPLETE")          # a lead is largely missing (glare, stain): the doctor looks
     lead_q = float(np.median([r.quality for r in readings]))
     cons_f = 1.0 if cons.score is None else float(np.clip(0.5 + cons.score, 0.0, 1.0))
@@ -649,7 +684,7 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
                # D170: a coarse read is never "ok" by itself: the doctor confirms.
                and "LOW_RESOLUTION_COARSE" not in warnings)
     status = "ok" if trusted else "needs_confirmation"
-    layout = Layout(name=layout_name, registry_version=spec.registry_version, confidence=layout_conf)
+    layout = Layout(name=layout_name, registry_version=spec.registry_version, confidence=layout_conf, **mine)
     res = result(status, calibration=decision.calibration, layout=layout, leads=leads, rhythm=rhythm,
                  overall=overall, ppm=raw_ppm, contrast=contrast)
     res.quality.limb_lead_consistency = cons.score

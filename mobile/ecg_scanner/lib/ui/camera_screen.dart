@@ -36,9 +36,12 @@ Map<String, dynamic> qcRecord(FrameQc qc, List<String> hints) => {
     };
 
 class CameraScreen extends StatefulWidget {
-  const CameraScreen({super.key, required this.app});
+  const CameraScreen({super.key, required this.app, this.multi = false});
 
   final AppState app;
+
+  /// A sheet of a study on several pages (§18.4): kept in the draft, not queued on its own.
+  final bool multi;
 
   @override
   State<CameraScreen> createState() => _CameraScreenState();
@@ -170,7 +173,11 @@ class _CameraScreenState extends State<CameraScreen> {
         if (tiltAtShot != null) 'camera_tilt_deg': double.parse(tiltAtShot.clamp(0, 90).toStringAsFixed(1)),
         if (qcAtShot != null) 'qc': qcRecord(qcAtShot, hintsAtShot),
       };
-      await widget.app.addPhoto(bytes, speed: _speed, gain: _gain, band: band, capture: capture);
+      if (widget.multi) {
+        await widget.app.addSheet(bytes, band: band, capture: capture);
+      } else {
+        await widget.app.addPhoto(bytes, speed: _speed, gain: _gain, band: band, capture: capture);
+      }
       if (mounted) Navigator.pop(context);
     } on Object catch (e) {
       setState(() {
@@ -233,11 +240,13 @@ class _CameraScreenState extends State<CameraScreen> {
         Padding(
           padding: const EdgeInsets.all(12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            ValueChips(label: app.t('app.speed'), values: const [25, 50], value: _speed, unknown: app.t('app.unknown'),
-                unit: app.settings.lang == 'uz' ? 'mm/s' : 'мм/с', onChanged: (v) => setState(() => _speed = v)),
-            ValueChips(label: app.t('app.gain'), values: const [5, 10, 20], value: _gain, unknown: app.t('app.unknown'),
-                unit: app.settings.lang == 'uz' ? 'mm/mV' : 'мм/мВ', onChanged: (v) => setState(() => _gain = v)),
-            const SizedBox(height: 8),
+            if (!widget.multi) ...[
+              ValueChips(label: app.t('app.speed'), values: const [25, 50], value: _speed, unknown: app.t('app.unknown'),
+                  unit: app.settings.lang == 'uz' ? 'mm/s' : 'мм/с', onChanged: (v) => setState(() => _speed = v)),
+              ValueChips(label: app.t('app.gain'), values: const [5, 10, 20], value: _gain, unknown: app.t('app.unknown'),
+                  unit: app.settings.lang == 'uz' ? 'mm/mV' : 'мм/мВ', onChanged: (v) => setState(() => _gain = v)),
+              const SizedBox(height: 8),
+            ],
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(

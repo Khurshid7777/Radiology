@@ -18,7 +18,8 @@ class ApiError implements Exception {
 }
 
 class ScanHints {
-  const ScanHints({this.paperSpeedMmS, this.gainMmMv, this.headerMasked = false, this.capture, this.device});
+  const ScanHints(
+      {this.paperSpeedMmS, this.gainMmMv, this.headerMasked = false, this.capture, this.device, this.pages = false});
 
   final double? paperSpeedMmS;
   final double? gainMmMv;
@@ -30,6 +31,9 @@ class ScanHints {
   /// The phone model, no personal data.
   final String? device;
 
+  /// Several sheets of one study (TZ addendum §18.4): the server stitches them in order.
+  final bool pages;
+
   Map<String, String> toFields() => {
         'client': 'flutter',
         'header_masked': '$headerMasked',
@@ -37,6 +41,7 @@ class ScanHints {
         if (gainMmMv != null) 'gain_mm_mv': '$gainMmMv',
         if (capture != null) 'capture': jsonEncode(capture),
         'device': ?device,
+        if (pages) 'pages': 'true',
       };
 
   Map<String, dynamic> toJson() => {
@@ -45,6 +50,7 @@ class ScanHints {
         'header_masked': headerMasked,
         'capture': capture,
         'device': device,
+        'pages': pages,
       };
 
   factory ScanHints.fromJson(Map<String, dynamic> j) => ScanHints(
@@ -53,6 +59,7 @@ class ScanHints {
         headerMasked: j['header_masked'] as bool? ?? false,
         capture: j['capture'] as Map<String, dynamic>?,
         device: j['device'] as String?,
+        pages: j['pages'] as bool? ?? false,
       );
 }
 
@@ -84,13 +91,16 @@ class ScanApi {
     return jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
   }
 
-  /// POST /scans: the scan id.
-  Future<String> submit(Uint8List jpeg, ScanHints hints) async {
+  /// POST /scans: the scan id. `more`: the next sheets of the study, in order (`file` is the first).
+  Future<String> submit(Uint8List jpeg, ScanHints hints, {List<Uint8List> more = const []}) async {
     final body = await _json(() {
       final req = http.MultipartRequest('POST', _u('/scans'))
         ..headers.addAll(_auth)
         ..fields.addAll(hints.toFields())
         ..files.add(http.MultipartFile.fromBytes('file', jpeg, filename: 'ecg.jpg'));
+      for (var i = 0; i < more.length; i++) {
+        req.files.add(http.MultipartFile.fromBytes('parts', more[i], filename: 'ecg_${i + 2}.jpg'));
+      }
       return _http.send(req);
     });
     return body['scan_id'] as String;
@@ -99,13 +109,14 @@ class ScanApi {
   Future<Map<String, dynamic>> get(String scanId) => _json(() => _http.get(_u('/scans/$scanId'), headers: _auth));
 
   Future<Map<String, dynamic>> confirm(String scanId, String decision,
-          {double? paperSpeedMmS, double? gainMmMv, String? comment}) =>
+          {double? paperSpeedMmS, double? gainMmMv, String? layout, String? comment}) =>
       _json(() => _http.post(_u('/scans/$scanId/confirm'),
           headers: {..._auth, 'Content-Type': 'application/json'},
           body: jsonEncode({
             'decision': decision,
             'paper_speed_mm_s': ?paperSpeedMmS,
             'gain_mm_mv': ?gainMmMv,
+            'layout': ?layout,
             'comment': ?comment,
           })));
 

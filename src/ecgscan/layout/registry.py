@@ -40,6 +40,7 @@ class LayoutSpec:
     # A strip prints its pulse once, at the start: a photo without it does not show the
     # first column, and naming its groups by position would mislabel every lead (SD-059).
     start_pulse_required: bool = False
+    aliases: tuple[str, ...] = ()       # other names a client may send (TZ 18.5 template names)
 
     def column_offset_mm(self, c: int, speed_mm_s: float) -> float:
         """Where column ``c`` starts, in mm from the first column's start."""
@@ -86,6 +87,7 @@ def _from_dict(d: dict) -> LayoutSpec:
         pulse=pulse, label_offset_mm=tuple(d.get("label_offset_mm", (2.0, 4.0))),
         registry_version=str(d.get("registry_version", "1")), confidence=str(d.get("confidence", "medium")),
         panel_gap_mm=float(d.get("panel_gap_mm", 0.0)), start_pulse_required=bool(d.get("start_pulse_required", False)),
+        aliases=tuple(d.get("aliases") or ()),
     )
 
 
@@ -99,8 +101,16 @@ def available_layouts() -> dict[str, LayoutSpec]:
     return out
 
 
-def get_layout(name: str) -> LayoutSpec:
+def layout_name(name: str) -> str:
+    """The registry key for a name or an alias (TZ 18.5's ``single_strip`` is ``single``)."""
     layouts = available_layouts()
-    if name not in layouts:
-        raise KeyError(f"unknown layout {name!r}; known: {sorted(layouts)}")
-    return layouts[name]
+    if name in layouts:
+        return name
+    for key, spec in layouts.items():
+        if name in spec.aliases:
+            return key
+    raise KeyError(f"unknown layout {name!r}; known: {sorted(layouts)}")
+
+
+def get_layout(name: str) -> LayoutSpec:
+    return available_layouts()[layout_name(name)]

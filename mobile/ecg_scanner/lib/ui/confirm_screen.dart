@@ -24,6 +24,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   Uint8List? _overlay;
   double? _speed;
   double? _gain;
+  String? _layout;
   String? _error;
   String? _conclusion;
   bool _working = false;
@@ -49,6 +50,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         _overlay = overlay;
         _speed = (cal?['paper_speed_mm_s'] as num?)?.toDouble();
         _gain = (cal?['gain_mm_mv'] as num?)?.toDouble();
+        _layout = ((scan['result'] as Map<String, dynamic>?)?['layout'] as Map<String, dynamic>?)?['name'] as String?;
         _error = null;
       });
     } on ApiError catch (e) {
@@ -73,14 +75,33 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     final msg = (scan['messages'] as Map<String, dynamic>)[app.settings.lang] as Map<String, dynamic>;
     final result = scan['result'] as Map<String, dynamic>?;
     final cal = result?['calibration'] as Map<String, dynamic>?;
+    final found = (result?['layout'] as Map<String, dynamic>?)?['name'] as String?;
+    final layoutChanged = _layout != null && _layout != found;
     final changed = cal != null && (_speed != (cal['paper_speed_mm_s'] as num?)?.toDouble() ||
-        _gain != (cal['gain_mm_mv'] as num?)?.toDouble());
+            _gain != (cal['gain_mm_mv'] as num?)?.toDouble()) ||
+        layoutChanged;
     final pending = const ['queued', 'processing'].contains(status);
+    final reasons = ((result?['reject_reasons'] as List?) ?? const []).cast<String>();
+    final warnings = ((result?['warnings'] as List?) ?? const []).cast<String>();
+    // TZ 18.5: when the layout is unsure or unknown the doctor names it, the server does not guess.
+    final askLayout = reasons.contains('LAYOUT_UNKNOWN') || warnings.contains('LAYOUT_UNCERTAIN');
     return ListView(padding: const EdgeInsets.all(16), children: [
       Text(msg['status'] as String, style: TextStyle(fontSize: 18, color: statusColor(status))),
       for (final r in (msg['reasons'] as List).cast<String>()) Text('• $r'),
       for (final w in (msg['warnings'] as List).cast<String>()) Text('• $w'),
       const SizedBox(height: 12),
+      if (result != null && (status != 'rejected' || reasons.contains('LAYOUT_UNKNOWN'))) ...[
+        if (askLayout) Text(app.t('app.layout_ask'), key: const Key('layout_ask')),
+        LayoutChips(label: app.t('app.layout'), value: _layout, onChanged: (v) => setState(() => _layout = v)),
+      ],
+      if (result != null && status == 'rejected' && reasons.contains('LAYOUT_UNKNOWN'))
+        OutlinedButton(
+          key: const Key('correct_layout'),
+          onPressed: _working || pending || !layoutChanged
+              ? null
+              : () => _act(() => app.api.confirm(widget.scanId, 'corrected', layout: _layout)),
+          child: Text(app.t('app.correct')),
+        ),
       if (result != null && status != 'rejected') ...[
         Text(app.t('app.overlay_hint')),
         const SizedBox(height: 8),
@@ -101,7 +122,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             key: const Key('correct'),
             onPressed: _working || pending || !changed
                 ? null
-                : () => _act(() => app.api.confirm(widget.scanId, 'corrected', paperSpeedMmS: _speed, gainMmMv: _gain)),
+                : () => _act(() => app.api.confirm(widget.scanId, 'corrected',
+                    paperSpeedMmS: _speed, gainMmMv: _gain, layout: layoutChanged ? _layout : null)),
             child: Text(app.t('app.correct')),
           ),
         ]),

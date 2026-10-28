@@ -1,0 +1,12 @@
+# Device profile (TZ 18.5, S2): what a recording machine prints and where. The registry is
+# filled from real machines in the hospitals only; nothing is invented here. Files starting
+# with "_" are not loaded: this one shows the fields. A loaded profile is named by its file
+# name (configs/scanner/devices/<id>.yaml) and sent as the `device_profile` hint.
+manufacturer: "Example Medical"      # as printed on the device or its paper
+model: "EX-100"
+layouts: ["6x2"]                     # registry keys (configs/scanner/layouts) this machine prints
+header: bottom                       # where the speed / gain / name are printed: top | bottom | null (unknown)
+pulse: start                         # where the calibration pulse stands: start | end | both | none | null
+speeds_mm_s: [25, 50]                # what the machine can print at (null: unknown)
+gains_mm_mv: [5, 10, 20]
+notes: "Fields not known for a machine stay null; a profile only helps, the photo still decides."

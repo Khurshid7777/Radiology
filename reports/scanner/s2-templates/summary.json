@@ -1,0 +1,532 @@
+{
+ "summary": {
+  "3x4+rhythm": {
+   "n": 10,
+   "correct": 10,
+   "wrong_confident": 0,
+   "asked_or_unknown": 0
+  },
+  "3x4+3rhythm": {
+   "n": 10,
+   "correct": 9,
+   "wrong_confident": 0,
+   "asked_or_unknown": 1
+  },
+  "6x2": {
+   "n": 10,
+   "correct": 10,
+   "wrong_confident": 0,
+   "asked_or_unknown": 0
+  },
+  "12x1": {
+   "n": 10,
+   "correct": 9,
+   "wrong_confident": 0,
+   "asked_or_unknown": 1
+  },
+  "single": {
+   "n": 10,
+   "correct": 10,
+   "wrong_confident": 0,
+   "asked_or_unknown": 0
+  },
+  "3x4 strip": {
+   "n": 10,
+   "correct": 10,
+   "wrong_confident": 0,
+   "asked_or_unknown": 0
+  },
+  "all": {
+   "n": 60,
+   "correct": 58,
+   "wrong_confident": 0,
+   "correct_share": 0.9667
+  }
+ },
+ "cases": [
+  {
+   "template": "3x4+rhythm",
+   "i": 0,
+   "got": "3x4+rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+rhythm",
+   "i": 1,
+   "got": "3x4+rhythm",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4+rhythm",
+   "i": 2,
+   "got": "3x4+rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+rhythm",
+   "i": 3,
+   "got": "3x4+rhythm",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4+rhythm",
+   "i": 4,
+   "got": "3x4+rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+rhythm",
+   "i": 5,
+   "got": "3x4+rhythm",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4+rhythm",
+   "i": 6,
+   "got": "3x4+rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+rhythm",
+   "i": 7,
+   "got": "3x4+rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+rhythm",
+   "i": 8,
+   "got": "3x4+rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+rhythm",
+   "i": 9,
+   "got": "3x4+rhythm",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4+3rhythm",
+   "i": 0,
+   "got": "3x4+3rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+3rhythm",
+   "i": 1,
+   "got": "3x4+3rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+3rhythm",
+   "i": 2,
+   "got": "3x4+3rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+3rhythm",
+   "i": 3,
+   "got": "3x4+3rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+3rhythm",
+   "i": 4,
+   "got": "3x4+3rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+3rhythm",
+   "i": 5,
+   "got": null,
+   "uncertain": false,
+   "status": "rejected",
+   "reasons": [
+    "LAYOUT_UNKNOWN"
+   ]
+  },
+  {
+   "template": "3x4+3rhythm",
+   "i": 6,
+   "got": "3x4+3rhythm",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "3x4+3rhythm",
+   "i": 7,
+   "got": "3x4+3rhythm",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4+3rhythm",
+   "i": 8,
+   "got": "3x4+3rhythm",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4+3rhythm",
+   "i": 9,
+   "got": "3x4+3rhythm",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "6x2",
+   "i": 0,
+   "got": "6x2",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "6x2",
+   "i": 1,
+   "got": "6x2",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "6x2",
+   "i": 2,
+   "got": "6x2",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "6x2",
+   "i": 3,
+   "got": "6x2",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "6x2",
+   "i": 4,
+   "got": "6x2",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "6x2",
+   "i": 5,
+   "got": "6x2",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "6x2",
+   "i": 6,
+   "got": "6x2",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "6x2",
+   "i": 7,
+   "got": "6x2",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "6x2",
+   "i": 8,
+   "got": "6x2",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "6x2",
+   "i": 9,
+   "got": "6x2",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "12x1",
+   "i": 0,
+   "got": "12x1",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "12x1",
+   "i": 1,
+   "got": "12x1",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "12x1",
+   "i": 2,
+   "got": "12x1",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "12x1",
+   "i": 3,
+   "got": "12x1",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "12x1",
+   "i": 4,
+   "got": "12x1",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "12x1",
+   "i": 5,
+   "got": "12x1",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "12x1",
+   "i": 6,
+   "got": "12x1",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "12x1",
+   "i": 7,
+   "got": "12x1",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "12x1",
+   "i": 8,
+   "got": null,
+   "uncertain": false,
+   "status": "rejected",
+   "reasons": [
+    "GRID_NOT_FOUND"
+   ]
+  },
+  {
+   "template": "12x1",
+   "i": 9,
+   "got": "12x1",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "single",
+   "i": 0,
+   "got": "single",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "single",
+   "i": 1,
+   "got": "single",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "single",
+   "i": 2,
+   "got": "single",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "single",
+   "i": 3,
+   "got": "single",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "single",
+   "i": 4,
+   "got": "single",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "single",
+   "i": 5,
+   "got": "single",
+   "uncertain": false,
+   "status": "ok",
+   "reasons": []
+  },
+  {
+   "template": "single",
+   "i": 6,
+   "got": "single",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "single",
+   "i": 7,
+   "got": "single",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "single",
+   "i": 8,
+   "got": "single",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "single",
+   "i": 9,
+   "got": "single",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4 strip",
+   "i": 0,
+   "got": "3x4 strip",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4 strip",
+   "i": 1,
+   "got": "3x4 strip",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4 strip",
+   "i": 2,
+   "got": "3x4 strip",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4 strip",
+   "i": 3,
+   "got": "3x4 strip",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4 strip",
+   "i": 4,
+   "got": "3x4 strip",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4 strip",
+   "i": 5,
+   "got": "3x4 strip",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4 strip",
+   "i": 6,
+   "got": "3x4 strip",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4 strip",
+   "i": 7,
+   "got": "3x4 strip",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4 strip",
+   "i": 8,
+   "got": "3x4 strip",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  },
+  {
+   "template": "3x4 strip",
+   "i": 9,
+   "got": "3x4 strip",
+   "uncertain": false,
+   "status": "needs_confirmation",
+   "reasons": []
+  }
+ ]
+}

@@ -31,7 +31,8 @@ from ecgscan_service.vault import Vault
 
 log = logging.getLogger("ecgscan_service")
 
-HINT_KEYS = ("paper_speed_mm_s", "gain_mm_mv", "layout", "client", "device", "header_masked", "capture")
+HINT_KEYS = ("paper_speed_mm_s", "gain_mm_mv", "layout", "client", "device", "header_masked", "capture",
+             "device_profile", "pages")
 DECISIONS = ("accepted", "corrected", "retake")
 
 

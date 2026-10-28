@@ -81,6 +81,29 @@ void main() {
     expect(find.byKey(const Key('analysis')), findsOneWidget);
   });
 
+  testWidgets('confirm: an unknown layout is asked for and sent as a correction (S2)', (tester) async {
+    var body = scanBody('rejected');
+    (body['result'] as Map<String, dynamic>)
+      ..['reject_reasons'] = ['LAYOUT_UNKNOWN']
+      ..['layout'] = {'name': null, 'confidence': 0.0};
+    final (app, seen) = await tester.runAsync(() => open(() => body)) as (AppState, List<http.Request>);
+    await tester.pumpWidget(MaterialApp(home: ConfirmScreen(app: app, scanId: 's1')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('layout_ask')), findsOneWidget);
+    expect(find.byKey(const Key('accept')), findsNothing);                    // a rejected scan is not accepted
+    expect(tester.widget<OutlinedButton>(find.byKey(const Key('correct_layout'))).onPressed, isNull);
+    await tester.tap(find.byKey(const Key('layout_6x2')));
+    await tester.pumpAndSettle();
+    body = scanBody('ok');
+    await tester.tap(find.byKey(const Key('correct_layout')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pumpAndSettle();
+    final post = seen.firstWhere((r) => r.url.path == '/scans/s1/confirm');
+    expect(jsonDecode(post.body), {'decision': 'corrected', 'layout': '6x2'});
+    expect(find.text('Статус ok'), findsOneWidget);
+  });
+
   testWidgets('mask review: the band can be moved, send returns it', (tester) async {
     final (app, _) = await tester.runAsync(() => open(() => scanBody('ok'))) as (AppState, List<http.Request>);
     double? got = -1;

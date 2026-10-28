@@ -1,0 +1,19 @@
+# Three rows x four 2.5-s columns and three full-width rhythm strips (V1, II, V5) below (S2, TZ 18.5).
+# Six trace rows like 6x2: told apart by the rhythm strips repeating their panel cells (layout.detect).
+name: "3x4+3rhythm"
+registry_version: "1"
+confidence: medium        # TODO(real devices): which leads a machine puts in the rhythm strips varies
+panel_s: 2.5
+rows:
+  - [I, aVR, V1, V4]
+  - [II, aVL, V2, V5]
+  - [III, aVF, V3, V6]
+rhythm: [V1, II, V5]
+row_pitch_mm: 27.0
+header_mm: 20.0
+margin_mm: 8.0
+pulse:
+  present: true
+  width_s: 0.2
+  area_mm: 8.0
+label_offset_mm: [2.0, 4.0]
