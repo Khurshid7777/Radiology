@@ -163,3 +163,66 @@ def test_analyze_mode_refusal_keeps_the_telegram_wording(analyze_api, tmp_path):
     assert aid is None and "файлом" in text and "галере" not in text, text
     small, aid2 = handle_analysis(_cfg(), analyze_api, [("page.png", _page_png(tmp_path, px_per_mm=4))], "ru", "54 м")
     assert aid2 and "сжат" in small.lower(), small
+
+
+# --- paper speed and gain from the doctor (SD-080) ---------------------------------------
+
+def test_caption_gives_speed_and_gain_and_they_are_not_the_age():
+    from ecgscan_bot.logic import PaperScale, Patient, parse_caption, parse_scale
+
+    assert parse_scale("54 м 50 мм/с 20 мм/мВ") == PaperScale(50.0, 20.0)
+    assert parse_caption("54 м 50 мм/с 20 мм/мВ") == Patient(age_years=54.0, sex="male")
+    assert parse_caption("50 мм/с 20 мм/мВ ж 7") == Patient(age_years=7.0, sex="female")
+    assert parse_scale("25mm/s 10 mm/mV") == PaperScale(25.0, 10.0)
+    assert parse_scale("12,5 мм/сек") == PaperScale(12.5, None)
+    assert parse_scale("54 м") == PaperScale() and parse_scale(None) == PaperScale()
+    assert parse_scale("30 мм/с 15 мм/мВ") == PaperScale()                # not a standard value
+    assert parse_scale("50 мм") == PaperScale()                           # a number needs its unit
+
+
+def test_buttons_mark_the_choice_and_apply_it():
+    from ecgscan_bot.logic import PaperScale, apply_choice, scale_buttons
+
+    speed_row, gain_row = scale_buttons(PaperScale(50.0, None))
+    assert [c for _, c in speed_row] == ["s=", "s=25", "s=50"] and speed_row[2][0].startswith("✓")
+    assert gain_row[0][0].startswith("✓") and [c for _, c in gain_row] == ["g=", "g=10", "g=20"]
+    s = apply_choice(PaperScale(), "s=50")
+    assert s == PaperScale(50.0, None)
+    assert apply_choice(s, "g=20") == PaperScale(50.0, 20.0)
+    assert apply_choice(PaperScale(50.0, 20.0), "s=") == PaperScale(None, 20.0)
+    assert apply_choice(s, "s=33") == s and apply_choice(s, "x=1") == s       # nothing else is taken
+    assert all(len(f"re:{'a' * 12}:{c}") <= 64 for row in scale_buttons(PaperScale()) for _, c in row)
+    assert scale_buttons(PaperScale(), "uz")[0][2][0] == "50 mm/s"
+
+
+def test_the_scale_reaches_the_api_and_the_reply_says_so(tmp_path):
+    from ecgscan_bot.logic import PaperScale, handle_analysis
+
+    class Fake:
+        def __init__(self, body):
+            self.body, self.calls = body, []
+
+        def analyze(self, files, *, patient, scale):
+            self.calls.append(scale)
+            return self.body
+
+    body = {"conclusion_ru": "Заключение.", "conclusion_uz": "Xulosa.", "analysis_id": "a1", "speed_note_ru": "принята 25"}
+    api = Fake(body)
+    text, _ = handle_analysis(_cfg(), api, [("p.png", b"x")], "ru", "54 м 50 мм/с")
+    assert api.calls == [PaperScale(50.0, None)] and "скорость 50 мм/с" in text and "принята 25" not in text
+    text, _ = handle_analysis(_cfg(), api, [("p.png", b"x")], "ru", "54 м")
+    assert api.calls[-1] == PaperScale() and "принята 25 мм/с" in text and "«50 мм/с»" in text
+    text, _ = handle_analysis(_cfg(), api, [("p.png", b"x")], "uz", "54 e", PaperScale(25.0, 20.0))
+    assert api.calls[-1] == PaperScale(25.0, 20.0) and "kuchaytirish 20 mm/mV" in text      # a button wins
+
+
+def test_a_given_speed_changes_the_analysis(analyze_api, tmp_path):
+    """A 25 mm/s page declared 50 mm/s (a doctor's button) doubles the heart rate the
+    CardioLens readers see: the value reaches /api/analyze."""
+    from ecgscan_bot.logic import AnalyzeApi, PaperScale, Patient
+
+    page = _page_png(tmp_path)
+    assert isinstance(analyze_api, AnalyzeApi)
+    hr = [analyze_api.analyze([("p.png", page)], patient=Patient(54.0, None, "male"), scale=s)["measurements"]["heart_rate_bpm"]
+          for s in (PaperScale(25.0, 10.0), PaperScale(50.0, 10.0))]
+    assert hr[1] == pytest.approx(2 * hr[0], rel=0.1), hr

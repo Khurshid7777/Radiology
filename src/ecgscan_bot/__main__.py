@@ -20,16 +20,22 @@ from ecgscan.i18n import t
 from ecgscan_bot.logic import (
     AnalyzeApi,
     BotConfig,
+    PaperScale,
     ScanApi,
     allowed,
+    apply_choice,
     handle_analysis,
     handle_file,
     intake,
     lang_of,
+    parse_scale,
+    scale_buttons,
 )
 
 TOKEN_ENV = "ECGSCAN_BOT_TOKEN"
 ALBUM_WAIT_S = 2.0          # Telegram delivers an album's files one by one; wait this long after the last
+RECALC_KEEP_S = 15 * 60     # a record's files are kept in memory this long for the speed / gain buttons
+RECALC_MAX = 20             # ... and no more records than this (the oldest go first)
 log = logging.getLogger("ecgscan_bot")
 
 
@@ -37,7 +43,13 @@ async def main() -> None:
     from aiogram import Bot, Dispatcher, F
     from aiogram.enums import ChatAction
     from aiogram.filters import CommandStart
-    from aiogram.types import BufferedInputFile, Message
+    from aiogram.types import (
+        BufferedInputFile,
+        CallbackQuery,
+        InlineKeyboardButton,
+        InlineKeyboardMarkup,
+        Message,
+    )
 
     cfg = BotConfig.load()
     token = os.environ.get(TOKEN_ENV)
@@ -47,6 +59,23 @@ async def main() -> None:
     api = AnalyzeApi(cfg) if cfg.mode == "analyze" else ScanApi(cfg)
     log.info("bot mode %s, api %s, %d allowed users", cfg.mode, cfg.api_url, len(cfg.allowed))
     albums: dict[str, dict] = {}     # media_group_id -> {"files", "captions", "message", "lang", "task"}
+    # The last records' files, in memory only, for re-running with another speed / gain.
+    recent: dict[str, dict] = {}     # token -> {"files", "caption", "scale", "lang", "chat", "at"}
+
+    def keep(files, caption, scale: PaperScale, lang: str, chat: int) -> str:
+        now = asyncio.get_running_loop().time()
+        for k in [k for k, v in recent.items() if now - v["at"] > RECALC_KEEP_S]:
+            del recent[k]
+        while len(recent) >= RECALC_MAX:
+            del recent[min(recent, key=lambda k: recent[k]["at"])]
+        token = os.urandom(6).hex()
+        recent[token] = {"files": files, "caption": caption, "scale": scale, "lang": lang, "chat": chat, "at": now}
+        return token
+
+    def keyboard(token: str, scale: PaperScale, lang: str) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=f"re:{token}:{choice}") for label, choice in row]
+            for row in scale_buttons(scale, lang)])
 
     def guard(message: Message) -> str | None:
         user = message.from_user
@@ -65,10 +94,11 @@ async def main() -> None:
                 await asyncio.sleep(4)
 
     async def answer_analysis(message: Message, files: list[tuple[str, bytes]], caption: str | None,
-                              lang: str) -> None:
+                              lang: str, scale: PaperScale | None = None) -> None:
         busy = asyncio.create_task(keep_busy(message.chat.id))
+        scale = scale if scale is not None else parse_scale(caption)
         try:
-            text, aid = await asyncio.to_thread(handle_analysis, cfg, api, files, lang, caption)
+            text, aid = await asyncio.to_thread(handle_analysis, cfg, api, files, lang, caption, scale)
             log.info("analysis %s answered (%d file(s))", aid, len(files))
             await message.answer(text)
             if aid:
@@ -81,6 +111,9 @@ async def main() -> None:
                 pdf = await asyncio.to_thread(api.pdf, aid)
                 if pdf:
                     await message.answer_document(BufferedInputFile(pdf, f"cardiovision_{aid}.pdf"))
+                # Speed / gain buttons: the same files again with another scale.
+                token = keep(files, caption, scale, lang, message.chat.id)
+                await message.answer(t("bot.recalc", lang), reply_markup=keyboard(token, scale, lang))
         finally:
             busy.cancel()
 
@@ -142,6 +175,29 @@ async def main() -> None:
             log.exception("upload failed")
             with contextlib.suppress(Exception):
                 await message.answer(t("bot.server_error", lang))
+
+    @dp.callback_query(F.data.startswith("re:"))
+    async def recalc(query: CallbackQuery) -> None:
+        user = query.from_user
+        if not allowed(cfg, user.id, query.message.chat.type if query.message else None):
+            await query.answer()
+            return
+        _, token, choice = (query.data or "").split(":", 2)
+        rec = recent.get(token)
+        lang = lang_of(user.language_code)
+        if rec is None or query.message is None or rec["chat"] != query.message.chat.id:
+            await query.answer()
+            if query.message:
+                await query.message.answer(t("bot.recalc_expired", lang))
+            return
+        scale = apply_choice(rec["scale"], choice)
+        await query.answer()
+        if scale == rec["scale"]:
+            return
+        with contextlib.suppress(Exception):
+            await query.message.edit_reply_markup(reply_markup=None)
+        del recent[token]
+        await answer_analysis(query.message, rec["files"], rec["caption"], rec["lang"], scale)
 
     @dp.message()
     async def other(message: Message) -> None:

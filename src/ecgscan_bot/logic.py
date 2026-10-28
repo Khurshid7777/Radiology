@@ -67,13 +67,38 @@ class Patient:
         return (self.age_years is not None or self.age_days is not None) and self.sex is not None
 
 
+SPEEDS_MM_S = (12.5, 25.0, 50.0)
+GAINS_MM_MV = (5.0, 10.0, 20.0)
+_SPEED_RE = re.compile(r"(\d{1,2}(?:[.,]5)?)\s*(?:мм|mm)\s*/\s*(?:сек|с|sec|s)(?![\w])", re.IGNORECASE)
+_GAIN_RE = re.compile(r"(\d{1,2})\s*(?:мм|mm)\s*/\s*(?:мв|mv)(?![\w])", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class PaperScale:
+    """The paper speed and gain the doctor gave (the caption or a button); None: read from
+    the photo. Only the standard values are taken."""
+
+    paper_speed_mm_s: float | None = None
+    gain_mm_mv: float | None = None
+
+
+def parse_scale(text: str | None) -> PaperScale:
+    """"50 мм/с", "20 мм/мВ", "25 mm/s 10 mm/mV" in a caption; a number needs its unit."""
+    if not text:
+        return PaperScale()
+    low = text.lower()
+    speeds = [float(v.replace(",", ".")) for v in _SPEED_RE.findall(low)]
+    gains = [float(v) for v in _GAIN_RE.findall(low)]
+    return PaperScale(next((v for v in speeds if v in SPEEDS_MM_S), None), next((v for v in gains if v in GAINS_MM_MV), None))
+
+
 def parse_caption(text: str | None) -> Patient:
     """The patient from a caption: the first number 0–120 is the age in years, unless a
     month/day word follows it ("3 мес", "10 kun"); the first sex word is the sex. Anything
-    else is ignored, anything missing stays None."""
+    else is ignored, anything missing stays None. Speed and gain ("50 мм/с") are not ages."""
     if not text:
         return Patient()
-    low = text.lower().replace(",", ".")
+    low = _GAIN_RE.sub(" ", _SPEED_RE.sub(" ", text.lower())).replace(",", ".")
     age_years = age_days = None
     for m in re.finditer(r"(\d+(?:\.\d+)?)\s*([^\W\d_]*)", low):
         value, unit = float(m.group(1)), m.group(2)
@@ -189,10 +214,15 @@ class AnalyzeApi:
         self.http = http or httpx.Client(base_url=cfg.api_url, timeout=180.0)
         self.headers = {"X-API-Key": cfg.api_key or ""}
 
-    def analyze(self, files: list[tuple[str, bytes]], *, patient: Patient = Patient()) -> dict:
+    def analyze(self, files: list[tuple[str, bytes]], *, patient: Patient = Patient(),
+                scale: PaperScale = PaperScale()) -> dict:
         """One analysis of one or several files (an album is one record: pages of a device,
         parts of a strip, parts of a page on the capture board — D155)."""
         form = {"mode": "A", "client": "telegram"}
+        if scale.paper_speed_mm_s is not None:
+            form["paper_speed_mm_s"] = f"{scale.paper_speed_mm_s:g}"
+        if scale.gain_mm_mv is not None:
+            form["gain_mm_mv"] = f"{scale.gain_mm_mv:g}"
         if patient.age_years is not None:
             form["age_years"] = str(patient.age_years)
         if patient.age_days is not None:
@@ -217,6 +247,45 @@ class AnalyzeApi:
         return r.content if r.status_code == 200 else None
 
 
+def scale_line(body: dict, scale: PaperScale, lang: str) -> str | None:
+    """What the reply says about the time and amplitude scale: the values the doctor gave,
+    or, when the speed was neither read nor given, that 25 mm/s was assumed (D180)."""
+    parts = []
+    if scale.paper_speed_mm_s is not None:
+        parts.append(t("bot.scale_speed", lang, speed=f"{scale.paper_speed_mm_s:g}"))
+    if scale.gain_mm_mv is not None:
+        parts.append(t("bot.scale_gain", lang, gain=f"{scale.gain_mm_mv:g}"))
+    if parts:
+        return t("bot.scale_given", lang, values=", ".join(parts))
+    if body.get("speed_note_ru"):
+        return t("bot.speed_assumed", lang)
+    return None
+
+
+def scale_buttons(scale: PaperScale, lang: str = "ru") -> list[list[tuple[str, str]]]:
+    """Rows of (label, choice) under a reply: re-run with another speed or gain. The value in
+    use is marked; "auto" returns the choice to what the photo shows."""
+    auto, speed_unit, gain_unit = ("avto", "mm/s", "mm/mV") if lang == "uz" else ("авто", "мм/с", "мм/мВ")
+
+    def row(values, current, unit, key):
+        out = [(("✓ " if current is None else "") + auto, f"{key}=")]
+        out += [(("✓ " if current == v else "") + f"{v:g} {unit}", f"{key}={v:g}") for v in values]
+        return out
+
+    return [row((25.0, 50.0), scale.paper_speed_mm_s, speed_unit, "s"), row((10.0, 20.0), scale.gain_mm_mv, gain_unit, "g")]
+
+
+def apply_choice(scale: PaperScale, choice: str) -> PaperScale:
+    """A button's choice ("s=50", "g=", ...) applied to the scale in use."""
+    key, _, value = choice.partition("=")
+    v = float(value) if value else None
+    if key == "s" and (v is None or v in SPEEDS_MM_S):
+        return PaperScale(v, scale.gain_mm_mv)
+    if key == "g" and (v is None or v in GAINS_MM_MV):
+        return PaperScale(scale.paper_speed_mm_s, v)
+    return scale
+
+
 def conclusion_reply(body: dict, lang: str, *, patient_given: bool = True) -> str:
     """The reply in ``analyze`` mode: the critical alerts first, then the conclusion as the
     web page prints it (it ends with the disclaimer), why a doctor must look, if so, and a
@@ -236,17 +305,21 @@ def conclusion_reply(body: dict, lang: str, *, patient_given: bool = True) -> st
 
 
 def handle_analysis(cfg: BotConfig, api: AnalyzeApi, files: list[tuple[str, bytes]], lang: str,
-                    caption: str | None = None) -> tuple[str, str | None]:
+                    caption: str | None = None, scale: PaperScale | None = None) -> tuple[str, str | None]:
     """Analyse through ``/api/analyze``: (reply text, analysis id). A refusal is said in the
-    readers' words; server trouble is answered, never raised."""
+    readers' words; server trouble is answered, never raised. ``scale``: speed and gain
+    chosen by a button; otherwise those written in the caption, if any."""
     patient = parse_caption(caption)
+    scale = scale if scale is not None else parse_scale(caption)
     try:
-        body = api.analyze(files, patient=patient)
+        body = api.analyze(files, patient=patient, scale=scale)
     except AnalyzeRefused as e:
         return str(e), None
     except Exception:  # network, HTTP error: the user gets a plain answer
         return t("bot.server_error", lang), None
-    return conclusion_reply(body, lang, patient_given=patient.given), body.get("analysis_id")
+    text = conclusion_reply(body, lang, patient_given=patient.given)
+    line = scale_line(body, scale, lang)
+    return (f"{text}\n\n{line}" if line else text), body.get("analysis_id")
 
 
 def handle_file(cfg: BotConfig, api: ScanApi, data: bytes, filename: str, lang: str) -> tuple[str, str | None]:
