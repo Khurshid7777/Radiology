@@ -86,16 +86,30 @@ def grid_in_mask(mask: np.ndarray, px_per_mm: float) -> bool:
     return _line_phase(mask.mean(axis=0), 5.0 * float(px_per_mm)) is not None
 
 
-def _grid_lattice(mask: np.ndarray, ppm: float, tol_mm: float = 1.0):
+def _grid_lattice(mask: np.ndarray, ppm: float, tol_mm: float = 1.0, gray: np.ndarray | None = None,
+                  darker: float = 1.15, darker_min: int = 20):
     """A test "is this pair a grid cell" (both edges on 5-mm grid lines, or its top a grid
     line), when the grid's vertical lines got into the ink mask (a grey or dark grid, a compressed copy: the owner's CardioTouch
     strip, SD-079); ``None`` when they did not. The mask breaks those lines where the
-    horizontal ones cross, and each piece pairs with the next into a "pulse" one cell wide."""
+    horizontal ones cross, and each piece pairs with the next into a "pulse" one cell wide.
+
+    With the page's ``gray``, a pair whose edges are clearly darker than the grid's lines is
+    a pulse drawn on them, not a cell (SD-084: ECG-Image-Kit draws its pulse on the 5-mm lines,
+    trace grey 0-29 against grid 76): darkness (255 - grey) ``darker`` times the lines' and
+    ``darker_min`` grey levels below them."""
     period = 5.0 * ppm
     px = _line_phase(mask.mean(axis=0), period)
     if px is None:
         return None
     tol = max(2.0, tol_mm * ppm)
+    line_grey = None
+    if gray is not None:
+        cols = np.arange(mask.shape[1])
+        d = (cols - px) % period
+        on_cols = np.minimum(d, period - d) <= 1.0
+        vals = gray[:, on_cols][mask[:, on_cols]]
+        if vals.size:
+            line_grey = float(np.median(vals))
 
     def on(v: int) -> bool:
         d = (v - px) % period
@@ -112,16 +126,32 @@ def _grid_lattice(mask: np.ndarray, ppm: float, tol_mm: float = 1.0):
         return (left.size > 0 and right.size > 0 and left.any(axis=0).mean() > 0.8
                 and right.any(axis=0).mean() > 0.8)
 
-    return lambda xa, xb, top: (on(xa) and on(xb)) or ruled(xa, xb, top)
+    half = max(1, int(round(0.3 * ppm)))
+
+    def edge_grey(x: int, top: int, bottom: int) -> float:
+        """The edge's own grey: the darkest pixel across it, row by row, median."""
+        return float(np.median(gray[top:bottom, max(0, x - half):x + half + 1].min(axis=1)))
+
+    def cell(xa: int, xb: int, top: int, bottom: int) -> bool:
+        if not ((on(xa) and on(xb)) or ruled(xa, xb, top)):
+            return False
+        if line_grey is None or bottom <= top:
+            return True
+        dark = 255.0 - max(edge_grey(xa, top, bottom), edge_grey(xb, top, bottom))
+        return not (dark >= darker * (255.0 - line_grey) and dark - (255.0 - line_grey) >= darker_min)
+
+    return cell
 
 
 def find_pulses(mask: np.ndarray, px_per_mm: float, *, min_h_mm: float = 3.0, max_h_mm: float = 25.0,
                 min_w_mm: float = 2.0, max_w_mm: float = 15.0, edge_tol_mm: float = 0.6,
-                top_coverage: float = 0.85) -> list[Pulse]:
+                top_coverage: float = 0.85, gray: np.ndarray | None = None) -> list[Pulse]:
+    """Pulses on the ink ``mask``; ``gray`` (the page, optional) tells a pulse drawn on the
+    grid's lines from a cell of them when those lines are in the mask (SD-084)."""
     ppm = float(px_per_mm)
     strokes = _vertical_strokes(mask, int(min_h_mm * ppm), int(max_h_mm * ppm))
     tol = max(2, int(round(edge_tol_mm * ppm)))
-    lattice = _grid_lattice(mask, ppm)
+    lattice = _grid_lattice(mask, ppm, gray=gray)
     band = max(1, int(round(0.3 * ppm)))
     out: list[Pulse] = []
     used: set[int] = set()
@@ -138,7 +168,7 @@ def find_pulses(mask: np.ndarray, px_per_mm: float, *, min_h_mm: float = 3.0, ma
             top = (ta + tb) // 2
             # A cell of a 5-mm grid that reached the ink mask (SD-079): both edges on its
             # lines, or a "flat top" that is a grid line going on past both edges.
-            if lattice is not None and lattice(xa, xb, top):
+            if lattice is not None and lattice(xa, xb, top, (ba + bb) // 2):
                 continue
             span = mask[max(0, top - band):top + band + 1, xa + 1:xb]
             if span.size == 0 or span.any(axis=0).mean() < top_coverage:

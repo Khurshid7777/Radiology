@@ -528,7 +528,8 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     c_cfg = cfg["calibration"]
     mask = make_segmenter(cfg.get("segmentation", {})).segment(rect.bgr, ppm)
     ink = mask.ink
-    pulses = find_pulses(ink, ppm)
+    gray = rect.bgr.min(axis=2) if rect.bgr.ndim == 3 else rect.bgr     # the trace's darkness
+    pulses = find_pulses(ink, ppm, gray=gray)
     p_cfg = c_cfg.get("pulse", {})
     if not pulses and p_cfg.get("retry_widen_px") and not grid_in_mask(ink, ppm):
         # A real strip's pulse: a thin line, slanted by the paper's curl, broken by the mask
@@ -536,7 +537,8 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
         # only when nothing was found, so pages that already worked are unchanged (SD-059).
         # Not when the grid's lines are in the mask: widened, a tall T wave passes for a
         # pulse there (SD-079); no pulse is then the honest answer.
-        pulses = find_pulses(widen_strokes(ink, int(p_cfg["retry_widen_px"]), int(p_cfg.get("retry_close_px", 5))), ppm)
+        pulses = find_pulses(widen_strokes(ink, int(p_cfg["retry_widen_px"]), int(p_cfg.get("retry_close_px", 5))), ppm,
+                             gray=gray)
     if p_cfg.get("extend_max_gap_mm"):
         # D180: a pulse found as its top piece (edges broken further down) is extended while
         # both edges continue; the gain from a 5-mm piece of a 20-mm pulse was 4x off.
