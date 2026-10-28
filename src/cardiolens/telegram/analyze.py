@@ -128,14 +128,14 @@ def scale_unknown(result) -> bool:
             and "RHYTHM_INCONSISTENT" in warnings)
 
 
-def scan_keeping_overlay(scan, image):
+def scan_keeping_overlay(scan, image, hints=None):
     """``scan()`` with its confirmation overlay kept in memory (D163): the traces drawn over
     the rectified page, header and footer bands blanked (SD-050, D136), as JPEG bytes — or
     None when the scanner refused (it draws nothing then). The artifact files live only
     for the call."""
     tmp = Path(tempfile.mkdtemp(prefix="cardiolens_overlay_"))
     try:
-        result = scan(image, artifacts_dir=tmp)
+        result = scan(image, artifacts_dir=tmp, hints=hints)
         p = (result.artifacts or {}).get("trace_overlay_preview")
         overlay = Path(p).read_bytes() if p and Path(p).exists() else None
     finally:
@@ -143,7 +143,8 @@ def scan_keeping_overlay(scan, image):
     return result, overlay
 
 
-def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
+def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: float | None = None,
+                   gain_mm_mv: float | None = None) -> SignalRepresentation:
     """The bot's photo reader (D139): the ECG scanner first — on its benchmark it reads paper
     pages at r 0.98 with no unflagged bad case, where the CardioLens readers have 23 % —
     then, when the scanner refuses the layout, the CardioLens readers (device screens,
@@ -158,9 +159,15 @@ def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
     except ImportError:                 # the scanner extra is not installed
         if in_parts:
             raise ValueError("photos in parts need the scanner") from None
-        return digitize_auto_to_signal(path)
-    result, overlay = scan_keeping_overlay(scan, [str(p) for p in path] if in_parts else path)
-    readers = None if in_parts else (lambda: _guard_orientation(path, digitize_auto_to_signal(path)))
+        return apply_paper_scale(digitize_auto_to_signal(path), paper_speed_mm_s, gain_mm_mv)
+    from ecgscan.pipeline import ScanHints
+
+    # D179: the speed and gain printed on the strip, given by the user, go to the scanner as
+    # its hints and are applied to the CardioLens readers' record (they assume 25 / 10).
+    hints = ScanHints(paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+    result, overlay = scan_keeping_overlay(scan, [str(p) for p in path] if in_parts else path, hints)
+    readers = None if in_parts else (lambda: apply_paper_scale(
+        _guard_orientation(path, digitize_auto_to_signal(path)), paper_speed_mm_s, gain_mm_mv))
     if result.status != "rejected":
         sig = to_signal_representation(result)
         sig.provenance.overlay_jpeg = overlay      # what was read, for the doctor's eye (D163)
@@ -195,6 +202,38 @@ def digitize_photo(path: str | Path | list[str | Path]) -> SignalRepresentation:
     if final or readers is None:
         raise ValueError("; ".join(scanner_text(f"reject.{r}") for r in (final or result.reject_reasons)))
     return readers()
+
+
+USER_SCALE_NOTE = "scale given by the user"
+
+
+def apply_paper_scale(sig: SignalRepresentation, paper_speed_mm_s: float | None,
+                      gain_mm_mv: float | None) -> SignalRepresentation:
+    """The CardioLens readers read time at 25 mm/s and amplitude at 10 mm/mV (or at the
+    calibration pulse they found). A strip printed at 50 mm/s read at 25 doubles every
+    interval and halves the rate; at 20 mm/mV every amplitude doubles (D179: the owner's
+    CardioTouch strip, 50 mm/s and 20 mm/mV). The user's values correct the record."""
+    notes = list(sig.provenance.notes)
+    upd: dict = {}
+    k_t = (paper_speed_mm_s / 25.0) if paper_speed_mm_s and paper_speed_mm_s != 25 else None
+    pulse = any("'pulse_found': True" in n or "(calibration_pulse)" in n for n in notes)
+    k_a = (10.0 / gain_mm_mv) if gain_mm_mv and gain_mm_mv != 10 and not pulse else None
+    if k_t:
+        upd["sampling_rate_hz"] = sig.sampling_rate_hz * k_t
+        upd["duration_s"] = sig.duration_s / k_t
+        w = sig.provenance.lead_windows
+        prov = sig.provenance.model_copy(update={"lead_windows": None if w is None else
+                                                 {ld: (a / k_t, b / k_t) for ld, (a, b) in w.items()}})
+        upd["provenance"] = prov
+    if k_a:
+        upd["signal"] = sig.signal * np.float32(k_a)
+    if not (k_t or k_a):
+        return sig
+    out = sig.model_copy(update=upd)
+    out.provenance.overlay_jpeg = sig.provenance.overlay_jpeg
+    out.provenance.notes = [*notes, f"{USER_SCALE_NOTE}: {paper_speed_mm_s or 25:g} mm/s, "
+                                    f"{gain_mm_mv or 10:g} mm/mV" + (" (gain from the pulse kept)" if pulse and gain_mm_mv else "")]
+    return out
 
 
 def on_capture_board(paths: list[str | Path]) -> bool:
@@ -259,15 +298,17 @@ def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[
         return None, error_text(e)
 
 
-def digitize_photos(paths: list[str | Path]) -> SignalRepresentation:
+def digitize_photos(paths: list[str | Path], *, paper_speed_mm_s: float | None = None,
+                    gain_mm_mv: float | None = None) -> SignalRepresentation:
     """Photos sent together as one record — the bot's album, the web page's upload (D155).
     Photos of one recorder's pages — TeleECG's limb page and chest page — become one record
     (D123), as do photos of the parts of one three-channel strip (D125); one page in parts on
     the capture board is composed by the scanner (D145); anything else is read from the
     first photo that digitises. Raises ValueError with the reason in words (D142)."""
+    scale = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv}
     if len(paths) == 1:
         try:
-            return digitize_photo(paths[0])
+            return digitize_photo(paths[0], **scale)
         except Exception as e:  # digitiser raises on pages it cannot read — that is data too
             raise ValueError(error_text(e)) from e
     from cardiolens.layer1_ingestion.screen import combine_screen_signals
@@ -275,13 +316,13 @@ def digitize_photos(paths: list[str | Path]) -> SignalRepresentation:
     # A set the scanner refuses is said as such; the parts are not read one by one (each is a piece).
     if on_capture_board(paths):
         try:
-            return digitize_photo(list(paths))
+            return digitize_photo(list(paths), **scale)
         except Exception as e:
             raise ValueError(error_text(e)) from e
     sigs, errors = [], []
     for p in paths:
         try:
-            sigs.append(digitize_photo(p))
+            sigs.append(digitize_photo(p, **scale))
         except Exception as e:
             errors.append((Path(p).name, error_text(e)))
     screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]

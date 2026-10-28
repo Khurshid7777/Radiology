@@ -117,6 +117,24 @@
       весь кадр. Лучше всего — оригинал из галереи: фото, пересланное через Telegram или WhatsApp, сжато
       и читается только ориентировочно. Несколько фото одной ЭКГ можно выбрать вместе.</div>
     <button type="button" class="cambtn" id="camopen">📷 Снять камерой с подсказками</button>
+    <div class="row2" style="display:flex;gap:10px;margin-top:10px">
+      <div style="flex:1"><label for="speed">Скорость ленты</label>
+        <select id="speed">
+          <option value="">авто (обычно 25 мм/с)</option>
+          <option value="25">25 мм/с</option>
+          <option value="50">50 мм/с</option>
+          <option value="12.5">12,5 мм/с</option>
+        </select></div>
+      <div style="flex:1"><label for="gain">Усиление</label>
+        <select id="gain">
+          <option value="">авто (обычно 10 мм/мВ)</option>
+          <option value="10">10 мм/мВ</option>
+          <option value="20">20 мм/мВ</option>
+          <option value="5">5 мм/мВ</option>
+        </select></div>
+    </div>
+    <div class="hint">Посмотрите на край ленты: аппарат печатает там скорость и усиление (например,
+      «50 мм/сек, 20 мм/мВ»). Если они не 25 и 10 — выберите их здесь, иначе ЧСС и амплитуды будут неверны.</div>
     <div class="notice" id="filewarn"></div>
   </div>
 
@@ -453,6 +471,9 @@ $('run').addEventListener('click', async () => {
   if (!$('apikey').value.trim()) { $('err').textContent = 'Нужен ключ клиники — его выдаёт администратор (раздел «Дополнительно»).'; $('more').open = true; return; }
 
   fd.append('mode', $('mode').value);
+  // D179: the speed and gain printed on the strip, when the user gives them.
+  if ($('speed').value) fd.append('paper_speed_mm_s', $('speed').value);
+  if ($('gain').value) fd.append('gain_mm_mv', $('gain').value);
   fd.append('age_years', String(age));
   fd.append('sex', sex);
   if ($('fs').value) fd.append('sampling_rate_hz', $('fs').value);
@@ -488,7 +509,12 @@ function render(d) {
     .map(a => `<div class="crit">⚠ ${esc(a.label_ru)} / ${esc(a.label_uz)}</div>`).join('');
 
   const m = d.measurements, iv = m.intervals;
-  $('meas').innerHTML = `
+  // D178: an unreliable photo's numbers are not shown as measurements.
+  const unreliable = (d.findings || []).some(f => ['photo_unreliable', 'no_ecg_signal', 'amplitude_implausible'].includes(f.code));
+  if (unreliable) {
+    $('meas').innerHTML = `<tr><td colspan="4">Измерения не приводятся: снимок распознан ненадёжно. Переснимите ЭКГ.</td></tr>
+    <tr><td>Уверенность</td><td colspan="3">${d.interpretation.confidence.value} (${d.interpretation.confidence.word_ru})</td></tr>`;
+  } else $('meas').innerHTML = `
     <tr><td>ЧСС</td><td>${m.heart_rate_bpm ?? '—'} /мин</td>
         <td>PR</td><td>${iv.pr_ms ?? '—'} мс</td></tr>
     <tr><td>QRS</td><td>${iv.qrs_ms ?? '—'} мс</td>

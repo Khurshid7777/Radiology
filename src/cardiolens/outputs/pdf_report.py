@@ -41,6 +41,25 @@ OVERLAY_NOTE_UZ = ("Manba — qog‘oz EKG surati, raqamlashtirilgan. Rangli chi
                    "suratga oling. Bemor ma’lumotlari bo‘lgan sarlavha yopilgan.")
 
 
+
+UNRELIABLE_CODES = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_implausible"})
+
+
+def measurement_line(result) -> str:
+    """The report's measurement line. A record the photo gates call unreliable carries no
+    number a doctor could take for a measurement (D178; the narrative withholds them, D128)."""
+    if result.findings.codes() & UNRELIABLE_CODES:
+        return ("Измерения не приводятся: снимок распознан ненадёжно — числа, считанные с него, "
+                "могут быть ошибочными. Переснимите ЭКГ.")
+    m = result.measurements
+
+    def n(v) -> str:            # a measurement that was not made prints as a dash, not "None"
+        return "—" if v is None else f"{v:g}" if isinstance(v, float) else str(v)
+
+    return (f"ЧСС: {n(m.heart_rate_bpm)} /мин · PR: {n(m.intervals.pr_ms)} мс · "
+            f"QRS: {n(m.intervals.qrs_ms)} мс · QTc(F/B): {n(m.intervals.qtc_fridericia_ms)}/{n(m.intervals.qtc_bazett_ms)} мс · "
+            f"ось QRS: {n(m.axes.qrs_deg)}°")
+
 def _register_font() -> str:
     try:
         import matplotlib
@@ -72,14 +91,7 @@ def write_pdf(result: PipelineResult, path: str) -> str:
     doc = SimpleDocTemplate(path, pagesize=A4, title="CardioVision ECG Report")
     flow = [Paragraph("CardioVision — заключение по ЭКГ", h1), Spacer(1, 0.3 * cm)]
 
-    m = result.measurements
-
-    def n(v) -> str:            # a measurement that was not made prints as a dash, not "None"
-        return "—" if v is None else f"{v:g}" if isinstance(v, float) else str(v)
-
-    meas = (f"ЧСС: {n(m.heart_rate_bpm)} /мин · PR: {n(m.intervals.pr_ms)} мс · "
-            f"QRS: {n(m.intervals.qrs_ms)} мс · QTc(F/B): {n(m.intervals.qtc_fridericia_ms)}/{n(m.intervals.qtc_bazett_ms)} мс · "
-            f"ось QRS: {n(m.axes.qrs_deg)}°")
+    meas = measurement_line(result)
     flow.append(Paragraph(meas, body))
     flow.append(Spacer(1, 0.3 * cm))
 

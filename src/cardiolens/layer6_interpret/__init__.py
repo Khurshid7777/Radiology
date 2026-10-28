@@ -85,7 +85,7 @@ def interpret(
     report.mode = decision.mode
     if decision.mode == "escalate":
         report.escalation_reason = decision.reason
-        report.reasoning_trace.append(f"MODE B gate failed -> escalate: {decision.reason}")
+        report.reasoning_trace.append(f"Автономный режим B не применён, нужен просмотр врача: {decision.reason}")
     return report
 
 

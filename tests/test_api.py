@@ -337,7 +337,8 @@ def test_capture_check_sizes_a_sheet_and_sends_a_big_one_to_parts(tmp_path):
 
 def test_capture_check_measures_paper_on_the_board_and_names_a_board_that_fits():
     """D177: on the owner's a4 board a 148-mm strip read as 161 x 77 mm from the preview grid;
-    the board's markers measure it, and a strip wider than the zone gets the board that fits."""
+    the board's markers measure it. Since SD-077 tinted paper is read up to the markers, so a
+    235 x 148 strip fits the a4 board; a 280-mm sheet does not, and the advice names a3x2."""
     import cv2
     import numpy as np
 
@@ -346,16 +347,41 @@ def test_capture_check_measures_paper_on_the_board_and_names_a_board_that_fits()
 
     ppm = 4.0
     a4 = load_boards(["a4"])[0]
-    img = cv2.cvtColor(render_board(a4, ppm), cv2.COLOR_GRAY2BGR)
-    x0, y0 = int((33 - 2) * ppm), int((33 - 2) * ppm)        # pink paper 235 x 148 mm, 2 mm past the zone
-    x1, y1 = x0 + int(235 * ppm), y0 + int(148 * ppm)
-    img[y0:y1, x0:x1] = (200, 205, 250)
-    for x in range(x0, x1, int(5 * ppm)):
-        img[y0:y1, x] = (120, 120, 230)
-    big = cv2.copyMakeBorder(img, 40, 40, 40, 40, cv2.BORDER_CONSTANT, value=(60, 60, 60))
-    d = client.post("/api/capture/check", files=_frame(big)).json()
+
+    def board_with_paper(x_mm, y_mm, w_mm, h_mm):
+        img = cv2.cvtColor(render_board(a4, ppm), cv2.COLOR_GRAY2BGR)
+        x0, y0 = int(x_mm * ppm), int(y_mm * ppm)
+        x1, y1 = x0 + int(w_mm * ppm), y0 + int(h_mm * ppm)
+        img[y0:y1, x0:x1] = (200, 205, 250)
+        for x in range(x0, x1, int(5 * ppm)):
+            img[y0:y1, x] = (120, 120, 230)
+        big = cv2.copyMakeBorder(img, 40, 40, 40, 40, cv2.BORDER_CONSTANT, value=(60, 60, 60))
+        return client.post("/api/capture/check", files=_frame(big)).json()
+
+    d = board_with_paper(31, 31, 235, 148)                    # the owner's strip, 2 mm past the frame
     assert d["board_name"] == "a4" and d["sheet_mm"] is not None
     assert abs(d["sheet_mm"][0] - 235) <= 4 and abs(d["sheet_mm"][1] - 148) <= 4
-    advice = [h["ru"] for h in d["hints"] if h["code"] == "board_small"]
-    assert advice and "A4W" in advice[0]
+    assert "board_small" not in {h["code"] for h in d["hints"]}
     assert np.isclose(d["px_per_mm"], ppm, rtol=0.1)
+    w = board_with_paper(9, 30, 280, 150)                     # covers the middle markers, 6 left in view
+    advice = [h["ru"] for h in w["hints"] if h["code"] == "board_small"]
+    assert w["board_name"] == "a4" and advice and "A3x2" in advice[0]
+
+
+# --- D179: the paper speed and gain printed on the strip, given by the user ---------------------
+
+def test_paper_speed_given_by_the_user_reaches_the_scanner(tmp_path):
+    """A page read at 25 mm/s: HR 72. The same page said to be 50 mm/s: the time axis halves
+    and the rate doubles (the owner's CardioTouch strip read 61 for ~120)."""
+    def hr(**form):
+        with open(_page_png(tmp_path), "rb") as f:
+            r = client.post("/api/analyze", data={"mode": "A", **form}, files={"files": ("page.png", f, "image/png")})
+        assert r.status_code == 200, r.text
+        return r.json()["measurements"]["heart_rate_bpm"]
+
+    base = hr()
+    fast = hr(paper_speed_mm_s="50")
+    assert base == pytest.approx(72, abs=5) and fast == pytest.approx(2 * base, rel=0.08)
+    bad = client.post("/api/analyze", data={"mode": "A", "paper_speed_mm_s": "33"},
+                      files={"files": ("page.png", _page_png(tmp_path).read_bytes(), "image/png")})
+    assert bad.status_code == 400 and "33" in bad.json()["detail"]

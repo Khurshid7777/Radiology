@@ -1,6 +1,8 @@
 """D170: a messenger-compressed photo read in the scanner's coarse mode keeps the rate and
 the rhythm and withholds everything that needs a fine scale."""
 
+import pytest
+
 from cardiolens.layer1_ingestion import generate_synthetic_ecg
 from cardiolens.outputs import format_conclusion, result_to_dict
 from cardiolens.pipeline import run_pipeline
@@ -104,3 +106,36 @@ def test_coarse_scan_of_a_device_screen_goes_to_the_screen_readers(monkeypatch, 
     sig = A.digitize_photo(page)
     assert any(n.startswith("device screen photo") for n in sig.provenance.notes)
     assert not any(n.startswith("coarse:") for n in sig.provenance.notes)
+
+
+def test_unreliable_photo_numbers_are_not_printed_in_the_report():
+    """D178: the PDF printed ЧСС 75, PR 34, axis −122 under a photo_unreliable record whose
+    narrative said no measurement could be given."""
+    from cardiolens.contracts.findings import Finding
+    from cardiolens.outputs.pdf_report import measurement_line
+
+    r = run_pipeline(generate_synthetic_ecg(heart_rate_bpm=72, seed=3), mode="A")
+    assert measurement_line(r).startswith("ЧСС: ")
+    r.findings.findings.append(Finding(code="photo_unreliable", label_ru="x", label_uz="x", confidence=0.9,
+                                       group="quality"))
+    line = measurement_line(r)
+    assert "ЧСС" not in line and "не приводятся" in line
+
+
+def test_paper_scale_corrects_the_readers_record():
+    """D179: the CardioLens readers assume 25 mm/s and 10 mm/mV; the user's 50 / 20 halve the
+    time axis and the amplitudes; a gain the readers took from the calibration pulse stays."""
+    import numpy as np
+
+    from cardiolens.telegram.analyze import apply_paper_scale
+
+    sig = generate_synthetic_ecg(heart_rate_bpm=60, seed=4)
+    out = apply_paper_scale(sig, 50.0, 20.0)
+    assert out.sampling_rate_hz == 2 * sig.sampling_rate_hz and out.duration_s == sig.duration_s / 2
+    assert np.allclose(out.signal, sig.signal / 2)
+    assert run_pipeline(out).measurements.heart_rate_bpm == pytest.approx(120, rel=0.05)
+    assert any(n.startswith("scale given by the user: 50 mm/s, 20 mm/mV") for n in out.provenance.notes)
+    pulsed = sig.model_copy(update={"provenance": sig.provenance.model_copy(
+        update={"notes": ["calibration: {'pulse_found': True, 'mm_per_mv': 20.0}"]})})
+    assert np.allclose(apply_paper_scale(pulsed, None, 20.0).signal, sig.signal)
+    assert apply_paper_scale(sig, 25.0, 10.0) is sig

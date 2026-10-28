@@ -118,6 +118,8 @@ def signal_from_uploads(
     *,
     sampling_rate_hz: float | None = None,
     unit: str = "uv",
+    paper_speed_mm_s: float | None = None,
+    gain_mm_mv: float | None = None,
     wording: str = "web",
 ):
     """Persist uploaded files to a temp dir and dispatch to a parser.
@@ -151,7 +153,8 @@ def signal_from_uploads(
             from cardiolens.telegram.analyze import digitize_photos
 
             try:
-                return digitize_photos([as_photo(p, c) for p, c in images])
+                return digitize_photos([as_photo(p, c) for p, c in images],
+                                       paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
             except ValueError as e:
                 # The Telegram bot keeps "send it as a file" (D161); the page says "the gallery".
                 raise ValueError(str(e) if wording == "bot" else web_wording(str(e))) from e
