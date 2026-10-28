@@ -29,7 +29,13 @@ import numpy as np
 from ecgscan import PIPELINE_VERSION
 from ecgscan.board import compose_zone, detect_board, load_boards, warp_zone
 from ecgscan.calibration.header_ocr import read_bands
-from ecgscan.calibration.pulse import extend_pulses, find_pulses, summarize_pulses, widen_strokes
+from ecgscan.calibration.pulse import (
+    extend_pulses,
+    find_pulses,
+    grid_in_mask,
+    summarize_pulses,
+    widen_strokes,
+)
 from ecgscan.calibration.resolve import resolve
 from ecgscan.config import load_yaml
 from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, Source
@@ -511,10 +517,12 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     ink = mask.ink
     pulses = find_pulses(ink, ppm)
     p_cfg = c_cfg.get("pulse", {})
-    if not pulses and p_cfg.get("retry_widen_px"):
+    if not pulses and p_cfg.get("retry_widen_px") and not grid_in_mask(ink, ppm):
         # A real strip's pulse: a thin line, slanted by the paper's curl, broken by the mask
         # into short pieces over two or three columns. Found again on a gap-tolerant copy;
         # only when nothing was found, so pages that already worked are unchanged (SD-059).
+        # Not when the grid's lines are in the mask: widened, a tall T wave passes for a
+        # pulse there (SD-079); no pulse is then the honest answer.
         pulses = find_pulses(widen_strokes(ink, int(p_cfg["retry_widen_px"]), int(p_cfg.get("retry_close_px", 5))), ppm)
     if p_cfg.get("extend_max_gap_mm"):
         # D180: a pulse found as its top piece (edges broken further down) is extended while

@@ -67,12 +67,61 @@ def _vertical_strokes(mask: np.ndarray, min_len: int, max_len: int) -> list[tupl
     return [(x, y0, y1) for x, y0, y1, _ in merged]
 
 
+def _line_phase(profile: np.ndarray, period: float, *, min_mean: float = 0.25, min_ratio: float = 4.0) -> float | None:
+    """Phase of lines every ``period`` px in an ink profile (mean ink per column or row), or
+    ``None``: no such lines (the usual case: the grid is coloured or too light for the mask)."""
+    if profile.size < 3 * period:
+        return None
+    bins = max(4, int(round(period)))
+    idx = ((np.arange(profile.size) % period) / period * bins).astype(int) % bins
+    fold = np.bincount(idx, weights=profile, minlength=bins) / np.maximum(np.bincount(idx, minlength=bins), 1)
+    k = int(np.argmax(fold))
+    if fold[k] < min_mean or fold[k] < min_ratio * max(float(np.median(fold)), 1e-6):
+        return None
+    return (k + 0.5) / bins * period
+
+
+def grid_in_mask(mask: np.ndarray, px_per_mm: float) -> bool:
+    """The 5-mm grid's vertical lines are in the ink mask (SD-079)."""
+    return _line_phase(mask.mean(axis=0), 5.0 * float(px_per_mm)) is not None
+
+
+def _grid_lattice(mask: np.ndarray, ppm: float, tol_mm: float = 1.0):
+    """A test "is this pair a grid cell" (both edges on 5-mm grid lines, or its top a grid
+    line), when the grid's vertical lines got into the ink mask (a grey or dark grid, a compressed copy: the owner's CardioTouch
+    strip, SD-079); ``None`` when they did not. The mask breaks those lines where the
+    horizontal ones cross, and each piece pairs with the next into a "pulse" one cell wide."""
+    period = 5.0 * ppm
+    px = _line_phase(mask.mean(axis=0), period)
+    if px is None:
+        return None
+    tol = max(2.0, tol_mm * ppm)
+
+    def on(v: int) -> bool:
+        d = (v - px) % period
+        return min(d, period - d) <= tol
+
+    side = max(2, int(round(1.5 * ppm)))
+    gap = max(1, int(round(0.5 * ppm)))
+    band = max(1, int(round(0.3 * ppm)))
+
+    def ruled(xa: int, xb: int, top: int) -> bool:
+        """The "flat top" goes on past both edges: a horizontal grid line, not a pulse top."""
+        rows = mask[max(0, top - band):top + band + 1]
+        left, right = rows[:, max(0, xa - side):max(0, xa - gap)], rows[:, xb + gap:xb + side]
+        return (left.size > 0 and right.size > 0 and left.any(axis=0).mean() > 0.8
+                and right.any(axis=0).mean() > 0.8)
+
+    return lambda xa, xb, top: (on(xa) and on(xb)) or ruled(xa, xb, top)
+
+
 def find_pulses(mask: np.ndarray, px_per_mm: float, *, min_h_mm: float = 3.0, max_h_mm: float = 25.0,
                 min_w_mm: float = 2.0, max_w_mm: float = 15.0, edge_tol_mm: float = 0.6,
                 top_coverage: float = 0.85) -> list[Pulse]:
     ppm = float(px_per_mm)
     strokes = _vertical_strokes(mask, int(min_h_mm * ppm), int(max_h_mm * ppm))
     tol = max(2, int(round(edge_tol_mm * ppm)))
+    lattice = _grid_lattice(mask, ppm)
     band = max(1, int(round(0.3 * ppm)))
     out: list[Pulse] = []
     used: set[int] = set()
@@ -87,6 +136,10 @@ def find_pulses(mask: np.ndarray, px_per_mm: float, *, min_h_mm: float = 3.0, ma
             if dx < min_w_mm * ppm or j in used or abs(ta - tb) > tol or abs(ba - bb) > tol:
                 continue
             top = (ta + tb) // 2
+            # A cell of a 5-mm grid that reached the ink mask (SD-079): both edges on its
+            # lines, or a "flat top" that is a grid line going on past both edges.
+            if lattice is not None and lattice(xa, xb, top):
+                continue
             span = mask[max(0, top - band):top + band + 1, xa + 1:xb]
             if span.size == 0 or span.any(axis=0).mean() < top_coverage:
                 continue
