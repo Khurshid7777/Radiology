@@ -51,6 +51,9 @@ calibration:
     header_frac: 0.25
     footer_frac: 0.12
     conf: 0.9
+    row_clear_pitch: 0.6           # header / footer bands start this far (x row pitch) from the edge rows' baselines
+    row_near_pitch: 0.35           # ... or as near as this when the page edge leaves less than min_band_mm (SD-085)
+    min_band_mm: 12                # ECG-Image-Kit: "25mm/s" 6 mm under the rhythm trace, 3 mm from the edge
   # Rules (SD-011, TZ §5.4):
   #  speed is established only by OCR or the user; pulse width alone -> needs_confirmation;
   #  gain is established by the pulse (OCR agreeing or absent) or the user; OCR alone -> needs_confirmation;
