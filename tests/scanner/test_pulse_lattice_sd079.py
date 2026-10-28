@@ -72,3 +72,27 @@ def test_a_pulse_drawn_on_the_grid_lines_is_a_pulse():
 def test_a_grid_cell_as_dark_as_its_lines_stays_a_cell():
     mask, g = _kit_like(pulse_grey=76)
     assert find_pulses(mask, 10.0, gray=g) == []
+
+
+def test_pulses_on_a_light_grid_barely_in_the_mask():
+    """Kit 12390_hr, full page: the light grid is in the mask in short pieces only, so most
+    of the lines' masked pixels are the pulses' legs and the traces' crossings. Compared with
+    that page-wide median the legs were no darker than "the lines": no pulse on any row."""
+    h, w = 900, 600
+    g = np.full((h, w), 252, np.uint8)
+    for x in range(0, w, 50):                             # light lines, in the mask in pieces
+        g[:, x:x + 2] = 215
+        for y in range(0, h, 50):
+            g[y:y + 6, x:x + 2] = 150
+    for base in (215, 435, 655, 875):                     # off the grid's dark pieces
+        top = base - 100
+        g[top:base, 100:103] = 29
+        g[top:base, 150:153] = 29
+        g[top:top + 3, 100:153] = 29
+        g[base - 1:base + 2, 153:w] = 29                  # the trace after the pulse
+        for x in range(200, w, 50):                       # QRS strokes crossing the lines
+            g[base - 60:base, x:x + 3] = 29
+    mask = g < 200
+    assert grid_in_mask(mask, 10.0)
+    s = summarize_pulses(find_pulses(mask, 10.0, gray=g))
+    assert s is not None and s["n_agree"] >= 4 and s["height_mm"] == pytest.approx(10.0, abs=0.3)
