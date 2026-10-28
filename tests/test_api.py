@@ -366,3 +366,22 @@ def test_capture_check_measures_paper_on_the_board_and_names_a_board_that_fits()
     w = board_with_paper(9, 30, 280, 150)                     # covers the middle markers, 6 left in view
     advice = [h["ru"] for h in w["hints"] if h["code"] == "board_small"]
     assert w["board_name"] == "a4" and advice and "A3x2" in advice[0]
+
+
+# --- D179: the paper speed and gain printed on the strip, given by the user ---------------------
+
+def test_paper_speed_given_by_the_user_reaches_the_scanner(tmp_path):
+    """A page read at 25 mm/s: HR 72. The same page said to be 50 mm/s: the time axis halves
+    and the rate doubles (the owner's CardioTouch strip read 61 for ~120)."""
+    def hr(**form):
+        with open(_page_png(tmp_path), "rb") as f:
+            r = client.post("/api/analyze", data={"mode": "A", **form}, files={"files": ("page.png", f, "image/png")})
+        assert r.status_code == 200, r.text
+        return r.json()["measurements"]["heart_rate_bpm"]
+
+    base = hr()
+    fast = hr(paper_speed_mm_s="50")
+    assert base == pytest.approx(72, abs=5) and fast == pytest.approx(2 * base, rel=0.08)
+    bad = client.post("/api/analyze", data={"mode": "A", "paper_speed_mm_s": "33"},
+                      files={"files": ("page.png", _page_png(tmp_path).read_bytes(), "image/png")})
+    assert bad.status_code == 400 and "33" in bad.json()["detail"]

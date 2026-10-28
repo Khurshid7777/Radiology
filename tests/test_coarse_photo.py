@@ -1,6 +1,8 @@
 """D170: a messenger-compressed photo read in the scanner's coarse mode keeps the rate and
 the rhythm and withholds everything that needs a fine scale."""
 
+import pytest
+
 from cardiolens.layer1_ingestion import generate_synthetic_ecg
 from cardiolens.outputs import format_conclusion, result_to_dict
 from cardiolens.pipeline import run_pipeline
@@ -118,3 +120,22 @@ def test_unreliable_photo_numbers_are_not_printed_in_the_report():
                                        group="quality"))
     line = measurement_line(r)
     assert "ЧСС" not in line and "не приводятся" in line
+
+
+def test_paper_scale_corrects_the_readers_record():
+    """D179: the CardioLens readers assume 25 mm/s and 10 mm/mV; the user's 50 / 20 halve the
+    time axis and the amplitudes; a gain the readers took from the calibration pulse stays."""
+    import numpy as np
+
+    from cardiolens.telegram.analyze import apply_paper_scale
+
+    sig = generate_synthetic_ecg(heart_rate_bpm=60, seed=4)
+    out = apply_paper_scale(sig, 50.0, 20.0)
+    assert out.sampling_rate_hz == 2 * sig.sampling_rate_hz and out.duration_s == sig.duration_s / 2
+    assert np.allclose(out.signal, sig.signal / 2)
+    assert run_pipeline(out).measurements.heart_rate_bpm == pytest.approx(120, rel=0.05)
+    assert any(n.startswith("scale given by the user: 50 mm/s, 20 mm/mV") for n in out.provenance.notes)
+    pulsed = sig.model_copy(update={"provenance": sig.provenance.model_copy(
+        update={"notes": ["calibration: {'pulse_found': True, 'mm_per_mv': 20.0}"]})})
+    assert np.allclose(apply_paper_scale(pulsed, None, 20.0).signal, sig.signal)
+    assert apply_paper_scale(sig, 25.0, 10.0) is sig

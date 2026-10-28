@@ -297,6 +297,15 @@ def cases() -> dict:
     return {"cases": sorted(service.DEMO_CASES)}
 
 
+def _allowed(v: float | None, values: tuple[float, ...]) -> float | None:
+    """A paper speed or gain the recorders print, else None (auto)."""
+    if v is None or v <= 0:
+        return None
+    if not any(abs(v - x) < 1e-6 for x in values):
+        raise ValueError(f"unsupported value {v:g} (allowed: {', '.join(f'{x:g}' for x in values)})")
+    return float(v)
+
+
 @app.post("/api/analyze")
 async def analyze(
     case: str | None = Form(default=None),
@@ -310,6 +319,8 @@ async def analyze(
     calcium: float | None = Form(default=None),
     prior_ecg_id: str | None = Form(default=None),
     client: str | None = Form(default=None),     # "telegram": refusals keep the bot's wording (D161)
+    paper_speed_mm_s: float | None = Form(default=None),   # D179: printed on the strip, given by the user
+    gain_mm_mv: float | None = Form(default=None),
     files: list[UploadFile] = File(default=[]),
     who: str = Depends(actor),
 ) -> JSONResponse:
@@ -325,6 +336,8 @@ async def analyze(
                 uploads.append(service.UploadFile(filename=f.filename or "upload", content=content))
             sig = await _in_analysis_thread(
                 service.signal_from_uploads, uploads, sampling_rate_hz=sampling_rate_hz, unit=unit,
+                paper_speed_mm_s=_allowed(paper_speed_mm_s, (12.5, 25.0, 50.0, 100.0)),
+                gain_mm_mv=_allowed(gain_mm_mv, (2.5, 5.0, 10.0, 20.0, 40.0)),
                 wording="bot" if client == "telegram" else "web",
             )
         elif case:
