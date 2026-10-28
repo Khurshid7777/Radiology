@@ -601,8 +601,16 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     ocr_speeds: list[float] = []
     ocr_gains: list[float] = []
     h_img = rect.bgr.shape[0]
-    top = int(max(0.0, frame.baselines[0] - 0.6 * frame.pitch_px))
-    bottom = int(min(h_img, frame.baselines[-1] + 0.6 * frame.pitch_px))
+    o_cfg = c_cfg["ocr"]
+    clear, near = o_cfg.get("row_clear_pitch", 0.6), o_cfg.get("row_near_pitch", 0.6)
+    band = o_cfg.get("min_band_mm", 0.0) * ppm
+    # A band at least ``min_band_mm`` tall at the page edge, but never nearer a row than
+    # ``row_near_pitch``: ECG-Image-Kit prints "25mm/s 10mm/mV" ~6 mm under the rhythm
+    # trace and 3 mm from the edge, where "0.6 pitch" left no band at all (SD-085).
+    top = int(max(0.0, min(frame.baselines[0] - near * frame.pitch_px,
+                           max(frame.baselines[0] - clear * frame.pitch_px, band))))
+    bottom = int(min(h_img, max(frame.baselines[-1] + near * frame.pitch_px,
+                                min(frame.baselines[-1] + clear * frame.pitch_px, h_img - band))))
     if c_cfg["ocr"]["enabled"]:
         reading = read_bands(rect.bgr, header_frac=top / h_img, footer_frac=(h_img - bottom) / h_img,
                              min_band_px=int(4 * ppm))
