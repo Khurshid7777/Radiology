@@ -104,3 +104,17 @@ def test_coarse_scan_of_a_device_screen_goes_to_the_screen_readers(monkeypatch, 
     sig = A.digitize_photo(page)
     assert any(n.startswith("device screen photo") for n in sig.provenance.notes)
     assert not any(n.startswith("coarse:") for n in sig.provenance.notes)
+
+
+def test_unreliable_photo_numbers_are_not_printed_in_the_report():
+    """D178: the PDF printed ЧСС 75, PR 34, axis −122 under a photo_unreliable record whose
+    narrative said no measurement could be given."""
+    from cardiolens.contracts.findings import Finding
+    from cardiolens.outputs.pdf_report import measurement_line
+
+    r = run_pipeline(generate_synthetic_ecg(heart_rate_bpm=72, seed=3), mode="A")
+    assert measurement_line(r).startswith("ЧСС: ")
+    r.findings.findings.append(Finding(code="photo_unreliable", label_ru="x", label_uz="x", confidence=0.9,
+                                       group="quality"))
+    line = measurement_line(r)
+    assert "ЧСС" not in line and "не приводятся" in line

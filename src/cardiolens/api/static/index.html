@@ -488,7 +488,12 @@ function render(d) {
     .map(a => `<div class="crit">⚠ ${esc(a.label_ru)} / ${esc(a.label_uz)}</div>`).join('');
 
   const m = d.measurements, iv = m.intervals;
-  $('meas').innerHTML = `
+  // D178: an unreliable photo's numbers are not shown as measurements.
+  const unreliable = (d.findings || []).some(f => ['photo_unreliable', 'no_ecg_signal', 'amplitude_implausible'].includes(f.code));
+  if (unreliable) {
+    $('meas').innerHTML = `<tr><td colspan="4">Измерения не приводятся: снимок распознан ненадёжно. Переснимите ЭКГ.</td></tr>
+    <tr><td>Уверенность</td><td colspan="3">${d.interpretation.confidence.value} (${d.interpretation.confidence.word_ru})</td></tr>`;
+  } else $('meas').innerHTML = `
     <tr><td>ЧСС</td><td>${m.heart_rate_bpm ?? '—'} /мин</td>
         <td>PR</td><td>${iv.pr_ms ?? '—'} мс</td></tr>
     <tr><td>QRS</td><td>${iv.qrs_ms ?? '—'} мс</td>
