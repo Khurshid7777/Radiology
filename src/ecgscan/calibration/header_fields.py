@@ -160,8 +160,11 @@ def parse_fields(lines: list[str], *, models: list[str] | None = None) -> Header
             if 1 <= day <= 31 and 1 <= mon <= 12 and 0 <= hh < 24 and 0 <= mi < 60:
                 f.recorded_at = f"{yr:04d}-{mon:02d}-{day:02d}T{hh:02d}:{mi:02d}"
     for pat in models or []:
+        # The recogniser mixes look-alike letters (Latin P for Cyrillic Р, K for К): a pattern is
+        # matched against the line with those folded into the pattern's own script (SD-098).
+        to = _TO_CYR if _CYR.search(pat) else _TO_LAT
         for ln in keep:
-            mm = re.search(pat, ln, _I)
+            mm = re.search(pat, ln.translate(to), _I)
             if mm:
                 f.device_model = mm.group(0).strip()
                 break
@@ -187,10 +190,17 @@ def _tidy(text: str) -> str:
     return re.sub(r"\s+([.,;:])", r"\1", " ".join(text.split()))
 
 
+# Letters the Cyrillic recogniser confuses with their Latin twins (same shape).
+_LAT, _CYRL = "ABCEHKMOPTXYaceopxy", "АВСЕНКМОРТХУасеорху"
+_TO_CYR, _TO_LAT = str.maketrans(_LAT, _CYRL), str.maketrans(_CYRL, _LAT)
+_CYR = re.compile(r"[А-Яа-яЁё]")
+
+
 def _conclusion_like(line: str, model: str | None) -> bool:
     """A free-text line: mostly letters, no measurement, setting, date or model in it."""
     s = line.strip()
-    if len(s) < 6 or _FIELD_HINT.search(s) or DATE_RE.search(s) or (model and model in s):
+    if len(s) < 6 or _FIELD_HINT.search(s) or DATE_RE.search(s) or (
+            model and (model in s or model in s.translate(_TO_CYR) or model in s.translate(_TO_LAT))):
         return False
     letters = sum(c.isalpha() for c in s)
     return letters / len(s) >= 0.6
