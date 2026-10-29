@@ -113,7 +113,9 @@ def measurement_line(result, lang: str = "ru") -> str:
             f"QRS: {n(ivs.qrs_ms)} {ms} · QTc(F/B): {n(ivs.qtc_fridericia_ms)}/{n(ivs.qtc_bazett_ms)} {ms} · "
             f"{'QRS o‘qi' if uz else 'ось QRS'}: {n(m.axes.qrs_deg)}°")
     mismatch = next((f for f in result.findings.findings if f.code == "device_mismatch"), None)
-    for extra in (speed_assumed_note(result, lang), device_line(result, lang),
+    # In the PDF the scanner's rows name the recorder already (S4); the page has no such rows.
+    dev = None if result.signal.provenance.report_rows else device_line(result, lang)
+    for extra in (speed_assumed_note(result, lang), dev,
                   (mismatch.label_uz if uz else mismatch.label_ru) if mismatch else None):
         if extra is not None:
             line += f"<br/><i>{_esc(extra)}</i>"

@@ -426,7 +426,7 @@ def run_pipeline(
                 label_ru="Наши измерения расходятся с распечатанными аппаратом: "
                          + "; ".join(f"{_DEV_RU[k]} {o:.0f} (аппарат {d})" for k, o, d in off)
                          + " — сверьте с записью",
-                label_uz="O'lchovlarimiz apparat chop etganidan farq qiladi: "
+                label_uz="O‘lchovlarimiz apparat chop etganidan farq qiladi: "
                          + "; ".join(f"{_DEV_UZ[k]} {o:.0f} (apparat {d})" for k, o, d in off)
                          + " — yozuv bilan solishtiring",
                 evidence=[Evidence(feature=f"device_{k}", value=f"ours {o:.0f} / device {d}") for k, o, d in off],
