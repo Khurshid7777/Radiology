@@ -524,6 +524,7 @@ function render(d) {
 
   // D180: the paper speed was assumed, not read: said next to the numbers.
   if (d.speed_note_ru) $('meas').innerHTML += `<tr><td colspan="4" class="notice">${esc(d.speed_note_ru)}</td></tr>`;
+  if (d.device_ru) $('meas').innerHTML += `<tr><td colspan="4" class="muted">${esc(d.device_ru)}</td></tr>`;
   $('findings').innerHTML = (d.findings || [])
     .map(f => `<span class="chip ${f.critical ? 'crit' : ''}">${esc(f.label_ru)}</span>`).join('') || '<span class="muted">—</span>';
 

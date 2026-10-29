@@ -48,6 +48,22 @@ UNRELIABLE_CODES = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_im
 _SPEED_KNOWN = ("(header_ocr)", "(user)")
 
 
+def device_line(result) -> str | None:
+    """The recorder as its printed header names it (scanner S3, D183): model, filters, mains.
+    Its own measurements are not repeated here: they appear only where they differ from ours
+    (``device_mismatch``)."""
+    info = result.signal.provenance.device_info or {}
+    if not info:
+        return None
+    parts = [str(info["device_model"])] if info.get("device_model") else []
+    hp, lp = info.get("filter_hp_hz"), info.get("filter_lp_hz")
+    if hp is not None or lp is not None:
+        parts.append(f"фильтр {hp if hp is not None else '—'}–{lp if lp is not None else '—'} Гц")
+    if info.get("mains_hz"):
+        parts.append(f"сеть {info['mains_hz']} Гц")
+    return "Аппарат (по шапке листа): " + " · ".join(parts) if parts else None
+
+
 def speed_assumed_note(result) -> str | None:
     """A photo whose paper speed was neither read from the strip nor given by the user: the
     time scale is the 25 mm/s default (D180). A strip printed at 50 mm/s read so halves the
@@ -79,8 +95,10 @@ def measurement_line(result) -> str:
     line = (f"ЧСС: {n(m.heart_rate_bpm)} /мин · PR: {n(m.intervals.pr_ms)} мс · "
             f"QRS: {n(m.intervals.qrs_ms)} мс · QTc(F/B): {n(m.intervals.qtc_fridericia_ms)}/{n(m.intervals.qtc_bazett_ms)} мс · "
             f"ось QRS: {n(m.axes.qrs_deg)}°")
-    note = speed_assumed_note(result)
-    return line if note is None else f"{line}<br/><i>{note}</i>"
+    for extra in (speed_assumed_note(result), device_line(result)):
+        if extra is not None:
+            line += f"<br/><i>{extra}</i>"
+    return line
 
 
 def _register_font() -> str:

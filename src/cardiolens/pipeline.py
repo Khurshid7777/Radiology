@@ -70,6 +70,20 @@ class PipelineResult:
     serial: SerialComparison | None = None
 
 
+# TZ 18.6: how far ours may differ from the recorder's printed values (D183).
+DEVICE_TOLERANCE = {"hr_bpm": 5, "pr_ms": 15, "qrs_ms": 15, "qt_ms": 20}
+_DEV_RU = {"hr_bpm": "ЧСС", "pr_ms": "PR", "qrs_ms": "QRS", "qt_ms": "QT"}
+_DEV_UZ = {"hr_bpm": "YuUS", "pr_ms": "PR", "qrs_ms": "QRS", "qt_ms": "QT"}
+
+
+def device_mismatches(m: Measurements, dev: dict[str, int]) -> list[tuple[str, float, int]]:
+    """(field, ours, device) for each value both have that differs beyond the tolerance."""
+    ours = {"hr_bpm": m.heart_rate_bpm, "pr_ms": m.intervals.pr_ms,
+            "qrs_ms": m.intervals.qrs_ms, "qt_ms": m.intervals.qt_ms}
+    return [(k, float(ours[k]), int(dev[k])) for k, tol in DEVICE_TOLERANCE.items()
+            if ours.get(k) is not None and dev.get(k) is not None and abs(ours[k] - dev[k]) > tol]
+
+
 def run_pipeline(
     sig: SignalRepresentation,
     *,
@@ -401,6 +415,23 @@ def run_pipeline(
             confidence=0.95)]
         quality_ok = False
         audit.append("[L2] no ECG signal (8-40 Hz below threshold in every lead) — all findings and alerts withheld")
+    # The recorder's own printed measurements against ours (scanner S3, TZ 18.6, D183). Advisory:
+    # a mis-read digit in the header must not withhold our numbers, so it never gates.
+    dev = sig.provenance.device_measurements
+    if dev and not (no_ecg or bad_units or bad_photo):
+        off = device_mismatches(m, dev)
+        if off:
+            findings.findings.append(Finding(
+                code="device_mismatch", group="quality",
+                label_ru="Наши измерения расходятся с распечатанными аппаратом: "
+                         + "; ".join(f"{_DEV_RU[k]} {o:.0f} (аппарат {d})" for k, o, d in off)
+                         + " — сверьте с записью",
+                label_uz="O'lchovlarimiz apparat chop etganidan farq qiladi: "
+                         + "; ".join(f"{_DEV_UZ[k]} {o:.0f} (apparat {d})" for k, o, d in off)
+                         + " — yozuv bilan solishtiring",
+                evidence=[Evidence(feature=f"device_{k}", value=f"ours {o:.0f} / device {d}") for k, o, d in off],
+                confidence=0.6))
+            audit.append(f"[L2] device mismatch (D183): {[(k, round(o), d) for k, o, d in off]}")
     # Apply confidence calibration to each finding (TZ §13).
     for f in findings.findings:
         f.confidence = round(calibrator.apply(f.confidence), 3)

@@ -376,9 +376,10 @@ async def analyze(
     payload["conclusion_uz"] = format_conclusion(result, "uz")
     # A photo the scanner read: the page shows what was read (D163), the bot sends it.
     payload["overlay_available"] = result.signal.provenance.overlay_jpeg is not None
-    from cardiolens.outputs.pdf_report import speed_assumed_note
+    from cardiolens.outputs.pdf_report import device_line, speed_assumed_note
 
     payload["speed_note_ru"] = speed_assumed_note(result)       # D180
+    payload["device_ru"] = device_line(result)                  # D183
     return JSONResponse(payload)
 
 
