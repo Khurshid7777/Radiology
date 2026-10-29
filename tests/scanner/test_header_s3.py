@@ -157,3 +157,14 @@ def test_the_app_gets_the_recorder_profiles(monkeypatch):
     assert r.status_code == 200
     assert r.json() == {"devices": [{"id": "ek12", "manufacturer": "Test", "model": "EK-12", "layouts": ["3x4+rhythm"],
                                      "phi_zones": [[0.0, 0.0, 0.5, 0.06]], "phi_zone_margin": 0.01}]}
+
+
+def test_values_no_check_vouches_for_are_marked():
+    """The S3 bench's only misread values: QTc taken from the QT/QTc pair's label, an axis that
+    lost its minus sign or read 74° as 743. A real mismatch must not come from them."""
+    m = parse_fields(["ЧСС: 72 уд/мин  QT/QTc: 380/416 мс  Ось: 45°"]).measurements
+    assert (m.qt_ms, m.qtc_ms, m.axis_deg) == (380, 416, 45) and m.uncertain == ["axis_deg"]
+    m = parse_fields(["ЧСС: 72 уд/мин  QT/QTc: 422/520 мс"]).measurements
+    assert m.qtc_ms == 520 and "qtc_ms" in m.uncertain                 # off Bazett by > 40 ms
+    m = parse_fields(["QT/QTc 383/499 ms  P-R-T axes 74 743 19"]).measurements
+    assert m.axis_deg is None

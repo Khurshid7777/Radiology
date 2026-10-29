@@ -191,6 +191,9 @@ class DeviceMeasurements(_Strict):
     axis_deg: int | None = Field(default=None, ge=-180, le=360)
     p_axis_deg: int | None = Field(default=None, ge=-180, le=360)
     t_axis_deg: int | None = Field(default=None, ge=-180, le=360)
+    # Fields no check vouches for (QTc off Bazett from the QT and HR read with it; axes, whose
+    # minus sign the OCR may drop): advisory, never a reason for device_mismatch on their own.
+    uncertain: list[Literal["qtc_ms", "axis_deg", "p_axis_deg", "t_axis_deg"]] = Field(default_factory=list)
 
 
 class HeaderOcr(_Strict):

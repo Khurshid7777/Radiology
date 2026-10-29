@@ -662,6 +662,18 @@
               ],
               "minimum": -180,
               "maximum": 360
+            },
+            "uncertain": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "qtc_ms",
+                  "axis_deg",
+                  "p_axis_deg",
+                  "t_axis_deg"
+                ]
+              },
+              "description": "Fields no check vouches for (QTc off Bazett from QT and HR; axes, whose minus sign the OCR may drop): advisory only."
             }
           }
         },
