@@ -38,7 +38,7 @@ PR_RE = re.compile(r"\b(?:[PР]-?[RQ])(?:\s*int(?:erval)?)?" + _SEP + _N + r"(?!
 QRS_RE = re.compile(r"\bQRS(?:\s*dur(?:ation)?)?[^\d\n]{0,8}?" + _N + _MS, _I)
 QTQTC_RE = re.compile(r"\bQT\s*/\s*QT[cс]?" + _SEP + r"(?:\d{3}\s+)?(\d{3})\s*[/XxХх×]\s*(\d{3})", _I)
 QT_RE = re.compile(r"\bQT" + _SEP + r"(\d{3})\b(?!\s*/)", _I)
-QTC_RE = re.compile(r"\bQT[cс]" + _SEP + r"(\d{3})", _I)
+QTC_RE = re.compile(r"(?<![/\w])QT[cс]" + _SEP + r"(\d{3})", _I)   # not the "QT/QTc" pair's label (its first number is QT)
 AXIS_RE = re.compile(r"(?:" + _O + r"[cс][ьb](?:\s*Э" + _O + r"[CС])?|Э" + _O + r"[CС]|QRS\s*axis|\baxis\b)" + _SEP
                      + r"\|?\s*([-−–]?\s?\d{1,3})\s*°?", _I)
 AXES3_RE = re.compile(r"P-?R-?T\s*(?:ax[eé]s)?\S*" + _SEP + r"([-−]?\d{1,3})\s*/?\s*([-−]?\d{1,3})\s*/?\s*([-−]?\d{1,3})", _I)
@@ -60,9 +60,12 @@ class DeviceMeasurements:
     axis_deg: int | None = None
     p_axis_deg: int | None = None
     t_axis_deg: int | None = None
+    # Values a check cannot vouch for (S3 bench: QT, PR, QRS, HR never misread, only missed):
+    # QTc off Bazett from the QT and HR read with it, axes always (the OCR drops a minus sign).
+    uncertain: list[str] = field(default_factory=list)
 
     def any(self) -> bool:
-        return any(v is not None for v in asdict(self).values())
+        return any(v is not None for k, v in asdict(self).items() if k != "uncertain")
 
 
 @dataclass
@@ -128,7 +131,9 @@ def parse_fields(lines: list[str], *, models: list[str] | None = None) -> Header
     for ln in keep:
         a3 = AXES3_RE.search(ln)
         if a3:
-            m.p_axis_deg, m.axis_deg, m.t_axis_deg = (int(_num(g)) for g in a3.groups())
+            vals = [int(_num(g)) for g in a3.groups()]
+            if all(-180 <= v <= 360 for v in vals):          # "74°" read as "743": not an axis
+                m.p_axis_deg, m.axis_deg, m.t_axis_deg = vals
             break
     if m.axis_deg is None:
         for ln in keep:
@@ -136,6 +141,7 @@ def parse_fields(lines: list[str], *, models: list[str] | None = None) -> Header
             if a and -180 <= int(_num(a.group(1))) <= 360:
                 m.axis_deg = int(_num(a.group(1)))
                 break
+    m.uncertain = _uncertain(m)
     for ln in keep:
         b = BAND_RE.search(ln)
         if b:
@@ -165,6 +171,15 @@ def parse_fields(lines: list[str], *, models: list[str] | None = None) -> Header
     f.conclusion = " ".join(concl) or None
     f.device_model = _tidy(f.device_model) if f.device_model else None
     return f
+
+
+def _uncertain(m: DeviceMeasurements, bazett_tol_ms: float = 40.0) -> list[str]:
+    out = []
+    if m.qtc_ms is not None and not (m.qt_ms and m.hr_bpm and
+                                     abs(m.qtc_ms - m.qt_ms / (60.0 / m.hr_bpm) ** 0.5) <= bazett_tol_ms):
+        out.append("qtc_ms")
+    out += [k for k in ("axis_deg", "p_axis_deg", "t_axis_deg") if getattr(m, k) is not None]
+    return out
 
 
 def _tidy(text: str) -> str:
