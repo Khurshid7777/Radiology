@@ -1,6 +1,11 @@
 """D182 step 2 (a separate venv with torch CPU, transformers, scikit-learn, wfdb, scipy):
-frozen HuBERT-ECG embeddings -> one logistic regression per class -> AUROC on the
-hold-outs, next to rhythm_hgb's AUROC on the same records.
+frozen HuBERT-ECG or ECG-FM embeddings -> one logistic regression per class -> AUROC on
+the hold-outs, next to rhythm_hgb's AUROC on the same records.
+
+ECG-FM (``--backend ecgfm``, MIT) loads through fairseq-signals (``--fairseq-signals``,
+a checkout of github.com/Jwoo5/fairseq-signals; transformers < 4.50) with the authors'
+preprocessing (bowang-lab/ECG-FM notebooks/infer_quickstart): 500 Hz, standard lead
+order, z-score per lead, 5-s non-overlapping windows; the encoder output is averaged.
 
     python tools/fm_probe/probe.py --records <dir>/records.json --model-dir <hubert-ecg-small dir> \
         --out <dir>/probe.json
@@ -56,22 +61,51 @@ def load(path: str) -> tuple[np.ndarray, float]:
     return x, float(rec.fs)
 
 
-def embed(records: list[dict], model_dir: Path, cache: Path) -> np.ndarray:
+def ecgfm_windows(x: np.ndarray, fs: float) -> np.ndarray:
+    """(12, n) -> (W, 12, 2500): 500 Hz, z-score per lead (a flat lead stays 0), 5-s windows."""
+    if fs != FS:
+        x = signal.resample(x, int(x.shape[1] * FS / fs), axis=1)
+    sd = x.std(axis=1, keepdims=True)
+    x = np.where(sd > 1e-8, (x - x.mean(axis=1, keepdims=True)) / np.where(sd > 1e-8, sd, 1.0), 0.0)
+    n = x.shape[1] // WIN
+    return np.stack([x[:, i * WIN:(i + 1) * WIN] for i in range(max(n, 1))]).astype(np.float32)
+
+
+def load_model(backend: str, model_dir: Path, fairseq_signals: Path | None):
+    """The model and a function (record, fs) -> one embedding vector."""
     import torch
+    if backend == "ecgfm":
+        sys.path.insert(0, str(fairseq_signals))
+        from fairseq_signals.models import build_model_from_checkpoint
+        ckpt = next(model_dir.glob("*finetuned.pt"), None) or next(model_dir.glob("*.pt"))
+        model = build_model_from_checkpoint(checkpoint_path=str(ckpt)).eval()
+
+        def one(x, fs):
+            with torch.no_grad():
+                h = model(source=torch.from_numpy(ecgfm_windows(x, fs)), padding_mask=None)["encoder_out"]
+            return h.mean(dim=(0, 1)).numpy()
+        return one
     sys.path.insert(0, str(model_dir))
     from hubert_ecg import HuBERTECG  # the model's own file, read before use (D182)
 
     model = HuBERTECG.from_pretrained(str(model_dir)).eval()
+
+    def one(x, fs):
+        ws = np.stack(windows(preprocess(x, fs)))
+        with torch.no_grad():
+            h = model(torch.from_numpy(ws)).last_hidden_state      # (W, T, D)
+        return h.mean(dim=(0, 1)).numpy()
+    return one
+
+
+def embed(records: list[dict], one, cache: Path) -> np.ndarray:
     done = dict(np.load(cache, allow_pickle=True)) if cache.exists() else {}
     for i, r in enumerate(records):
         if r["name"] in done:
             continue
         try:
             x, fs = load(r["path"])
-            ws = np.stack(windows(preprocess(x, fs)))
-            with torch.no_grad():
-                h = model(torch.from_numpy(ws)).last_hidden_state      # (W, T, D)
-            done[r["name"]] = h.mean(dim=(0, 1)).numpy()
+            done[r["name"]] = one(x, fs)
         except Exception as e:    # an unreadable record is left out, and said
             print(f"skip {r['name']}: {e}", file=sys.stderr)
             done[r["name"]] = None
@@ -92,15 +126,17 @@ def main() -> None:
     ap.add_argument("--records", required=True, type=Path)
     ap.add_argument("--model-dir", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--backend", choices=("hubert", "ecgfm"), default="hubert")
+    ap.add_argument("--fairseq-signals", type=Path, default=None)
     ap.add_argument("--min-pos", type=int, default=5, help="hold-out positives a class needs to be scored")
     a = ap.parse_args()
     data = json.loads(a.records.read_text())
     recs, classes = data["records"], data["classes"]
-    emb = embed(recs, a.model_dir, a.out.with_suffix(".emb.npz"))
+    emb = embed(recs, load_model(a.backend, a.model_dir, a.fairseq_signals), a.out.with_suffix(".emb.npz"))
     recs = [r for r in recs if r["name"] in emb]
     tr = [r for r in recs if r["split"] == "train"]
     xtr = np.stack([emb[r["name"]] for r in tr])
-    report = {"model": a.model_dir.name, "n_train": len(tr), "classes": {}}
+    report = {"model": a.model_dir.name, "backend": a.backend, "n_train": len(tr), "classes": {}}
     for split in ("holdout_ecgarr", "holdout_ptbxl"):
         te = [r for r in recs if r["split"] == split]
         xte = np.stack([emb[r["name"]] for r in te])

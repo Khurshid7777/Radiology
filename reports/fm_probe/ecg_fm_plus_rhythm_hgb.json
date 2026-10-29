@@ -1,0 +1,16 @@
+{
+ "holdout_ecgarr": {
+  "fm": 0.906,
+  "hgb": 0.94,
+  "combined": 0.941,
+  "n_classes": 16,
+  "combined_beats_hgb": 9
+ },
+ "holdout_ptbxl": {
+  "fm": 0.915,
+  "hgb": 0.915,
+  "combined": 0.93,
+  "n_classes": 16,
+  "combined_beats_hgb": 11
+ }
+}

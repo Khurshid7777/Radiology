@@ -1,0 +1,185 @@
+{
+ "model": "ecg-fm",
+ "backend": "ecgfm",
+ "n_train": 2867,
+ "classes": {},
+ "holdout_ecgarr": {
+  "n": 706,
+  "macro_fm": 0.906,
+  "macro_hgb": 0.94,
+  "per_class": {
+   "atrial_fibrillation": {
+    "n_pos": 80,
+    "fm_auroc": 0.873,
+    "hgb_auroc": 0.876
+   },
+   "atrial_flutter": {
+    "n_pos": 195,
+    "fm_auroc": 0.883,
+    "hgb_auroc": 0.837
+   },
+   "sinus_rhythm": {
+    "n_pos": 80,
+    "fm_auroc": 0.973,
+    "hgb_auroc": 0.972
+   },
+   "sinus_bradycardia": {
+    "n_pos": 128,
+    "fm_auroc": 0.991,
+    "hgb_auroc": 0.987
+   },
+   "sinus_tachycardia": {
+    "n_pos": 117,
+    "fm_auroc": 0.997,
+    "hgb_auroc": 0.998
+   },
+   "first_degree_av_block": {
+    "n_pos": 87,
+    "fm_auroc": 0.961,
+    "hgb_auroc": 0.97
+   },
+   "rbbb": {
+    "n_pos": 84,
+    "fm_auroc": 0.952,
+    "hgb_auroc": 0.973
+   },
+   "lbbb": {
+    "n_pos": 81,
+    "fm_auroc": 0.935,
+    "hgb_auroc": 0.954
+   },
+   "lvh": {
+    "n_pos": 66,
+    "fm_auroc": 0.897,
+    "hgb_auroc": 0.961
+   },
+   "low_qrs_voltage": {
+    "n_pos": 82,
+    "fm_auroc": 0.771,
+    "hgb_auroc": 0.933
+   },
+   "long_qt": {
+    "n_pos": 35,
+    "fm_auroc": 0.819,
+    "hgb_auroc": 0.92
+   },
+   "st_depression": {
+    "n_pos": 82,
+    "fm_auroc": 0.818,
+    "hgb_auroc": 0.89
+   },
+   "st_elevation": {
+    "n_pos": 81,
+    "fm_auroc": 0.87,
+    "hgb_auroc": 0.895
+   },
+   "left_axis_deviation": {
+    "n_pos": 86,
+    "fm_auroc": 0.891,
+    "hgb_auroc": 0.956
+   },
+   "right_axis_deviation": {
+    "n_pos": 82,
+    "fm_auroc": 0.934,
+    "hgb_auroc": 0.98
+   },
+   "complete_av_block": {
+    "n_pos": 18,
+    "fm_auroc": 0.904,
+    "hgb_auroc": null
+   },
+   "wpw_preexcitation": {
+    "n_pos": 12,
+    "fm_auroc": 0.936,
+    "hgb_auroc": 0.941
+   }
+  }
+ },
+ "holdout_ptbxl": {
+  "n": 327,
+  "macro_fm": 0.915,
+  "macro_hgb": 0.915,
+  "per_class": {
+   "atrial_fibrillation": {
+    "n_pos": 30,
+    "fm_auroc": 0.988,
+    "hgb_auroc": 0.968
+   },
+   "atrial_flutter": {
+    "n_pos": 14,
+    "fm_auroc": 0.959,
+    "hgb_auroc": 0.932
+   },
+   "sinus_rhythm": {
+    "n_pos": 205,
+    "fm_auroc": 0.915,
+    "hgb_auroc": 0.909
+   },
+   "sinus_bradycardia": {
+    "n_pos": 23,
+    "fm_auroc": 0.953,
+    "hgb_auroc": 0.939
+   },
+   "sinus_tachycardia": {
+    "n_pos": 24,
+    "fm_auroc": 0.988,
+    "hgb_auroc": 0.992
+   },
+   "first_degree_av_block": {
+    "n_pos": 34,
+    "fm_auroc": 0.96,
+    "hgb_auroc": 0.958
+   },
+   "rbbb": {
+    "n_pos": 19,
+    "fm_auroc": 0.994,
+    "hgb_auroc": 0.993
+   },
+   "lbbb": {
+    "n_pos": 16,
+    "fm_auroc": 0.99,
+    "hgb_auroc": 0.985
+   },
+   "lvh": {
+    "n_pos": 42,
+    "fm_auroc": 0.807,
+    "hgb_auroc": 0.901
+   },
+   "low_qrs_voltage": {
+    "n_pos": 37,
+    "fm_auroc": 0.872,
+    "hgb_auroc": 0.951
+   },
+   "long_qt": {
+    "n_pos": 23,
+    "fm_auroc": 0.877,
+    "hgb_auroc": 0.888
+   },
+   "st_depression": {
+    "n_pos": 27,
+    "fm_auroc": 0.846,
+    "hgb_auroc": 0.81
+   },
+   "st_elevation": {
+    "n_pos": 6,
+    "fm_auroc": 0.755,
+    "hgb_auroc": 0.611
+   },
+   "left_axis_deviation": {
+    "n_pos": 16,
+    "fm_auroc": 0.882,
+    "hgb_auroc": 0.931
+   },
+   "right_axis_deviation": {
+    "n_pos": 30,
+    "fm_auroc": 0.962,
+    "hgb_auroc": 0.99
+   },
+   "wpw_preexcitation": {
+    "n_pos": 15,
+    "fm_auroc": 0.895,
+    "hgb_auroc": 0.874
+   }
+  }
+ }
+}
