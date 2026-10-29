@@ -154,9 +154,14 @@ def _grid_lattice(mask: np.ndarray, ppm: float, tol_mm: float = 1.0, gray: np.nd
 
 def find_pulses(mask: np.ndarray, px_per_mm: float, *, min_h_mm: float = 3.0, max_h_mm: float = 25.0,
                 min_w_mm: float = 2.0, max_w_mm: float = 15.0, edge_tol_mm: float = 0.6,
-                top_coverage: float = 0.85, gray: np.ndarray | None = None) -> list[Pulse]:
+                top_coverage: float = 0.85, top_search_mm: float = 0.0,
+                gray: np.ndarray | None = None) -> list[Pulse]:
     """Pulses on the ink ``mask``; ``gray`` (the page, optional) tells a pulse drawn on the
-    grid's lines from a cell of them when those lines are in the mask (SD-084)."""
+    grid's lines from a cell of them when those lines are in the mask (SD-084).
+
+    ``top_search_mm`` > 0: the two edges' tops may differ by up to that much (the mask broke an
+    edge under the top's corner: Kit 12390_hr, 1.2 mm), the top then being the first row
+    between them that the flat top covers (SD-086)."""
     ppm = float(px_per_mm)
     strokes = _vertical_strokes(mask, int(min_h_mm * ppm), int(max_h_mm * ppm))
     tol = max(2, int(round(edge_tol_mm * ppm)))
@@ -172,9 +177,15 @@ def find_pulses(mask: np.ndarray, px_per_mm: float, *, min_h_mm: float = 3.0, ma
             dx = xb - xa
             if dx > max_w_mm * ppm:
                 break
-            if dx < min_w_mm * ppm or j in used or abs(ta - tb) > tol or abs(ba - bb) > tol:
+            if dx < min_w_mm * ppm or j in used or abs(ta - tb) > max(tol, top_search_mm * ppm) or abs(ba - bb) > tol:
                 continue
             top = (ta + tb) // 2
+            if abs(ta - tb) > tol:
+                rows = range(min(ta, tb) - band, max(ta, tb) + band + 1)
+                top = next((y for y in rows if mask[max(0, y - band):y + band + 1, xa + 1:xb].any(axis=0).mean()
+                            >= top_coverage), None)
+                if top is None:
+                    continue
             # A cell of a 5-mm grid that reached the ink mask (SD-079): both edges on its
             # lines, or a "flat top" that is a grid line going on past both edges.
             if lattice is not None and lattice(xa, xb, top, (ba + bb) // 2):
@@ -254,3 +265,16 @@ def widen_strokes(mask: np.ndarray, widen_px: int, close_px: int) -> np.ndarray:
 
     m = cv2.dilate(mask.astype(np.uint8), np.ones((1, max(1, widen_px)), np.uint8))
     return cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((max(1, close_px), 1), np.uint8)).astype(bool)
+
+
+def dark_ink(mask: np.ndarray, gray: np.ndarray, *, split: float = 0.5) -> np.ndarray:
+    """The mask's dark neutral ink only: pixels whose brightest channel (``gray``) is nearer the
+    ink's own darkness than the paper's. A coloured grid the segmenter took for ink goes (its
+    brightest channel is light: ECG-Image-Kit's red dashed 5-mm lines ran on along the pulse's
+    legs and moved its edges and top, SD-086); a grey grid as dark as the trace stays."""
+    vals = gray[mask]
+    if vals.size == 0:
+        return mask
+    ink = float(np.percentile(vals, 5))
+    paper = float(np.median(gray))
+    return mask & (gray <= ink + split * (paper - ink))

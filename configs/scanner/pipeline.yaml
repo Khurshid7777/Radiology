@@ -45,6 +45,7 @@ calibration:
     speed_conf: 0.35             # SD-011: pulse width is a weak speed hint
     retry_widen_px: 5            # no pulse found: retry on the mask widened this much across and
     retry_close_px: 7            # ... with vertical gaps up to this closed (a thin, slightly slanted real pulse, SD-059)
+    top_search_mm: 1.5           # SD-086: on the dark-ink retry the edges' tops may differ this much (an edge broken under the top's corner)
     extend_max_gap_mm: 4.0       # D180: a found pulse is extended down while both edges go on, gaps up to this bridged
   ocr:
     enabled: true
@@ -52,7 +53,7 @@ calibration:
     footer_frac: 0.12
     conf: 0.9
     row_clear_pitch: 0.6           # header / footer bands start this far (x row pitch) from the edge rows' baselines
-    row_near_pitch: 0.35           # ... or as near as this when the page edge leaves less than min_band_mm (SD-085)
+    row_near_pitch: 0.2            # ... or as near as this when the page edge leaves less than min_band_mm (SD-085; Kit 12390: trace ink ends 0.16 pitch under the baseline, text at 0.33)
     min_band_mm: 12                # ECG-Image-Kit: "25mm/s" 6 mm under the rhythm trace, 3 mm from the edge
   # Rules (SD-011, TZ §5.4):
   #  speed is established only by OCR or the user; pulse width alone -> needs_confirmation;
