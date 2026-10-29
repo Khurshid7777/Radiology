@@ -1,0 +1,196 @@
+{
+ "file": "report.pdf",
+ "bytes": 636060,
+ "engines": {
+  "pdfium": {
+   "pages": 4,
+   "ink": [
+    0.017400224673474254,
+    0.028050492127118725,
+    0.03838068411033649,
+    0.021968171553359065
+   ],
+   "missing": []
+  },
+  "poppler": {
+   "pages": 4,
+   "ink": [
+    0.018408329409970572,
+    0.026379183922813045,
+    0.0346798668982559,
+    0.01963897969515693
+   ],
+   "missing": []
+  },
+  "mupdf": {
+   "pages": 4,
+   "ink": [
+    0.017202504923044457,
+    0.026183237443687554,
+    0.03457879043391062,
+    0.019674445121242994
+   ],
+   "missing": []
+  }
+ },
+ "fonts": [
+  {
+   "name": "Helvetica",
+   "embedded": false,
+   "subset": false,
+   "unicode": false,
+   "used": false
+  },
+  {
+   "name": "AAAAAA+DejaVuSans-Bold",
+   "embedded": true,
+   "subset": true,
+   "unicode": true,
+   "used": true
+  },
+  {
+   "name": "AAAAAA+DejaVuSans",
+   "embedded": true,
+   "subset": true,
+   "unicode": true,
+   "used": true
+  }
+ ],
+ "ok": true,
+ "groups": {
+  "overlay": {
+   "expected": 2,
+   "missing": []
+  },
+  "conclusion": {
+   "expected": 2,
+   "missing": []
+  },
+  "flags_ru": {
+   "expected": 26,
+   "missing": []
+  },
+  "flags_uz": {
+   "expected": 26,
+   "missing": []
+  }
+ },
+ "scan": {
+  "status": "needs_confirmation",
+  "warnings": [
+   "GAIN_SOURCES_DISAGREE",
+   "GAIN_UNCERTAIN",
+   "LOW_RESOLUTION_MARGINAL"
+  ],
+  "flags": {
+   "ru": [
+    [
+     "Источник",
+     "фото бумажной ЭКГ, оцифровано"
+    ],
+    [
+     "Прислано через",
+     "API"
+    ],
+    [
+     "Данные пациента на снимке",
+     "шапка закрыта на сервере"
+    ],
+    [
+     "Статус чтения",
+     "Нужно подтверждение врача: проверьте наложение трасс и калибровку."
+    ],
+    [
+     "Скорость ленты",
+     "25 мм/с (прочитано с шапки)"
+    ],
+    [
+     "Усиление",
+     "не установлено"
+    ],
+    [
+     "Раскладка отведений",
+     "3x4+rhythm, уверенность 0,9"
+    ],
+    [
+     "Качество оцифровки",
+     "0,5"
+    ],
+    [
+     "Отведения: качество чтения / прочитано",
+     "нет"
+    ],
+    [
+     "Предупреждения",
+     "Источники усиления расходятся — подтвердите усиление. Усиление не установлено — подтвердите 5, 10 или 20 мм/мВ. Разрешение на нижней границе — точность может быть снижена."
+    ],
+    [
+     "Аппарат",
+     "ЭК12Т-01-Р-Д"
+    ],
+    [
+     "Дата записи",
+     "2023-05-16T07:00"
+    ],
+    [
+     "Измерения аппарата (с шапки)",
+     "ЧСС 113 /мин, PR 183 мс, QRS 87 мс, QT 457 мс, QTc 627 мс, ось -32°?. «?» — значение прочитано, но не проверено; это числа аппарата, не наши."
+    ]
+   ],
+   "uz": [
+    [
+     "Manba",
+     "qog‘oz EKG surati, raqamlashtirilgan"
+    ],
+    [
+     "Yuborilgan",
+     "API"
+    ],
+    [
+     "Suratdagi bemor ma’lumotlari",
+     "sarlavha serverda yopilgan"
+    ],
+    [
+     "O‘qish holati",
+     "Shifokor tasdig‘i kerak: chiziqlar ustma-ustligini va kalibrovkani tekshiring."
+    ],
+    [
+     "Lenta tezligi",
+     "25 mm/s (sarlavhadan o‘qilgan)"
+    ],
+    [
+     "Kuchaytirish",
+     "aniqlanmagan"
+    ],
+    [
+     "Ulanishlar joylashuvi",
+     "3x4+rhythm, ishonchlilik 0.9"
+    ],
+    [
+     "Raqamlashtirish sifati",
+     "0.5"
+    ],
+    [
+     "Ulanishlar: o‘qish sifati / o‘qilgan qismi",
+     "yo‘q"
+    ],
+    [
+     "Ogohlantirishlar",
+     "Kuchaytirish manbalari bir-biriga zid — kuchaytirishni tasdiqlang. Kuchaytirish aniqlanmadi — 5, 10 yoki 20 mm/mV ni tasdiqlang. Ruxsat quyi chegarada — aniqlik pasayishi mumkin."
+    ],
+    [
+     "Apparat",
+     "ЭК12Т-01-Р-Д"
+    ],
+    [
+     "Yozilgan sana",
+     "2023-05-16T07:00"
+    ],
+    [
+     "Apparat o‘lchovlari (sarlavhadan)",
+     "YuQS 113 /daq, PR 183 ms, QRS 87 ms, QT 457 ms, QTc 627 ms, o‘q -32°?. «?» — qiymat o‘qilgan, lekin tekshirilmagan; bu apparat raqamlari, bizniki emas."
+    ]
+   ]
+  }
+ }
+}

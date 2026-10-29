@@ -324,12 +324,32 @@ class ScanService:
         from ecgscan.contract.cardiolens_adapter import to_signal_representation
 
         sig = to_signal_representation(ScanResult.model_validate(row.result))
+        if "trace_overlay_preview" in ((row.result or {}).get("artifacts") or {}):
+            try:                     # the page with the read traces, header blanked: the PDF shows it (TZ 18.10)
+                sig.provenance.overlay_jpeg = self.artifact(scan_id, "trace_overlay_preview", actor)[0]
+            except ScanError:        # expired: the report goes without the picture
+                pass
         analysis_id, result = cl_service.run_and_store(sig, mode=mode, owner=row.owner)
         self.store.set_analysis(scan_id, analysis_id)
         self.store.audit(scan_id, actor, "analyzed", {"analysis_id": analysis_id, "mode": result.report.mode})
         return {"analysis_id": analysis_id, "mode": result.report.mode,
                 "conclusion_ru": format_conclusion(result, "ru"), "conclusion_uz": format_conclusion(result, "uz"),
                 "report_pdf": f"/api/analysis/{analysis_id}/report.pdf"}
+
+    # -- export (TZ 18.10, S4) -----------------------------------------------------------------
+
+    def export(self, scan_id: str, fmt: str, actor: str | None = None) -> tuple[bytes, str, str]:
+        """(bytes, media type, file name) of the read signal: the contract JSON, CSV or WFDB."""
+        from ecgscan.export import EXPORTS, export
+
+        row = self.get(scan_id, actor)
+        if fmt not in EXPORTS:
+            raise ScanError(422, f"format must be one of {sorted(EXPORTS)}")
+        if row.result is None or not (row.result.get("leads") or row.result.get("rhythm")):
+            raise ScanError(409, f"scan is {row.status}; no signal to export")
+        data, media, ext = export(ScanResult.model_validate(row.result), fmt)
+        self.store.audit(scan_id, actor, "exported", {"format": fmt})
+        return data, media, f"ecg-{scan_id[:8]}.{ext}"
 
     # -- privacy -----------------------------------------------------------------------------
 

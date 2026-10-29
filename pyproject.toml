@@ -35,7 +35,7 @@ dicom = ["pydicom>=2.4", "pynetdicom>=2", "httpx"]
 scanner = ["opencv-python-headless", "jsonschema", "rapidocr-onnxruntime", "cryptography"]
 bot = ["aiogram>=3", "httpx"]
 dev = ["pytest", "ruff", "httpx", "opencv-python-headless", "jsonschema", "rapidocr-onnxruntime", "cryptography",
-       "pydicom>=2.4", "pynetdicom>=2", "pillow-heif", "pymupdf"]
+       "pydicom>=2.4", "pynetdicom>=2", "pillow-heif", "pymupdf", "pypdfium2", "pypdf"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

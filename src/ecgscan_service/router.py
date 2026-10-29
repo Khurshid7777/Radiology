@@ -217,6 +217,18 @@ def scan_audit(scan_id: str, who: str = Depends(actor), svc: ScanService = Depen
     return svc.store.audit_log(scan_id)
 
 
+@router.get("/{scan_id}/export")
+def scan_export(scan_id: str, format: str = "json", who: str = Depends(actor),
+                svc: ScanService = Depends(get_service)) -> Response:
+    """The read signal (TZ 18.10): ``json`` (the CardioVision contract), ``csv`` or ``wfdb`` (zip)."""
+    try:
+        data, media, name = svc.export(scan_id, format, who)
+    except ScanError as exc:
+        raise _http(exc) from exc
+    return Response(data, media_type=media, headers={"Cache-Control": "no-store",
+                                                     "Content-Disposition": f'attachment; filename="{name}"'})
+
+
 @router.get("/{scan_id}/artifacts/{name}")
 def scan_artifact(scan_id: str, name: str, who: str = Depends(actor),
                   svc: ScanService = Depends(get_service)) -> Response:

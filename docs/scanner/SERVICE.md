@@ -26,6 +26,30 @@ curl -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
 curl -H "X-API-Key: $KEY" -X POST localhost:8000/scans/<id>/analysis   # заключение CardioLens
 ```
 
+### Выгрузка сигнала (S4, SD-094)
+
+```bash
+curl -H "X-API-Key: $KEY" -OJ "localhost:8000/scans/<id>/export?format=wfdb"   # ecg-<id8>.zip: ecg.hea + ecg.dat
+curl -H "X-API-Key: $KEY" -OJ "localhost:8000/scans/<id>/export?format=csv"    # time_s и по столбцу на канал
+curl -H "X-API-Key: $KEY" -OJ "localhost:8000/scans/<id>/export"               # JSON контракта ScanResult
+```
+
+- **Ось одна:** все каналы на общей оси времени с частотой `sampling_rate_hz`, от t = 0.
+- **Порядок каналов:** 12 отведений в стандартном порядке, затем полосы ритма (`II_rhythm`).
+- **Пропуски:** отведение есть только в своём окне листа (на 3x4 — 2,5 с). Вне окна значение
+  пустое (CSV) или недопустимое (WFDB), а не ноль.
+- **Точность WFDB:** формат 32 при 100 000 единиц/мВ, то есть шаг 0,01 мкВ, точность самого
+  контракта.
+- **Без потерь:** CSV и WFDB читаются обратно бит в бит
+  (`ecgscan.export.read_csv` / `read_wfdb_zip`).
+- **Комментарии WFDB:** статус, скорость и усиление с источником, раскладка и предупреждения.
+  Персональных данных нет.
+- **Ошибки:**
+  - чужой снимок — 404;
+  - неизвестный формат — 422;
+  - снимок ещё без трасс — 409.
+- **Журнал:** каждая выгрузка пишется в журнал действий (`exported`, формат).
+
 ## Бот
 
 ```bash
