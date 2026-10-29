@@ -17,7 +17,11 @@ import numpy as np
 from cardiolens.contracts.signal import Provenance, SignalRepresentation
 from cardiolens.feedback import Feedback, FindingFeedback
 from cardiolens.layer1_ingestion.digitize import estimate_grid_pitch
-from cardiolens.layer1_ingestion.strip import SCALE_CONFLICT_NOTE, digitize_auto_to_signal
+from cardiolens.layer1_ingestion.strip import (
+    LEADS_INCONSISTENT_NOTE,
+    SCALE_CONFLICT_NOTE,
+    digitize_auto_to_signal,
+)
 from cardiolens.layer6_interpret.stub import StubProvider
 from cardiolens.pipeline import PipelineResult, run_pipeline
 from cardiolens.telegram.store import Record
@@ -131,6 +135,16 @@ def scale_unknown(result) -> bool:
                  or {"LIMB_LEADS_INCONSISTENT", "TRACE_GAPS"} <= warnings))
 
 
+def leads_inconsistent(result) -> bool:
+    """The scanner asks to confirm a read whose own checks disagree: its rhythm row against
+    the panels, or the limb leads with broken traces. With the scale read from the page
+    (header and pulse) this still marks bad reads: ECG-Image-Kit pages read rate 124 as 89
+    and 48 as 61 with both (D181); pages with only limb-lead doubt read right."""
+    warnings = set(result.warnings or [])
+    return (result.status == "needs_confirmation"
+            and ("RHYTHM_INCONSISTENT" in warnings or {"LIMB_LEADS_INCONSISTENT", "TRACE_GAPS"} <= warnings))
+
+
 def scan_keeping_overlay(scan, image, hints=None):
     """``scan()`` with its confirmation overlay kept in memory (D163): the traces drawn over
     the rectified page, header and footer bands blanked (SD-050, D136), as JPEG bytes — or
@@ -185,7 +199,8 @@ def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: flo
             if readers is not None and _is_device_screen(path):
                 return readers()
             return sig
-        if not scale_unknown(result):
+        unknown = scale_unknown(result)
+        if not unknown and not leads_inconsistent(result):
             return sig
         # D144: read, but with no time or gain scale it trusts and its own rhythm row at
         # odds with the panels (on a strip turned by 2 deg: a rate of 55 read as 100.6). The
@@ -199,7 +214,7 @@ def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: flo
                     return alt
             except ValueError:
                 pass
-        sig.provenance.notes.append(SCALE_CONFLICT_NOTE)
+        sig.provenance.notes.append(SCALE_CONFLICT_NOTE if unknown else LEADS_INCONSISTENT_NOTE)
         return sig
     final = [r for r in result.reject_reasons if r in SCANNER_FINAL_REFUSALS]
     if final or readers is None:

@@ -329,6 +329,23 @@ def test_scanner_scale_doubt_with_inconsistency_is_not_trusted():
     assert not scale_unknown(res(status="ok", warnings=["SPEED_UNCERTAIN", "RHYTHM_INCONSISTENT"]))
 
 
+def test_scanner_inconsistent_leads_are_not_trusted_with_a_known_scale():
+    """D181: with speed and gain read from the page, a read whose own rhythm or limb-lead
+    checks disagree still went out ungated (Kit pages: rate 124 read as 89)."""
+    from types import SimpleNamespace as NS
+
+    from cardiolens.telegram.analyze import leads_inconsistent
+
+    def res(status="needs_confirmation", warnings=()):
+        return NS(status=status, calibration=NS(confidence=1.0), warnings=list(warnings))
+
+    assert leads_inconsistent(res(warnings=["RHYTHM_INCONSISTENT"]))
+    assert leads_inconsistent(res(warnings=["LIMB_LEADS_INCONSISTENT", "TRACE_GAPS"]))
+    assert not leads_inconsistent(res(warnings=["LIMB_LEADS_INCONSISTENT"]))
+    assert not leads_inconsistent(res(warnings=["BEATS_INCONSISTENT"]))
+    assert not leads_inconsistent(res(status="ok", warnings=["RHYTHM_INCONSISTENT"]))
+
+
 def test_album_on_the_capture_board_is_one_page(tmp_path):
     """D145: two halves of one page on the scanner's capture board (SD-066), sent as an
     album, are composed into one 12-lead page by the scanner, not read one by one."""

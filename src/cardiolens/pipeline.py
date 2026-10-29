@@ -33,7 +33,7 @@ from cardiolens.contracts.findings import Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
 from cardiolens.layer1_ingestion.checks import check_record
-from cardiolens.layer1_ingestion.strip import SCALE_CONFLICT_NOTE
+from cardiolens.layer1_ingestion.strip import LEADS_INCONSISTENT_NOTE, SCALE_CONFLICT_NOTE
 from cardiolens.layer2_preprocess import assess_quality, preprocess
 from cardiolens.layer2_preprocess.photo_quality import (
     align_panels,
@@ -271,17 +271,22 @@ def run_pipeline(
     # The grid pitch and the calibration pulses disagree (D128): the time scale is not
     # known, so neither is the rate — Einthoven holds on a uniformly stretched record.
     scale_conflict = sig.provenance.digitized and SCALE_CONFLICT_NOTE in sig.provenance.notes
+    # The scanner's own lead checks disagree and the CardioLens readers could not read it
+    # better (D181: ECG-Image-Kit pages read with a known scale, rate 124 as 89, no gate).
+    leads_inconsistent = sig.provenance.digitized and LEADS_INCONSISTENT_NOTE in sig.provenance.notes
     # Below the digital minimum rate (D135: 50 Hz read QRS 178 ms, a false LBBB) a photo is
     # too small to measure; it is gated with the retake hint rather than refused.
     coarse_photo = sig.provenance.digitized and fs_in < cfg.ingestion.min_sampling_rate_hz
     bad_photo = not no_ecg and not bad_units and (
-        scale_conflict or coarse_photo or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
+        scale_conflict or leads_inconsistent or coarse_photo or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
                                                           cfg.quality.photo_min_einthoven_r))
     if bad_photo:
         lag = photo["panel_lag_ms"] if photo else None
         ein = (photo_aligned or photo)["einthoven_r"] if photo else None
         why_ru, why_uz = (("масштаб не определён: сетка и калибровочный импульс расходятся",
                            "masshtab aniqlanmadi: to'r va kalibrlash impulsi mos emas") if scale_conflict else
+                          ("отведения на снимке не согласуются между собой",
+                           "suratdagi tarmoqlar o'zaro mos emas") if leads_inconsistent else
                           ("снимок слишком мелкий для измерения", "surat o'lchash uchun juda kichik")
                           if coarse_photo and not (photo and page_unreliable(
                               photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
