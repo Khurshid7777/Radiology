@@ -68,6 +68,7 @@ no_ecg_signal:              {aha: technical, snomed: [], scp: [], code15: []}
 photo_unreliable:           {aha: technical, snomed: [], scp: [], code15: []}
 amplitude_implausible:      {aha: technical, snomed: [], scp: [], code15: []}
 screen_photo_limited:       {aha: technical, snomed: [], scp: [], code15: []}
+device_mismatch:            {aha: technical, snomed: [], scp: [], code15: []}
 photo_coarse:               {aha: technical, snomed: [], scp: [], code15: []}
 rate_unmeasurable_short:    {aha: technical, snomed: [], scp: [], code15: []}
 poor_quality_signal:        {aha: technical, snomed: [], scp: [], code15: []}
