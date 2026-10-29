@@ -54,6 +54,8 @@ calibration:
     conf: 0.9
     row_clear_pitch: 0.6           # header / footer bands start this far (x row pitch) from the edge rows' baselines
     row_near_pitch: 0.2            # ... or as near as this when the page edge leaves less than min_band_mm (SD-085; Kit 12390: trace ink ends 0.16 pitch under the baseline, text at 0.33)
+    tile_min_mm: 60                # OCR tiles at least this wide ...
+    tile_overlap_mm: 30            # ... overlapping this much: a setting ("25mm/s" ~15 mm) whole in some tile (SD-087)
     min_band_mm: 12                # ECG-Image-Kit: "25mm/s" 6 mm under the rhythm trace, 3 mm from the edge
   # Rules (SD-011, TZ §5.4):
   #  speed is established only by OCR or the user; pulse width alone -> needs_confirmation;
