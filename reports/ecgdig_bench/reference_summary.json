@@ -1,0 +1,74 @@
+{
+ "v4": {
+  "what": "phone photo",
+  "n": 5,
+  "reference": {
+   "read": 5,
+   "hr_ok": 0,
+   "gated": 5,
+   "corr_ii_median": 0.071,
+   "snr_ii_median": -13.8
+  },
+  "ours": {
+   "read": 4,
+   "hr_ok": 0,
+   "gated": 4,
+   "corr_ii_median": 0.054,
+   "snr_ii_median": -6.0
+  }
+ },
+ "v5": {
+  "what": "photo of a screen",
+  "n": 6,
+  "reference": {
+   "read": 6,
+   "hr_ok": 1,
+   "gated": 6,
+   "corr_ii_median": 0.055,
+   "snr_ii_median": -13.27
+  },
+  "ours": {
+   "read": 4,
+   "hr_ok": 0,
+   "gated": 3,
+   "corr_ii_median": 0.089,
+   "snr_ii_median": -1.74
+  }
+ },
+ "v6": {
+  "what": "soaked, photo",
+  "n": 5,
+  "reference": {
+   "read": 5,
+   "hr_ok": 2,
+   "gated": 5,
+   "corr_ii_median": 0.069,
+   "snr_ii_median": -12.52
+  },
+  "ours": {
+   "read": 5,
+   "hr_ok": 0,
+   "gated": 5,
+   "corr_ii_median": 0.091,
+   "snr_ii_median": -9.69
+  }
+ },
+ "v7": {
+  "what": "damaged, photo",
+  "n": 5,
+  "reference": {
+   "read": 5,
+   "hr_ok": 2,
+   "gated": 5,
+   "corr_ii_median": 0.065,
+   "snr_ii_median": -13.68
+  },
+  "ours": {
+   "read": 5,
+   "hr_ok": 0,
+   "gated": 5,
+   "corr_ii_median": 0.079,
+   "snr_ii_median": -7.5
+  }
+ }
+}

@@ -29,7 +29,9 @@ def reference_signal(hea: Path):
 
     r = wfdb.rdrecord(str(hea.with_suffix("")))
     x = np.nan_to_num(r.p_signal.T.astype(np.float64)) * 1000.0                     # mV -> µV
-    sig = np.stack([x[r.sig_name.index(lead)] for lead in LEADS]).astype(np.float32)
+    # a lead the reference failed to read is absent from its record: left flat
+    sig = np.stack([x[r.sig_name.index(lead)] if lead in r.sig_name else np.zeros(x.shape[1])
+                    for lead in LEADS]).astype(np.float32)
     return SignalRepresentation(signal=sig, sampling_rate_hz=float(r.fs), lead_names=LEADS,
                                 duration_s=sig.shape[1] / r.fs, source="image",
                                 provenance=Provenance(digitized=True, lead_windows=dict(WINDOWS)))
