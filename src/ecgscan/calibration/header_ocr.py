@@ -21,6 +21,11 @@ import numpy as np
 # Latin-script OCR model returns them: "MM/ceK", "MM/c", "MM/MB".
 _MM = r"(?:mm|мм)"
 SPEED_RE = re.compile(rf"(\d{{1,2}}(?:[.,]\d)?)\s*{_MM}\s*/\s*(?:sec|s|[cс][eе][kк]|[cс])(?![a-zа-я])", re.IGNORECASE)
+# Two overlapping OCR boxes of one "25mm/s": "25mm/" and its tail "m/s" read as "n/s" (Kit
+# 12390 on a red grid, SD-089). Only in the boxes joined in reading order: "mm/" then a repeated
+# "m/" (or "n/") then "s". A bare "25mm/" with no tail is not a speed.
+SPEED_SPLIT_RE = re.compile(rf"(\d{{1,2}}(?:[.,]\d)?)\s*{_MM}\s*/\s*[mnм]{{1,2}}\s*/\s*(?:s|[cс])(?![a-zа-я])",
+                            re.IGNORECASE)
 GAIN_RE = re.compile(rf"(\d{{1,2}}(?:[.,]\d)?)\s*{_MM}\s*/\s*(?:m|м)(?:v|в|b)(?![a-zа-я])", re.IGNORECASE)
 
 
@@ -33,11 +38,13 @@ class HeaderReading:
     gains: list[float] = field(default_factory=list)
 
 
-def _values(texts: list[str]) -> tuple[list[float], list[float]]:
+def _values(texts: list[str], *, split: bool = False) -> tuple[list[float], list[float]]:
     speeds, gains = [], []
     for t in texts:
         s = t.replace("O", "0").replace("o", "0") if any(c.isdigit() for c in t) else t
         speeds += [float(v.replace(",", ".")) for v in SPEED_RE.findall(s)]
+        if split and not speeds:
+            speeds += [float(v.replace(",", ".")) for v in SPEED_SPLIT_RE.findall(s)]
         gains += [float(v.replace(",", ".")) for v in GAIN_RE.findall(s)]
     return speeds, gains
 
@@ -46,10 +53,11 @@ def parse_settings(texts: list[str]) -> tuple[list[float], list[float]]:
     """Speed (mm/s) and gain (mm/mV) values in OCR strings ('25mm/s10mm/mV' included).
 
     Newer RapidOCR (1.4) returns '25' and 'mm/s' as separate boxes: what single
-    strings do not give is looked for in the boxes joined in reading order."""
+    strings do not give is looked for in the boxes joined in reading order, where a speed
+    split into two overlapping boxes ('25mm/', 'n/s') is also read (SD-089)."""
     speeds, gains = _values(texts)
     if not speeds or not gains:
-        j_speeds, j_gains = _values([" ".join(texts)])
+        j_speeds, j_gains = _values([" ".join(texts)], split=True)
         speeds = speeds or j_speeds
         gains = gains or j_gains
     return speeds, gains
