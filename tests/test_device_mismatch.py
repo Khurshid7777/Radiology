@@ -72,6 +72,6 @@ def test_pdf_has_both_languages_the_scanner_rows_and_the_mismatch(tmp_path):
     res = run_pipeline(sig, mode="A")
     ru, uz = measurement_line(res, "ru"), measurement_line(res, "uz")
     assert "ЧСС" in ru and "аппарат 95" in ru
-    assert "YuUS" in uz and "apparat 95" in uz and "ЧСС" not in uz
+    assert "YuQS" in uz and "apparat 95" in uz and "ЧСС" not in uz
     path = write_pdf(res, str(tmp_path / "r.pdf"))
     assert Path(path).stat().st_size > 10_000

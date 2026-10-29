@@ -73,7 +73,7 @@ class PipelineResult:
 # TZ 18.6: how far ours may differ from the recorder's printed values (D183).
 DEVICE_TOLERANCE = {"hr_bpm": 5, "pr_ms": 15, "qrs_ms": 15, "qt_ms": 20}
 _DEV_RU = {"hr_bpm": "ЧСС", "pr_ms": "PR", "qrs_ms": "QRS", "qt_ms": "QT"}
-_DEV_UZ = {"hr_bpm": "YuUS", "pr_ms": "PR", "qrs_ms": "QRS", "qt_ms": "QT"}
+_DEV_UZ = {"hr_bpm": "YuQS", "pr_ms": "PR", "qrs_ms": "QRS", "qt_ms": "QT"}
 
 
 def device_mismatches(m: Measurements, dev: dict[str, int]) -> list[tuple[str, float, int]]:

@@ -65,7 +65,7 @@ def device_line(result, lang: str = "ru") -> str | None:
         parts.append(f"{'filtr' if uz else 'фильтр'} {hp if hp is not None else '—'}–"
                      f"{lp if lp is not None else '—'} {'Gs' if uz else 'Гц'}")
     if info.get("mains_hz"):
-        parts.append(f"{'tarmoq' if uz else 'сеть'} {info['mains_hz']} {'Gs' if uz else 'Гц'}")
+        parts.append(f"{'elektr tarmog‘i' if uz else 'сеть'} {info['mains_hz']} {'Gs' if uz else 'Гц'}")
     if not parts:
         return None
     return ("Apparat (varaq sarlavhasidan): " if uz else "Аппарат (по шапке листа): ") + " · ".join(parts)
@@ -86,7 +86,7 @@ def speed_assumed_note(result, lang: str = "ru") -> str | None:
         return None
     if lang == "uz":
         return ("Lenta tezligi suratdan o‘qilmadi — 25 mm/s deb olindi. Agar lentada 50 mm/s yozilgan bo‘lsa, "
-                "uni «Lenta tezligi» maydonida tanlang va tahlilni takrorlang: aks holda YuUS ikki baravar past, "
+                "uni «Lenta tezligi» maydonida tanlang va tahlilni takrorlang: aks holda YuQS ikki baravar past, "
                 "intervallar ikki baravar uzun chiqadi.")
     return ("Скорость ленты не прочитана со снимка — принята 25 мм/с. Если на ленте напечатано 50 мм/с, "
             "выберите её в поле «Скорость ленты» и повторите анализ: иначе ЧСС будет вдвое ниже, интервалы вдвое длиннее.")
@@ -109,7 +109,7 @@ def measurement_line(result, lang: str = "ru") -> str:
         return "—" if v is None else f"{v:g}" if isinstance(v, float) else str(v)
 
     ms, ivs = ("ms", m.intervals) if uz else ("мс", m.intervals)
-    line = (f"{'YuUS' if uz else 'ЧСС'}: {n(m.heart_rate_bpm)} {'/daq' if uz else '/мин'} · PR: {n(ivs.pr_ms)} {ms} · "
+    line = (f"{'YuQS' if uz else 'ЧСС'}: {n(m.heart_rate_bpm)} {'/daq' if uz else '/мин'} · PR: {n(ivs.pr_ms)} {ms} · "
             f"QRS: {n(ivs.qrs_ms)} {ms} · QTc(F/B): {n(ivs.qtc_fridericia_ms)}/{n(ivs.qtc_bazett_ms)} {ms} · "
             f"{'QRS o‘qi' if uz else 'ось QRS'}: {n(m.axes.qrs_deg)}°")
     mismatch = next((f for f in result.findings.findings if f.code == "device_mismatch"), None)
