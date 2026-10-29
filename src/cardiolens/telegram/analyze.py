@@ -144,7 +144,11 @@ def attach_device_header(sig: SignalRepresentation, result) -> None:
         return
     dm = h.device_measurements
     if dm is not None:
-        vals = {k: v for k, v in dm.model_dump().items() if v is not None}
+        # Values no check of the scanner vouches for (QTc off Bazett, axes) are left out
+        # (scanner SD-091): a misread one must not even make an advisory mismatch.
+        d = dm.model_dump()
+        unsure = set(d.pop("uncertain", None) or [])
+        vals = {k: int(v) for k, v in d.items() if v is not None and k not in unsure}
         sig.provenance.device_measurements = vals or None
     info = {k: getattr(h, k) for k in ("device_model", "filter_hp_hz", "filter_lp_hz", "mains_hz")
             if getattr(h, k, None) is not None}

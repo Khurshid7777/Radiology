@@ -89,6 +89,10 @@ class Provenance(BaseModel):
     # personal data (the scanner drops those lines before parsing).
     device_measurements: dict[str, int] | None = None
     device_info: dict[str, str | float | int] | None = None
+    # The scanner's own account of the read for the PDF (S4, TZ 18.10, D184): per language
+    # ("ru", "uz") the (label, value) rows it translated — source, status and warnings in
+    # words, speed/gain and their sources, layout, per-lead quality. Never personal data.
+    report_rows: dict[str, list[tuple[str, str]]] | None = None
     # A photo read by the ECG scanner: its confirmation overlay — the traces drawn over the
     # rectified page, header and footer blanked (SD-050, D136) — as JPEG bytes, for the web
     # page, the bot and the PDF (D163). Never serialised: an image for the eye, not data.

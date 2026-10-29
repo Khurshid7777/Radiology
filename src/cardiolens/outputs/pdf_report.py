@@ -10,6 +10,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
@@ -21,6 +22,8 @@ from reportlab.platypus import (
     Paragraph,
     SimpleDocTemplate,
     Spacer,
+    Table,
+    TableStyle,
 )
 
 from cardiolens.outputs.conclusion import format_conclusion
@@ -48,23 +51,27 @@ UNRELIABLE_CODES = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_im
 _SPEED_KNOWN = ("(header_ocr)", "(user)")
 
 
-def device_line(result) -> str | None:
+def device_line(result, lang: str = "ru") -> str | None:
     """The recorder as its printed header names it (scanner S3, D183): model, filters, mains.
     Its own measurements are not repeated here: they appear only where they differ from ours
     (``device_mismatch``)."""
     info = result.signal.provenance.device_info or {}
     if not info:
         return None
+    uz = lang == "uz"
     parts = [str(info["device_model"])] if info.get("device_model") else []
     hp, lp = info.get("filter_hp_hz"), info.get("filter_lp_hz")
     if hp is not None or lp is not None:
-        parts.append(f"фильтр {hp if hp is not None else '—'}–{lp if lp is not None else '—'} Гц")
+        parts.append(f"{'filtr' if uz else 'фильтр'} {hp if hp is not None else '—'}–"
+                     f"{lp if lp is not None else '—'} {'Gs' if uz else 'Гц'}")
     if info.get("mains_hz"):
-        parts.append(f"сеть {info['mains_hz']} Гц")
-    return "Аппарат (по шапке листа): " + " · ".join(parts) if parts else None
+        parts.append(f"{'tarmoq' if uz else 'сеть'} {info['mains_hz']} {'Gs' if uz else 'Гц'}")
+    if not parts:
+        return None
+    return ("Apparat (varaq sarlavhasidan): " if uz else "Аппарат (по шапке листа): ") + " · ".join(parts)
 
 
-def speed_assumed_note(result) -> str | None:
+def speed_assumed_note(result, lang: str = "ru") -> str | None:
     """A photo whose paper speed was neither read from the strip nor given by the user: the
     time scale is the 25 mm/s default (D180). A strip printed at 50 mm/s read so halves the
     rate — said next to the numbers, with what to do."""
@@ -77,14 +84,23 @@ def speed_assumed_note(result) -> str | None:
     cal = next((n for n in notes if n.startswith("calibration: speed=")), None)
     if cal is not None and any(k in cal.split(" gain=")[0] for k in _SPEED_KNOWN):
         return None
+    if lang == "uz":
+        return ("Lenta tezligi suratdan o‘qilmadi — 25 mm/s deb olindi. Agar lentada 50 mm/s yozilgan bo‘lsa, "
+                "uni «Lenta tezligi» maydonida tanlang va tahlilni takrorlang: aks holda YuUS ikki baravar past, "
+                "intervallar ikki baravar uzun chiqadi.")
     return ("Скорость ленты не прочитана со снимка — принята 25 мм/с. Если на ленте напечатано 50 мм/с, "
             "выберите её в поле «Скорость ленты» и повторите анализ: иначе ЧСС будет вдвое ниже, интервалы вдвое длиннее.")
 
 
-def measurement_line(result) -> str:
-    """The report's measurement line. A record the photo gates call unreliable carries no
-    number a doctor could take for a measurement (D178; the narrative withholds them, D128)."""
+def measurement_line(result, lang: str = "ru") -> str:
+    """The report's measurement line (RU or UZ, TZ 18.10). A record the photo gates call
+    unreliable carries no number a doctor could take for a measurement (D178; the narrative
+    withholds them, D128). The recorder's line and a mismatch with it follow (D183)."""
+    uz = lang == "uz"
     if result.findings.codes() & UNRELIABLE_CODES:
+        if uz:
+            return ("O‘lchovlar keltirilmaydi: surat ishonchsiz o‘qildi — undan olingan raqamlar xato bo‘lishi "
+                    "mumkin. EKGni qayta suratga oling.")
         return ("Измерения не приводятся: снимок распознан ненадёжно — числа, считанные с него, "
                 "могут быть ошибочными. Переснимите ЭКГ.")
     m = result.measurements
@@ -92,12 +108,15 @@ def measurement_line(result) -> str:
     def n(v) -> str:            # a measurement that was not made prints as a dash, not "None"
         return "—" if v is None else f"{v:g}" if isinstance(v, float) else str(v)
 
-    line = (f"ЧСС: {n(m.heart_rate_bpm)} /мин · PR: {n(m.intervals.pr_ms)} мс · "
-            f"QRS: {n(m.intervals.qrs_ms)} мс · QTc(F/B): {n(m.intervals.qtc_fridericia_ms)}/{n(m.intervals.qtc_bazett_ms)} мс · "
-            f"ось QRS: {n(m.axes.qrs_deg)}°")
-    for extra in (speed_assumed_note(result), device_line(result)):
+    ms, ivs = ("ms", m.intervals) if uz else ("мс", m.intervals)
+    line = (f"{'YuUS' if uz else 'ЧСС'}: {n(m.heart_rate_bpm)} {'/daq' if uz else '/мин'} · PR: {n(ivs.pr_ms)} {ms} · "
+            f"QRS: {n(ivs.qrs_ms)} {ms} · QTc(F/B): {n(ivs.qtc_fridericia_ms)}/{n(ivs.qtc_bazett_ms)} {ms} · "
+            f"{'QRS o‘qi' if uz else 'ось QRS'}: {n(m.axes.qrs_deg)}°")
+    mismatch = next((f for f in result.findings.findings if f.code == "device_mismatch"), None)
+    for extra in (speed_assumed_note(result, lang), device_line(result, lang),
+                  (mismatch.label_uz if uz else mismatch.label_ru) if mismatch else None):
         if extra is not None:
-            line += f"<br/><i>{extra}</i>"
+            line += f"<br/><i>{_esc(extra)}</i>"
     return line
 
 
@@ -130,10 +149,11 @@ def write_pdf(result: PipelineResult, path: str) -> str:
                         if font != "Helvetica" else "Helvetica-Bold", fontSize=10)
 
     doc = SimpleDocTemplate(path, pagesize=A4, title="CardioVision ECG Report")
-    flow = [Paragraph("CardioVision — заключение по ЭКГ", h1), Spacer(1, 0.3 * cm)]
+    flow = [Paragraph("CardioVision — заключение по ЭКГ / EKG bo‘yicha xulosa", h1), Spacer(1, 0.3 * cm)]
 
-    meas = measurement_line(result)
-    flow.append(Paragraph(meas, body))
+    flow.append(Paragraph(measurement_line(result, "ru"), body))
+    flow.append(Spacer(1, 0.15 * cm))
+    flow.append(Paragraph(measurement_line(result, "uz"), body))
     flow.append(Spacer(1, 0.3 * cm))
 
     flow.append(Paragraph("Кривая ЭКГ", h2))
@@ -158,6 +178,22 @@ def write_pdf(result: PipelineResult, path: str) -> str:
             Image(str(ov_path), width=17 * cm, height=17 * cm * h / max(1, w)),
         ]))
         flow.append(Spacer(1, 0.2 * cm))
+
+    rows = result.signal.provenance.report_rows or {}
+    if rows:
+        # The scanner's own account of the read (S4, TZ 18.10, D184): source, status and
+        # warnings, scale and its sources, layout, per-lead quality — per language.
+        heading = Paragraph("Оцифровка снимка / Surat raqamlashtirilishi", h2)
+        for lang in ("ru", "uz"):
+            data = [[Paragraph(_esc(a), body), Paragraph(_esc(b), body)] for a, b in rows.get(lang, [])]
+            if not data:
+                continue
+            t = Table(data, colWidths=[6 * cm, 11 * cm])
+            t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                   ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.lightgrey)]))
+            flow.append(KeepTogether([heading, t]) if heading is not None else t)
+            flow.append(Spacer(1, 0.2 * cm))
+            heading = None
 
     flow.append(Paragraph("Причинно-следственный граф", h2))
     flow.append(Image(graph_png, width=15 * cm, height=15 * cm * 0.55))
