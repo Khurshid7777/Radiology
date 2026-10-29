@@ -54,12 +54,14 @@ def main() -> None:
     model = load_model(a.model)
     gold = {r["name"]: r for r in json.loads(a.records.read_text())["records"]}
     a.out.mkdir(parents=True, exist_ok=True)
-    meta, orig, photo = [], [], []
+    parts = a.out / "parts"           # one file per photo: a stopped run resumes where it was
+    parts.mkdir(exist_ok=True)
     for bench in a.bench:
         for png in sorted((bench / "images").glob("*-0.png")):
             rec = png.name.rsplit("-", 1)[0]
             name = f"ptbxl_{int(rec.split('_')[0])}"
-            if name not in gold:
+            part = parts / f"{bench.name}__{rec}.npz"
+            if name not in gold or part.exists():
                 continue
             try:
                 ro = run_pipeline(load_wfdb(str(bench / "records" / rec)), mode="A")
@@ -67,14 +69,17 @@ def main() -> None:
             except Exception as e:  # a photo the route refuses is left out, and said
                 print(f"skip {bench.name}/{rec}: {str(e)[:80]}", file=sys.stderr)
                 continue
-            meta.append({"name": name, "set": bench.name, "split": gold[name]["split"], "gold": gold[name]["gold"],
-                         "gated": bool(rp.findings.codes() & GATES),
-                         "hgb_orig": model.predict_proba(features_from_result(ro)),
-                         "hgb_photo": model.predict_proba(features_from_result(rp))})
-            orig.append(to_grid(ro.signal))
-            photo.append(to_grid(rp.signal))
-            print(f"{len(meta)} {bench.name}/{rec} gated={meta[-1]['gated']}", file=sys.stderr, flush=True)
-    np.savez_compressed(a.out / "signals.npz", orig=np.stack(orig), photo=np.stack(photo))
+            m = {"name": name, "set": bench.name, "split": gold[name]["split"], "gold": gold[name]["gold"],
+                 "gated": bool(rp.findings.codes() & GATES),
+                 "hgb_orig": model.predict_proba(features_from_result(ro)),
+                 "hgb_photo": model.predict_proba(features_from_result(rp))}
+            np.savez_compressed(part, orig=to_grid(ro.signal), photo=to_grid(rp.signal), meta=json.dumps(m))
+            print(f"{bench.name}/{rec} gated={m['gated']}", file=sys.stderr, flush=True)
+    files = sorted(parts.glob("*.npz"))
+    zs = [np.load(f) for f in files]
+    meta = [json.loads(str(z["meta"])) for z in zs]
+    np.savez_compressed(a.out / "signals.npz", orig=np.stack([z["orig"] for z in zs]),
+                        photo=np.stack([z["photo"] for z in zs]))
     (a.out / "meta.json").write_text(json.dumps(meta))
     print(f"{len(meta)} photos; gated {sum(m['gated'] for m in meta)}", file=sys.stderr)
 
