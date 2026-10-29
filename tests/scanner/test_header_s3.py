@@ -13,6 +13,9 @@ from ecgscan.config import load_yaml
 from ecgscan.masking import mask_zones, zone_polygon
 
 MODELS = load_yaml("pipeline")["calibration"]["ocr"]["device_models"]
+# matplotlib's own DejaVu Sans: the system's fonts differ between hosts, and the generator picks
+# one of those it finds, so a seed alone does not fix the picture (SD-098).
+BUNDLED_FONT = str(Path(__import__("matplotlib").__file__).parent / "mpl-data" / "fonts" / "ttf" / "DejaVuSans.ttf")
 FIX = Path(__file__).parent / "fixtures" / "mask_zones"
 
 
@@ -68,6 +71,16 @@ def test_measurements_through_the_ocr_s_distortions(lines, want):
     """What the Cyrillic recogniser returned on the S3 bench (mixed scripts, '.' for ':', stray boxes)."""
     m = parse_fields(lines).measurements
     assert (m.hr_bpm, m.pr_ms, m.qrs_ms, m.qt_ms, m.qtc_ms) == want
+
+
+@pytest.mark.parametrize("line, want", [
+    ("11.07.2024 08:02   ЭК12Т-01-P-Д", "ЭК12Т-01-Р-Д"),       # Latin P for Р (the S3 recogniser)
+    ("ЭK12T-01-P-Д", "ЭК12Т-01-Р-Д"),                       # Latin K, T, P
+    ("Мindray BeneHeart R12", "Mindray BeneHeart R12"),     # Cyrillic М in a Latin name
+])
+def test_a_model_read_with_look_alike_letters(line, want):
+    f = parse_fields([line, "Синусовый ритм."], models=MODELS)
+    assert f.device_model == want and f.conclusion == "Синусовый ритм."
 
 
 def test_axis_through_the_ocr_s_distortions():
@@ -126,7 +139,7 @@ def test_a_scanned_page_carries_the_header_fields_and_no_personal_data(synth_mv)
     from ecgscan.pipeline import scan
 
     page, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=10.0, header=False))
-    h = render_header(5, style="ru", px_per_mm=10.0)
+    h = render_header(5, style="ru", px_per_mm=10.0, font=BUNDLED_FONT)     # the same glyphs on every host
     top = np.full((h.image.shape[0], page.shape[1], 3), 255, np.uint8)
     top[:, :min(page.shape[1], h.image.shape[1])] = h.image[:, :page.shape[1]]
     res = scan(cv2.imencode(".png", np.vstack([top, page]))[1].tobytes())
@@ -136,7 +149,8 @@ def test_a_scanned_page_carries_the_header_fields_and_no_personal_data(synth_mv)
     m = ho.device_measurements
     assert (m.hr_bpm, m.qrs_ms, m.qt_ms, m.qtc_ms) == (t["hr"], t["qrs"], t["qt"], t["qtc"])
     assert ho.recorded_at == t["recorded_at"] and ho.device_model == t["model"]
-    assert ho.device_text_conclusion == t["conclusion"] and ho.phi_lines_dropped == 2
+    # The recorder's own text is kept as read: the recogniser may change a letter's case (ЭКГ/Экг).
+    assert ho.device_text_conclusion.casefold() == t["conclusion"].casefold() and ho.phi_lines_dropped == 2
     blob = json.dumps(res.to_json_dict(), ensure_ascii=False)
     for token in [t["phi"]["id"], t["phi"]["dob"], *t["phi"]["name"].split()]:
         assert token not in blob
