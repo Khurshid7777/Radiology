@@ -32,9 +32,11 @@ telegram = ["telethon", "opencv-python-headless"]
 # DICOM waveform ECG input (D132) and network receiver (D134); MIT.
 dicom = ["pydicom>=2.4", "pynetdicom>=2", "httpx"]
 # ECG scanner (src/ecgscan, docs/scanner): image I/O, ScanResult schema check, header OCR (Apache-2.0).
-scanner = ["opencv-python-headless", "jsonschema", "rapidocr-onnxruntime", "cryptography"]
+# rapidocr-onnxruntime pinned (SD-098): header_ocr swaps in its 1.2.x recogniser; 1.3+ (pip picks
+# 1.4 on Python < 3.13) moved it, which silently turned header OCR off in CI and on the server.
+scanner = ["opencv-python-headless", "jsonschema", "rapidocr-onnxruntime==1.2.3", "cryptography"]
 bot = ["aiogram>=3", "httpx"]
-dev = ["pytest", "ruff", "httpx", "opencv-python-headless", "jsonschema", "rapidocr-onnxruntime", "cryptography",
+dev = ["pytest", "ruff", "httpx", "opencv-python-headless", "jsonschema", "rapidocr-onnxruntime==1.2.3", "cryptography",
        "pydicom>=2.4", "pynetdicom>=2", "pillow-heif", "pymupdf", "pypdfium2", "pypdf"]
 
 [tool.setuptools.packages.find]

@@ -168,3 +168,14 @@ def test_values_no_check_vouches_for_are_marked():
     assert m.qtc_ms == 520 and "qtc_ms" in m.uncertain                 # off Bazett by > 40 ms
     m = parse_fields(["QT/QTc 383/499 ms  P-R-T axes 74 743 19"]).measurements
     assert m.axis_deg is None
+
+
+def test_the_configured_ocr_engine_loads():
+    """Never skipped: an engine that fails to load turns header OCR off silently (every speed
+    from the header lost), as a newer rapidocr-onnxruntime did in CI and in the image (SD-098)."""
+    from ecgscan.calibration.header_ocr import ocr_available
+    from ecgscan.config import repo_root
+
+    o = load_yaml("pipeline")["calibration"]["ocr"]
+    ok, why = ocr_available(str(repo_root() / o["rec_model"]), o["rec_sha256"])
+    assert ok, why

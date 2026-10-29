@@ -97,7 +97,11 @@ def _engine(rec_model: str | None = None, rec_sha256: str | None = None):
     if rec_model:
         import hashlib
 
-        from rapidocr_onnxruntime.ch_ppocr_v3_rec import TextRecognizer
+        try:
+            from rapidocr_onnxruntime.ch_ppocr_v3_rec import TextRecognizer
+        except ImportError as exc:      # 1.3+ moved it: pyproject pins 1.2.3 (SD-098)
+            raise ImportError("rapidocr-onnxruntime 1.2.x required for the Cyrillic recogniser "
+                              "(pip install 'rapidocr-onnxruntime==1.2.3')") from exc
 
         path = Path(rec_model)
         if not path.is_file():
