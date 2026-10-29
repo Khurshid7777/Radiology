@@ -1,0 +1,202 @@
+{
+ "n": 85,
+ "gated": 83,
+ "classes": {
+  "atrial_fibrillation": {
+   "n_pos": 3,
+   "fm_shift": 0.194,
+   "hgb_shift": 0.089,
+   "fm_flip": 0.176,
+   "hgb_flip": 0.059,
+   "fm_rho": 0.474,
+   "hgb_rho": 0.321
+  },
+  "atrial_flutter": {
+   "n_pos": 1,
+   "fm_shift": 0.068,
+   "hgb_shift": 0.256,
+   "fm_flip": 0.012,
+   "hgb_flip": 0.176,
+   "fm_rho": 0.3,
+   "hgb_rho": 0.269
+  },
+  "sinus_rhythm": {
+   "n_pos": 51,
+   "fm_shift": 0.353,
+   "hgb_shift": 0.446,
+   "fm_flip": 0.435,
+   "hgb_flip": 0.482,
+   "fm_rho": 0.372,
+   "hgb_rho": 0.355,
+   "fm_auroc_orig": 0.892,
+   "fm_auroc_photo": 0.689,
+   "hgb_auroc_orig": 0.966,
+   "hgb_auroc_photo": 0.68
+  },
+  "sinus_bradycardia": {
+   "n_pos": 12,
+   "fm_shift": 0.173,
+   "hgb_shift": 0.174,
+   "fm_flip": 0.188,
+   "hgb_flip": 0.165,
+   "fm_rho": 0.589,
+   "hgb_rho": 0.307,
+   "fm_auroc_orig": 0.993,
+   "fm_auroc_photo": 0.913,
+   "hgb_auroc_orig": 1.0,
+   "hgb_auroc_photo": 0.728
+  },
+  "sinus_tachycardia": {
+   "n_pos": 5,
+   "fm_shift": 0.107,
+   "hgb_shift": 0.086,
+   "fm_flip": 0.118,
+   "hgb_flip": 0.071,
+   "fm_rho": 0.73,
+   "hgb_rho": 0.04,
+   "fm_auroc_orig": 0.98,
+   "fm_auroc_photo": 0.943,
+   "hgb_auroc_orig": 1.0,
+   "hgb_auroc_photo": 0.513
+  },
+  "first_degree_av_block": {
+   "n_pos": 8,
+   "fm_shift": 0.261,
+   "hgb_shift": 0.109,
+   "fm_flip": 0.306,
+   "hgb_flip": 0.106,
+   "fm_rho": 0.217,
+   "hgb_rho": 0.425,
+   "fm_auroc_orig": 0.94,
+   "fm_auroc_photo": 0.602,
+   "hgb_auroc_orig": 0.971,
+   "hgb_auroc_photo": 0.765
+  },
+  "rbbb": {
+   "n_pos": 6,
+   "fm_shift": 0.159,
+   "hgb_shift": 0.102,
+   "fm_flip": 0.059,
+   "hgb_flip": 0.082,
+   "fm_rho": 0.563,
+   "hgb_rho": 0.302,
+   "fm_auroc_orig": 1.0,
+   "fm_auroc_photo": 0.935,
+   "hgb_auroc_orig": 1.0,
+   "hgb_auroc_photo": 0.673
+  },
+  "lbbb": {
+   "n_pos": 2,
+   "fm_shift": 0.035,
+   "hgb_shift": 0.025,
+   "fm_flip": 0.035,
+   "hgb_flip": 0.024,
+   "fm_rho": 0.486,
+   "hgb_rho": 0.295
+  },
+  "lvh": {
+   "n_pos": 8,
+   "fm_shift": 0.153,
+   "hgb_shift": 0.055,
+   "fm_flip": 0.094,
+   "hgb_flip": 0.047,
+   "fm_rho": 0.233,
+   "hgb_rho": 0.235,
+   "fm_auroc_orig": 0.679,
+   "fm_auroc_photo": 0.563,
+   "hgb_auroc_orig": 0.86,
+   "hgb_auroc_photo": 0.679
+  },
+  "low_qrs_voltage": {
+   "n_pos": 10,
+   "fm_shift": 0.103,
+   "hgb_shift": 0.271,
+   "fm_flip": 0.024,
+   "hgb_flip": 0.188,
+   "fm_rho": 0.304,
+   "hgb_rho": -0.027,
+   "fm_auroc_orig": 0.927,
+   "fm_auroc_photo": 0.635,
+   "hgb_auroc_orig": 0.997,
+   "hgb_auroc_photo": 0.441
+  },
+  "long_qt": {
+   "n_pos": 7,
+   "fm_shift": 0.169,
+   "hgb_shift": 0.128,
+   "fm_flip": 0.129,
+   "hgb_flip": 0.106,
+   "fm_rho": 0.092,
+   "hgb_rho": 0.02,
+   "fm_auroc_orig": 0.866,
+   "fm_auroc_photo": 0.527,
+   "hgb_auroc_orig": 1.0,
+   "hgb_auroc_photo": 0.353
+  },
+  "st_depression": {
+   "n_pos": 7,
+   "fm_shift": 0.158,
+   "hgb_shift": 0.08,
+   "fm_flip": 0.094,
+   "hgb_flip": 0.035,
+   "fm_rho": 0.007,
+   "hgb_rho": 0.142,
+   "fm_auroc_orig": 0.967,
+   "fm_auroc_photo": 0.463,
+   "hgb_auroc_orig": 0.998,
+   "hgb_auroc_photo": 0.438
+  },
+  "st_elevation": {
+   "n_pos": 0,
+   "fm_shift": 0.119,
+   "hgb_shift": 0.061,
+   "fm_flip": 0.024,
+   "hgb_flip": 0.012,
+   "fm_rho": 0.23,
+   "hgb_rho": 0.08
+  },
+  "left_axis_deviation": {
+   "n_pos": 5,
+   "fm_shift": 0.181,
+   "hgb_shift": 0.057,
+   "fm_flip": 0.188,
+   "hgb_flip": 0.059,
+   "fm_rho": 0.36,
+   "hgb_rho": 0.524,
+   "fm_auroc_orig": 0.988,
+   "fm_auroc_photo": 0.958,
+   "hgb_auroc_orig": 0.995,
+   "hgb_auroc_photo": 0.877
+  },
+  "right_axis_deviation": {
+   "n_pos": 13,
+   "fm_shift": 0.438,
+   "hgb_shift": 0.152,
+   "fm_flip": 0.494,
+   "hgb_flip": 0.129,
+   "fm_rho": 0.376,
+   "hgb_rho": 0.254,
+   "fm_auroc_orig": 0.976,
+   "fm_auroc_photo": 0.678,
+   "hgb_auroc_orig": 1.0,
+   "hgb_auroc_photo": 0.784
+  },
+  "wpw_preexcitation": {
+   "n_pos": 3,
+   "fm_shift": 0.033,
+   "hgb_shift": 0.036,
+   "fm_flip": 0.035,
+   "hgb_flip": 0.024,
+   "fm_rho": 0.223,
+   "hgb_rho": 0.259
+  }
+ },
+ "mean": {
+  "fm_shift": 0.169,
+  "hgb_shift": 0.133,
+  "fm_flip": 0.151,
+  "hgb_flip": 0.11,
+  "fm_rho": 0.347,
+  "hgb_rho": 0.238
+ }
+}
