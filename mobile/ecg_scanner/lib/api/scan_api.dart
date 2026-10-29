@@ -143,6 +143,20 @@ class ScanApi {
     return [for (final d in (j['devices'] as List? ?? const [])) (d as Map).cast<String, dynamic>()];
   }
 
+  /// GET /scans/config/features: which P2 features (consult, archive, qr, signature) the
+  /// server has on (TZ 18.11, SD-097). The app shows a feature only when it is true; today
+  /// all are off. A server without the endpoint means all off.
+  Future<Map<String, bool>> features() async {
+    final Map<String, dynamic> j;
+    try {
+      j = await _json(() => _http.get(_u('/scans/config/features'), headers: _auth));
+    } on ApiError catch (e) {
+      if (e.status == 404) return const {};
+      rethrow;
+    }
+    return {for (final e in ((j['features'] as Map?) ?? const {}).entries) e.key as String: e.value == true};
+  }
+
   /// GET /scans/config/capture-qc: {config, hints: {ru, uz}}.
   Future<Map<String, dynamic>> captureQcConfig() =>
       _json(() => _http.get(_u('/scans/config/capture-qc'), headers: _auth));

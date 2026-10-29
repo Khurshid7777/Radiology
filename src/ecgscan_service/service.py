@@ -110,6 +110,9 @@ class Settings:
 class ScanService:
     def __init__(self, settings: Settings | None = None, *, scan_fn=None, vault: Vault | None | bool = True):
         self.settings = settings or Settings.load()
+        from ecgscan_service.extensions import features
+
+        features()          # a P2 feature switched on without its implementation refuses to start
         root = self.settings.root
         self.store = ScanStore(root / "scans.sqlite")
         self.artifacts_root = root / "artifacts"

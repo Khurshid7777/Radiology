@@ -162,11 +162,44 @@ class QualitySummary(_Strict):
     processing_ms: int | None = Field(default=None, ge=0)
 
 
+# P2 extension points (TZ 18.11, SD-097): fields that exist so a later stage needs no contract
+# break. Nothing fills them yet.
+
+# A patient as the clinic's own system knows them, by an issued pseudonym (``sub_`` + 8-64 URL-safe
+# characters): never a name, a birth date or a raw record number. Binds a scan to a patient's
+# archive and to serial comparison (QR, TZ 18.11).
+SUBJECT_REF_PATTERN = r"^sub_[A-Za-z0-9_-]{8,64}$"
+
+
+class Signature(_Strict):
+    """A doctor's signature under a confirmed reading (TZ 18.11): over ``content_sha256`` of the
+    result, i.e. everything but the signature itself."""
+    method: Literal["ed25519"]
+    key_id: str = Field(min_length=1, max_length=128)
+    signed_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    value: str = Field(pattern=r"^[A-Za-z0-9+/]+={0,2}$")      # base64
+
+
+class LeadRef(_Strict):
+    """A place on the read signal a comment points to (consultation, TZ 18.11): a channel of
+    the export (``I``…``V6``, ``II_rhythm``) and a time span on its axis, seconds from 0."""
+    channel: str = Field(pattern=r"^(I|II|III|aVR|aVL|aVF|V[1-6])(_rhythm\d*)?$")
+    t0_s: float = Field(ge=0.0)
+    t1_s: float = Field(ge=0.0)
+
+    @model_validator(mode="after")
+    def _span(self) -> LeadRef:
+        if self.t1_s < self.t0_s:
+            raise ValueError("t1_s must not be before t0_s")
+        return self
+
+
 class Confirmation(_Strict):
     by: str
     at: str
     decision: Literal["accepted", "corrected", "retake"]
     changes: dict | None = None
+    signature: Signature | None = None
 
 
 class Page(_Strict):
@@ -229,6 +262,7 @@ class ScanResult(_Strict):
     confirmation: Confirmation | None = None
     pages: list[Page] | None = None          # a multi-page study (S2): the sheets, stitched in this order
     header_ocr: HeaderOcr | None = None      # the printed header's other fields (S3)
+    subject_ref: str | None = Field(default=None, pattern=SUBJECT_REF_PATTERN)   # P2: the patient's pseudonym
 
     @model_validator(mode="after")
     def _rules(self) -> ScanResult:
@@ -245,6 +279,19 @@ class ScanResult(_Strict):
             if not t.lead:
                 raise ValueError("rhythm traces must name their lead")
         return self
+
+    def content_sha256(self) -> str:
+        """SHA-256 of the result as canonical JSON (sorted keys, no spaces, UTF-8) without the
+        confirmation's signature: what a doctor's signature covers (TZ 18.11). Any change to the
+        signal, calibration, status or confirmation changes it."""
+        import hashlib
+        import json
+
+        d = self.to_json_dict()
+        if d.get("confirmation"):
+            d["confirmation"].pop("signature", None)
+        blob = json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
     def all_traces(self) -> list[tuple[str, Trace]]:
         """(lead, trace) for panels and rhythm strips."""

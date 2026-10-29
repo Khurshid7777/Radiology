@@ -28,3 +28,9 @@ confirm:
 
 access:
   admins: []                       # D136: API key names that may open scans of other keys (a key sees only its own)
+
+extensions:                        # P2 (TZ 18.11, SD-097): seams only; each needs its implementation registered
+  consult: false                   # share a scan with a colleague, comments on a lead, notifications
+  archive: false                   # a patient's scans by subject_ref; serial comparison through the core
+  qr: false                        # patient codes cv1:s/<subject_ref>, web sign-in cv1:l/<token>
+  signature: false                 # the doctor's signature over ScanResult.content_sha256()

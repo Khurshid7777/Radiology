@@ -159,6 +159,14 @@ def devices_config(who: str = Depends(actor)) -> dict:
     return {"devices": [p.public() for p in device_profiles().values()]}
 
 
+@router.get("/config/features")
+def features_config(who: str = Depends(actor)) -> dict:
+    """Which P2 features are on (TZ 18.11, SD-097), so the app shows only those: today none."""
+    from ecgscan_service.extensions import features
+
+    return {"features": features()}
+
+
 @router.get("/config/capture-qc")
 def capture_qc_config(who: str = Depends(actor)) -> dict:
     """Frame-check thresholds and hint texts for the camera screen (TZ §6.1, SD-014)."""

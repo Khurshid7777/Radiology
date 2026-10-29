@@ -475,8 +475,46 @@
           ]
         },
         "changes": {
-          "type": "object",
+          "type": [
+            "object",
+            "null"
+          ],
           "description": "Field path -> {from, to}, e.g. calibration.paper_speed_mm_s."
+        },
+        "signature": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "P2 (TZ 18.11): a doctor's signature over content_sha256 of the result (canonical JSON, sorted keys, no spaces, UTF-8, this signature removed). Nothing fills it yet.",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "key_id",
+            "signed_sha256",
+            "value"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "ed25519"
+              ]
+            },
+            "key_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "signed_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+              "description": "base64"
+            }
+          }
         }
       }
     },
@@ -690,6 +728,14 @@
           "minimum": 0
         }
       }
+    },
+    "subject_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sub_[A-Za-z0-9_-]{8,64}$",
+      "description": "P2 (TZ 18.11): the patient as the clinic's own system knows them, by an issued pseudonym. Never a name, birth date or raw record number. Binds a scan to the patient's archive and serial comparison. Nothing fills it yet."
     }
   },
   "allOf": [

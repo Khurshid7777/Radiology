@@ -26,6 +26,11 @@ curl -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
 curl -H "X-API-Key: $KEY" -X POST localhost:8000/scans/<id>/analysis   # заключение CardioLens
 ```
 
+### Возможности сервера (P2, SD-097)
+
+`GET /scans/config/features` → `{"features": {"consult": false, "archive": false, "qr": false,
+"signature": false}}`. Сейчас все выключены — см. [EXTENSIONS.md](EXTENSIONS.md).
+
 ### Выгрузка сигнала (S4, SD-094)
 
 ```bash
