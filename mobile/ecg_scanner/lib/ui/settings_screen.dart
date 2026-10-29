@@ -20,6 +20,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _bio = widget.app.settings.biometrics;
   late int _lockAfter = widget.app.settings.lockAfterMinutes;
 
+  /// Recorder profiles from the server (S3); null while loading, empty when offline or none.
+  List<Map<String, dynamic>>? _devices;
+  bool _devicesFailed = false;
+  late String? _deviceId = widget.app.settings.deviceProfileId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDevices();
+  }
+
+  Future<void> _loadDevices() async {
+    if (!widget.app.settings.configured) {
+      setState(() => _devices = const []);
+      return;
+    }
+    try {
+      final d = await widget.app.api.devices();
+      if (mounted) setState(() => _devices = d);
+    } on Object catch (_) {
+      if (mounted) {
+        setState(() {
+          _devices = const [];
+          _devicesFailed = true;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
@@ -47,6 +76,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           value: _mask,
           onChanged: (v) => setState(() => _mask = v),
         ),
+        ListTile(
+          key: const Key('device'),
+          title: Text(app.t('app.device')),
+          subtitle: _devicesFailed ? Text(app.t('app.devices_unavailable')) : null,
+          trailing: _devices == null
+              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+              : DropdownButton<String?>(
+                  value: _deviceItems(app).any((i) => i.value == _deviceId) ? _deviceId : null,
+                  items: _deviceItems(app),
+                  onChanged: (v) => setState(() => _deviceId = v),
+                ),
+        ),
         SwitchListTile(title: Text(app.t('app.auto_capture')), value: _auto, onChanged: (v) => setState(() => _auto = v)),
         SwitchListTile(title: Text(app.t('app.biometrics')), value: _bio, onChanged: (v) => setState(() => _bio = v)),
         ListTile(
@@ -60,8 +101,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 16),
         FilledButton(
           onPressed: () async {
-            await app.saveSettings(app.settings.copyWith(serverUrl: _url.text.trim(), apiKey: _key.text.trim(),
-                lang: _lang, maskHeader: _mask, autoCapture: _auto, biometrics: _bio, lockAfterMinutes: _lockAfter));
+            final next = app.settings.copyWith(serverUrl: _url.text.trim(), apiKey: _key.text.trim(),
+                lang: _lang, maskHeader: _mask, autoCapture: _auto, biometrics: _bio, lockAfterMinutes: _lockAfter);
+            if (_deviceId != app.settings.deviceProfileId) {
+              final profile = _devices?.where((d) => d['id'] == _deviceId).firstOrNull;
+              if (profile != null || _deviceId == null) next.setDevice(profile);
+            }
+            await app.saveSettings(next);
             app.start();
             if (context.mounted) Navigator.pop(context);
           },
@@ -69,5 +115,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ]),
     );
+  }
+
+  /// "None" first, then the server's profiles; offline, the stored choice stays listed.
+  List<DropdownMenuItem<String?>> _deviceItems(AppState app) {
+    final s = app.settings;
+    final listed = [
+      for (final d in _devices ?? const <Map<String, dynamic>>[])
+        DropdownMenuItem<String?>(
+            value: d['id'] as String, child: Text('${d['manufacturer'] ?? ''} ${d['model'] ?? ''}'.trim())),
+    ];
+    return [
+      DropdownMenuItem<String?>(value: null, child: Text(app.t('app.device_none'))),
+      ...listed,
+      if (s.deviceProfileId != null && !listed.any((i) => i.value == s.deviceProfileId))
+        DropdownMenuItem<String?>(value: s.deviceProfileId, child: Text(s.deviceProfileName ?? s.deviceProfileId!)),
+    ];
   }
 }

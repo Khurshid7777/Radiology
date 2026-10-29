@@ -9,4 +9,8 @@ header: bottom                       # where the speed / gain / name are printed
 pulse: start                         # where the calibration pulse stands: start | end | both | none | null
 speeds_mm_s: [25, 50]                # what the machine can print at (null: unknown)
 gains_mm_mv: [5, 10, 20]
+phi_zones:                           # S3: where name / ID / birth date are printed, [x0, y0, x1, y1] in
+  - [0.0, 0.0, 0.45, 0.06]           # fractions of the upright sheet (x along the paper, y down); the
+  - [0.70, 0.0, 1.0, 0.04]           # app paints them white before upload. Measured on the machine's
+phi_zone_margin: 0.01                # real printout only. Empty: the app masks the top band instead.
 notes: "Fields not known for a machine stay null; a profile only helps, the photo still decides."

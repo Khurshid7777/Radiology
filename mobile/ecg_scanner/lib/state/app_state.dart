@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../api/scan_api.dart';
 import '../i18n/strings.dart';
 import '../masking/header_mask.dart';
+import '../masking/zone_mask.dart';
 import '../security/local_vault.dart';
 import '../upload/upload_queue.dart';
 import 'settings.dart';
@@ -87,14 +88,32 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// A taken photo: header masked when set (TZ §6.2), queued, upload attempted. Unmasked,
-  /// the bytes are the camera's own, sent as they are (TZ addendum §18.1); `capture` is the
-  /// capture record (§18.13) the masking method is added to.
+  /// The photo as it leaves the phone (TZ §6.2, addendum §18.6; S3): with the recorder's profile
+  /// and the confirmed sheet corners, its personal-data zones are painted white (`band` > 0 adds
+  /// the doctor's top band on top: the manual correction); without a profile, the top band.
+  /// Unmasked, the bytes are the camera's own (TZ addendum §18.1).
+  Future<(Uint8List, bool, String)> _prepare(Uint8List jpeg, double? band, Map<String, dynamic>? capture) async {
+    if (!settings.maskHeader) return (jpeg, false, 'none');
+    final corners = (capture?['corners'] as Map?)?['final'] as List?;
+    if (settings.hasZones && corners != null && corners.length == 4) {
+      final quad = [for (final c in corners) [((c as List)[0] as num).toDouble(), (c[1] as num).toDouble()]];
+      final extra = band ?? 0;
+      final bytes = await compute(_maskZones, (jpeg, settings.deviceZones, quad,
+          (capture?['rotate_deg'] as int?) ?? 0, settings.zoneMargin, extra));
+      return (bytes, true, extra > 0 ? 'manual' : 'profile_zones');
+    }
+    final b = band ?? settings.headerBand;
+    if (b <= 0) return (jpeg, false, 'none');
+    return (await compute(_mask, (jpeg, b)), true, 'template_zone');
+  }
+
+  /// A taken photo: masked (see `_prepare`), queued, upload attempted; `capture` is the capture
+  /// record (§18.13) the masking method is added to.
   Future<void> addPhoto(Uint8List jpeg, {double? speed, double? gain, double? band, Map<String, dynamic>? capture}) async {
-    final masked = settings.maskHeader && (band ?? settings.headerBand) > 0;
-    final bytes = masked ? await compute(_mask, (jpeg, band ?? settings.headerBand)) : jpeg;
-    final record = capture == null ? null : {...capture, 'mask_method': masked ? 'template_zone' : 'none'};
-    await queue.add(bytes, ScanHints(paperSpeedMmS: speed, gainMmMv: gain, headerMasked: masked, capture: record));
+    final (bytes, masked, method) = await _prepare(jpeg, band, capture);
+    final record = capture == null ? null : {...capture, 'mask_method': method};
+    await queue.add(bytes, ScanHints(paperSpeedMmS: speed, gainMmMv: gain, headerMasked: masked, capture: record,
+        deviceProfile: settings.deviceProfileId));
     notifyListeners();
     unawaited(tick());
   }
@@ -102,10 +121,9 @@ class AppState extends ChangeNotifier {
   /// A sheet of a study on several pages (TZ addendum §18.4): masked like a single photo and
   /// kept in the draft on disk until the doctor sends the study.
   Future<void> addSheet(Uint8List jpeg, {double? band, Map<String, dynamic>? capture}) async {
-    final masked = settings.maskHeader && (band ?? settings.headerBand) > 0;
-    final bytes = masked ? await compute(_mask, (jpeg, band ?? settings.headerBand)) : jpeg;
-    final record = capture == null ? null : {...capture, 'mask_method': masked ? 'template_zone' : 'none'};
-    await queue.addSheet(bytes, ScanHints(headerMasked: masked, capture: record));
+    final (bytes, masked, method) = await _prepare(jpeg, band, capture);
+    final record = capture == null ? null : {...capture, 'mask_method': method};
+    await queue.addSheet(bytes, ScanHints(headerMasked: masked, capture: record, deviceProfile: settings.deviceProfileId));
     notifyListeners();
   }
 
@@ -114,7 +132,7 @@ class AppState extends ChangeNotifier {
     final d = queue.draft;
     if (d == null) return;
     await queue.send(d, ScanHints(paperSpeedMmS: speed, gainMmMv: gain, headerMasked: d.hints.headerMasked,
-        capture: d.hints.capture));
+        capture: d.hints.capture, deviceProfile: d.hints.deviceProfile));
     notifyListeners();
     unawaited(tick());
   }
@@ -127,3 +145,6 @@ class AppState extends ChangeNotifier {
 }
 
 Uint8List _mask((Uint8List, double) a) => maskHeader(a.$1, bandFraction: a.$2);
+
+Uint8List _maskZones((Uint8List, List<List<double>>, List<List<double>>, int, double, double) a) =>
+    maskZones(a.$1, a.$2, a.$3, a.$4, margin: a.$5, extraBand: a.$6);

@@ -180,6 +180,34 @@ class Page(_Strict):
     overlap_s: float | None = Field(default=None, ge=0.0)   # ... by this much
 
 
+class DeviceMeasurements(_Strict):
+    """The recorder's own measurements as printed in its header (TZ 18.6): the reference the
+    core compares ours with (``device_mismatch``); never shown as ours."""
+    hr_bpm: int | None = Field(default=None, ge=20, le=300)
+    pr_ms: int | None = Field(default=None, ge=60, le=400)
+    qrs_ms: int | None = Field(default=None, ge=40, le=250)
+    qt_ms: int | None = Field(default=None, ge=200, le=700)
+    qtc_ms: int | None = Field(default=None, ge=200, le=700)
+    axis_deg: int | None = Field(default=None, ge=-180, le=360)
+    p_axis_deg: int | None = Field(default=None, ge=-180, le=360)
+    t_axis_deg: int | None = Field(default=None, ge=-180, le=360)
+
+
+class HeaderOcr(_Strict):
+    """What the printed header says besides speed and gain (S3, TZ 18.6). Never personal data:
+    lines with a name, ID, birth date, age or sex are dropped before parsing, only counted."""
+    engine: str | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)   # the recogniser's mean box score
+    recorded_at: str | None = None            # ISO 8601 date-time of the recording, as printed
+    device_model: str | None = Field(default=None, max_length=80)
+    filter_hp_hz: float | None = Field(default=None, ge=0.0)
+    filter_lp_hz: float | None = Field(default=None, gt=0.0)
+    mains_hz: Literal[50, 60] | None = None
+    device_measurements: DeviceMeasurements | None = None
+    device_text_conclusion: str | None = Field(default=None, max_length=500)   # the recorder's, never ours
+    phi_lines_dropped: int = Field(default=0, ge=0)
+
+
 class ScanResult(_Strict):
     schema_version: str = SCHEMA_VERSION
     scan_id: str
@@ -197,6 +225,7 @@ class ScanResult(_Strict):
     provenance_flags: list[str] = Field(default_factory=lambda: [DIGITIZED_FLAG])
     confirmation: Confirmation | None = None
     pages: list[Page] | None = None          # a multi-page study (S2): the sheets, stitched in this order
+    header_ocr: HeaderOcr | None = None      # the printed header's other fields (S3)
 
     @model_validator(mode="after")
     def _rules(self) -> ScanResult:

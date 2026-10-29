@@ -13,7 +13,13 @@ import '../qc/capture_qc.dart';
 import '../state/app_state.dart';
 
 class CropResult {
-  CropResult({required this.auto, required this.corners, required this.edited, required this.rotateDeg});
+  CropResult(
+      {required this.auto,
+      required this.corners,
+      required this.edited,
+      required this.rotateDeg,
+      this.width = 0,
+      this.height = 0});
 
   final List<List<double>>? auto;
   final List<List<double>> corners;
@@ -21,6 +27,10 @@ class CropResult {
 
   /// Clockwise turn the server applies before reading (0, 90, 180, 270).
   final int rotateDeg;
+
+  /// The upright photo's size in pixels (the corners' frame); 0 when unknown.
+  final int width;
+  final int height;
 
   Map<String, dynamic> toCaptureCorners() => {'auto': auto, 'final': corners, 'edited_by_user': edited};
 }
@@ -198,7 +208,12 @@ class _CropScreenState extends State<CropScreen> {
                     : () => Navigator.pop(
                         context,
                         CropResult(
-                            auto: s.corners, corners: _corners!, edited: _edited, rotateDeg: 90 * _turns)),
+                            auto: s.corners,
+                            corners: _corners!,
+                            edited: _edited,
+                            rotateDeg: 90 * _turns,
+                            width: s.width,
+                            height: s.height)),
                 child: Text(app.t('app.done')),
               ),
             ),

@@ -63,6 +63,10 @@ slices:
   coarse_6x2_thermal: {suite_only: true, layout: "6x2", render: {grid: gray, grid_fade: 0.3, trace_gray: 40},
                        degrade: {<<: *photo, background: 0.03, low_light: 0.31, max_side_px: 1280, jpeg_quality: 70}}
 
+  # S3 (TZ 18.7): shadow removal ablation. Light paper under a shadow across the sheet.
+  photo_shadow_mid:    {suite_only: true, degrade: {<<: *photo, shadow: 0.45}}
+  photo_shadow_strong: {suite_only: true, degrade: {<<: *photo, shadow: 0.65, vignette: 0.3}}
+
 suites:
   smoke:                        # unit tests: tiny and fast
     cases_per_slice: 1
@@ -71,6 +75,9 @@ suites:
   standard:
     cases_per_slice: 6
     slices: all
+  ablation_shadow:              # S3, TZ 18.7: the illumination step on / off (scripts in reports/scanner/s3-shadow)
+    cases_per_slice: 8
+    slices: [photo_clean, photo_shadow_mid, photo_shadow_strong, photo_low_light, faded_thermal, photo_stains]
   coarse:                       # D170 acceptance: messenger copies at ~3-4 px/mm
     cases_per_slice: 6
     slices: [coarse_3x4_3ppm, coarse_3x4_4ppm, coarse_6x2_3ppm, coarse_6x2_4ppm, coarse_6x2_thermal]

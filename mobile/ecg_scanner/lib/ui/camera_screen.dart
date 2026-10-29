@@ -162,7 +162,7 @@ class _CameraScreenState extends State<CameraScreen> {
       if (widget.app.settings.maskHeader) {
         if (!mounted) return;
         band = await Navigator.push<double>(
-            context, MaterialPageRoute(builder: (_) => MaskReviewScreen(app: widget.app, photo: bytes)));
+            context, MaterialPageRoute(builder: (_) => MaskReviewScreen(app: widget.app, photo: bytes, crop: crop)));
         if (band == null) return await _resume();
       }
       final capture = <String, dynamic>{

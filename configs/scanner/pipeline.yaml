@@ -49,6 +49,21 @@ calibration:
     extend_max_gap_mm: 4.0       # D180: a found pulse is extended down while both edges go on, gaps up to this bridged
   ocr:
     enabled: true
+    # S3 (SD-090): RapidOCR's detector with the Cyrillic PP-OCRv5 recogniser (Cyrillic incl. Uzbek,
+    # Latin, digits). Missing or altered model -> OCR unavailable with the reason, never a silent fallback.
+    rec_model: models/ocr/cyrillic_PP-OCRv5_rec_mobile.onnx
+    rec_sha256: 90f761b4bfcce0c8c561c0cb5c887b0971d3ec01c32164bdf7374a35b0982711   # = models/ocr/model_card.json
+    whole_header: true             # read the header to its end: the recorder's measurements, model, date (TZ 18.6)
+    device_models:                 # recorder-model patterns looked for in the header (first match wins)
+      - 'SCHILLER\s+[A-Z]{1,3}-?\d{1,4}\w*'
+      - 'Mindray\s+\w+(?:\s+R\d+)?'
+      - 'EDAN\s+[A-Z]{1,3}-?\d{3,4}\w*'
+      - 'Nihon\s*Kohden\s+[\w-]+'
+      - 'Fukuda\s+[\w-]+'
+      - 'MAC\s?\d{3,4}'
+      - 'Аксион\s+ЭК[\w/-]+'
+      - 'Альтон-?\d+'
+      - 'ЭК\d+Т[\w/-]*'
     header_frac: 0.25
     footer_frac: 0.12
     conf: 0.9

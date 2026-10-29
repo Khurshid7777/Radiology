@@ -69,7 +69,7 @@ class _FakeOCR:
 ])
 def test_header_ocr_stops_once_speed_and_gain_are_read(monkeypatch, tiles, calls):
     fake = _FakeOCR(tiles)
-    monkeypatch.setattr(header_ocr, "_engine", lambda: fake)
+    monkeypatch.setattr(header_ocr, "_engine", lambda *a, **k: fake)
     band = np.full((1000, 4000, 3), 255, np.uint8)
     r = header_ocr.read_bands(band, header_frac=0.3, footer_frac=0.1)
     assert fake.calls == calls and r.speeds == [25.0] and r.gains == [10.0]
@@ -77,7 +77,7 @@ def test_header_ocr_stops_once_speed_and_gain_are_read(monkeypatch, tiles, calls
 
 def test_header_ocr_reads_every_tile_when_a_value_is_missing(monkeypatch):
     fake = _FakeOCR([["25mm/s"], ["Name"]])
-    monkeypatch.setattr(header_ocr, "_engine", lambda: fake)
+    monkeypatch.setattr(header_ocr, "_engine", lambda *a, **k: fake)
     r = header_ocr.read_bands(np.full((1000, 4000, 3), 255, np.uint8), header_frac=0.3, footer_frac=0.1)
     # header 300 px: tiles 900 wide every 675 px over 4000 -> 6; footer 100 px: 300 every 225 -> 18
     assert fake.calls == 24 and r.speeds == [25.0] and not r.gains

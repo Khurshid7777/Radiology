@@ -19,6 +19,10 @@ class Settings {
     this.pinIterations = 120000,
     this.lockAfterMinutes = 5,
     this.biometrics = true,
+    this.deviceProfileId,
+    this.deviceProfileName,
+    this.deviceZones = const [],
+    this.zoneMargin = 0.01,
   });
 
   String serverUrl;
@@ -45,6 +49,16 @@ class Settings {
   /// Unlock with the phone's biometrics when it has them (the PIN always works).
   bool biometrics;
 
+  /// The recorder the doctor works with (TZ addendum §18.5, §18.6; S3): its profile id on the
+  /// server, its name, and the zones of its sheet with personal data ([x0, y0, x1, y1] in
+  /// fractions of the upright sheet), kept here so masking works offline. No profile: the band.
+  String? deviceProfileId;
+  String? deviceProfileName;
+  List<List<double>> deviceZones;
+  double zoneMargin;
+
+  bool get hasZones => deviceProfileId != null && deviceZones.isNotEmpty;
+
   bool get pinSet => pinHash != null && pinSalt != null;
 
   bool get configured => serverUrl.isNotEmpty && apiKey.isNotEmpty;
@@ -64,7 +78,22 @@ class Settings {
         pinIterations: pinIterations,
         lockAfterMinutes: lockAfterMinutes ?? this.lockAfterMinutes,
         biometrics: biometrics ?? this.biometrics,
+        deviceProfileId: deviceProfileId,
+        deviceProfileName: deviceProfileName,
+        deviceZones: deviceZones,
+        zoneMargin: zoneMargin,
       );
+
+  /// The chosen recorder (null: none; masking falls back to the band).
+  void setDevice(Map<String, dynamic>? profile) {
+    deviceProfileId = profile?['id'] as String?;
+    deviceProfileName = profile == null ? null : '${profile['manufacturer'] ?? ''} ${profile['model'] ?? ''}'.trim();
+    deviceZones = [
+      for (final z in (profile?['phi_zones'] as List? ?? const []))
+        [for (final v in z as List) (v as num).toDouble()]
+    ];
+    zoneMargin = (profile?['phi_zone_margin'] as num?)?.toDouble() ?? 0.01;
+  }
 
   Map<String, dynamic> toJson() => {
         'server_url': serverUrl,
@@ -78,6 +107,10 @@ class Settings {
         'pin_iterations': pinIterations,
         'lock_after_minutes': lockAfterMinutes,
         'biometrics': biometrics,
+        'device_profile_id': deviceProfileId,
+        'device_profile_name': deviceProfileName,
+        'device_zones': deviceZones,
+        'zone_margin': zoneMargin,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) => Settings(
@@ -92,6 +125,13 @@ class Settings {
         pinIterations: j['pin_iterations'] as int? ?? 120000,
         lockAfterMinutes: j['lock_after_minutes'] as int? ?? 5,
         biometrics: j['biometrics'] as bool? ?? true,
+        deviceProfileId: j['device_profile_id'] as String?,
+        deviceProfileName: j['device_profile_name'] as String?,
+        deviceZones: [
+          for (final z in (j['device_zones'] as List? ?? const []))
+            [for (final v in z as List) (v as num).toDouble()]
+        ],
+        zoneMargin: (j['zone_margin'] as num?)?.toDouble() ?? 0.01,
       );
 
   static Future<Settings> load(File f) async =>

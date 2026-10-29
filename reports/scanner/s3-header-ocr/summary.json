@@ -1,0 +1,151 @@
+{
+ "n_cases": 96,
+ "seed": 0,
+ "px_per_mm": 10.0,
+ "engines": {
+  "rapidocr_cyrillic_v5": {
+   "n": 96,
+   "cer_median": 0.0628,
+   "cer_mean": 0.0646,
+   "speed_ok": 94,
+   "gain_ok": 96,
+   "speed_and_gain_ok_pct": 97.9,
+   "fields_ok": {
+    "hr": 93,
+    "pr": 92,
+    "qrs": 87,
+    "qt": 81,
+    "qtc": 80,
+    "axis": 85,
+    "recorded_at": 94,
+    "model": 66,
+    "conclusion": 86
+   },
+   "cases_with_leak": 0,
+   "time_s_mean": 1.01,
+   "by_style": {
+    "ru": {
+     "n": 58,
+     "speed_and_gain_ok": 57,
+     "cer_median": 0.0661
+    },
+    "en": {
+     "n": 19,
+     "speed_and_gain_ok": 18,
+     "cer_median": 0.0085
+    },
+    "uz": {
+     "n": 19,
+     "speed_and_gain_ok": 19,
+     "cer_median": 0.0833
+    }
+   },
+   "by_degrade": {
+    "{\"blur_px\": 0.6, \"faint\": 0.55}": 12,
+    "{\"blur_px\": 0.8, \"jpeg\": 80}": 12,
+    "{\"faint\": 0.4, \"grid\": \"gray\"}": 12,
+    "{\"grid\": \"red\", \"jpeg\": 75, \"noise\": 4}": 11,
+    "{\"grid\": \"red\"}": 11,
+    "{\"jpeg\": 70}": 12,
+    "{\"noise\": 6, \"rotate_deg\": 0.8}": 12,
+    "{}": 12
+   }
+  },
+  "rapidocr_default": {
+   "n": 96,
+   "cer_median": 0.4567,
+   "cer_mean": 0.381,
+   "speed_ok": 90,
+   "gain_ok": 96,
+   "speed_and_gain_ok_pct": 93.8,
+   "fields_ok": {
+    "hr": 57,
+    "pr": 87,
+    "qrs": 81,
+    "qt": 65,
+    "qtc": 66,
+    "axis": 53,
+    "recorded_at": 75,
+    "model": 10,
+    "conclusion": 15
+   },
+   "cases_with_leak": 9,
+   "time_s_mean": 0.98,
+   "by_style": {
+    "ru": {
+     "n": 58,
+     "speed_and_gain_ok": 55,
+     "cer_median": 0.4792
+    },
+    "en": {
+     "n": 19,
+     "speed_and_gain_ok": 19,
+     "cer_median": 0.0426
+    },
+    "uz": {
+     "n": 19,
+     "speed_and_gain_ok": 16,
+     "cer_median": 0.3158
+    }
+   },
+   "by_degrade": {
+    "{\"blur_px\": 0.6, \"faint\": 0.55}": 11,
+    "{\"blur_px\": 0.8, \"jpeg\": 80}": 12,
+    "{\"faint\": 0.4, \"grid\": \"gray\"}": 11,
+    "{\"grid\": \"red\", \"jpeg\": 75, \"noise\": 4}": 8,
+    "{\"grid\": \"red\"}": 12,
+    "{\"jpeg\": 70}": 12,
+    "{\"noise\": 6, \"rotate_deg\": 0.8}": 12,
+    "{}": 12
+   }
+  },
+  "tesseract_rus_eng_uzb": {
+   "n": 96,
+   "cer_median": 0.0473,
+   "cer_mean": 0.374,
+   "speed_ok": 60,
+   "gain_ok": 50,
+   "speed_and_gain_ok_pct": 52.1,
+   "fields_ok": {
+    "hr": 66,
+    "pr": 28,
+    "qrs": 45,
+    "qt": 37,
+    "qtc": 37,
+    "axis": 58,
+    "recorded_at": 60,
+    "model": 39,
+    "conclusion": 59
+   },
+   "cases_with_leak": 4,
+   "time_s_mean": 1.64,
+   "by_style": {
+    "ru": {
+     "n": 58,
+     "speed_and_gain_ok": 32,
+     "cer_median": 0.0499
+    },
+    "en": {
+     "n": 19,
+     "speed_and_gain_ok": 7,
+     "cer_median": 0.0342
+    },
+    "uz": {
+     "n": 19,
+     "speed_and_gain_ok": 11,
+     "cer_median": 0.0472
+    }
+   },
+   "by_degrade": {
+    "{\"blur_px\": 0.6, \"faint\": 0.55}": 9,
+    "{\"blur_px\": 0.8, \"jpeg\": 80}": 10,
+    "{\"faint\": 0.4, \"grid\": \"gray\"}": 1,
+    "{\"grid\": \"red\", \"jpeg\": 75, \"noise\": 4}": 0,
+    "{\"grid\": \"red\"}": 0,
+    "{\"jpeg\": 70}": 10,
+    "{\"noise\": 6, \"rotate_deg\": 0.8}": 11,
+    "{}": 9
+   }
+  }
+ }
+}

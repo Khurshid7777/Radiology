@@ -29,7 +29,8 @@ import numpy as np
 
 from ecgscan import PIPELINE_VERSION
 from ecgscan.board import compose_zone, detect_board, load_boards, warp_zone
-from ecgscan.calibration.header_ocr import read_bands
+from ecgscan.calibration.header_fields import parse_fields
+from ecgscan.calibration.header_ocr import group_lines, read_bands
 from ecgscan.calibration.pulse import (
     dark_ink,
     extend_pulses,
@@ -39,9 +40,9 @@ from ecgscan.calibration.pulse import (
     widen_strokes,
 )
 from ecgscan.calibration.resolve import resolve
-from ecgscan.config import load_yaml
+from ecgscan.config import load_yaml, repo_root
 from ecgscan.contract import Calibration, Layout, QualitySummary, ScanResult, Source
-from ecgscan.contract.models import RHYTHM_MISMATCH
+from ecgscan.contract.models import RHYTHM_MISMATCH, DeviceMeasurements, HeaderOcr
 from ecgscan.geometry.grid import (
     GridEstimate,
     estimate_coarse_grid,
@@ -351,6 +352,19 @@ def trace_contrast(bgr: np.ndarray, px_per_mm: float) -> float:
     return max(0.0, 1.0 - ink / max(paper, 1.0))
 
 
+def header_ocr_fields(reading, device_models: list[str]) -> HeaderOcr:
+    """The printed header's other fields (S3, TZ 18.6) from an OCR reading. Lines with personal
+    data are dropped in ``parse_fields`` before anything is parsed; only their count is kept."""
+    f = parse_fields(group_lines(reading.boxes), models=device_models)
+    m = f.measurements
+    return HeaderOcr(
+        engine=reading.engine, confidence=round(float(np.mean([b.score for b in reading.boxes])), 3),
+        recorded_at=f.recorded_at, device_model=f.device_model, filter_hp_hz=f.filter_hp_hz,
+        filter_lp_hz=f.filter_lp_hz, mains_hz=f.mains_hz if f.mains_hz in (50, 60) else None,
+        device_measurements=DeviceMeasurements(**vars(m)) if m.any() else None,
+        device_text_conclusion=(f.conclusion or None) and f.conclusion[:500], phi_lines_dropped=f.phi_lines_dropped)
+
+
 def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHints | None = None, fs_out: float = 500.0,
          debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None,
          config: dict | None = None) -> ScanResult:
@@ -422,6 +436,8 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
 
         qc_future = _QC_POOL.submit(check_frame, img.bgr[..., ::-1], grid=False)
 
+    header: HeaderOcr | None = None          # the printed header's other fields, once read (S3)
+
     def result(status: str, *, calibration: Calibration | None = None, layout: Layout | None = None,
                leads=None, rhythm=None, overall: float = 0.0, ppm: float | None = None,
                contrast: float | None = None) -> ScanResult:
@@ -437,7 +453,8 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
                                    trace_contrast=None if contrast is None else round(contrast, 3),
                                    sharpness=None if frame_qc is None else frame_qc.sharpness,
                                    glare_fraction=None if frame_qc is None else frame_qc.glare,
-                                   processing_ms=int((time.perf_counter() - t_start) * 1000)))
+                                   processing_ms=int((time.perf_counter() - t_start) * 1000)),
+            header_ocr=header)
 
     # 0. A dark photo (indoor light): the working copy is divided by the local paper level so
     # the segmenter, trained on lit pages, sees paper as paper (SD-062). Deterministic
@@ -620,12 +637,17 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     bottom = int(min(h_img, max(frame.baselines[-1] + near * frame.pitch_px,
                                 min(frame.baselines[-1] + clear * frame.pitch_px, h_img - band))))
     if c_cfg["ocr"]["enabled"]:
+        rec = o_cfg.get("rec_model")
         reading = read_bands(rect.bgr, header_frac=top / h_img, footer_frac=(h_img - bottom) / h_img,
                              min_band_px=int(4 * ppm), min_tile_px=int(o_cfg.get("tile_min_mm", 0) * ppm),
                              overlap_px=int(o_cfg.get("tile_overlap_mm", 0) * ppm),
-                             colour_frac=float(o_cfg.get("colour_retry_frac", 0.0)))
-        dbg.ocr_texts = reading.texts
+                             colour_frac=float(o_cfg.get("colour_retry_frac", 0.0)),
+                             rec_model=str(repo_root() / rec) if rec else None, rec_sha256=o_cfg.get("rec_sha256"),
+                             whole_header=bool(o_cfg.get("whole_header", False)))
+        dbg.ocr_texts = reading.texts            # in-process only: may hold a name; never stored or logged
         ocr_speeds, ocr_gains = reading.speeds, reading.gains
+        if reading.available and reading.boxes:
+            header = header_ocr_fields(reading, o_cfg.get("device_models", []))
     t = tick("ocr", t)
     decision = resolve(px_per_mm=ppm, grid_residual_mm=rect.residual_mm, pulse=summarize_pulses(pulses),
                        ocr_speeds=ocr_speeds, ocr_gains=ocr_gains, cfg=c_cfg,

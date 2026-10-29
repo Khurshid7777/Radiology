@@ -19,7 +19,13 @@ class ApiError implements Exception {
 
 class ScanHints {
   const ScanHints(
-      {this.paperSpeedMmS, this.gainMmMv, this.headerMasked = false, this.capture, this.device, this.pages = false});
+      {this.paperSpeedMmS,
+      this.gainMmMv,
+      this.headerMasked = false,
+      this.capture,
+      this.device,
+      this.pages = false,
+      this.deviceProfile});
 
   final double? paperSpeedMmS;
   final double? gainMmMv;
@@ -34,6 +40,9 @@ class ScanHints {
   /// Several sheets of one study (TZ addendum §18.4): the server stitches them in order.
   final bool pages;
 
+  /// The recorder's profile id on the server (`configs/scanner/devices/<id>.yaml`; S2, S3).
+  final String? deviceProfile;
+
   Map<String, String> toFields() => {
         'client': 'flutter',
         'header_masked': '$headerMasked',
@@ -42,6 +51,7 @@ class ScanHints {
         if (capture != null) 'capture': jsonEncode(capture),
         'device': ?device,
         if (pages) 'pages': 'true',
+        'device_profile': ?deviceProfile,
       };
 
   Map<String, dynamic> toJson() => {
@@ -51,6 +61,7 @@ class ScanHints {
         'capture': capture,
         'device': device,
         'pages': pages,
+        'device_profile': deviceProfile,
       };
 
   factory ScanHints.fromJson(Map<String, dynamic> j) => ScanHints(
@@ -60,6 +71,7 @@ class ScanHints {
         capture: j['capture'] as Map<String, dynamic>?,
         device: j['device'] as String?,
         pages: j['pages'] as bool? ?? false,
+        deviceProfile: j['device_profile'] as String?,
       );
 }
 
@@ -123,6 +135,13 @@ class ScanApi {
   Future<Map<String, dynamic>> analyze(String scanId) =>
       _json(() => _http.post(_u('/scans/$scanId/analysis'), headers: {..._auth, 'Content-Type': 'application/json'},
           body: '{}'));
+
+  /// GET /scans/config/devices: the recorder profiles ({id, manufacturer, model, layouts,
+  /// phi_zones, phi_zone_margin}), for masking the right zones before upload (S3).
+  Future<List<Map<String, dynamic>>> devices() async {
+    final j = await _json(() => _http.get(_u('/scans/config/devices'), headers: _auth));
+    return [for (final d in (j['devices'] as List? ?? const [])) (d as Map).cast<String, dynamic>()];
+  }
 
   /// GET /scans/config/capture-qc: {config, hints: {ru, uz}}.
   Future<Map<String, dynamic>> captureQcConfig() =>

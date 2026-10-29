@@ -1,0 +1,12 @@
+{
+ "model": "cyrillic_PP-OCRv5_rec_mobile.onnx",
+ "sha256": "90f761b4bfcce0c8c561c0cb5c887b0971d3ec01c32164bdf7374a35b0982711",
+ "bytes": 8074092,
+ "role": "text recogniser for header and footer OCR (S3, SD-090); the detector stays RapidOCR's own",
+ "origin": "PaddleOCR PP-OCRv5 cyrillic mobile recogniser, ONNX export by RapidAI",
+ "source": "https://modelscope.cn/api/v1/models/RapidAI/RapidOCR/repo?Revision=master&FilePath=onnx/PP-OCRv5/rec/cyrillic_PP-OCRv5_rec_mobile.onnx",
+ "licence": "Apache-2.0 (PaddleOCR models; RapidOCR)",
+ "dictionary": "embedded in the model metadata ('character', 850 symbols: Cyrillic incl. Uzbek, Latin, digits, punctuation)",
+ "input": "N x 3 x 48 x W, BGR",
+ "output": "N x T x 852 CTC logits"
+}

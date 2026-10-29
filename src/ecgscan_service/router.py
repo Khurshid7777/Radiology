@@ -151,6 +151,14 @@ async def submit_scan(file: UploadFile = File(...), parts: list[UploadFile] | No
     return {"scan_id": scan_id, "status": "queued"}
 
 
+@router.get("/config/devices")
+def devices_config(who: str = Depends(actor)) -> dict:
+    """The recorder profiles the app picks from: name, layouts, personal-data zones (S3)."""
+    from ecgscan.layout.devices import device_profiles
+
+    return {"devices": [p.public() for p in device_profiles().values()]}
+
+
 @router.get("/config/capture-qc")
 def capture_qc_config(who: str = Depends(actor)) -> dict:
     """Frame-check thresholds and hint texts for the camera screen (TZ §6.1, SD-014)."""
