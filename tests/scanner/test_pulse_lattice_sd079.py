@@ -5,7 +5,13 @@ import numpy as np
 import pytest
 
 from ecgscan.bench.render import RenderSpec, render_page
-from ecgscan.calibration.pulse import find_pulses, grid_in_mask, ink_mask, summarize_pulses
+from ecgscan.calibration.pulse import (
+    dark_ink,
+    find_pulses,
+    grid_in_mask,
+    ink_mask,
+    summarize_pulses,
+)
 from ecgscan.layout import get_layout
 
 pytest.importorskip("cv2")
@@ -96,3 +102,49 @@ def test_pulses_on_a_light_grid_barely_in_the_mask():
     assert grid_in_mask(mask, 10.0)
     s = summarize_pulses(find_pulses(mask, 10.0, gray=g))
     assert s is not None and s["n_agree"] >= 4 and s["height_mm"] == pytest.approx(10.0, abs=0.3)
+
+
+# --- SD-086: a red grid in the mask along the pulse's legs (ECG-Image-Kit colour page) ------
+
+def _red_page():
+    """Kit 12390_hr rectified at 10 px/mm: pink 1-mm lines, red dashed 5-mm lines that the
+    segmenter takes for ink, black pulses whose legs run beside two of them. The mask joins
+    the dashes along each leg into one run from 0.8 mm above the top to the baseline, and
+    breaks the right leg under the top's corner (its run starts 1.2 mm lower)."""
+    h, w = 900, 600
+    bgr = np.full((h, w, 3), 255, np.uint8)
+    bgr[:, ::10] = (225, 228, 253)
+    bgr[::10] = (225, 228, 253)
+    for x in range(0, w, 50):
+        for y in range(0, h, 16):
+            bgr[y:y + 12, max(0, x - 1):x + 1] = (30, 30, 220)
+    for base in (210, 430, 650, 870):
+        top = base - 112
+        for x in (99, 149):
+            bgr[top - 8:base, x:x + 2] = (30, 30, 220)
+            bgr[top - 9, x:x + 2] = 255
+            bgr[base, x:x + 2] = 255
+        bgr[top:base - 9, 101:103] = 25
+        bgr[top + 12:base - 8, 151:153] = 25
+        bgr[top:top + 3, 101:153] = 25
+        bgr[base - 1:base + 1, 153:w] = 25
+        for x in range(205, w, 50):
+            bgr[base - 60:base, x:x + 2] = 25
+    lum = bgr @ np.array([0.114, 0.587, 0.299])
+    return bgr, lum < 150
+
+
+def test_a_pulse_beside_red_grid_lines_is_found_on_the_dark_ink():
+    """Before SD-086 no row had a pulse: the red lines' runs gave the pair a top above the
+    real one, and the legs' own tops were 1.2 mm apart."""
+    bgr, mask = _red_page()
+    gray = bgr.max(axis=2)
+    assert find_pulses(mask, 10.0, gray=gray) == []
+    assert find_pulses(dark_ink(mask, gray), 10.0, gray=gray) == []      # tops 1.2 mm apart
+    s = summarize_pulses(find_pulses(dark_ink(mask, gray), 10.0, gray=gray, top_search_mm=1.5))
+    assert s is not None and s["n_agree"] == 4 and s["height_mm"] == pytest.approx(10.0, rel=0.12)
+
+
+def test_dark_ink_keeps_a_grey_grid_as_dark_as_the_trace():
+    mask, g = _kit_like(pulse_grey=29, line_grey=40)
+    assert (dark_ink(mask, g) == mask).all()

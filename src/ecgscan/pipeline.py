@@ -31,6 +31,7 @@ from ecgscan import PIPELINE_VERSION
 from ecgscan.board import compose_zone, detect_board, load_boards, warp_zone
 from ecgscan.calibration.header_ocr import read_bands
 from ecgscan.calibration.pulse import (
+    dark_ink,
     extend_pulses,
     find_pulses,
     grid_in_mask,
@@ -528,9 +529,16 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     c_cfg = cfg["calibration"]
     mask = make_segmenter(cfg.get("segmentation", {})).segment(rect.bgr, ppm)
     ink = mask.ink
-    gray = rect.bgr.min(axis=2) if rect.bgr.ndim == 3 else rect.bgr     # the trace's darkness
-    pulses = find_pulses(ink, ppm, gray=gray)
+    # The ink's darkness: the brightest channel. A black trace stays dark, a red grid line
+    # stays light (the darkest channel turned Kit's red lines black, SD-084).
+    gray = rect.bgr.max(axis=2) if rect.bgr.ndim == 3 else rect.bgr
     p_cfg = c_cfg.get("pulse", {})
+    pulses = find_pulses(ink, ppm, gray=gray)
+    if not pulses:
+        # A coloured grid in the mask runs on along the pulse's legs (ECG-Image-Kit's red dashed
+        # lines): the pulse is looked for again on the dark ink alone. Only when nothing was
+        # found, so pages that already worked are unchanged (SD-086).
+        pulses = find_pulses(dark_ink(ink, gray), ppm, gray=gray, top_search_mm=float(p_cfg.get("top_search_mm", 0.0)))
     if not pulses and p_cfg.get("retry_widen_px") and not grid_in_mask(ink, ppm):
         # A real strip's pulse: a thin line, slanted by the paper's curl, broken by the mask
         # into short pieces over two or three columns. Found again on a gap-tolerant copy;
