@@ -135,6 +135,26 @@ def scale_unknown(result) -> bool:
                  or {"LIMB_LEADS_INCONSISTENT", "TRACE_GAPS"} <= warnings))
 
 
+def attach_device_header(sig: SignalRepresentation, result) -> None:
+    """The recorder's printed measurements and model from the scanner's header read (S3,
+    D183): a reference the core compares ours with. Its text conclusion is not carried:
+    it is the recorder's, never ours, and never goes to the narrative."""
+    h = getattr(result, "header_ocr", None)
+    if h is None:
+        return
+    dm = h.device_measurements
+    if dm is not None:
+        # Values no check of the scanner vouches for (QTc off Bazett, axes) are left out
+        # (scanner SD-091): a misread one must not even make an advisory mismatch.
+        d = dm.model_dump()
+        unsure = set(d.pop("uncertain", None) or [])
+        vals = {k: int(v) for k, v in d.items() if v is not None and k not in unsure}
+        sig.provenance.device_measurements = vals or None
+    info = {k: getattr(h, k) for k in ("device_model", "filter_hp_hz", "filter_lp_hz", "mains_hz")
+            if getattr(h, k, None) is not None}
+    sig.provenance.device_info = info or None
+
+
 def leads_inconsistent(result) -> bool:
     """The scanner asks to confirm a read whose own checks disagree: its rhythm row against
     the panels, or the limb leads with broken traces. With the scale read from the page
@@ -188,6 +208,7 @@ def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: flo
     if result.status != "rejected":
         sig = to_signal_representation(result)
         sig.provenance.overlay_jpeg = overlay      # what was read, for the doctor's eye (D163)
+        attach_device_header(sig, result)
         # A compressed photo read in the scanner's coarse mode (D170) stays with the scanner:
         # the CardioLens readers read 3-4 px/mm worse, and the core withholds what the
         # scale cannot give (photo_coarse).

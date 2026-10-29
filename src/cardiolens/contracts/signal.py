@@ -83,6 +83,16 @@ class Provenance(BaseModel):
     # and only bridged so the filters can run (ECG scanner SD-006). Not data.
     sample_mask: dict[str, list[tuple[float, float]]] | None = None   # lead -> (t0_s, t1_s)
     notes: list[str] = Field(default_factory=list)
+    # What the recorder printed in the header of a photographed page (scanner S3, D183): its own
+    # measurements (``hr_bpm``, ``pr_ms``, ``qrs_ms``, ``qt_ms``, ``qtc_ms``, ``axis_deg``) and
+    # ``device_model`` / filters. A reference to compare ours with, never shown as ours; never
+    # personal data (the scanner drops those lines before parsing).
+    device_measurements: dict[str, int] | None = None
+    device_info: dict[str, str | float | int] | None = None
+    # The scanner's own account of the read for the PDF (S4, TZ 18.10, D184): per language
+    # ("ru", "uz") the (label, value) rows it translated — source, status and warnings in
+    # words, speed/gain and their sources, layout, per-lead quality. Never personal data.
+    report_rows: dict[str, list[tuple[str, str]]] | None = None
     # A photo read by the ECG scanner: its confirmation overlay — the traces drawn over the
     # rectified page, header and footer blanked (SD-050, D136) — as JPEG bytes, for the web
     # page, the bot and the PDF (D163). Never serialised: an image for the eye, not data.
