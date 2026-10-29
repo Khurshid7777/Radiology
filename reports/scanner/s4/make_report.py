@@ -19,6 +19,7 @@ import numpy as np
 from cardiolens.layer1_ingestion import generate_synthetic_ecg
 from cardiolens.outputs.pdf_report import OVERLAY_NOTE_RU, OVERLAY_NOTE_UZ, write_pdf
 from cardiolens.pipeline import run_pipeline
+from cardiolens.telegram.analyze import attach_device_header
 from ecgscan.bench.headers import render_header
 from ecgscan.bench.pdf_check import check
 from ecgscan.bench.render import RenderSpec, render_page
@@ -45,11 +46,14 @@ def main(out: Path) -> int:
     res = scan(page_photo(), hints=ScanHints(client="api"), artifacts_dir=art)
     sig = to_signal_representation(res)
     sig.provenance.overlay_jpeg = (art / "overlay_preview.jpg").read_bytes()
+    attach_device_header(sig, res)                 # as the service does: device_mismatch (D183)
     result = run_pipeline(sig)
     pdf = out / "report.pdf"
     write_pdf(result, str(pdf))
     flags = {lang: scanner_rows(res, lang) for lang in ("ru", "uz")}
     expect = {"overlay": [OVERLAY_NOTE_RU[:60], OVERLAY_NOTE_UZ[:60]], "conclusion": ["Заключение (RU)", "Xulosa (UZ)"]}
+    mismatch = [f for f in result.findings.findings if f.code == "device_mismatch"]
+    expect["device_mismatch"] = [m for f in mismatch for m in (f.label_ru[:40], f.label_uz[:40])]
     for lang, rows in flags.items():
         expect[f"flags_{lang}"] = [s for row in rows for s in row]
     report = check(pdf, [s for v in expect.values() for s in v], out / "pages")

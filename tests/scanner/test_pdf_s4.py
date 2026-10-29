@@ -48,12 +48,10 @@ def test_the_flags_table_reads_back_in_every_engine(tmp_path, result_factory, sy
 
 
 def test_the_core_report_of_a_scan_opens_everywhere(tmp_path, result_factory, synth_mv):
-    """The doctor's PDF, written by the core from a scanned page as the service sends it. The
-    flags are expected in it once the core prints ``Provenance.report_rows``
-    (reports/scanner/s4/core_integration.diff)."""
+    """The doctor's PDF, written by the core from a scanned page as the service sends it, with
+    every flag in both languages (``Provenance.report_rows``, core D184)."""
     import cv2
 
-    from cardiolens.contracts.signal import Provenance
     from cardiolens.outputs.pdf_report import OVERLAY_NOTE_UZ, write_pdf
     from cardiolens.pipeline import run_pipeline
     from ecgscan.contract.cardiolens_adapter import to_signal_representation
@@ -63,8 +61,6 @@ def test_the_core_report_of_a_scan_opens_everywhere(tmp_path, result_factory, sy
     sig.provenance.overlay_jpeg = cv2.imencode(".jpg", np.full((200, 400, 3), 230, np.uint8))[1].tobytes()
     pdf = tmp_path / "report.pdf"
     write_pdf(run_pipeline(sig), str(pdf))
-    expect = [OVERLAY_NOTE_UZ[:50], "Заключение (RU)", "Xulosa (UZ)"]
-    if "report_rows" in Provenance.model_fields:
-        expect += _expected(res)
+    expect = [OVERLAY_NOTE_UZ[:50], "Заключение (RU)", "Xulosa (UZ)", *_expected(res)]
     out = check(pdf, expect)
     assert out["ok"], {k: v.get("missing", v) for k, v in out["engines"].items()}

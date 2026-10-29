@@ -17,6 +17,8 @@ from __future__ import annotations
 import numpy as np
 
 from ecgscan.contract.models import DIGITIZED_FLAG, RHYTHM_MISMATCH, STANDARD_LEADS, ScanResult
+from ecgscan.i18n import LANGS
+from ecgscan.report_block import scanner_rows
 
 
 class RejectedScanError(ValueError):
@@ -105,5 +107,7 @@ def to_signal_representation(result: ScanResult):
         signal=signal, sampling_rate_hz=fs, lead_names=list(STANDARD_LEADS), duration_s=n / fs,
         source="image",
         provenance=Provenance(digitized=True, confidence=round(float(result.quality.overall), 3),
-                              lead_windows=windows, sample_mask=_gap_intervals(missing, fs) or None, notes=notes),
+                              lead_windows=windows, sample_mask=_gap_intervals(missing, fs) or None, notes=notes,
+                              # How the photo was read, translated, for the PDF (S4, TZ 18.10, SD-095)
+                              report_rows={lang: scanner_rows(result, lang) for lang in LANGS}),
     )

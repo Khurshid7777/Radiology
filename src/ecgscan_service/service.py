@@ -321,14 +321,17 @@ class ScanService:
             raise ScanError(409, f"scan is {row.status}: only an ok or doctor-accepted scan is analysed")
         from cardiolens.api import service as cl_service
         from cardiolens.outputs.conclusion import format_conclusion
+        from cardiolens.telegram.analyze import attach_device_header
         from ecgscan.contract.cardiolens_adapter import to_signal_representation
 
-        sig = to_signal_representation(ScanResult.model_validate(row.result))
+        read = ScanResult.model_validate(row.result)
+        sig = to_signal_representation(read)
         if "trace_overlay_preview" in ((row.result or {}).get("artifacts") or {}):
             try:                     # the page with the read traces, header blanked: the PDF shows it (TZ 18.10)
                 sig.provenance.overlay_jpeg = self.artifact(scan_id, "trace_overlay_preview", actor)[0]
             except ScanError:        # expired: the report goes without the picture
                 pass
+        attach_device_header(sig, read)       # the recorder's printed numbers: device_mismatch (D183)
         analysis_id, result = cl_service.run_and_store(sig, mode=mode, owner=row.owner)
         self.store.set_analysis(scan_id, analysis_id)
         self.store.audit(scan_id, actor, "analyzed", {"analysis_id": analysis_id, "mode": result.report.mode})
