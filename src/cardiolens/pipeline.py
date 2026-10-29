@@ -291,8 +291,12 @@ def run_pipeline(
     # Below the digital minimum rate (D135: 50 Hz read QRS 178 ms, a false LBBB) a photo is
     # too small to measure; it is gated with the retake hint rather than refused.
     coarse_photo = sig.provenance.digitized and fs_in < cfg.ingestion.min_sampling_rate_hz
+    # A QRS narrower than any adult's (D186: ecgdig photos read QRS 12-53 ms, true >= 62 ms,
+    # rate off by up to 2x, no gate) means the trace was not followed through the complex.
+    qrs_impossible = (sig.provenance.digitized and m.intervals.qrs_ms is not None
+                      and m.intervals.qrs_ms < PHOTO_MIN_QRS_MS)
     bad_photo = not no_ecg and not bad_units and (
-        scale_conflict or leads_inconsistent or coarse_photo or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
+        scale_conflict or leads_inconsistent or qrs_impossible or coarse_photo or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
                                                           cfg.quality.photo_min_einthoven_r))
     if bad_photo:
         lag = photo["panel_lag_ms"] if photo else None
@@ -301,6 +305,8 @@ def run_pipeline(
                            "masshtab aniqlanmadi: to'r va kalibrlash impulsi mos emas") if scale_conflict else
                           ("отведения на снимке не согласуются между собой",
                            "suratdagi tarmoqlar o'zaro mos emas") if leads_inconsistent else
+                          (f"QRS {m.intervals.qrs_ms:.0f} мс — уже, чем бывает",
+                           f"QRS {m.intervals.qrs_ms:.0f} ms — bo'lishi mumkin bo'lganidan tor") if qrs_impossible else
                           ("снимок слишком мелкий для измерения", "surat o'lchash uchun juda kichik")
                           if coarse_photo and not (photo and page_unreliable(
                               photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
@@ -509,6 +515,7 @@ def run_pipeline(
 
 
 # A file in mV read as µV is 1000x too small and looks like no ECG at all (D119).
+PHOTO_MIN_QRS_MS = 55.0         # D186: a digitised QRS below this was not traced (true adult QRS >= 60)
 PHOTO_LOW_RES_PX_PER_MM = 6.0   # D126: an unreliable photo below this asks for a closer shot sent as a file
 # The scanner's coarse mode (D170) marks its signal with this provenance note:
 # "coarse: px_per_mm=3.1". The finding groups that need a fine time or voltage scale.
