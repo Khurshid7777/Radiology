@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run import CONDITIONS, GATES, LEADS, WINDOWS, lead_ii_match, truth_signal  # noqa: E402
+from run import CONDITIONS, GATES, LEADS, WINDOWS, lead_ii_match, truth_signal
 
 
 def reference_signal(hea: Path):
