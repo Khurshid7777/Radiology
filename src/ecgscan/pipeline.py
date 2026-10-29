@@ -622,7 +622,8 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     if c_cfg["ocr"]["enabled"]:
         reading = read_bands(rect.bgr, header_frac=top / h_img, footer_frac=(h_img - bottom) / h_img,
                              min_band_px=int(4 * ppm), min_tile_px=int(o_cfg.get("tile_min_mm", 0) * ppm),
-                             overlap_px=int(o_cfg.get("tile_overlap_mm", 0) * ppm))
+                             overlap_px=int(o_cfg.get("tile_overlap_mm", 0) * ppm),
+                             colour_frac=float(o_cfg.get("colour_retry_frac", 0.0)))
         dbg.ocr_texts = reading.texts
         ocr_speeds, ocr_gains = reading.speeds, reading.gains
     t = tick("ocr", t)
