@@ -70,8 +70,27 @@ def ocr_available() -> tuple[bool, str | None]:
     return True, None
 
 
+def tiles(width: int, band_h: int, *, tile_aspect: float = 3.0, min_tile_px: int = 0,
+          overlap_px: int = 0) -> list[tuple[int, int]]:
+    """The OCR tiles across a band: (x0, x1), each ``tile_aspect`` band heights wide (at least
+    ``min_tile_px``), neighbours overlapping by a quarter tile or ``overlap_px`` (at most half a
+    tile), whichever is more; the last one ends at the band's end."""
+    step = max(64, int(band_h * tile_aspect), min_tile_px)
+    advance = max(1, step - max(step // 4, min(overlap_px, step // 2)))
+    out, x = [], 0
+    while True:
+        out.append((x, min(width, x + step)))
+        if x + step >= width:
+            return out
+        x += advance
+
+
 def read_bands(bgr: np.ndarray, *, header_frac: float = 0.25, footer_frac: float = 0.12,
-               tile_aspect: float = 3.0, min_band_px: int = 8) -> HeaderReading:
+               tile_aspect: float = 3.0, min_band_px: int = 8, min_tile_px: int = 0,
+               overlap_px: int = 0) -> HeaderReading:
+    """Speed and gain read from the header band, then the footer band, in overlapping ``tiles``:
+    a setting as wide as the overlap is whole in some tile (Kit 12390: "25mm/s", 15 mm wide,
+    was cut into "25mm/" and "mm/s" by a 9-mm overlap, SD-087)."""
     ok, why = ocr_available()
     if not ok:
         return HeaderReading(False, why)
@@ -89,16 +108,13 @@ def read_bands(bgr: np.ndarray, *, header_frac: float = 0.25, footer_frac: float
             continue
         if texts and settled():
             break                                   # the header already gave speed and gain
-        step = max(64, int(bh * tile_aspect))
-        x = 0
-        while True:
-            res, _ = _engine()(band[:, x:x + step])
+        for x0, x1 in tiles(w, bh, tile_aspect=tile_aspect, min_tile_px=min_tile_px, overlap_px=overlap_px):
+            res, _ = _engine()(band[:, x0:x1])
             new = [r[1] for r in (res or [])]
             texts += new
             # Speed and gain read: the rest of the band is not read either (as the footer is
             # not read after the header; ~0.3-0.5 s a tile, SD-069).
-            if x + step >= w or (new and settled()):
+            if new and settled():
                 break
-            x += step * 3 // 4
     speeds, gains = parse_settings(texts)
     return HeaderReading(True, None, texts, speeds, gains)
