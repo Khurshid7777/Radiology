@@ -295,8 +295,12 @@ def run_pipeline(
     # rate off by up to 2x, no gate) means the trace was not followed through the complex.
     qrs_impossible = (sig.provenance.digitized and m.intervals.qrs_ms is not None
                       and m.intervals.qrs_ms < PHOTO_MIN_QRS_MS)
+    # The readers' layout disagrees with its own beats (D187: ecgdig photos read as a 6x1
+    # screen or a 3x4 page, rate 168 for 86, 115 for 54, no gate; the scanner checks its own).
+    readers_disagree = (sig.provenance.digitized and m.page_beat_agreement is False
+                        and not (sig.provenance.notes and sig.provenance.notes[0].startswith("ecgscan")))
     bad_photo = not no_ecg and not bad_units and (
-        scale_conflict or leads_inconsistent or qrs_impossible or coarse_photo or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
+        scale_conflict or leads_inconsistent or qrs_impossible or readers_disagree or coarse_photo or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
                                                           cfg.quality.photo_min_einthoven_r))
     if bad_photo:
         lag = photo["panel_lag_ms"] if photo else None
@@ -307,6 +311,8 @@ def run_pipeline(
                            "suratdagi tarmoqlar o'zaro mos emas") if leads_inconsistent else
                           (f"QRS {m.intervals.qrs_ms:.0f} мс — уже, чем бывает",
                            f"QRS {m.intervals.qrs_ms:.0f} ms — bo'lishi mumkin bo'lganidan tor") if qrs_impossible else
+                          ("комплексы не совпадают со столбцами листа",
+                           "komplekslar varaq ustunlariga mos emas") if readers_disagree else
                           ("снимок слишком мелкий для измерения", "surat o'lchash uchun juda kichik")
                           if coarse_photo and not (photo and page_unreliable(
                               photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,

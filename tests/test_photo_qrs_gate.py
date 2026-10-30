@@ -34,3 +34,31 @@ def test_a_narrow_but_possible_qrs_photo_passes(monkeypatch):
     sig = generate_synthetic_ecg(heart_rate_bpm=72)
     sig.provenance.digitized = True
     assert "photo_unreliable" not in pl.run_pipeline(sig, mode="A").findings.codes()
+
+
+def _with_agreement(monkeypatch, agree):
+    real = pl.measure
+
+    def m(*a, **k):
+        r = real(*a, **k)
+        r.page_beat_agreement = agree
+        return r
+    monkeypatch.setattr(pl, "measure", m)
+
+
+def test_a_readers_photo_whose_beats_disagree_with_its_page_is_gated(monkeypatch):
+    """D187: ecgdig photos read by the readers at rate 168 for 86, 115 for 54, with no gate."""
+    _with_agreement(monkeypatch, False)
+    sig = generate_synthetic_ecg(heart_rate_bpm=72)
+    sig.provenance.digitized = True
+    sig.provenance.notes = ["3x4 page: each lead valid only inside its time window"]
+    f = next(f for f in pl.run_pipeline(sig, mode="A").findings.findings if f.code == "photo_unreliable")
+    assert "столбцами листа" in f.label_ru
+
+
+def test_the_scanners_own_disagreement_is_left_to_the_scanner(monkeypatch):
+    _with_agreement(monkeypatch, False)
+    sig = generate_synthetic_ecg(heart_rate_bpm=72)
+    sig.provenance.digitized = True
+    sig.provenance.notes = ["ecgscan 0.x: ok"]
+    assert "photo_unreliable" not in pl.run_pipeline(sig, mode="A").findings.codes()
