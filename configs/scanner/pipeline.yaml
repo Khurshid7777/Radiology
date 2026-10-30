@@ -1,7 +1,7 @@
 # ecgscan pipeline thresholds (TZ §0.3: everything tunable lives here).
 
 quality:
-  min_px_per_mm: 8.0             # TZ §5.3: below this -> rejected LOW_RESOLUTION
+  min_px_per_mm: 7.0             # TZ §5.3, SD-099: below this -> rejected LOW_RESOLUTION (was 8.0: a 200-dpi scan is 7.5-7.9)
   max_megapixels: 60             # D136: checked from the file header before decoding -> rejected IMAGE_TOO_LARGE
   flatfield_below: 180           # SD-062: paper (p90 grey) darker than this -> illumination divided out of the working copy, LOW_LIGHT
   flatfield_target: 235          # SD-062: the paper level it is scaled to
@@ -25,7 +25,7 @@ coarse:
 
 geometry:
   working_px_per_mm: 10.0        # the photo is resampled to this before rectification (speed; 5 ms/px at 25 mm/s... 2.5 at 50)
-  max_upscale: 1.25              # 8..10 px/mm photos are brought up to 10: the M2 (legacy) trace reader
+  max_upscale: 1.45              # 8..10 px/mm photos are brought up to 10: the M2 (legacy) trace reader
                                  # rounds px/mm to an integer (a 9.3 page would be timed 3 % wrong); M3 lifts this
   fit_px_per_mm: null            # fit the perspective homography at the working scale (6 px/mm was 2x faster but lost the traces: photo r 0.94 -> 0.30)
   shear_min_deg: 0.3             # grid rows and columns tilted apart by more than this: de-shear, not just de-rotate (SD-054)
@@ -84,6 +84,10 @@ layout:
   stroke_bridge_mm: 1.0          # trace pieces the mask split are joined across gaps this long when judging a row (SD-059)
 
 segmentation:
+  drop_grid_lines:               # SD-099: a black grid (b/w scan) in the mask: its straight 5-mm lines removed
+    enabled: true                # only when the grid's lines are in the mask (grid_in_mask); a red grid never is
+    min_h_mm: 20                 # a horizontal run this long on the 5-mm lattice is a grid line
+    min_v_mm: 8                  # a vertical one this tall (pulse boxes kept)
   kind: onnx                     # onnx (M6, SD-053: wins on the benchmark) | classic; no model -> error, never a silent fallback
   onnx_model: models/segmenter/trace_unet.onnx   # M6 (SD-052); sha256 below must match models/segmenter/model_card.json
   onnx:

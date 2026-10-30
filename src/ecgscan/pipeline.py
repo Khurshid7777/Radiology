@@ -57,7 +57,8 @@ from ecgscan.layout.devices import device_profile
 from ecgscan.layout.panels import frame_page, panels
 from ecgscan.layout.registry import layout_name as registry_name
 from ecgscan.layout.rows import long_stroke_mask
-from ecgscan.segmentation import make_segmenter
+from ecgscan.segmentation import TraceMask, make_segmenter
+from ecgscan.segmentation.grid_lines import drop_grid_lines
 from ecgscan.validate import limb_consistency, measurement_check, rhythm_check
 from ecgscan.vectorize import read_panels
 
@@ -576,6 +577,14 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     bridge = cfg["layout"].get("stroke_bridge_mm", 0.0)
     m2 = int(round(2.0 * ppm))       # a pulse's feet: about 1 mm on each side
     pulse_boxes = [(p.x_left - m2, p.top - m2, p.x_right + m2, p.bottom + m2) for p in pulses]
+    gl_cfg = (cfg.get("segmentation") or {}).get("drop_grid_lines") or {}
+    if gl_cfg.get("enabled") and grid_in_mask(ink, ppm):
+        # SD-099: a black grid (b/w scan) is in the mask as dark as the trace; its straight
+        # 5-mm lines go before the rows are looked for, the pulses' legs stay.
+        ink, dropped = drop_grid_lines(ink, ppm, keep_boxes=pulse_boxes, min_h_mm=float(gl_cfg.get("min_h_mm", 20)),
+                                       min_v_mm=float(gl_cfg.get("min_v_mm", 8)))
+        if dropped:
+            mask = TraceMask(ink=ink, darkness=mask.darkness, method=mask.method + "+nogrid")
     guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses],
                           stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
     dbg.rows = guess.rows
