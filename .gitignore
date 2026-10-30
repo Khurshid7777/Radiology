@@ -46,6 +46,8 @@ data/bench_*.log
 data/scanner_service/
 # Real ECG photos and their digital originals (patients; never committed, TZ §9)
 data/real/
+# D185 real-image bench (HF Emulated-Inc/ecgdig, CC BY 4.0): downloaded, never committed
+data/ecgdig/
 # M6 segmenter training data (generated)
 data/segmenter/
 # training checkpoints (the ONNX export and its model card are committed)

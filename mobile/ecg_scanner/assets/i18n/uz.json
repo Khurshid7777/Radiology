@@ -189,5 +189,6 @@
   "report.recorded_at": "Yozilgan sana",
   "report.hr": "YuQS {v} /daq",
   "report.ms": "{name} {v} ms",
-  "report.axis": "o‘q {v}°"
+  "report.axis": "o‘q {v}°",
+  "warning.GRID_IN_TRACE": "Suratdagi to‘r chiziqlari egri chiziq kabi to‘q (oq-qora skan): o‘qishdan oldin olib tashlandi, ular bilan egri chiziq bo‘laklari ham yo‘qolgan bo‘lishi mumkin — ustma-ustlikni tekshiring."
 }

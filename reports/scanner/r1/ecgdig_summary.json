@@ -1,0 +1,101 @@
+{
+ "v1": {
+  "what": "clean render",
+  "n": 40,
+  "read": 40,
+  "hr_ok": 35,
+  "qrs_ok": 37,
+  "gated": 22,
+  "silent_wrong": 0,
+  "corr_ii_median": 0.944,
+  "snr_ii_median": 9.49
+ },
+ "v2": {
+  "what": "colour scan",
+  "n": 40,
+  "read": 40,
+  "hr_ok": 35,
+  "qrs_ok": 34,
+  "gated": 21,
+  "silent_wrong": 0,
+  "corr_ii_median": 0.752,
+  "snr_ii_median": 2.83
+ },
+ "v3": {
+  "what": "b/w scan",
+  "n": 40,
+  "read": 40,
+  "hr_ok": 3,
+  "qrs_ok": 16,
+  "gated": 40,
+  "silent_wrong": 0,
+  "corr_ii_median": 0.134,
+  "snr_ii_median": -1.1
+ },
+ "v4": {
+  "what": "phone photo",
+  "n": 40,
+  "read": 32,
+  "hr_ok": 3,
+  "qrs_ok": 19,
+  "gated": 32,
+  "silent_wrong": 0,
+  "corr_ii_median": 0.091,
+  "snr_ii_median": -8.5
+ },
+ "v5": {
+  "what": "photo of a screen",
+  "n": 40,
+  "read": 26,
+  "hr_ok": 3,
+  "qrs_ok": 11,
+  "gated": 24,
+  "silent_wrong": 2,
+  "corr_ii_median": 0.132,
+  "snr_ii_median": -3.1
+ },
+ "v6": {
+  "what": "soaked, photo",
+  "n": 40,
+  "read": 35,
+  "hr_ok": 4,
+  "qrs_ok": 15,
+  "gated": 34,
+  "silent_wrong": 1,
+  "corr_ii_median": 0.107,
+  "snr_ii_median": -10.14
+ },
+ "v7": {
+  "what": "damaged, photo",
+  "n": 40,
+  "read": 39,
+  "hr_ok": 4,
+  "qrs_ok": 21,
+  "gated": 39,
+  "silent_wrong": 0,
+  "corr_ii_median": 0.094,
+  "snr_ii_median": -6.82
+ },
+ "v8": {
+  "what": "mould, colour scan",
+  "n": 40,
+  "read": 38,
+  "hr_ok": 35,
+  "qrs_ok": 36,
+  "gated": 29,
+  "silent_wrong": 1,
+  "corr_ii_median": 0.73,
+  "snr_ii_median": 2.56
+ },
+ "v9": {
+  "what": "mould, b/w scan",
+  "n": 40,
+  "read": 40,
+  "hr_ok": 9,
+  "qrs_ok": 20,
+  "gated": 40,
+  "silent_wrong": 0,
+  "corr_ii_median": 0.125,
+  "snr_ii_median": -2.15
+ }
+}

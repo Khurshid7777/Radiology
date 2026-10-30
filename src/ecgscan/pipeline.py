@@ -57,7 +57,8 @@ from ecgscan.layout.devices import device_profile
 from ecgscan.layout.panels import frame_page, panels
 from ecgscan.layout.registry import layout_name as registry_name
 from ecgscan.layout.rows import long_stroke_mask
-from ecgscan.segmentation import make_segmenter
+from ecgscan.segmentation import TraceMask, make_segmenter
+from ecgscan.segmentation.grid_lines import drop_grid_lines, drop_red
 from ecgscan.validate import limb_consistency, measurement_check, rhythm_check
 from ecgscan.vectorize import read_panels
 
@@ -545,6 +546,15 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     # 3. Segmentation (TZ §5.5) and the calibration sources: pulses, header OCR (§5.4).
     c_cfg = cfg["calibration"]
     mask = make_segmenter(cfg.get("segmentation", {})).segment(rect.bgr, ppm)
+    seg_cfg = cfg.get("segmentation") or {}
+    if seg_cfg.get("max_redness") is not None and rect.bgr.ndim == 3:
+        # SD-101: a trace is black, a red grid line red. The segmenter let light-red grid lines
+        # through next to the trace (ecgdig clean renders: half the mask); read as trace they
+        # were thin "spikes" that doubled amplitudes and broke the limb-lead checks.
+        kept = drop_red(mask.ink, rect.bgr, max_redness=int(seg_cfg["max_redness"]),
+                        min_level=int(seg_cfg.get("red_min_level", 140)))
+        if kept is not mask.ink:
+            mask = TraceMask(ink=kept, darkness=mask.darkness, method=mask.method)
     ink = mask.ink
     # The ink's darkness: the brightest channel. A black trace stays dark, a red grid line
     # stays light (the darkest channel turned Kit's red lines black, SD-084).
@@ -578,6 +588,22 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     pulse_boxes = [(p.x_left - m2, p.top - m2, p.x_right + m2, p.bottom + m2) for p in pulses]
     guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses],
                           stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
+    gl_cfg = (cfg.get("segmentation") or {}).get("drop_grid_lines") or {}
+    if guess.name is None and not hints.layout and gl_cfg.get("enabled") and grid_in_mask(ink, ppm):
+        # SD-099: a black grid (b/w scan) is in the mask as dark as the trace and its lines pass
+        # for rows. Only then (no layout found) its straight 5-mm lines go and the rows are
+        # looked for again; a page read without it is never touched (on clean renders the
+        # removal took baseline pieces lying on a line: HR 64 -> 70).
+        clean, dropped = drop_grid_lines(ink, ppm, keep_boxes=pulse_boxes, min_h_mm=float(gl_cfg.get("min_h_mm", 20)),
+                                         min_v_mm=float(gl_cfg.get("min_v_mm", 8)))
+        if dropped:
+            again = detect_layout(clean, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"],
+                                  pulse_bottoms=[p.bottom for p in pulses], stroke_min_height_mm=stroke_h,
+                                  stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
+            if again.name is not None:
+                ink, guess = clean, again
+                mask = TraceMask(ink=ink, darkness=mask.darkness, method=mask.method + "+nogrid")
+                warnings.append("GRID_IN_TRACE")
     dbg.rows = guess.rows
     profile = device_profile(hints.device_profile)
     profile_id = None
@@ -723,6 +749,8 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
                # Light correction is verified on synthetic pages only: the doctor confirms (SD-062).
                and not ("LOW_LIGHT" in warnings and q_cfg.get("low_light_needs_confirmation", True))
                and "FADED_PAPER" not in warnings
+               # SD-099: grid lines taken out of the mask may have taken trace pieces with them.
+               and "GRID_IN_TRACE" not in warnings
                # D170: a coarse read is never "ok" by itself: the doctor confirms.
                and "LOW_RESOLUTION_COARSE" not in warnings)
     status = "ok" if trusted else "needs_confirmation"

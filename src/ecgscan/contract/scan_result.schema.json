@@ -961,7 +961,8 @@
         "STITCHED",
         "LOW_RESOLUTION_COARSE",
         "PAGES_STITCHED",
-        "SEAM_UNCERTAIN"
+        "SEAM_UNCERTAIN",
+        "GRID_IN_TRACE"
       ]
     },
     "capture": {
