@@ -346,6 +346,32 @@ def test_scanner_inconsistent_leads_are_not_trusted_with_a_known_scale():
     assert not leads_inconsistent(res(status="ok", warnings=["RHYTHM_INCONSISTENT"]))
 
 
+def test_scanner_grid_in_trace_is_not_trusted():
+    """D188: black grid lines stripped out of the trace (SD-099); a b/w scan read 69 for 84."""
+    from types import SimpleNamespace as NS
+
+    from cardiolens.telegram.analyze import grid_in_trace
+
+    def res(status="needs_confirmation", warnings=()):
+        return NS(status=status, warnings=list(warnings))
+
+    assert grid_in_trace(res(warnings=["GRID_IN_TRACE", "SPEED_UNCERTAIN"]))
+    assert not grid_in_trace(res(warnings=["SPEED_UNCERTAIN"]))
+    assert not grid_in_trace(res(status="ok", warnings=["GRID_IN_TRACE"]))
+
+
+def test_the_grid_in_trace_note_gates_the_photo():
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from cardiolens.layer1_ingestion.strip import GRID_IN_TRACE_NOTE
+    from cardiolens.pipeline import run_pipeline
+
+    sig = generate_synthetic_ecg(heart_rate_bpm=72)
+    sig.provenance.digitized = True
+    sig.provenance.notes = ["ecgscan scan_id=x status=needs_confirmation", GRID_IN_TRACE_NOTE]
+    f = next(f for f in run_pipeline(sig, mode="A").findings.findings if f.code == "photo_unreliable")
+    assert "сетки" in f.label_ru
+
+
 def test_album_on_the_capture_board_is_one_page(tmp_path):
     """D145: two halves of one page on the scanner's capture board (SD-066), sent as an
     album, are composed into one 12-lead page by the scanner, not read one by one."""
