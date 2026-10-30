@@ -49,6 +49,7 @@ data/real/
 # D185 real-image bench (HF Emulated-Inc/ecgdig, CC BY 4.0): downloaded, never committed
 data/ecgdig/
 data/ecgdig_scans/
+data/ecgdig_photos/
 # M6 segmenter training data (generated)
 data/segmenter/
 # training checkpoints (the ONNX export and its model card are committed)
