@@ -81,9 +81,10 @@ def test_tilted_board_page_is_read_at_exact_scale(synth_mv, boards):
 
 def test_low_resolution_is_judged_at_the_worst_point_of_the_zone(synth_mv, boards):
     dbg = ScanDebug()
-    res = scan(cv2.imencode(".png", _photo(synth_mv, boards[0], 9.5))[1].tobytes(), debug=dbg)
+    floor = pipeline_config()["quality"]["min_px_per_mm"]           # 7.0 since SD-099 (8.0 before)
+    res = scan(cv2.imencode(".png", _photo(synth_mv, boards[0], 8.3))[1].tobytes(), debug=dbg)
     assert res.reject_reasons == ["LOW_RESOLUTION"] and dbg.board.ok
-    assert res.quality.px_per_mm < 8 < dbg.board.mean_px_per_mm     # an average would have passed it
+    assert res.quality.px_per_mm < floor < dbg.board.mean_px_per_mm     # an average would have passed it
 
 
 @pytest.mark.parametrize(("kw", "reason"), [
