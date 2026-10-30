@@ -84,6 +84,7 @@ STRIP_STANDARD_MM_PER_MV = (5.0, 10.0, 20.0)   # the gains recorders print (D128
 STRIP_SCALE_CONFLICT_TOL = 0.05  # pulses implying none of them within this: scale conflict
 SCALE_CONFLICT_NOTE = "scale conflict: the grid pitch and the calibration pulses disagree"
 LEADS_INCONSISTENT_NOTE = "leads inconsistent: the scanner's rhythm or limb-lead checks disagree (D181)"
+GRID_IN_TRACE_NOTE = "grid in trace: the scanner had to strip black grid lines out of the trace (D188)"
 STRIP_LABEL_GLYPH_MM = 5.0      # a lead label's letter: a component at most this wide and high (D125)
 STRIP_ROW_PITCH_MM = 18.0     # renderer default
 STRIP_LABEL_MM = 10.0         # renderer: left margin for labels / pulse

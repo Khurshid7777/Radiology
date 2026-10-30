@@ -18,6 +18,7 @@ from cardiolens.contracts.signal import Provenance, SignalRepresentation
 from cardiolens.feedback import Feedback, FindingFeedback
 from cardiolens.layer1_ingestion.digitize import estimate_grid_pitch
 from cardiolens.layer1_ingestion.strip import (
+    GRID_IN_TRACE_NOTE,
     LEADS_INCONSISTENT_NOTE,
     SCALE_CONFLICT_NOTE,
     digitize_auto_to_signal,
@@ -165,6 +166,13 @@ def leads_inconsistent(result) -> bool:
             and ("RHYTHM_INCONSISTENT" in warnings or {"LIMB_LEADS_INCONSISTENT", "TRACE_GAPS"} <= warnings))
 
 
+def grid_in_trace(result) -> bool:
+    """The scanner found no layout until it stripped black grid lines out of the trace
+    (SD-099); pieces of the trace go with them. A b/w ecgdig scan so read gave a rate of 69
+    for 84 with no gate (D188); such scans read the rate right in 12 of 40."""
+    return result.status == "needs_confirmation" and "GRID_IN_TRACE" in set(result.warnings or [])
+
+
 def scan_keeping_overlay(scan, image, hints=None):
     """``scan()`` with its confirmation overlay kept in memory (D163): the traces drawn over
     the rectified page, header and footer bands blanked (SD-050, D136), as JPEG bytes — or
@@ -221,7 +229,8 @@ def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: flo
                 return readers()
             return sig
         unknown = scale_unknown(result)
-        if not unknown and not leads_inconsistent(result):
+        grid = grid_in_trace(result)
+        if not unknown and not grid and not leads_inconsistent(result):
             return sig
         # D144: read, but with no time or gain scale it trusts and its own rhythm row at
         # odds with the panels (on a strip turned by 2 deg: a rate of 55 read as 100.6). The
@@ -235,7 +244,8 @@ def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: flo
                     return alt
             except ValueError:
                 pass
-        sig.provenance.notes.append(SCALE_CONFLICT_NOTE if unknown else LEADS_INCONSISTENT_NOTE)
+        sig.provenance.notes.append(SCALE_CONFLICT_NOTE if unknown else GRID_IN_TRACE_NOTE if grid
+                                    else LEADS_INCONSISTENT_NOTE)
         return sig
     final = [r for r in result.reject_reasons if r in SCANNER_FINAL_REFUSALS]
     if final or readers is None:
