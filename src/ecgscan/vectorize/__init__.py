@@ -88,6 +88,28 @@ def fuse(path: np.ndarray, detail: np.ndarray, pitch_px: float, *, tol_pitches: 
     return out
 
 
+def separator_span(ink: np.ndarray, xc: int, y0: int, y1: int, px_per_mm: float, *, min_mm: float = 4.0,
+                   max_mm: float = 15.0, search_mm: float = 1.0) -> tuple[int, int] | None:
+    """The columns (x_first, x_last) of a column-separator bar near ``xc``: columns within
+    ``search_mm`` holding one unbroken vertical ink run ``min_mm``..``max_mm`` long between
+    ``y0`` and ``y1``. A QRS is never that tall in a single column at 25 mm/s and 8+ px/mm;
+    ``None`` when there is no bar."""
+    h, w = ink.shape
+    r = max(1, int(round(search_mm * px_per_mm)))
+    lo, hi = int(round(min_mm * px_per_mm)), int(round(max_mm * px_per_mm))
+    y0, y1 = max(0, y0), min(h, y1)
+    hits = []
+    for x in range(max(0, xc - r), min(w, xc + r + 1)):
+        col = ink[y0:y1, x]
+        if not col.any():
+            continue
+        d = np.diff(np.concatenate([[0], col.astype(np.int8), [0]]))
+        starts, ends = np.flatnonzero(d == 1), np.flatnonzero(d == -1)
+        if ((ends - starts >= lo) & (ends - starts <= hi)).any():
+            hits.append(x)
+    return (min(hits), max(hits)) if hits else None
+
+
 @dataclass
 class PanelReading:
     panel: Panel
@@ -130,6 +152,23 @@ def read_panels(mask: TraceMask, panels: list[Panel], *, px_per_mm: float, speed
         n_expected = p.x1 - p.x0
         if len(y) < n_expected:          # the panel runs past the image: the rest is missing, not zero
             y = np.concatenate([y, np.full(n_expected - len(y), np.nan)])
+        sep = cfg.get("separator") or {}
+        if sep.get("enabled") and p.kind == "panel":
+            # R1, SD-100: the short vertical bar many recorders print where one column of leads
+            # ends and the next begins. Read as trace it was a 3-fold "R wave" in aVR and broke
+            # the limb-lead checks on every clean page; the columns it covers are missing.
+            y = y.astype(float, copy=True)
+            for xc in (p.x0, p.x1):
+                if not (min(q.x0 for q in panels) + px_per_mm < xc < max(q.x1 for q in panels) - px_per_mm):
+                    continue                     # the page's own edges: the pulse, the last column's end
+                span = separator_span(mask.ink, xc, int(p.baseline - band), int(p.baseline + band), px_per_mm,
+                                      min_mm=float(sep.get("min_mm", 4.0)), max_mm=float(sep.get("max_mm", 15.0)),
+                                      search_mm=float(sep.get("search_mm", 1.0)))
+                if span is not None:
+                    pad = int(round(float(sep.get("pad_mm", 0.3)) * px_per_mm))
+                    a, b = max(0, span[0] - pad - p.x0), min(len(y), span[1] + 1 + pad - p.x0)
+                    if a < b:
+                        y[a:b] = np.nan
         iso = float(np.nanmedian(y)) if np.isfinite(y).any() else p.baseline
         mv = (iso - y) / (px_per_mm * gain_mm_mv)
         samples = resample_nan(mv, fs_col, fs_out, p.t1_s - p.t0_s)

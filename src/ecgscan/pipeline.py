@@ -577,16 +577,24 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     bridge = cfg["layout"].get("stroke_bridge_mm", 0.0)
     m2 = int(round(2.0 * ppm))       # a pulse's feet: about 1 mm on each side
     pulse_boxes = [(p.x_left - m2, p.top - m2, p.x_right + m2, p.bottom + m2) for p in pulses]
-    gl_cfg = (cfg.get("segmentation") or {}).get("drop_grid_lines") or {}
-    if gl_cfg.get("enabled") and grid_in_mask(ink, ppm):
-        # SD-099: a black grid (b/w scan) is in the mask as dark as the trace; its straight
-        # 5-mm lines go before the rows are looked for, the pulses' legs stay.
-        ink, dropped = drop_grid_lines(ink, ppm, keep_boxes=pulse_boxes, min_h_mm=float(gl_cfg.get("min_h_mm", 20)),
-                                       min_v_mm=float(gl_cfg.get("min_v_mm", 8)))
-        if dropped:
-            mask = TraceMask(ink=ink, darkness=mask.darkness, method=mask.method + "+nogrid")
     guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses],
                           stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
+    gl_cfg = (cfg.get("segmentation") or {}).get("drop_grid_lines") or {}
+    if guess.name is None and not hints.layout and gl_cfg.get("enabled") and grid_in_mask(ink, ppm):
+        # SD-099: a black grid (b/w scan) is in the mask as dark as the trace and its lines pass
+        # for rows. Only then (no layout found) its straight 5-mm lines go and the rows are
+        # looked for again; a page read without it is never touched (on clean renders the
+        # removal took baseline pieces lying on a line: HR 64 -> 70).
+        clean, dropped = drop_grid_lines(ink, ppm, keep_boxes=pulse_boxes, min_h_mm=float(gl_cfg.get("min_h_mm", 20)),
+                                         min_v_mm=float(gl_cfg.get("min_v_mm", 8)))
+        if dropped:
+            again = detect_layout(clean, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"],
+                                  pulse_bottoms=[p.bottom for p in pulses], stroke_min_height_mm=stroke_h,
+                                  stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
+            if again.name is not None:
+                ink, guess = clean, again
+                mask = TraceMask(ink=ink, darkness=mask.darkness, method=mask.method + "+nogrid")
+                warnings.append("GRID_IN_TRACE")
     dbg.rows = guess.rows
     profile = device_profile(hints.device_profile)
     profile_id = None
@@ -732,6 +740,8 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
                # Light correction is verified on synthetic pages only: the doctor confirms (SD-062).
                and not ("LOW_LIGHT" in warnings and q_cfg.get("low_light_needs_confirmation", True))
                and "FADED_PAPER" not in warnings
+               # SD-099: grid lines taken out of the mask may have taken trace pieces with them.
+               and "GRID_IN_TRACE" not in warnings
                # D170: a coarse read is never "ok" by itself: the doctor confirms.
                and "LOW_RESOLUTION_COARSE" not in warnings)
     status = "ok" if trusted else "needs_confirmation"

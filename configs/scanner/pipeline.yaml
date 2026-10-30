@@ -103,6 +103,12 @@ segmentation:
     min_speck_px: 6
 
 vectorize:
+  separator:                     # SD-100: the column-separator bar many recorders print between lead columns
+    enabled: true                # its columns are missing data, not an R wave (aVR read 3x too tall on ecgdig)
+    min_mm: 4.0                  # one unbroken vertical run this tall in a single column
+    max_mm: 15.0
+    search_mm: 1.0               # around each column boundary
+    pad_mm: 0.3                  # blanked on each side of the bar
   method: hybrid                 # dp_path | legacy_track | hybrid (DP path + D47 edge/apex detail where they agree)
   fuse_tol_pitches: 0.15         # D47 value kept where within this many row pitches of the DP path
   fuse_margin_cols: 10           # path used this many columns around a stretch where D47 left the row
