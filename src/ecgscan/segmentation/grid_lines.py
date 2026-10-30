@@ -1,8 +1,9 @@
-"""The 5-mm grid lines taken back out of the trace mask (R1, SD-099).
+"""Grid lines taken back out of the trace mask (R1): the black 5-mm lattice (SD-099) and
+light-red pixels (SD-101).
 
-A black-and-white scan, or a page printed with a black grid, has grid lines as dark as the
-trace: the segmenter keeps both (ECG-Image-Kit's b/w scans: 16 "rows" found on a 4-row page,
-LAYOUT_UNKNOWN). Only what is certainly a grid line goes:
+The 5-mm lattice (SD-099). A black-and-white scan, or a page printed with a black grid, has
+grid lines as dark as the trace: the segmenter keeps both (ecgdig b/w scans: 14-16 "rows" on a
+4-row page, LAYOUT_UNKNOWN). Only what is certainly a grid line goes:
 
 * a straight run at least ``min_h_mm`` long (horizontal) or ``min_v_mm`` tall (vertical) —
   a trace is never that straight for that long, except a flat baseline;
@@ -11,8 +12,8 @@ LAYOUT_UNKNOWN). Only what is certainly a grid line goes:
 * outside the calibration pulses (their legs are drawn on grid lines, SD-084).
 
 Where a trace crosses a removed line the line's pixels with trace on both sides are put
-back, so the crossing leaves no gap. Off unless the grid's lines are in the mask (the usual
-red grid never is): pages that already read are unchanged.
+back, so the crossing leaves no gap. The pipeline uses it only when the grid's lines are in
+the mask and no layout was found without it: a page that reads is never touched.
 """
 
 from __future__ import annotations
@@ -106,3 +107,14 @@ def drop_grid_lines(ink: np.ndarray, px_per_mm: float, *, keep_boxes=(), min_h_m
     # A trace crossing a horizontal line has ink above and below it; a vertical one, left and right.
     out = kept | _restore(found[0], kept, reach, axis=0) | _restore(found[1], kept, reach, axis=1)
     return out, float((ink & ~out).sum()) / max(1, int(ink.sum()))
+
+
+def drop_red(ink: np.ndarray, bgr: np.ndarray, *, max_redness: int = 60, min_level: int = 140) -> np.ndarray:
+    """``ink`` without light-red pixels (SD-101): red standing more than ``max_redness`` above
+    green and blue, red itself above ``min_level``. A red grid line; never the trace, which is
+    black, and stays dark (low red) even when a warm lamp tints it. The same array when
+    nothing is dropped."""
+    b, g, r = (bgr[..., i].astype(np.int16) for i in range(3))
+    red = ((r - np.maximum(g, b)) > max_redness) & (r > min_level)
+    hit = ink & red
+    return ink & ~red if hit.any() else ink
