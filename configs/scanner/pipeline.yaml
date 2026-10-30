@@ -86,6 +86,9 @@ layout:
 segmentation:
   max_redness: 60                # SD-101: mask pixels with R - max(G, B) above this are red grid, not the (black) trace; null: off
   red_min_level: 140             # ... and only when R itself is above this: a dark (trace) pixel under a warm lamp stays
+  red_speckle_mm: 0.8            # after it: isolated dots this small (the darker crossings of red lines) go too
+  pink_min_level: 150            # pale pink paper the mask took beside a red line: G and B above this ...
+  pink_redness: 20               # ... and R above them by this much; a faded grey trace has no red cast and stays
   drop_grid_lines:               # SD-099: a black grid (b/w scan) in the mask: its straight 5-mm lines removed
     enabled: true                # only when the grid's lines are in the mask (grid_in_mask); a red grid never is
     min_h_mm: 20                 # a horizontal run this long on the 5-mm lattice is a grid line
@@ -105,6 +108,11 @@ segmentation:
     min_speck_px: 6
 
 vectorize:
+  labels:                        # SD-102: lead labels printed at a row's start are not trace
+    enabled: true
+    window_mm: 8.0               # from each panel's start ...
+    before_mm: 1.0               # ... (and this much before it), only long-stroke ink is kept
+    far_mm: 2.0                  # anywhere: pieces that are not long strokes and stand this far off them are text
   separator:                     # SD-100: the column-separator bar many recorders print between lead columns
     enabled: true                # its columns are missing data, not an R wave (aVR read 3x too tall on ecgdig)
     min_mm: 4.0                  # one unbroken vertical run this tall in a single column

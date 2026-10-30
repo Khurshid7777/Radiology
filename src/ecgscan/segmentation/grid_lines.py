@@ -109,12 +109,60 @@ def drop_grid_lines(ink: np.ndarray, px_per_mm: float, *, keep_boxes=(), min_h_m
     return out, float((ink & ~out).sum()) / max(1, int(ink.sum()))
 
 
-def drop_red(ink: np.ndarray, bgr: np.ndarray, *, max_redness: int = 60, min_level: int = 140) -> np.ndarray:
+def drop_red(ink: np.ndarray, bgr: np.ndarray, *, max_redness: int = 60, min_level: int = 140,
+             speckle_px: int = 0, pink_level: int | None = None, pink_redness: int = 20) -> np.ndarray:
     """``ink`` without light-red pixels (SD-101): red standing more than ``max_redness`` above
     green and blue, red itself above ``min_level``. A red grid line; never the trace, which is
     black, and stays dark (low red) even when a warm lamp tints it. The same array when
     nothing is dropped."""
     b, g, r = (bgr[..., i].astype(np.int16) for i in range(3))
-    red = ((r - np.maximum(g, b)) > max_redness) & (r > min_level)
+    gb = np.maximum(g, b)
+    red = ((r - gb) > max_redness) & (r > min_level)
+    if pink_level is not None:
+        # The segmenter's mask is a little wider than a red line: the paper beside it, pale
+        # pink, came along (grid crossings kept as 1-2-mm blobs). Light and reddish is paper; a
+        # faded grey trace is light but not reddish, and stays.
+        red |= ((r - gb) > pink_redness) & (np.minimum(g, b) > pink_level)
     hit = ink & red
-    return ink & ~red if hit.any() else ink
+    if not hit.any():
+        return ink
+    out = ink & ~red
+    if speckle_px > 0:
+        # Where two red lines cross the print is darker: dots the colour test leaves, ~0.5 mm
+        # each, isolated. The trace reader jumped to one (II: a 1.9-mV "spike" on ecgdig
+        # 1004-v1). Pieces no bigger than ``speckle_px`` either way go.
+        _, lab, st, _ = cv2.connectedComponentsWithStats(out.astype(np.uint8), connectivity=8)
+        small = (st[:, cv2.CC_STAT_WIDTH] <= speckle_px) & (st[:, cv2.CC_STAT_HEIGHT] <= speckle_px)
+        small[0] = False
+        if small.any():
+            out = out & ~small[lab]
+    return out
+
+
+def drop_labels(ink: np.ndarray, long_ink: np.ndarray, panels, px_per_mm: float, *, window_mm: float = 8.0,
+                before_mm: float = 1.0, band_px: float = 150.0, far_mm: float = 0.0) -> np.ndarray:
+    """``ink`` with only ``long_ink`` (the trace's long strokes) kept in a window at each panel's
+    start: from ``before_mm`` before it to ``window_mm`` after, ``band_px`` either side of its
+    baseline. A lead label printed there (SD-102) is a few short strokes, never long."""
+    out = ink.copy()
+    h, w = ink.shape
+    if far_mm > 0 and long_ink.any():
+        # Text anywhere (a footer "25mm/s" under the rhythm strip): pieces that are not the
+        # trace's long strokes and stand more than ``far_mm`` off them. A piece of the trace
+        # the mask broke off (a QRS tip) lies next to the rest.
+        dist = cv2.distanceTransform((~long_ink).astype(np.uint8), cv2.DIST_L2, 3)
+        rest = (out & ~long_ink).astype(np.uint8)
+        n, lab, _, _ = cv2.connectedComponentsWithStats(rest, connectivity=8)
+        if n > 1:
+            near = np.full(n, np.inf)
+            np.minimum.at(near, lab[rest.astype(bool)], dist[rest.astype(bool)])
+            far = near > far_mm * px_per_mm
+            far[0] = False
+            out &= ~far[lab]
+    a, b = int(round(before_mm * px_per_mm)), int(round(window_mm * px_per_mm))
+    for p in panels:
+        x0, x1 = max(0, int(p.x0) - a), min(w, int(p.x0) + b)
+        y0, y1 = max(0, int(p.baseline - band_px)), min(h, int(p.baseline + band_px))
+        if x0 < x1 and y0 < y1:
+            out[y0:y1, x0:x1] &= long_ink[y0:y1, x0:x1]
+    return out

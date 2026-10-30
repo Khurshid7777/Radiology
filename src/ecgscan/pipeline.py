@@ -58,7 +58,7 @@ from ecgscan.layout.panels import frame_page, panels
 from ecgscan.layout.registry import layout_name as registry_name
 from ecgscan.layout.rows import long_stroke_mask
 from ecgscan.segmentation import TraceMask, make_segmenter
-from ecgscan.segmentation.grid_lines import drop_grid_lines, drop_red
+from ecgscan.segmentation.grid_lines import drop_grid_lines, drop_labels, drop_red
 from ecgscan.validate import limb_consistency, measurement_check, rhythm_check
 from ecgscan.vectorize import read_panels
 
@@ -552,7 +552,9 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
         # through next to the trace (ecgdig clean renders: half the mask); read as trace they
         # were thin "spikes" that doubled amplitudes and broke the limb-lead checks.
         kept = drop_red(mask.ink, rect.bgr, max_redness=int(seg_cfg["max_redness"]),
-                        min_level=int(seg_cfg.get("red_min_level", 140)))
+                        min_level=int(seg_cfg.get("red_min_level", 140)),
+                        speckle_px=int(round(float(seg_cfg.get("red_speckle_mm", 0.0)) * ppm)),
+                        pink_level=seg_cfg.get("pink_min_level"), pink_redness=int(seg_cfg.get("pink_redness", 20)))
         if kept is not mask.ink:
             mask = TraceMask(ink=kept, darkness=mask.darkness, method=mask.method)
     ink = mask.ink
@@ -686,8 +688,21 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
 
     # 5. Traces: registry panels, vectorisation, validation (TZ §5.7-5.8).
     v_cfg = cfg.get("vectorize", {})
+    plist = panels(spec, frame, ppm, decision.speed_for_traces)
+    lab = v_cfg.get("labels") or {}
+    if lab.get("enabled"):
+        # SD-102: a lead's label ("II", "aVL", "V1") printed at the start of its row, in the
+        # trace band: read as trace it began II with a 2-mm "S wave" (ecgdig 1004-v1: II r 0.60,
+        # amplitude x1.6 while the other leads were at 0.99). At each panel's start only ink
+        # belonging to a long stroke (the trace) is kept.
+        mask = TraceMask(ink=drop_labels(mask.ink, long_stroke_mask(mask.ink, ppm, min_height_mm=stroke_h,
+                                                                    bridge_mm=bridge, exclude_boxes=pulse_boxes),
+                                         plist, ppm, window_mm=float(lab.get("window_mm", 8.0)),
+                                         before_mm=float(lab.get("before_mm", 1.0)), band_px=0.5 * frame.pitch_px,
+                                         far_mm=float(lab.get("far_mm", 0.0))),
+                         darkness=mask.darkness, method=mask.method)
     try:
-        readings = read_panels(mask, panels(spec, frame, ppm, decision.speed_for_traces), px_per_mm=ppm,
+        readings = read_panels(mask, plist, px_per_mm=ppm,
                                speed_mm_s=decision.speed_for_traces, gain_mm_mv=decision.gain_for_traces,
                                pitch_px=frame.pitch_px, fs_out=fs_out, cfg=v_cfg)
     except Exception:
