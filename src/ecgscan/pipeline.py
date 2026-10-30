@@ -546,6 +546,18 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     # 3. Segmentation (TZ §5.5) and the calibration sources: pulses, header OCR (§5.4).
     c_cfg = cfg["calibration"]
     mask = make_segmenter(cfg.get("segmentation", {})).segment(rect.bgr, ppm)
+    seg_cfg = cfg.get("segmentation") or {}
+    red_max = seg_cfg.get("max_redness")
+    if red_max is not None and rect.bgr.ndim == 3:
+        # SD-101: a trace is black; a red grid line is red. The segmenter let saturated red grid
+        # lines through next to the trace (ecgdig clean renders: half the mask): drawn into the
+        # trace, the 5-mm lines were thin "spikes" that doubled amplitudes and broke the
+        # limb-lead checks. A pixel whose red stands this far above its green and blue goes.
+        b, g, r = (rect.bgr[..., i].astype(np.int16) for i in range(3))
+        # Only a light red: the trace under a warm lamp is tinted too, but it stays dark.
+        reddish = ((r - np.maximum(g, b)) > int(red_max)) & (r > int(seg_cfg.get("red_min_level", 140)))
+        if (mask.ink & reddish).any():
+            mask = TraceMask(ink=mask.ink & ~reddish, darkness=mask.darkness, method=mask.method)
     ink = mask.ink
     # The ink's darkness: the brightest channel. A black trace stays dark, a red grid line
     # stays light (the darkest channel turned Kit's red lines black, SD-084).

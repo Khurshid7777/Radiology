@@ -84,6 +84,8 @@ layout:
   stroke_bridge_mm: 1.0          # trace pieces the mask split are joined across gaps this long when judging a row (SD-059)
 
 segmentation:
+  max_redness: 60                # SD-101: mask pixels with R - max(G, B) above this are red grid, not the (black) trace; null: off
+  red_min_level: 140             # ... and only when R itself is above this: a dark (trace) pixel under a warm lamp stays
   drop_grid_lines:               # SD-099: a black grid (b/w scan) in the mask: its straight 5-mm lines removed
     enabled: true                # only when the grid's lines are in the mask (grid_in_mask); a red grid never is
     min_h_mm: 20                 # a horizontal run this long on the 5-mm lattice is a grid line
