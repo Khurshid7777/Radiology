@@ -86,7 +86,7 @@ layout:
 segmentation:
   max_redness: 60                # SD-101: mask pixels with R - max(G, B) above this are red grid, not the (black) trace; null: off
   red_min_level: 140             # ... and only when R itself is above this: a dark (trace) pixel under a warm lamp stays
-  red_speckle_mm: 0.8            # after it: isolated dots this small (the darker crossings of red lines) go too
+  red_speckle_mm: 0.0            # off (R2): isolated dots this small would go too, but it took QRS tips (HR 65 -> 72 unflagged)
   pink_min_level: 150            # pale pink paper the mask took beside a red line: G and B above this ...
   pink_redness: 20               # ... and R above them by this much; a faded grey trace has no red cast and stays
   drop_grid_lines:               # SD-099: a black grid (b/w scan) in the mask: its straight 5-mm lines removed
