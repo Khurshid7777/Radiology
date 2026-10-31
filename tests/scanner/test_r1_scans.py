@@ -1,6 +1,6 @@
 """R1 (D185 real images): what a 200-dpi scan and a clean render needed — a black 5-mm grid
 taken out of the mask (SD-099), column-separator bars read as missing (SD-100), light-red
-grid pixels never trace (SD-101)."""
+grid pixels never trace (SD-101), nor the pale pink paper beside them (SD-102)."""
 
 import numpy as np
 
@@ -70,3 +70,15 @@ def test_light_red_goes_dark_ink_stays():
     assert out[:, 3].all()                    # only 40 levels redder: not a grid line
     part = np.ascontiguousarray(ink[:, 1:3])
     assert drop_red(part, bgr[:, 1:3]) is part      # nothing red: the mask itself, untouched
+
+
+def test_pale_pink_paper_goes_a_faded_grey_trace_stays():
+    """SD-102: light and reddish is paper beside a red line; light and neutral is a faded trace."""
+    bgr = np.full((10, 3, 3), 255, np.uint8)
+    bgr[:, 0] = (175, 180, 215)               # pale pink paper: G, B above 150, R 35 above them
+    bgr[:, 1] = (170, 172, 180)               # a faded grey trace: just as light, no red cast
+    bgr[:, 2] = (20, 20, 20)                  # the black trace
+    ink = np.ones((10, 3), bool)
+    out = drop_red(ink, bgr, pink_level=150, pink_redness=20)
+    assert not out[:, 0].any() and out[:, 1].all() and out[:, 2].all()
+    assert drop_red(ink, bgr)[:, 0].all()     # off by default: the R1 rule alone keeps it
