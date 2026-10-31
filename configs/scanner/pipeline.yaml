@@ -109,7 +109,7 @@ segmentation:
 
 vectorize:
   labels:                        # SD-102: lead labels printed at a row's start are not trace
-    enabled: true
+    enabled: false               # off: on the synthetic bench it lifted one limb-consistency score over 0.7 and unflagged a bad QT
     window_mm: 8.0               # from each panel's start ...
     before_mm: 1.0               # ... (and this much before it), only long-stroke ink is kept
     far_mm: 2.0                  # anywhere: pieces that are not long strokes and stand this far off them are text
