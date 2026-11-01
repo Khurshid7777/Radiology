@@ -73,5 +73,6 @@ def test_the_narrative_gets_the_rate_and_nothing_else(monkeypatch):
     res = pl.run_pipeline(_scan(), mode="A")
     d = _measurements(InterpretationInput(findings=res.findings, causal_graph=res.causal_graph,
                                           measurements=res.measurements, patient=res.signal.patient,
-                                          context=res.signal.context, mode="A"))
+                                          context=res.signal.context, mode="A", critical_labels=[],
+                                          disclaimer_ru="", disclaimer_uz=""))
     assert set(d) == {"heart_rate_bpm", "withheld"} and d["heart_rate_bpm"] == released_rate(res.findings)
