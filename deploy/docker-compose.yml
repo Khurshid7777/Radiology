@@ -16,6 +16,7 @@ services:
       ECGSCAN_STORAGE_KEY: ${ECGSCAN_STORAGE_KEY:-}
       ECGSCAN_SERVICE_DIR: /data/scanner_service
       CARDIOLENS_FEEDBACK_PATH: /data/feedback/feedback.jsonl
+      CARDIOLENS_QUALITY_PATH: /data/feedback/quality.jsonl
     volumes:
       - appdata:/data
     expose:

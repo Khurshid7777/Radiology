@@ -38,7 +38,13 @@ from cardiolens.api import service
 from cardiolens.api.guard import RequestGuard
 from cardiolens.calibration import TemperatureScaler, expected_calibration_error
 from cardiolens.config import load_app_config
-from cardiolens.feedback import DEFAULT_FEEDBACK_PATH, Feedback, FeedbackStore
+from cardiolens.feedback import (
+    DEFAULT_FEEDBACK_PATH,
+    DEFAULT_QUALITY_PATH,
+    Feedback,
+    FeedbackStore,
+    quality,
+)
 from cardiolens.layer6_interpret import provider_status
 from cardiolens.outputs import (
     format_conclusion,
@@ -77,6 +83,11 @@ async def _in_analysis_thread(fn, *args, **kwargs):
 def _cleanup(tmp_dir: str) -> BackgroundTask:
     """Delete a temp dir after the FileResponse has been sent (no disk leak)."""
     return BackgroundTask(shutil.rmtree, tmp_dir, ignore_errors=True)
+
+
+def _quality_path() -> str | None:
+    """D190: the real-use quality log, next to the feedback log; empty turns it off."""
+    return os.environ.get("CARDIOLENS_QUALITY_PATH", DEFAULT_QUALITY_PATH) or None
 
 
 def _feedback_store() -> FeedbackStore:
@@ -368,8 +379,12 @@ async def analyze(
             service.run_and_store, sig, mode=mode, prior_id=prior_ecg_id, owner=who
         )
     except ValueError as exc:
+        if files:
+            quality.append(_quality_path(), quality.refusal_row(str(exc), client))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    if files:
+        quality.append(_quality_path(), quality.quality_row(result, client))
     payload = result_to_dict(result)
     payload["analysis_id"] = analysis_id
     payload["conclusion_ru"] = format_conclusion(result, "ru")
@@ -447,6 +462,15 @@ def submit_feedback(analysis_id: str, fb: Feedback, who: str = Depends(actor)) -
     _feedback_store().append(fb)
     return {"status": "recorded", "analysis_id": analysis_id,
             "n_findings": len(fb.findings)}
+
+
+@app.get("/api/quality/summary")
+def quality_summary(days: int = 30, who: str = Depends(actor)) -> dict:
+    """D190: aggregates of the real-use quality log (counts and errors only)."""
+    import time as _time
+
+    rows = quality.read(_quality_path())
+    return quality.summarize(rows, since_ts=int(_time.time()) - max(1, days) * 86400)
 
 
 @app.post("/api/calibration/fit")
