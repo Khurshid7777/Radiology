@@ -16,6 +16,7 @@ import json
 import logging
 import os
 
+from cardiolens.contracts.findings import released_rate
 from cardiolens.contracts.report import Claim, InterpretationReport
 from cardiolens.layer6_interpret.provider import InterpretationInput, LLMProvider
 from cardiolens.layer6_interpret.stub import StubProvider
@@ -119,6 +120,12 @@ WITHHOLD_MEASUREMENTS = ("photo_unreliable", "no_ecg_signal", "amplitude_implaus
 def _measurements(data: InterpretationInput) -> dict:
     codes = {f.code for f in data.findings.findings}
     withheld = [c for c in WITHHOLD_MEASUREMENTS if c in codes]
+    rate = released_rate(data.findings)
+    if withheld == ["photo_unreliable"] and rate is not None:
+        # D189: only the limb leads disagree; the lead-II strip gives the rate and nothing else.
+        return {"heart_rate_bpm": rate,
+                "withheld": "only the rate is measured, from the lead-II strip (photo_unreliable: limb leads "
+                            "inconsistent); do not state the axis, voltages, intervals or morphology"}
     if withheld:
         return {"withheld": f"not measured reliably ({', '.join(withheld)}); do not state any rate or interval"}
     m = data.measurements

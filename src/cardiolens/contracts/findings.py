@@ -49,3 +49,18 @@ class FindingSet(BaseModel):
 
     def critical(self) -> list[Finding]:
         return [f for f in self.findings if f.critical]
+
+
+# D189: a photo gated only because its limb leads disagree, read off a good lead-II strip,
+# keeps its rate. The gate finding carries it as evidence; nothing else is released.
+RATE_RELEASED = "rate_released_bpm"
+
+
+def released_rate(fs: FindingSet) -> float | None:
+    """The rate a gated photo still states (D189), or None when it states none."""
+    f = fs.by_code("photo_unreliable")
+    v = f.evidence_map().get(RATE_RELEASED) if f else None
+    try:
+        return float(v) if v else None
+    except ValueError:
+        return None

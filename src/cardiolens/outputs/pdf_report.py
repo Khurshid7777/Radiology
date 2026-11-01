@@ -26,6 +26,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from cardiolens.contracts.findings import released_rate
 from cardiolens.outputs.conclusion import format_conclusion
 from cardiolens.outputs.graph_viz import render_causal_graph
 from cardiolens.outputs.waveform import render_waveform
@@ -97,6 +98,13 @@ def measurement_line(result, lang: str = "ru") -> str:
     unreliable carries no number a doctor could take for a measurement (D178; the narrative
     withholds them, D128). The recorder's line and a mismatch with it follow (D183)."""
     uz = lang == "uz"
+    rate = released_rate(result.findings)
+    if rate is not None and result.findings.codes() & UNRELIABLE_CODES == {"photo_unreliable"}:
+        if uz:      # D189: the lead-II strip gives the rate; the limb leads gave nothing reliable
+            return (f"YuQS: {rate:.0f} /daq (II tasma bo‘yicha). O‘q, voltaj va intervallar keltirilmaydi: "
+                    "oyoq-qo‘l tarmoqlari ishonchsiz o‘qildi. EKGni qayta suratga oling.")
+        return (f"ЧСС: {rate:.0f} /мин (по полосе II). Ось, вольтаж и интервалы не приводятся: "
+                "отведения конечностей прочитаны ненадёжно. Переснимите ЭКГ.")
     if result.findings.codes() & UNRELIABLE_CODES:
         if uz:
             return ("O‘lchovlar keltirilmaydi: surat ishonchsiz o‘qildi — undan olingan raqamlar xato bo‘lishi "
