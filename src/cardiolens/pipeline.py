@@ -29,7 +29,7 @@ from cardiolens.config import (
 )
 from cardiolens.contracts.causal import CausalGraph
 from cardiolens.contracts.features import Intervals, Measurements, Voltages
-from cardiolens.contracts.findings import Evidence, Finding, FindingSet
+from cardiolens.contracts.findings import RATE_RELEASED, Evidence, Finding, FindingSet
 from cardiolens.contracts.report import InterpretationReport
 from cardiolens.contracts.signal import SignalRepresentation
 from cardiolens.layer1_ingestion.checks import check_record
@@ -311,6 +311,8 @@ def run_pipeline(
     if bad_photo:
         lag = photo["panel_lag_ms"] if photo else None
         ein = (photo_aligned or photo)["einthoven_r"] if photo else None
+        rate = limb_only_rate(sig, m, scale_conflict or grid_in_trace or qrs_impossible or readers_disagree
+                              or coarse_photo, lag, cfg.quality.photo_max_panel_lag_ms)
         why_ru, why_uz = (("масштаб не определён: сетка и калибровочный импульс расходятся",
                            "masshtab aniqlanmadi: to'r va kalibrlash impulsi mos emas") if scale_conflict else
                           ("отведения на снимке не согласуются между собой",
@@ -336,18 +338,25 @@ def run_pipeline(
         findings.findings = [Finding(
             code="photo_unreliable", group="quality",
             label_ru=f"Снимок ЭКГ не распознан надёжно ({why_ru}) — "
+                     + (f"ЧСС {rate:.0f} /мин по полосе II; ось, вольтаж и интервалы не приводятся — "
+                        if rate is not None else "")
                      + (f"снимок мелкий (~{px_mm:.1f} пикс/мм, нужно от {PHOTO_LOW_RES_PX_PER_MM:.0f}): "
                         f"снимите ближе, чтобы {what_ru} занял весь кадр, и отправьте как файл, а не как фото"
                         if low_res else "переснимите лист ровно, без перекоса и тени"),
             label_uz=f"EKG surati ishonchli o'qilmadi ({why_uz}) — "
+                     + (f"YuQS {rate:.0f} /daq II tasma bo'yicha; o'q, voltaj va intervallar keltirilmaydi — "
+                        if rate is not None else "")
                      + (f"surat kichik (~{px_mm:.1f} piksel/mm, kamida {PHOTO_LOW_RES_PX_PER_MM:.0f} kerak): "
                         f"yaqinroqdan, {what_uz} butun kadrni egallaydigan qilib oling va rasm emas, fayl sifatida yuboring"
                         if low_res else "varaqni tekis, qiyshaymasdan va soyasiz qayta suratga oling"),
             evidence=[Evidence(feature="panel_lag_ms", value=f"{lag:.0f}" if lag is not None else "—"),
                       Evidence(feature="einthoven_r", value=f"{ein:.2f}" if ein is not None else "—"),
                       Evidence(feature="px_per_mm", value=f"{px_mm:.1f}"),
-                      Evidence(feature="scale_conflict", value="yes" if scale_conflict else "no")],
+                      Evidence(feature="scale_conflict", value="yes" if scale_conflict else "no"),
+                      *([Evidence(feature=RATE_RELEASED, value=f"{rate:.0f}")] if rate is not None else [])],
             confidence=0.9)]
+        if rate is not None:
+            audit.append(f"[L2] rate {rate:.0f} kept from the lead-II strip: only the limb leads disagree (D189)")
         quality_ok = False
         audit.append(f"[L2] digitised page inconsistent (lag {lag} ms, Einthoven r {ein}, scale conflict "
                      f"{scale_conflict}) — findings and alerts withheld")
@@ -526,6 +535,33 @@ def run_pipeline(
         signal=sig, measurements=m, findings=findings, causal_graph=causal,
         safety=safety, report=report, config=cfg, audit_log=audit, serial=serial,
     )
+
+
+# D189: a gated photo keeps its rate when only its limb leads disagree and its lead-II
+# strip holds together (ecgdig 360 images: 26 released, all within 5 % of the truth).
+RATE_MIN_TEMPLATE_CONSISTENCY = 0.95
+RATE_MIN_BEATS = 8
+
+
+def limb_only_rate(sig: SignalRepresentation, m: Measurements, other_gate: bool,
+                   lag_ms: float | None, max_lag_ms: float) -> float | None:
+    """The rate a gated photo may still state (D189), or None.
+
+    Only for a page the scanner read, gated for its limb leads alone (its own limb check,
+    or Einthoven with the panels in time), whose beats fall on the page's columns, whose
+    QRS complexes look alike, with enough of them, and without the scanner's own doubt
+    about the rhythm (RHYTHM_INCONSISTENT: rates 7 /min high from one extra beat)."""
+    notes = sig.provenance.notes or []
+    if other_gate or not (notes and notes[0].startswith("ecgscan")):
+        return None
+    if lag_ms is not None and lag_ms >= max_lag_ms:
+        return None
+    warn = next((n for n in notes if n.startswith("warnings: ")), "")
+    if "RHYTHM_INCONSISTENT" in warn or m.page_beat_agreement is not True:
+        return None
+    if (m.qrs_template_consistency or 0.0) < RATE_MIN_TEMPLATE_CONSISTENCY or len(m.r_peaks_samples) < RATE_MIN_BEATS:
+        return None
+    return m.heart_rate_bpm
 
 
 # A file in mV read as µV is 1000x too small and looks like no ECG at all (D119).
