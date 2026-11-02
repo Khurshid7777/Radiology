@@ -36,6 +36,7 @@ def probe(sig, res) -> dict:
             "hr": m.heart_rate_bpm, "qrs": m.intervals.qrs_ms, "agree": m.page_beat_agreement,
             "tc": m.qrs_template_consistency, "n_beats": len(m.r_peaks_samples or []),
             "released": released_rate(res.findings),       # D189: the rate a gated page still states
+            "codes": sorted(res.findings.codes()),         # D191: no_ecg_signal shows no rate at all
             "duration_s": sig.duration_s}
 
 
