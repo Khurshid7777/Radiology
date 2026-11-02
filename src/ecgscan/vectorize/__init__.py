@@ -30,7 +30,8 @@ def legacy_track(ink: np.ndarray, skel: np.ndarray, p: Panel, pitch_px: float) -
 
 def fuse(path: np.ndarray, detail: np.ndarray, pitch_px: float, *, tol_pitches: float = 0.15,
          margin: int = 10, max_short: int = 8, far_pitches: float = 0.35, max_gap_pitches: float = 1.0,
-         apex_px: float | None = None, baseline: float | None = None, other_baselines: list[float] | None = None) -> np.ndarray:
+         apex_px: float | None = None, baseline: float | None = None, other_baselines: list[float] | None = None,
+         max_step_px: float | None = None) -> np.ndarray:
     """Two methods, one trace (TZ §5.7: choose by quality, per stretch).
 
     ``path`` (the DP tracer) holds the right row through crossings and noise; ``detail``
@@ -40,7 +41,9 @@ def fuse(path: np.ndarray, detail: np.ndarray, pitch_px: float, *, tol_pitches: 
     the path is short of the tip lasts a few columns), or a stretch where ``detail`` sits
     nearer another row's baseline than this one. Around such a stretch (± ``margin``)
     the path is used. Where the two differ by more than ``apex_px`` (a small R at 5 mm/mV
-    is within the row tolerance) the value further from the isoline wins.
+    is within the row tolerance) the value further from the isoline wins. Inside a path gap,
+    ``detail`` may go beyond the gap's two edges by at most ``max_step_px`` per column to
+    the nearer edge (SD-103).
     """
     n = min(len(path), len(detail))
     out = path.copy()
@@ -75,6 +78,16 @@ def fuse(path: np.ndarray, detail: np.ndarray, pitch_px: float, *, tol_pitches: 
             bounded = lo >= 0 and hi < n and agree[lo] and agree[hi]
             if not bounded or len(seg) > max_gap_pitches * pitch_px:
                 left[seg] = True
+            elif max_step_px is not None:
+                # R3, SD-103: a skipped steep edge runs between the gap's two edges; an apex
+                # the path missed overshoots them, but no faster than a QRS can rise. One
+                # column 18 mm off a flat line (ecgdig 1218-v1, the rhythm strip: -1.84 mV
+                # for one sample) is another ink the tracker jumped to.
+                lo_v, hi_v = min(a[lo], a[hi]), max(a[lo], a[hi])
+                steps = np.minimum(np.arange(1, len(seg) + 1), np.arange(len(seg), 0, -1))
+                over = np.maximum(lo_v - b[seg], b[seg] - hi_v)
+                if np.any(over > max_step_px * steps):
+                    left[seg] = True
     if left.any() and margin > 0:
         left = np.convolve(left.astype(float), np.ones(2 * margin + 1), mode="same") > 0
     use = np.isfinite(b) & ~left
@@ -120,6 +133,15 @@ class PanelReading:
     edge_contact: float
 
 
+def _max_step_px(cfg: dict, speed_mm_s: float, gain_mm_mv: float, px_per_mm: float) -> float | None:
+    """The furthest a trace can move in one column at ``fuse_gap_max_slope_mv_ms`` (SD-103)."""
+    slope = cfg.get("fuse_gap_max_slope_mv_ms")
+    if slope is None or speed_mm_s <= 0:
+        return None
+    col_ms = 1000.0 / (px_per_mm * speed_mm_s)
+    return float(slope) * col_ms * gain_mm_mv * px_per_mm
+
+
 def read_panels(mask: TraceMask, panels: list[Panel], *, px_per_mm: float, speed_mm_s: float, gain_mm_mv: float,
                 pitch_px: float, fs_out: float, cfg: dict) -> list[PanelReading]:
     stroke = estimate_stroke(mask.ink)
@@ -144,7 +166,8 @@ def read_panels(mask: TraceMask, panels: list[Panel], *, px_per_mm: float, speed
                      max_short=cfg.get("fuse_max_short_cols", 8),
                      max_gap_pitches=cfg.get("fuse_max_gap_pitches", 0.5),
                      apex_px=cfg.get("fuse_apex_strokes", 2.0) * stroke, baseline=p.baseline,
-                     other_baselines=[b for b in rows if b != p.baseline])
+                     other_baselines=[b for b in rows if b != p.baseline],
+                     max_step_px=_max_step_px(cfg, speed_mm_s, gain_mm_mv, px_per_mm))
         if cfg.get("steep_rows", False):
             y = refine_steep(y, mask.ink, p.x0, stroke, min_slope_strokes=cfg.get("steep_min_slope_strokes", 1.0),
                              max_run_strokes=cfg.get("steep_max_run_strokes", 4.0),

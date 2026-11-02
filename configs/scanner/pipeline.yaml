@@ -125,6 +125,7 @@ vectorize:
   fuse_max_gap_pitches: 0.5      # D47 kept in a DP gap only if bounded by agreement on both sides and at most this long
   fuse_apex_strokes: 2.0         # where DP and D47 differ by more than this many strokes, the one further from the isoline wins
   fuse_max_short_cols: 8         # a longer disagreement than this = D47 left the row (an apex lasts a few columns)
+  fuse_gap_max_slope_mv_ms: 0.2   # SD-103: in a DP gap, D47 overshoots the gap's edges no faster than this (2x a steep QRS); null: off
   band_pitches: 1.3              # search band around a baseline, in row pitches (20 mm/mV traces cross rows)
   baseline_weight: 0.6           # pull to the own baseline vs continuity
   gap_cost: 2.5                  # per missing column (in stroke widths of vertical jump)
