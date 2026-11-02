@@ -120,6 +120,16 @@ def rhythm_check(panels: dict[str, Trace], rhythm: Trace, fs: float) -> dict[str
     return out
 
 
+def rhythm_inconsistent(checks: dict[str, float], warn: float, rule: str = "any") -> bool:
+    """RHYTHM_INCONSISTENT from ``rhythm_check``. ``all`` (R3, SD-103): the strip is suspect only
+    when it disagrees with every reference it has; one reference off while the other agrees is
+    that panel misread (ecgdig 1494-v1: panel II 0.77, (aVF - aVR)/1.5 0.08), and the limb-lead
+    check is about the panels. ``any``: one reference is enough (SD-060)."""
+    if not checks:
+        return False
+    return (min if rule == "all" else max)(checks.values()) > warn
+
+
 def lead_quality(missing_fraction: float, ambiguity: float, edge_contact: float, *,
                  weights: dict | None = None) -> float:
     """0..1 from what the tracer saw: coverage, competing ink, contact with the band edge."""
