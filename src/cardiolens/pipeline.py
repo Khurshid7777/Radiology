@@ -585,15 +585,15 @@ PHOTO_MIN_QRS_MS = 55.0         # D186: a digitised QRS below this was not trace
 PHOTO_LOW_RES_PX_PER_MM = 6.0   # D126: an unreliable photo below this asks for a closer shot sent as a file
 # D192: retake advice by the reason a photo was gated (ru, uz).
 RETAKE_TIPS = {
-    "scale": ("снимите весь лист строго сверху, чтобы в кадр попали сетка и калибровочный импульс "
-              "(прямоугольник в начале строки)",
-              "varaqni to'liq, tepadan to'g'ri suratga oling: kadrda to'r va kalibrlash impulsi "
-              "(qator boshidagi to'rtburchak) bo'lsin"),
+    "scale": (("снимите весь лист строго сверху, чтобы в кадр попали сетка и калибровочный импульс "
+               "(прямоугольник в начале строки)"),
+              ("varaqni to'liq, tepadan to'g'ri suratga oling: kadrda to'r va kalibrlash impulsi "
+               "(qator boshidagi to'rtburchak) bo'lsin")),
     "flat": ("положите лист ровно, без изгибов, и держите камеру параллельно листу",
              "varaqni bukmasdan tekis qo'ying va kamerani varaqqa parallel tuting"),
     "grid": ("снимите при ровном свете, без вспышки и бликов; если есть файл или PDF с аппарата — пришлите его",
-             "bir tekis yorug'likda, chaqnoqsiz va yaltirashsiz suratga oling; apparatdan fayl yoki PDF bo'lsa — "
-             "uni yuboring"),
+             ("bir tekis yorug'likda, chaqnoqsiz va yaltirashsiz suratga oling; apparatdan fayl yoki PDF bo'lsa — "
+              "uni yuboring")),
     "sharp": ("снимите резко, при хорошем свете, чтобы весь лист был в кадре",
               "varaq butunlay kadrga tushadigan qilib, yaxshi yorug'likda, aniq suratga oling"),
 }

@@ -3,7 +3,11 @@ not told to check the electrodes."""
 
 import cardiolens.pipeline as pl
 from cardiolens.layer1_ingestion import generate_synthetic_ecg
-from cardiolens.layer1_ingestion.strip import GRID_IN_TRACE_NOTE, LEADS_INCONSISTENT_NOTE, SCALE_CONFLICT_NOTE
+from cardiolens.layer1_ingestion.strip import (
+    GRID_IN_TRACE_NOTE,
+    LEADS_INCONSISTENT_NOTE,
+    SCALE_CONFLICT_NOTE,
+)
 
 
 def _photo(*notes, fs=500.0):
