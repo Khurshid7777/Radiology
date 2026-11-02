@@ -124,10 +124,19 @@ def run_pipeline(
     photo = page_consistency(sig)
     photo_aligned = None
     if photo is not None:
-        sig = align_panels(sig)
-        photo_aligned = page_consistency(sig)
-        audit.append(f"[L1] page aligned on the lead-II strip: lag {photo['panel_lag_ms']} ms, "
-                     f"Einthoven r {photo['einthoven_r']} -> {photo_aligned and photo_aligned['einthoven_r']}")
+        aligned = align_panels(sig)
+        photo_aligned = page_consistency(aligned)
+        ein0, ein1 = photo["einthoven_r"], photo_aligned and photo_aligned["einthoven_r"]
+        if ein0 is not None and ein1 is not None and ein1 < ein0:
+            # D191: shifting I and III each by its own one-sample lag broke their
+            # simultaneity on good scans (ecgdig 1184-v2: r 0.905 -> 0.600). An alignment
+            # that makes II = I + III worse is not kept; the page is judged as read.
+            audit.append(f"[L1] alignment not kept: Einthoven r {ein0} -> {ein1} (D191)")
+            photo_aligned = None
+        else:
+            sig = aligned
+            audit.append(f"[L1] page aligned on the lead-II strip: lag {photo['panel_lag_ms']} ms, "
+                         f"Einthoven r {ein0} -> {ein1}")
 
     # Layer 2 — preprocess + quality (TZ §5). preprocess() filters in place: work on a
     # copy so the caller's raw signal survives — a second run on the same object

@@ -19,6 +19,8 @@ from run import truth_signal
 
 
 def probe(sig, res) -> dict:
+    from cardiolens.contracts.findings import released_rate
+
     m = res.measurements
     f = next((f for f in res.findings.findings if f.code == "photo_unreliable"), None)
     ev = {e.feature: e.value for e in (f.evidence if f else [])}
@@ -33,6 +35,7 @@ def probe(sig, res) -> dict:
             "notes": [n[:60] for n in notes if n.startswith(("leads inconsistent", "grid in trace", "scale conflict"))],
             "hr": m.heart_rate_bpm, "qrs": m.intervals.qrs_ms, "agree": m.page_beat_agreement,
             "tc": m.qrs_template_consistency, "n_beats": len(m.r_peaks_samples or []),
+            "released": released_rate(res.findings),       # D189: the rate a gated page still states
             "duration_s": sig.duration_s}
 
 
