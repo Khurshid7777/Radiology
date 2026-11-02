@@ -43,3 +43,13 @@ def test_the_step_follows_speed_and_gain_not_resolution():
     assert _max_step_px(cfg, 25.0, 10.0, 12.0) == pytest.approx(80.0)
     assert _max_step_px(cfg, 50.0, 10.0, 8.0) == pytest.approx(40.0)     # a column is half as long in time
     assert _max_step_px({}, 25.0, 10.0, 8.0) is None
+
+
+def test_the_strip_is_suspect_only_when_every_reference_disagrees():
+    from ecgscan.validate import rhythm_inconsistent
+
+    assert not rhythm_inconsistent({"panel_II": 0.77, "aVF_aVR": 0.08}, 0.5, "all")   # panel II misread
+    assert rhythm_inconsistent({"panel_II": 0.74, "aVF_aVR": 0.57}, 0.5, "all")       # the strip itself
+    assert rhythm_inconsistent({"panel_II": 0.77}, 0.5, "all")                        # its only reference
+    assert rhythm_inconsistent({"panel_II": 0.77, "aVF_aVR": 0.08}, 0.5, "any")       # the old rule
+    assert not rhythm_inconsistent({}, 0.5, "all")

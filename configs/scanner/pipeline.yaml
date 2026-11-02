@@ -139,6 +139,7 @@ vectorize:
 
 validate:
   rhythm_warn: 0.5                # SD-060: rhythm strip vs panel II / (aVF - aVR)/1.5 residual above -> RHYTHM_INCONSISTENT
+  rhythm_warn_rule: all           # SD-103: all = every reference above rhythm_warn (the strip is off); any = the old rule
   rhythm_unrelated: 0.9           # SD-060: every check at least this (~1 = unrelated) -> strip flagged, not measured
   min_median_coverage: 0.5       # below -> rejected TRACE_BROKEN
   min_page_extent: 0.8           # SD-067: ...unless the ink spans less than this of the layout width -> PAGE_INCOMPLETE (a piece of a page)

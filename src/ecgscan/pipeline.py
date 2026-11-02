@@ -59,7 +59,7 @@ from ecgscan.layout.registry import layout_name as registry_name
 from ecgscan.layout.rows import long_stroke_mask
 from ecgscan.segmentation import TraceMask, make_segmenter
 from ecgscan.segmentation.grid_lines import drop_grid_lines, drop_labels, drop_red
-from ecgscan.validate import limb_consistency, measurement_check, rhythm_check
+from ecgscan.validate import limb_consistency, measurement_check, rhythm_check, rhythm_inconsistent
 from ecgscan.vectorize import read_panels
 
 
@@ -744,7 +744,7 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     for rt in rhythm:
         checks = rhythm_check(leads, rt, fs_out)
         dbg.rhythm_checks[rt.lead] = checks
-        if checks and max(checks.values()) > val.get("rhythm_warn", 0.5):
+        if rhythm_inconsistent(checks, val.get("rhythm_warn", 0.5), val.get("rhythm_warn_rule", "any")):
             warnings.append("RHYTHM_INCONSISTENT")
         if checks and min(checks.values()) >= val.get("rhythm_unrelated", 0.9):
             rt.flags = sorted({*rt.flags, RHYTHM_MISMATCH})
