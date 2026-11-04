@@ -136,6 +136,15 @@
     <div class="hint">Посмотрите на край ленты: аппарат печатает там скорость и усиление (например,
       «50 мм/сек, 20 мм/мВ»). Если они не 25 и 10 — выберите их здесь, иначе ЧСС и амплитуды будут неверны.</div>
     <div class="notice" id="filewarn"></div>
+    <div class="notice hidden" id="rotbox">
+      <div id="rotmsg">Фото вертикальное. Поверните его так, чтобы строки ЭКГ шли слева направо, — иначе его не прочитать.</div>
+      <img id="rotprev" alt="предпросмотр" style="max-width:100%;max-height:260px;margin:8px 0;border:1px solid #ddd;border-radius:6px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" id="rotl">↺ Повернуть влево</button>
+        <button type="button" id="rotr">↻ Повернуть вправо</button>
+        <button type="button" id="rotok">Строки уже идут слева направо</button>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -149,6 +158,11 @@
           <button type="button" id="sex_f" data-v="female">Жен</button>
         </div></div>
     </div>
+
+    <label for="prior">Сравнить с прошлой ЭКГ</label>
+    <select id="prior"><option value="">не сравнивать</option></select>
+    <div class="hint">В списке — анализы, сделанные в этом браузере. Сравнение покажет новые и исчезнувшие
+      находки, изменение ЧСС и QTc. Прошлый анализ хранится на сервере ограниченное время.</div>
 
     <details id="more">
       <summary>Дополнительно (необязательно)</summary>
@@ -196,6 +210,10 @@
       <summary>Подробно: измерения, находки, кривая, заключение на узбекском</summary>
       <h3>Измерения</h3>
       <table id="meas"></table>
+      <div id="serial_box" class="hidden">
+        <h3>Сравнение с прошлой ЭКГ</h3>
+        <div id="serial"></div>
+      </div>
       <h3>Находки</h3>
       <div id="findings"></div>
       <div class="grid2" style="margin-top:14px">
@@ -269,7 +287,63 @@ function showChosen() {
   $('chosen').textContent = names.length ? '✓ ' + names.join(', ') : '';
   if (names.length) $('case').value = '';
   checkPhotoSize();
+  checkPortrait();
 }
+
+// D194: a portrait photo of a sheet is turned here, by the user, before upload. Turning it
+// automatically picks the upside-down page as readily (scanner SD-074), and that mirrors the QRS.
+const rot = { pending: false, file: null };
+async function checkPortrait() {
+  rot.pending = false; rot.file = null;
+  $('rotbox').classList.add('hidden');
+  const list = [...files.files];
+  if (list.length !== 1 || !/^image\//.test(list[0].type)) return;   // parts and files go as before
+  try {
+    const bmp = await createImageBitmap(list[0]);
+    const portrait = bmp.height > 1.15 * bmp.width;    // as the server's D171 check
+    bmp.close();
+    if (!portrait) return;
+  } catch (e) { return; }                               // HEIC and the like: the server decides
+  rot.pending = true; rot.file = list[0];
+  $('rotmsg').textContent = 'Фото вертикальное. Поверните его так, чтобы строки ЭКГ шли слева направо, — иначе его не прочитать.';
+  showRotPreview(list[0]);
+  $('rotbox').classList.remove('hidden');
+}
+function showRotPreview(f) {
+  const old = $('rotprev').src;
+  $('rotprev').src = URL.createObjectURL(f);
+  if (old && old.startsWith('blob:')) URL.revokeObjectURL(old);
+}
+async function rotateBy(deg) {
+  if (!rot.file) return;
+  try {
+    const bmp = await createImageBitmap(rot.file);
+    const c = document.createElement('canvas');
+    c.width = bmp.height; c.height = bmp.width;          // full size: width and height swap
+    const g = c.getContext('2d');
+    g.translate(c.width / 2, c.height / 2);
+    g.rotate(deg * Math.PI / 180);
+    g.drawImage(bmp, -bmp.width / 2, -bmp.height / 2);
+    bmp.close();
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.95));
+    if (!blob) throw new Error('no blob');
+    const f = new File([blob], rot.file.name.replace(/\.[^.]+$/, '') + '_rotated.jpg', { type: 'image/jpeg' });
+    rot.file = f;
+    const dt = new DataTransfer(); dt.items.add(f); files.files = dt.files;
+    $('chosen').textContent = '✓ ' + f.name;
+    showRotPreview(f);
+    rot.pending = c.height > 1.15 * c.width;
+    // The upside-down page reads too, with mirrored QRS (SD-074): the user checks it.
+    $('rotmsg').textContent = rot.pending
+      ? 'Фото всё ещё вертикальное — поверните ещё раз.'
+      : 'Повёрнуто. Проверьте по предпросмотру: строки идут слева направо и подписи отведений не вверх ногами. Если перевёрнуто — нажмите поворот ещё два раза.';
+  } catch (e) {
+    $('filewarn').textContent = 'Не удалось повернуть фото в браузере — поверните его в галерее телефона и выберите снова.';
+  }
+}
+$('rotl').addEventListener('click', () => rotateBy(-90));
+$('rotr').addEventListener('click', () => rotateBy(90));
+$('rotok').addEventListener('click', () => { rot.pending = false; $('rotbox').classList.add('hidden'); });
 
 // A messenger copy is ~1280 px wide: an A4 sheet on it has ~4 px/mm. Since D170 it is read in the
 // coarse mode (rate, rhythm, approximate ST; no intervals). Said at once as a notice, not an error
@@ -464,6 +538,7 @@ $('run').addEventListener('click', async () => {
   if (files.files.length) { for (const f of files.files) fd.append('files', f); }
   else if ($('case').value) fd.append('case', $('case').value);
   else { $('err').textContent = 'Сначала выберите фото или файл ЭКГ.'; return; }
+  if (rot.pending) { $('err').textContent = 'Сначала поверните фото: строки ЭКГ должны идти слева направо.'; $('rotbox').scrollIntoView({ block: 'center' }); return; }
 
   const age = parseFloat($('age').value);
   if (!(age >= 0 && age <= 120)) { $('err').textContent = 'Укажите возраст пациента.'; $('age').focus(); return; }
@@ -480,6 +555,7 @@ $('run').addEventListener('click', async () => {
   fd.append('unit', $('unit').value);
   if ($('k').value) fd.append('potassium', $('k').value);
   if ($('ca').value) fd.append('calcium', $('ca').value);
+  if ($('prior').value) fd.append('prior_ecg_id', $('prior').value);    // D193
 
   $('run').disabled = true; $('results').classList.add('hidden'); startProgress();
   try {
@@ -553,8 +629,46 @@ function render(d) {
     $('pdf').href = u; $('pdf').download = `cardiolens_${d.analysis_id}.pdf`;
   }).catch(() => {});
   $('disc').textContent = it.disclaimer.ru;
+  renderSerial(d.serial_comparison);
+  rememberAnalysis(d, unreliable);
   $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+
+// D193: the comparison with a prior ECG.
+function renderSerial(sc) {
+  $('serial_box').classList.toggle('hidden', !sc);
+  if (!sc) return;
+  if (sc.skipped_ru) { $('serial').innerHTML = `<div class="muted">${esc(sc.skipped_ru)}</div>`; return; }
+  const rows = (sc.deltas || []).map(x => `<span class="chip ${x.critical ? 'crit' : ''}">${esc(x.label_ru)}</span>`);
+  const nums = [];
+  if (sc.hr_delta_bpm != null) nums.push(`ЧСС ${sc.hr_delta_bpm > 0 ? '+' : ''}${sc.hr_delta_bpm} /мин`);
+  if (sc.qtc_delta_ms != null) nums.push(`QTc ${sc.qtc_delta_ms > 0 ? '+' : ''}${sc.qtc_delta_ms} мс`);
+  $('serial').innerHTML = (rows.join('') || '<span class="muted">Значимых изменений находок нет.</span>')
+    + (nums.length ? `<div class="muted" style="margin-top:6px">Изменение: ${esc(nums.join(', '))}</div>` : '');
+}
+// The analyses made in this browser, for the comparison list: the number, the time and the
+// rate only — no patient data, no conclusion text (D193).
+const HIST_KEY = 'cardiolens_history_v1', HIST_MAX = 10;
+function loadHistory() {
+  try { const h = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); return Array.isArray(h) ? h : []; }
+  catch (e) { return []; }
+}
+function fillPrior() {
+  const sel = $('prior'), keep = sel.value;
+  sel.innerHTML = '<option value="">не сравнивать</option>' + loadHistory().map(h => {
+    const t = new Date(h.t), when = t.toLocaleDateString('ru-RU') + ' ' + t.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return `<option value="${esc(h.id)}">${esc(when)} · ЧСС ${h.hr == null ? '—' : esc(h.hr)}</option>`;
+  }).join('');
+  sel.value = keep && [...sel.options].some(o => o.value === keep) ? keep : '';
+}
+function rememberAnalysis(d, unreliable) {
+  if (!d.analysis_id) return;
+  const hr = unreliable || d.measurements.heart_rate_bpm == null ? null : Math.round(d.measurements.heart_rate_bpm);
+  const h = [{ id: String(d.analysis_id), t: Date.now(), hr }, ...loadHistory().filter(x => x.id !== d.analysis_id)].slice(0, HIST_MAX);
+  try { localStorage.setItem(HIST_KEY, JSON.stringify(h)); } catch (e) { /* private mode: no list */ }
+  fillPrior();
+}
+fillPrior();
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 

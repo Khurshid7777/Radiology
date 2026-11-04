@@ -58,6 +58,10 @@ def format_conclusion(result: PipelineResult, lang: str = "ru") -> str:
             lines.append("  ⚠ " + (c.text_ru if is_ru else c.text_uz))
 
     # Serial comparison against a prior ECG (TZ §8.4).
+    if result.serial and result.serial.skipped_ru:      # D193
+        lines.append("")
+        lines.append(("Сравнение с прошлой ЭКГ: " + result.serial.skipped_ru) if is_ru
+                     else ("Oldingi EKG bilan taqqoslash: " + result.serial.skipped_uz))
     if result.serial and result.serial.deltas:
         lines.append("")
         lines.append("ДИНАМИКА vs ПРОШЛАЯ ЭКГ:" if is_ru else "OLDINGI EKGga NISBATAN DINAMIKA:")

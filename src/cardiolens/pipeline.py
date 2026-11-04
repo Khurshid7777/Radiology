@@ -59,6 +59,8 @@ from cardiolens.layer6_interpret.provider import LLMProvider
 from cardiolens.safety import SafetyResult, scan_critical
 from cardiolens.safety.critical import CriticalAlert
 from cardiolens.serial import SerialComparison, compare
+from cardiolens.serial.compare import UNRELIABLE as SERIAL_UNRELIABLE
+from cardiolens.serial.compare import skipped as serial_skipped
 
 
 @dataclass
@@ -487,11 +489,22 @@ def run_pipeline(
 
     # Serial comparison against a prior ECG (TZ §8.4).
     serial: SerialComparison | None = None
-    if prior is not None:
-        serial = compare(findings, m, prior.findings, prior.measurements,
-                         prior_id=sig.context.prior_ecg_id)
+    prior_id = sig.context.prior_ecg_id
+    if prior is None and prior_id:
+        # D193: the prior lives in memory until a restart; say so rather than skip silently.
+        serial = serial_skipped(prior_id, "прошлый анализ не найден на сервере — сравнение не выполнено",
+                                "oldingi tahlil serverda topilmadi — taqqoslash bajarilmadi")
+    elif prior is not None and (no_ecg or bad_photo or bad_units):
+        serial = serial_skipped(prior_id, "текущий снимок распознан ненадёжно — сравнение не выполнено",
+                                "joriy surat ishonchsiz o'qildi — taqqoslash bajarilmadi")
+    elif prior is not None and prior.findings.codes() & SERIAL_UNRELIABLE:
+        serial = serial_skipped(prior_id, "прошлый снимок был распознан ненадёжно — сравнение не выполнено",
+                                "oldingi surat ishonchsiz o'qilgan — taqqoslash bajarilmadi")
+    elif prior is not None:
+        serial = compare(findings, m, prior.findings, prior.measurements, prior_id=prior_id)
+    if serial is not None:
         audit.append(f"[serial] deltas={[d.code for d in serial.deltas]} "
-                     f"qtcΔ={serial.qtc_delta_ms}")
+                     f"qtcΔ={serial.qtc_delta_ms} skipped={serial.skipped_ru is not None}")
 
     # Safety scan (TZ §10) — before interpretation, independent of LLM.
     # Two policies meet here. A record that is not an ECG (D108), off by a units factor
