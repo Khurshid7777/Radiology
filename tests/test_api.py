@@ -272,6 +272,10 @@ def test_capture_check_says_closer_on_a_small_frame_and_reads_the_capture_scale(
     # D177: the page already fills the frame, so "come closer" would cut it: parts instead.
     assert d["ok"] is False and {"closer", "parts"} & {h["code"] for h in d["hints"]}
     assert all(h["ru"] for h in d["hints"]) and d["frame"] == [page.shape[1], page.shape[0]]
+    # D200: the Uzbek hint beside the Russian one, in Latin script.
+    import re
+
+    assert all(h.get("uz") and not re.search("[А-Яа-яЁё]", h["uz"]) for h in d["hints"]) and "ready_uz" in d
     # The same frame, but the camera's photo is 3x wider: the grid is fine there.
     big = client.post("/api/capture/check", data={"capture_width": str(3 * page.shape[1])},
                       files={"frame": ("f.jpg", buf.tobytes(), "image/jpeg")}).json()

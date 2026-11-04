@@ -53,7 +53,7 @@ def format_conclusion(result: PipelineResult, lang: str = "ru") -> str:
 
     if r.red_flags:
         lines.append("")
-        lines.append("⚠ КРАСНЫЕ ФЛАГИ / QIZIL BAYROQLAR:")
+        lines.append("⚠ КРАСНЫЕ ФЛАГИ:" if is_ru else "⚠ QIZIL BAYROQLAR:")      # D200: one language per text
         for c in r.red_flags:
             lines.append("  ⚠ " + (c.text_ru if is_ru else c.text_uz))
 

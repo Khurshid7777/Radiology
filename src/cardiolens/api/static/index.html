@@ -23,6 +23,8 @@
   header .sub { color: var(--muted); font-size: 13px; }
   header .llm { margin-left:auto; font-size:12px; padding:3px 10px; border-radius:999px;
     border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
+  header .langsw button { padding:3px 9px; font-size:12px; margin-left:4px; }
+  header .langsw button.on { background:var(--brand2); color:#fff; border-color:var(--brand2); }
   header .llm.local { color:var(--ok); border-color:var(--ok); }
   header .llm.claude { color:var(--brand2); border-color:var(--brand2); }
   .wrap { max-width: 720px; margin: 16px auto; padding: 0 16px; display:grid; gap:14px; }
@@ -100,6 +102,7 @@
   <h1>CardioVision</h1>
   <span class="sub">заключение по фото ЭКГ · поддержка решений врача</span>
   <span class="llm" id="llm" title="Кто пишет текст заключения (/health)">Текст заключения: …</span>
+  <span class="langsw"><button type="button" id="lang_ru">RU</button><button type="button" id="lang_uz">UZ</button></span>
 </header>
 
 <div class="wrap">
@@ -276,6 +279,132 @@
   </div>
 </div>
 <script>
+// D200: the page in Uzbek (Latin). Russian phrase -> Uzbek; a phrase missing here stays Russian.
+// A draft translation: to be read by a native speaker before wide use.
+const UZ = {
+  'заключение по фото ЭКГ · поддержка решений врача': 'EKG surati bo\'yicha xulosa · shifokor qarorini qo\'llab-quvvatlash',
+  'Кто пишет текст заключения (/health)': 'Xulosa matnini kim yozadi (/health)',
+  'Текст заключения: …': 'Xulosa matni: …',
+  'Снимок или файл ЭКГ': 'EKG surati yoki fayli',
+  'Нажмите, чтобы выбрать фото': 'Suratni tanlash uchun bosing',
+  'с телефона или компьютера — или перетащите сюда': 'telefon yoki kompyuterdan — yoki shu yerga torting',
+  'Подойдёт фото бумажной ЭКГ или экрана прибора (JPG, PNG, HEIC), PDF, а также файл записи (WFDB, EDF, CSV, DICOM, SCP). Снимайте прямо сверху, без бликов, чтобы лист занимал весь кадр. Лучше всего — оригинал из галереи: фото, пересланное через Telegram или WhatsApp, сжато и читается только ориентировочно. Несколько фото одной ЭКГ можно выбрать вместе.':
+    'Qog\'oz EKG yoki qurilma ekranining surati (JPG, PNG, HEIC), PDF hamda yozuv fayli (WFDB, EDF, CSV, DICOM, SCP) mos keladi. To\'g\'ri tepadan, yaltirashsiz, varaq butun kadrni egallaydigan qilib suratga oling. Eng yaxshisi — galereyadagi asl nusxa: Telegram yoki WhatsApp orqali yuborilgan surat siqilgan va faqat taxminiy o\'qiladi. Bitta EKGning bir nechta suratini birga tanlash mumkin.',
+  '📷 Снять камерой с подсказками': '📷 Kamera bilan maslahatlar asosida suratga olish',
+  'Скорость ленты': 'Lenta tezligi',
+  'авто (обычно 25 мм/с)': 'avto (odatda 25 mm/s)',
+  '25 мм/с': '25 mm/s', '50 мм/с': '50 mm/s', '12,5 мм/с': '12,5 mm/s',
+  'Усиление': 'Kuchaytirish',
+  'авто (обычно 10 мм/мВ)': 'avto (odatda 10 mm/mV)',
+  '10 мм/мВ': '10 mm/mV', '20 мм/мВ': '20 mm/mV', '5 мм/мВ': '5 mm/mV',
+  'Посмотрите на край ленты: аппарат печатает там скорость и усиление (например, «50 мм/сек, 20 мм/мВ»). Если они не 25 и 10 — выберите их здесь, иначе ЧСС и амплитуды будут неверны.':
+    'Lenta chetiga qarang: apparat u yerda tezlik va kuchaytirishni bosadi (masalan, «50 mm/s, 20 mm/mV»). Agar ular 25 va 10 bo\'lmasa — shu yerda tanlang, aks holda YuQS va amplitudalar noto\'g\'ri bo\'ladi.',
+  'Фото вертикальное. Поверните его так, чтобы строки ЭКГ шли слева направо, — иначе его не прочитать.':
+    'Surat vertikal. EKG qatorlari chapdan o\'ngga boradigan qilib burang — aks holda uni o\'qib bo\'lmaydi.',
+  'предпросмотр': 'oldindan ko\'rish',
+  '↺ Повернуть влево': '↺ Chapga burish',
+  '↻ Повернуть вправо': '↻ O\'ngga burish',
+  'Строки уже идут слева направо': 'Qatorlar allaqachon chapdan o\'ngga boradi',
+  'Фото всё ещё вертикальное — поверните ещё раз.': 'Surat hali ham vertikal — yana bir marta burang.',
+  'Повёрнуто. Проверьте по предпросмотру: строки идут слева направо и подписи отведений не вверх ногами. Если перевёрнуто — нажмите поворот ещё два раза.':
+    'Burildi. Oldindan ko\'rishda tekshiring: qatorlar chapdan o\'ngga boradi va tarmoq yozuvlari teskari emas. Agar teskari bo\'lsa — burishni yana ikki marta bosing.',
+  'Не удалось повернуть фото в браузере — поверните его в галерее телефона и выберите снова.':
+    'Suratni brauzerda burib bo\'lmadi — uni telefon galereyasida burib, qayta tanlang.',
+  'О пациенте': 'Bemor haqida',
+  'Возраст, лет': 'Yoshi, yil',
+  'например, 54': 'masalan, 54',
+  'Пол': 'Jinsi', 'Муж': 'Erkak', 'Жен': 'Ayol',
+  'Симптомы (необязательно)': 'Simptomlar (ixtiyoriy)',
+  'боль в груди': 'ko\'krakda og\'riq', 'одышка': 'hansirash', 'обморок': 'hushdan ketish', 'сердцебиение': 'yurak urishi',
+  'когда началось — не указано': 'qachon boshlangan — ko\'rsatilmagan',
+  'менее 12 ч назад': '12 soatdan kam oldin', '12–48 ч назад': '12–48 soat oldin',
+  'более 48 ч назад': '48 soatdan ko\'p oldin', 'не знаю': 'bilmayman',
+  'Симптомы не меняют находки: они добавляют подсказку о срочности. В текст заключения ИИ они не передаются.':
+    'Simptomlar topilmalarni o\'zgartirmaydi: ular shoshilinchlik haqida maslahat qo\'shadi. Ular sun\'iy intellekt xulosa matniga uzatilmaydi.',
+  'Сравнить с прошлой ЭКГ': 'Oldingi EKG bilan taqqoslash',
+  'не сравнивать': 'taqqoslamaslik',
+  'В списке — анализы, сделанные в этом браузере. Сравнение покажет новые и исчезнувшие находки, изменение ЧСС и QTc. Анализы хранятся на сервере 30 дней (зашифрованно).':
+    'Ro\'yxatda — shu brauzerda qilingan tahlillar. Taqqoslash yangi va yo\'qolgan topilmalarni, YuQS va QTc o\'zgarishini ko\'rsatadi. Tahlillar serverda 30 kun (shifrlangan holda) saqlanadi.',
+  'Дополнительно (необязательно)': 'Qo\'shimcha (ixtiyoriy)',
+  'Калий K⁺, ммоль/л': 'Kaliy K⁺, mmol/l', 'Кальций Ca²⁺, ммоль/л': 'Kalsiy Ca²⁺, mmol/l',
+  'Режим': 'Rejim', 'A — поддержка врача': 'A — shifokorni qo\'llab-quvvatlash',
+  'B — автономный (с проверкой)': 'B — avtonom (tekshiruv bilan)',
+  'Частота, Гц (только для CSV)': 'Chastota, Gs (faqat CSV uchun)',
+  'Единицы (только для CSV)': 'Birliklar (faqat CSV uchun)',
+  'Демо-случай (вместо файла, синтетика)': 'Demo holat (fayl o\'rniga, sintetik)',
+  'Ключ клиники': 'Klinika kaliti', 'выдаёт администратор': 'administrator beradi',
+  'Ключ сохранён в этом браузере.': 'Kalit shu brauzerda saqlandi.',
+  'Без ключа клиники анализ не запустится.': 'Klinika kalitisiz tahlil boshlanmaydi.',
+  'Получить заключение': 'Xulosa olish',
+  'Заключение': 'Xulosa', 'Скачать PDF': 'PDF yuklab olish', '🔗 Ссылка для коллеги': '🔗 Hamkasb uchun havola',
+  'Что прочитано с фото': 'Suratdan nima o\'qildi',
+  'Цветные линии должны лежать на кривых ЭКГ: зелёные — прочитано уверенно, оранжевые — сомнительно, красные — плохо. Если линии не на кривых, заключению верить нельзя — переснимите лист.':
+    'Rangli chiziqlar EKG egri chiziqlari ustida yotishi kerak: yashil — ishonchli o\'qilgan, to\'q sariq — shubhali, qizil — yomon. Chiziqlar egri chiziqlarda bo\'lmasa, xulosaga ishonib bo\'lmaydi — varaqni qayta suratga oling.',
+  'прочитанные трассы на снимке': 'suratdagi o\'qilgan chiziqlar',
+  'Подробно: измерения, находки, кривая, заключение на узбекском': 'Batafsil: o\'lchovlar, topilmalar, egri chiziq, rus tilidagi xulosa',
+  'Измерения': 'O\'lchovlar', 'Подсказка по симптомам': 'Simptomlar bo\'yicha maslahat',
+  'Сравнение с прошлой ЭКГ': 'Oldingi EKG bilan taqqoslash', 'Находки': 'Topilmalar',
+  'Кривая ЭКГ': 'EKG egri chizig\'i', 'ЭКГ': 'EKG', 'Причинный граф': 'Sabab grafi', 'граф': 'graf',
+  'Ход рассуждений': 'Mulohaza yuritish jarayoni',
+  'Последние анализы в этом браузере': 'Shu brauzerdagi so\'nggi tahlillar',
+  'Анализы хранятся на сервере 30 дней (зашифрованно). Ссылка открывает PDF без ключа 7 дней — без снимка листа.':
+    'Tahlillar serverda 30 kun (shifrlangan holda) saqlanadi. Havola PDFni kalitsiz 7 kun ochadi — varaq suratisiz.',
+  'Экран прибора, лист или лента — определится сам': 'Qurilma ekrani, varaq yoki lenta — o\'zi aniqlanadi',
+  'Наведите камеру на ЭКГ…': 'Kamerani EKGga qarating…',
+  'Снимаю частями (каждая часть с перекрытием) — включается сам, если лист большой':
+    'Qismlarga bo\'lib olaman (har bir qism qoplama bilan) — varaq katta bo\'lsa o\'zi yoqiladi',
+  'Отмена': 'Bekor qilish', 'Снять': 'Suratga olish', 'Готово': 'Tayyor',
+  'Отправляю…': 'Yuborilmoqda…', 'Читаю ЭКГ со снимка…': 'Suratdan EKG o\'qilmoqda…',
+  'Измеряю и ищу находки…': 'O\'lchanmoqda va topilmalar izlanmoqda…', 'Пишу заключение…': 'Xulosa yozilmoqda…',
+  'Ещё немного — сложный снимок…': 'Yana biroz — murakkab surat…',
+  'Сначала выберите фото или файл ЭКГ.': 'Avval EKG surati yoki faylini tanlang.',
+  'Сначала поверните фото: строки ЭКГ должны идти слева направо.': 'Avval suratni burang: EKG qatorlari chapdan o\'ngga borishi kerak.',
+  'Укажите возраст пациента.': 'Bemorning yoshini kiriting.', 'Укажите пол пациента.': 'Bemorning jinsini ko\'rsating.',
+  'Нужен ключ клиники — его выдаёт администратор (раздел «Дополнительно»).': 'Klinika kaliti kerak — uni administrator beradi («Qo\'shimcha» bo\'limi).',
+  'ключ клиники не подходит — проверьте его в разделе «Дополнительно»': 'klinika kaliti mos emas — uni «Qo\'shimcha» bo\'limida tekshiring',
+  'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.': 'Server bilan aloqa yo\'q. Internetni tekshirib, qayta urinib ko\'ring.',
+  'Готово — заключение для врача': 'Tayyor — shifokor uchun xulosa', 'Готово — автономное заключение': 'Tayyor — avtonom xulosa',
+  '⚠ Требуется просмотр врача': '⚠ Shifokor ko\'rigi talab qilinadi',
+  'критическая находка требует просмотра врача (§10)': 'kritik topilma shifokor ko\'rigini talab qiladi (§10)',
+  'сигнал получен по фото — автономная интерпретация не применяется': 'signal suratdan olingan — avtonom talqin qo\'llanilmaydi',
+  'качество сигнала ниже порога (§2)': 'signal sifati chegaradan past (§2)',
+  'симптомы (боль в груди или обморок) — нужен просмотр врача': 'simptomlar (ko\'krakda og\'riq yoki hushdan ketish) — shifokor ko\'rigi kerak',
+  'Значимых изменений находок нет.': 'Topilmalarda sezilarli o\'zgarish yo\'q.',
+  'Делаю ссылку…': 'Havola tayyorlanmoqda…', 'Этот анализ больше не хранится на сервере.': 'Bu tahlil serverda endi saqlanmaydi.',
+  'Не удалось сделать ссылку — проверьте ключ клиники и связь.': 'Havola yaratib bo\'lmadi — klinika kaliti va aloqani tekshiring.',
+  'Не удалось открыть PDF.': 'PDFni ochib bo\'lmadi.',
+  'Этот браузер не даёт доступа к камере. Сфотографируйте ЭКГ камерой телефона и выберите оригинал.':
+    'Bu brauzer kameraga ruxsat bermaydi. EKGni telefon kamerasi bilan suratga oling va asl nusxani tanlang.',
+  'Проверка кадра недоступна — можно снять вручную.': 'Kadr tekshiruvi mavjud emas — qo\'lda suratga olish mumkin.',
+  'Часть снята. Сдвиньте камеру на следующую часть (с перекрытием) или нажмите «Готово».':
+    'Qism olindi. Kamerani keyingi qismga (qoplama bilan) suring yoki «Tayyor»ni bosing.',
+  'Снято. Нажмите «Готово» или снимите ещё раз.': 'Olindi. «Tayyor»ni bosing yoki yana bir marta suratga oling.',
+};
+let lang = 'ru';
+try { lang = localStorage.getItem('cardiolens_lang_v1') === 'uz' ? 'uz' : 'ru'; } catch (e) {}
+function t(s) { return lang === 'uz' && UZ[s] ? UZ[s] : s; }
+function L(ru, uz) { return lang === 'uz' ? uz : ru; }
+// The page's own texts and the hints of its fields, switched in place; the Russian original is kept.
+const RU_TEXT = new WeakMap();
+function applyLang() {
+  document.documentElement.lang = lang;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: n => (n.parentElement && /^(SCRIPT|STYLE|PRE)$/.test(n.parentElement.tagName)) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!RU_TEXT.has(n)) RU_TEXT.set(n, n.nodeValue);
+    const ru = RU_TEXT.get(n), key = ru.split(/\s+/).join(' ').trim();
+    n.nodeValue = (lang === 'uz' && UZ[key]) ? ru.replace(/\S[\s\S]*\S|\S/, UZ[key]) : ru;
+  }
+  for (const el of document.querySelectorAll('[placeholder],[title],[alt]')) {
+    for (const a of ['placeholder', 'title', 'alt']) {
+      if (!el.hasAttribute(a)) continue;
+      const k = 'ru' + a;
+      if (!(k in el.dataset)) el.dataset[k] = el.getAttribute(a);
+      el.setAttribute(a, t(el.dataset[k]));
+    }
+  }
+  for (const c of ['ru', 'uz']) { const b = document.getElementById('lang_' + c); if (b) b.classList.toggle('on', lang === c); }
+}
 const $ = id => document.getElementById(id);
 
 // The clinic key (D136) is remembered in this browser (localStorage). A link with #key=…
@@ -300,7 +429,7 @@ $('apikey').addEventListener('change', () => {
 });
 function keyStatus() {
   const has = !!$('apikey').value.trim();
-  $('keyhint').textContent = has ? 'Ключ сохранён в этом браузере.' : 'Без ключа клиники анализ не запустится.';
+  $('keyhint').textContent = t(has ? 'Ключ сохранён в этом браузере.' : 'Без ключа клиники анализ не запустится.');
   if (!has) $('more').open = true;
 }
 function authed(url, opts = {}) {
@@ -337,7 +466,7 @@ async function checkPortrait() {
     if (!portrait) return;
   } catch (e) { return; }                               // HEIC and the like: the server decides
   rot.pending = true; rot.file = list[0];
-  $('rotmsg').textContent = 'Фото вертикальное. Поверните его так, чтобы строки ЭКГ шли слева направо, — иначе его не прочитать.';
+  $('rotmsg').textContent = t('Фото вертикальное. Поверните его так, чтобы строки ЭКГ шли слева направо, — иначе его не прочитать.');
   showRotPreview(list[0]);
   $('rotbox').classList.remove('hidden');
 }
@@ -367,10 +496,10 @@ async function rotateBy(deg) {
     rot.pending = c.height > 1.15 * c.width;
     // The upside-down page reads too, with mirrored QRS (SD-074): the user checks it.
     $('rotmsg').textContent = rot.pending
-      ? 'Фото всё ещё вертикальное — поверните ещё раз.'
-      : 'Повёрнуто. Проверьте по предпросмотру: строки идут слева направо и подписи отведений не вверх ногами. Если перевёрнуто — нажмите поворот ещё два раза.';
+      ? t('Фото всё ещё вертикальное — поверните ещё раз.')
+      : t('Повёрнуто. Проверьте по предпросмотру: строки идут слева направо и подписи отведений не вверх ногами. Если перевёрнуто — нажмите поворот ещё два раза.');
   } catch (e) {
-    $('filewarn').textContent = 'Не удалось повернуть фото в браузере — поверните его в галерее телефона и выберите снова.';
+    $('filewarn').textContent = t('Не удалось повернуть фото в браузере — поверните его в галерее телефона и выберите снова.');
   }
 }
 $('rotl').addEventListener('click', () => rotateBy(-90));
@@ -404,7 +533,7 @@ const cam = { stream: null, capture: null, photoW: 0, shots: [], timer: null, ok
 const CAM_OK_RUN = 3;          // checks in a row before the auto shot
 async function camOpen() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    alert('Этот браузер не даёт доступа к камере. Сфотографируйте ЭКГ камерой телефона и выберите оригинал.');
+    alert(t('Этот браузер не даёт доступа к камере. Сфотографируйте ЭКГ камерой телефона и выберите оригинал.'));
     return;
   }
   try {
@@ -452,7 +581,7 @@ async function camCheck() {
     fd.append('parts', $('campartsbox').checked ? 'true' : 'false');
     const r = await authed('/api/capture/check', { method: 'POST', body: fd });
     if (!r.ok) { $('camhint').textContent = r.status === 401 || r.status === 403
-        ? 'Нужен ключ клиники (раздел «Дополнительно»).' : 'Проверка кадра недоступна — можно снять вручную.'; return; }
+        ? 'Нужен ключ клиники (раздел «Дополнительно»).' : t('Проверка кадра недоступна — можно снять вручную.'); return; }
     const d = await r.json();
     camDraw(d, c.width, c.height);
     // D177: what is in view is told apart on the server; a sheet too big to take whole
@@ -462,11 +591,11 @@ async function camCheck() {
     const hint = $('camhint');
     if (d.ok) {
       cam.okRun += 1; hint.classList.add('ok');
-      hint.textContent = d.ready_ru + (d.px_per_mm ? ` (${d.px_per_mm.toFixed(1)} точек/мм)` : '');
+      hint.textContent = L(d.ready_ru, d.ready_uz || d.ready_ru) + (d.px_per_mm ? ` (${d.px_per_mm.toFixed(1)} ${L('точек/мм', 'nuqta/mm')})` : '');
       if (cam.okRun >= CAM_OK_RUN) { cam.okRun = 0; await camShot(); }
     } else {
       cam.okRun = 0; hint.classList.remove('ok');
-      hint.textContent = d.hints.map(h => h.ru).join(' ');
+      hint.textContent = d.hints.map(h => L(h.ru, h.uz || h.ru)).join(' ');
     }
   } catch (e) { /* a lost frame: the next one tries again */ }
   finally { cam.busy = false; }
@@ -493,8 +622,8 @@ async function camShot() {
   cam.shots.push(new File([blob], `camera_${Date.now()}_${cam.shots.length + 1}.jpg`, { type: 'image/jpeg' }));
   camCount();
   $('camhint').textContent = $('campartsbox').checked
-    ? 'Часть снята. Сдвиньте камеру на следующую часть (с перекрытием) или нажмите «Готово».'
-    : 'Снято. Нажмите «Готово» или снимите ещё раз.';
+    ? t('Часть снята. Сдвиньте камеру на следующую часть (с перекрытием) или нажмите «Готово».')
+    : t('Снято. Нажмите «Готово» или снимите ещё раз.');
   if (navigator.vibrate) navigator.vibrate(80);
 }
 function camDone() {
@@ -534,18 +663,21 @@ async function loadCases() {
 }
 
 const PROVIDER_RU = { local: 'локальная модель', claude: 'Claude', stub: 'офлайн-шаблон' };
+const PROVIDER_UZ = { local: 'mahalliy model', claude: 'Claude', stub: 'oflayn shablon' };
 function providerLabel(name, model) {
-  return (PROVIDER_RU[name] || name) + (model ? ' · ' + model : '');
+  return (L(PROVIDER_RU[name], PROVIDER_UZ[name]) || name) + (model ? ' · ' + model : '');
 }
 async function loadHealth() {
   try {
     const r = await fetch('/health'); const d = await r.json(); const l = d.llm || {};
     const el = $('llm'); el.className = 'llm ' + (l.active || 'stub');
     const ml = d.ml || {};
-    el.textContent = 'Текст заключения: ' + providerLabel(l.active, l.model) +
-      ' · анализ: ' + (ml.model === 'loaded' ? 'правила + обученная модель' : 'правила (модель не загружена)');
-    el.title = 'Анализ ЭКГ делает CardioVision; эта модель только пишет текст по его находкам';
-  } catch (e) { $('llm').textContent = 'Текст заключения: ?'; }
+    el.textContent = L('Текст заключения: ', 'Xulosa matni: ') + providerLabel(l.active, l.model) +
+      L(' · анализ: ', ' · tahlil: ') + (ml.model === 'loaded' ? L('правила + обученная модель', 'qoidalar + o\'qitilgan model')
+                                                            : L('правила (модель не загружена)', 'qoidalar (model yuklanmagan)'));
+    el.title = L('Анализ ЭКГ делает CardioVision; эта модель только пишет текст по его находкам',
+                 'EKG tahlilini CardioVision bajaradi; bu model faqat uning topilmalari bo\'yicha matn yozadi');
+  } catch (e) { $('llm').textContent = L('Текст заключения: ?', 'Xulosa matni: ?'); }
 }
 
 // What the page says while the server works: reading a photo through the scanner, the
@@ -558,7 +690,7 @@ function startProgress() {
   const tick = () => {
     const s = Math.round((Date.now() - t0) / 1000);
     const stage = STAGES.filter(x => x[0] <= s).pop()[1];
-    $('progress').textContent = `${stage} ${s} с`;
+    $('progress').textContent = `${t(stage)} ${s} ${L('с', 's')}`;
   };
   tick(); timer = setInterval(tick, 1000);
 }
@@ -569,13 +701,13 @@ $('run').addEventListener('click', async () => {
   const fd = new FormData();
   if (files.files.length) { for (const f of files.files) fd.append('files', f); }
   else if ($('case').value) fd.append('case', $('case').value);
-  else { $('err').textContent = 'Сначала выберите фото или файл ЭКГ.'; return; }
-  if (rot.pending) { $('err').textContent = 'Сначала поверните фото: строки ЭКГ должны идти слева направо.'; $('rotbox').scrollIntoView({ block: 'center' }); return; }
+  else { $('err').textContent = t('Сначала выберите фото или файл ЭКГ.'); return; }
+  if (rot.pending) { $('err').textContent = t('Сначала поверните фото: строки ЭКГ должны идти слева направо.'); $('rotbox').scrollIntoView({ block: 'center' }); return; }
 
   const age = parseFloat($('age').value);
-  if (!(age >= 0 && age <= 120)) { $('err').textContent = 'Укажите возраст пациента.'; $('age').focus(); return; }
-  if (!sex) { $('err').textContent = 'Укажите пол пациента.'; return; }
-  if (!$('apikey').value.trim()) { $('err').textContent = 'Нужен ключ клиники — его выдаёт администратор (раздел «Дополнительно»).'; $('more').open = true; return; }
+  if (!(age >= 0 && age <= 120)) { $('err').textContent = t('Укажите возраст пациента.'); $('age').focus(); return; }
+  if (!sex) { $('err').textContent = t('Укажите пол пациента.'); return; }
+  if (!$('apikey').value.trim()) { $('err').textContent = t('Нужен ключ клиники — его выдаёт администратор (раздел «Дополнительно»).'); $('more').open = true; return; }
 
   fd.append('mode', $('mode').value);
   // D179: the speed and gain printed on the strip, when the user gives them.
@@ -594,7 +726,7 @@ $('run').addEventListener('click', async () => {
   $('run').disabled = true; $('results').classList.add('hidden'); startProgress();
   try {
     const r = await authed('/api/analyze', { method: 'POST', body: fd });
-    if (r.status === 401) { $('more').open = true; throw new Error('ключ клиники не подходит — проверьте его в разделе «Дополнительно»'); }
+    if (r.status === 401) { $('more').open = true; throw new Error(t('ключ клиники не подходит — проверьте его в разделе «Дополнительно»')); }
     if (!r.ok) {
       let detail = r.statusText;
       try { detail = (await r.json()).detail || detail; } catch (e) {}
@@ -603,20 +735,22 @@ $('run').addEventListener('click', async () => {
     render(await r.json());
   } catch (e) {
     $('err').textContent = (e.message === 'Failed to fetch' || e.message === 'Load failed')
-      ? 'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.' : e.message;
+      ? t('Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.') : e.message;
   } finally { $('run').disabled = false; stopProgress(); }
 });
 
-function render(d) {
+let lastData = null;
+function render(d, redraw = false) {
   $('results').classList.remove('hidden');
+  lastData = d;                                           // D200: re-drawn on a language switch
   const modeLabel = { A: 'Готово — заключение для врача', B: 'Готово — автономное заключение',
     escalate: '⚠ Требуется просмотр врача' };
   const b = $('banner'); b.className = 'banner ' + d.mode;
-  b.textContent = modeLabel[d.mode] || d.mode;
-  if (d.escalation_reason) b.textContent += ' — ' + d.escalation_reason;
+  b.textContent = t(modeLabel[d.mode] || d.mode);
+  if (d.escalation_reason) b.textContent += ' — ' + t(d.escalation_reason);
 
   $('critical').innerHTML = (d.critical_alerts || [])
-    .map(a => `<div class="crit">⚠ ${esc(a.label_ru)} / ${esc(a.label_uz)}</div>`).join('');
+    .map(a => `<div class="crit">⚠ ${esc(L(a.label_ru, a.label_uz))}</div>`).join('');
 
   const m = d.measurements, iv = m.intervals;
   // D178: an unreliable photo's numbers are not shown as measurements.
@@ -625,33 +759,33 @@ function render(d) {
   const gate = (d.findings || []).find(f => f.code === 'photo_unreliable');
   const rate = gate && (gate.evidence || []).find(e => e.feature === 'rate_released_bpm');
   if (unreliable && rate && (d.findings || []).every(f => !['no_ecg_signal', 'amplitude_implausible'].includes(f.code))) {
-    $('meas').innerHTML = `<tr><td>ЧСС</td><td>${esc(rate.value)} /мин</td><td colspan="2" class="muted">по полосе II</td></tr>
-    <tr><td colspan="4">Ось, вольтаж и интервалы не приводятся: отведения конечностей прочитаны ненадёжно. Переснимите ЭКГ.</td></tr>
-    <tr><td>Уверенность</td><td colspan="3">${d.interpretation.confidence.value} (${d.interpretation.confidence.word_ru})</td></tr>`;
+    $('meas').innerHTML = `<tr><td>${L('ЧСС', 'YuQS')}</td><td>${esc(rate.value)} ${L('/мин', '/daq')}</td><td colspan="2" class="muted">${L('по полосе II', 'II tasma bo\'yicha')}</td></tr>
+    <tr><td colspan="4">${L('Ось, вольтаж и интервалы не приводятся: отведения конечностей прочитаны ненадёжно. Переснимите ЭКГ.', 'O\'q, voltaj va intervallar keltirilmaydi: oyoq-qo\'l tarmoqlari ishonchsiz o\'qildi. EKGni qayta suratga oling.')}</td></tr>
+    <tr><td>${L('Уверенность', 'Ishonch')}</td><td colspan="3">${d.interpretation.confidence.value} (${L(d.interpretation.confidence.word_ru, d.interpretation.confidence.word_uz)})</td></tr>`;
   } else if (unreliable) {
-    $('meas').innerHTML = `<tr><td colspan="4">Измерения не приводятся: снимок распознан ненадёжно. Переснимите ЭКГ.</td></tr>
-    <tr><td>Уверенность</td><td colspan="3">${d.interpretation.confidence.value} (${d.interpretation.confidence.word_ru})</td></tr>`;
+    $('meas').innerHTML = `<tr><td colspan="4">${L('Измерения не приводятся: снимок распознан ненадёжно. Переснимите ЭКГ.', 'O\'lchovlar keltirilmaydi: surat ishonchsiz o\'qildi. EKGni qayta suratga oling.')}</td></tr>
+    <tr><td>${L('Уверенность', 'Ishonch')}</td><td colspan="3">${d.interpretation.confidence.value} (${L(d.interpretation.confidence.word_ru, d.interpretation.confidence.word_uz)})</td></tr>`;
   } else $('meas').innerHTML = `
-    <tr><td>ЧСС</td><td>${m.heart_rate_bpm ?? '—'} /мин</td>
-        <td>PR</td><td>${iv.pr_ms ?? '—'} мс</td></tr>
-    <tr><td>QRS</td><td>${iv.qrs_ms ?? '—'} мс</td>
-        <td>QTc (Bazett)</td><td>${iv.qtc_bazett_ms ?? '—'} мс</td></tr>
-    <tr><td>Ось QRS</td><td>${m.axes.qrs_deg ?? '—'}°</td>
-        <td>Уверенность</td><td>${d.interpretation.confidence.value} (${d.interpretation.confidence.word_ru})</td></tr>`;
+    <tr><td>${L('ЧСС', 'YuQS')}</td><td>${m.heart_rate_bpm ?? '—'} ${L('/мин', '/daq')}</td>
+        <td>PR</td><td>${iv.pr_ms ?? '—'} ${L('мс', 'ms')}</td></tr>
+    <tr><td>QRS</td><td>${iv.qrs_ms ?? '—'} ${L('мс', 'ms')}</td>
+        <td>QTc (Bazett)</td><td>${iv.qtc_bazett_ms ?? '—'} ${L('мс', 'ms')}</td></tr>
+    <tr><td>${L('Ось QRS', 'QRS o\'qi')}</td><td>${m.axes.qrs_deg ?? '—'}°</td>
+        <td>${L('Уверенность', 'Ishonch')}</td><td>${d.interpretation.confidence.value} (${L(d.interpretation.confidence.word_ru, d.interpretation.confidence.word_uz)})</td></tr>`;
 
   // D180: the paper speed was assumed, not read: said next to the numbers.
   if (d.speed_note_ru) $('meas').innerHTML += `<tr><td colspan="4" class="notice">${esc(d.speed_note_ru)}</td></tr>`;
   if (d.device_ru) $('meas').innerHTML += `<tr><td colspan="4" class="muted">${esc(d.device_ru)}</td></tr>`;
   $('findings').innerHTML = (d.findings || [])
-    .map(f => `<span class="chip ${f.critical ? 'crit' : ''}">${esc(f.label_ru + leadSuffix(f))}</span>`).join('') || '<span class="muted">—</span>';
+    .map(f => `<span class="chip ${f.critical ? 'crit' : ''}">${esc(L(f.label_ru, f.label_uz) + leadSuffix(f))}</span>`).join('') || '<span class="muted">—</span>';
 
   blobUrl(`/api/analysis/${d.analysis_id}/waveform.svg`).then(u => { $('wave').src = u; }).catch(() => {});
   blobUrl(`/api/analysis/${d.analysis_id}/graph.png`).then(u => { $('graph').src = u; }).catch(() => {});
-  $('concl_ru').textContent = d.conclusion_ru;
-  $('concl_uz').textContent = d.conclusion_uz;
+  $('concl_ru').textContent = L(d.conclusion_ru, d.conclusion_uz);     // the main one in the page's language
+  $('concl_uz').textContent = L(d.conclusion_uz, d.conclusion_ru);
   const it = d.interpretation;
-  $('narr_src').textContent = 'Текст: ' + providerLabel(it.provider, it.provider_model) +
-    ' · каждое утверждение проверено по находкам';
+  $('narr_src').textContent = L('Текст: ', 'Matn: ') + providerLabel(it.provider, it.provider_model) +
+    L(' · каждое утверждение проверено по находкам', ' · har bir da\'vo topilmalar bo\'yicha tekshirilgan');
   // A photo the scanner read (D163): the traces it read, drawn over the page.
   $('overlay_box').classList.toggle('hidden', !d.overlay_available);
   $('overlay').removeAttribute('src');
@@ -662,14 +796,13 @@ function render(d) {
   blobUrl(`/api/analysis/${d.analysis_id}/report.pdf`).then(u => {
     $('pdf').href = u; $('pdf').download = `cardiolens_${d.analysis_id}.pdf`;
   }).catch(() => {});
-  $('disc').textContent = it.disclaimer.ru;
+  $('disc').textContent = L(it.disclaimer.ru, it.disclaimer.uz);
   lastId = d.analysis_id; $('shareout').textContent = '';     // D197
   renderSerial(d.serial_comparison);
   const adv = d.symptom_advice || [];                    // D195
   $('advice_box').classList.toggle('hidden', !adv.length);
-  $('advice').innerHTML = adv.map(a => `<div class="${a.urgent ? 'crit' : 'notice'}" style="margin:4px 0">${a.urgent ? '⚠ ' : ''}${esc(a.ru)}</div>`).join('');
-  rememberAnalysis(d, unreliable);
-  $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('advice').innerHTML = adv.map(a => `<div class="${a.urgent ? 'crit' : 'notice'}" style="margin:4px 0">${a.urgent ? '⚠ ' : ''}${esc(L(a.ru, a.uz))}</div>`).join('');
+  if (!redraw) { rememberAnalysis(d, unreliable); $('results').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 }
 
 // D196: the leads a finding rests on, when its name does not give them already.
@@ -677,21 +810,21 @@ function leadSuffix(f) {
   const ev = (f.evidence || []).find(e => e.feature === 'leads');
   const leads = ev && ev.value ? ev.value.split(',').map(x => x.trim()).filter(Boolean) : [];
   if (!leads.length) return '';
-  const words = new Set(String(f.label_ru).split(/[\s,()]+/));
-  return leads.every(l => words.has(l)) ? '' : ` (отведения: ${leads.join(', ')})`;
+  const words = new Set(String(L(f.label_ru, f.label_uz)).split(/[\s,()]+/));
+  return leads.every(l => words.has(l)) ? '' : ` (${L('отведения', 'tarmoqlar')}: ${leads.join(', ')})`;
 }
 
 // D193: the comparison with a prior ECG.
 function renderSerial(sc) {
   $('serial_box').classList.toggle('hidden', !sc);
   if (!sc) return;
-  if (sc.skipped_ru) { $('serial').innerHTML = `<div class="muted">${esc(sc.skipped_ru)}</div>`; return; }
-  const rows = (sc.deltas || []).map(x => `<span class="chip ${x.critical ? 'crit' : ''}">${esc(x.label_ru)}</span>`);
+  if (sc.skipped_ru) { $('serial').innerHTML = `<div class="muted">${esc(L(sc.skipped_ru, sc.skipped_uz))}</div>`; return; }
+  const rows = (sc.deltas || []).map(x => `<span class="chip ${x.critical ? 'crit' : ''}">${esc(L(x.label_ru, x.label_uz))}</span>`);
   const nums = [];
-  if (sc.hr_delta_bpm != null) nums.push(`ЧСС ${sc.hr_delta_bpm > 0 ? '+' : ''}${sc.hr_delta_bpm} /мин`);
-  if (sc.qtc_delta_ms != null) nums.push(`QTc ${sc.qtc_delta_ms > 0 ? '+' : ''}${sc.qtc_delta_ms} мс`);
-  $('serial').innerHTML = (rows.join('') || '<span class="muted">Значимых изменений находок нет.</span>')
-    + (nums.length ? `<div class="muted" style="margin-top:6px">Изменение: ${esc(nums.join(', '))}</div>` : '');
+  if (sc.hr_delta_bpm != null) nums.push(`${L('ЧСС', 'YuQS')} ${sc.hr_delta_bpm > 0 ? '+' : ''}${sc.hr_delta_bpm} ${L('/мин', '/daq')}`);
+  if (sc.qtc_delta_ms != null) nums.push(`QTc ${sc.qtc_delta_ms > 0 ? '+' : ''}${sc.qtc_delta_ms} ${L('мс', 'ms')}`);
+  $('serial').innerHTML = (rows.join('') || `<span class="muted">${t('Значимых изменений находок нет.')}</span>`)
+    + (nums.length ? `<div class="muted" style="margin-top:6px">${L('Изменение', 'O\'zgarish')}: ${esc(nums.join(', '))}</div>` : '');
 }
 // The analyses made in this browser, for the comparison list: the number, the time and the
 // rate only — no patient data, no conclusion text (D193).
@@ -702,9 +835,9 @@ function loadHistory() {
 }
 function fillPrior() {
   const sel = $('prior'), keep = sel.value;
-  sel.innerHTML = '<option value="">не сравнивать</option>' + loadHistory().map(h => {
+  sel.innerHTML = `<option value="">${t('не сравнивать')}</option>` + loadHistory().map(h => {
     const t = new Date(h.t), when = t.toLocaleDateString('ru-RU') + ' ' + t.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    return `<option value="${esc(h.id)}">${esc(when)} · ЧСС ${h.hr == null ? '—' : esc(h.hr)}</option>`;
+    return `<option value="${esc(h.id)}">${esc(when)} · ${L('ЧСС', 'YuQS')} ${h.hr == null ? '—' : esc(h.hr)}</option>`;
   }).join('');
   sel.value = keep && [...sel.options].some(o => o.value === keep) ? keep : '';
 }
@@ -721,20 +854,20 @@ fillPrior();
 // D197: the history list, the PDF again, and a signed link for a colleague (PDF without the photo).
 let lastId = null;
 async function shareLink(id, out) {
-  out.textContent = 'Делаю ссылку…';
+  out.textContent = t('Делаю ссылку…');
   try {
     const r = await authed(`/api/analysis/${id}/share`, { method: 'POST' });
-    if (r.status === 404) { out.textContent = 'Этот анализ больше не хранится на сервере.'; return; }
+    if (r.status === 404) { out.textContent = t('Этот анализ больше не хранится на сервере.'); return; }
     if (!r.ok) throw new Error(r.status);
     const d = await r.json(), url = location.origin + d.url;
     const until = new Date(d.expires_at * 1000).toLocaleDateString('ru-RU');
-    try { await navigator.clipboard.writeText(url); out.textContent = `Ссылка скопирована (до ${until}): ${url}`; }
-    catch (e) { out.textContent = `Ссылка (до ${until}): ${url}`; }
-  } catch (e) { out.textContent = 'Не удалось сделать ссылку — проверьте ключ клиники и связь.'; }
+    try { await navigator.clipboard.writeText(url); out.textContent = `${L('Ссылка скопирована', 'Havola nusxalandi')} (${L('до', 'gacha')} ${until}): ${url}`; }
+    catch (e) { out.textContent = `${L('Ссылка', 'Havola')} (${L('до', 'gacha')} ${until}): ${url}`; }
+  } catch (e) { out.textContent = t('Не удалось сделать ссылку — проверьте ключ клиники и связь.'); }
 }
 async function openPdf(id, out) {
   try { window.open(await blobUrl(`/api/analysis/${id}/report.pdf`), '_blank'); }
-  catch (e) { out.textContent = String(e.message).startsWith('404') ? 'Этот анализ больше не хранится на сервере.' : 'Не удалось открыть PDF.'; }
+  catch (e) { out.textContent = t(String(e.message).startsWith('404') ? 'Этот анализ больше не хранится на сервере.' : 'Не удалось открыть PDF.'); }
 }
 function fillHistory() {
   const h = loadHistory();
@@ -742,8 +875,8 @@ function fillHistory() {
   $('histlist').innerHTML = h.map((x, i) => {
     const t = new Date(x.t), when = t.toLocaleDateString('ru-RU') + ' ' + t.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     return `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)">
-      <span style="flex:1;min-width:160px">${esc(when)} · ЧСС ${x.hr == null ? '—' : esc(x.hr)}</span>
-      <button type="button" data-pdf="${i}">PDF</button><button type="button" data-share="${i}">🔗 Ссылка</button>
+      <span style="flex:1;min-width:160px">${esc(when)} · ${L('ЧСС', 'YuQS')} ${x.hr == null ? '—' : esc(x.hr)}</span>
+      <button type="button" data-pdf="${i}">PDF</button><button type="button" data-share="${i}">🔗 ${L('Ссылка', 'Havola')}</button>
       <div class="muted" id="hout${i}" style="flex-basis:100%;word-break:break-all"></div></div>`;
   }).join('');
   h.forEach((x, i) => {
@@ -784,6 +917,19 @@ async function loadQuality() {
   } catch (e) { out.textContent = 'Не удалось загрузить сводку.'; }
 }
 $('qualbox').addEventListener('toggle', () => { if ($('qualbox').open) loadQuality(); });
+
+// D200: the language switch.
+function setLang(l) {
+  lang = l;
+  try { localStorage.setItem('cardiolens_lang_v1', l); } catch (e) {}
+  applyLang(); fillPrior(); fillHistory(); loadHealth();
+  const hasKey = !!$('apikey').value.trim();
+  $('keyhint').textContent = t(hasKey ? 'Ключ сохранён в этом браузере.' : 'Без ключа клиники анализ не запустится.');
+  if (lastData) render(lastData, true);
+}
+$('lang_ru').addEventListener('click', () => setLang('ru'));
+$('lang_uz').addEventListener('click', () => setLang('uz'));
+applyLang();
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 

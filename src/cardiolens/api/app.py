@@ -149,8 +149,9 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
     h, w = bgr.shape[:2]
     scale = (capture_width / w) if capture_width and capture_width >= w else 1.0
     loop = asyncio.get_running_loop()
-    ru = strings("ru")
-    say = lambda codes: [{"code": c, "ru": ru.get(f"qc.{c}", c)} for c in codes]
+    ru, uz = strings("ru"), strings("uz")      # D200: the page shows either
+    say = lambda codes: [{"code": c, "ru": ru.get(f"qc.{c}", c), "uz": uz.get(f"qc.{c}", ru.get(f"qc.{c}", c))}
+                         for c in codes]
 
     screen = await loop.run_in_executor(None, is_device_screen, bgr)
     if screen:
@@ -158,7 +159,7 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
             check_frame, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), scale_to_capture=scale, grid=False))
         hints = [c for c in qc.hints if c in ("glare", "steady", "light")]
         return {"ok": not hints, "mode": "screen", "mode_ru": "Экран прибора: снимите весь экран, без бликов",
-                "hints": say(hints), "ready_ru": ru.get("qc.ready", ""), "px_per_mm": None,
+                "hints": say(hints), "ready_ru": ru.get("qc.ready", ""), "ready_uz": uz.get("qc.ready", ""), "px_per_mm": None,
                 "tilt_deg": None, "sheet_area": None, "sheet_mm": None, "corners": None,
                 "board": False, "suggest_parts": False, "frame": [w, h]}
 
@@ -198,7 +199,8 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
     mode, mode_ru = _paper_kind(sheet_mm)
     texts = say([c for c in hints if c not in ("parts", "turn")])
     if "turn" in hints:
-        texts.insert(0, {"code": "turn", "ru": "Поверните телефон горизонтально: строки ЭКГ должны идти слева направо."})
+        texts.insert(0, {"code": "turn", "ru": "Поверните телефон горизонтально: строки ЭКГ должны идти слева направо.",
+                         "uz": "Telefonni gorizontal holatga burang: EKG qatorlari chapdan o'ngga borishi kerak."})
     if board and sheet_mm:
         # Tinted paper is read up to the markers' inner edges (SD-077), not only the frame.
         zw, zh = _read_size(fit.spec)
@@ -207,12 +209,14 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
             texts.append({"code": "board_small", "ru": _board_advice(sheet_mm, fit.spec.name)})
     if "parts" in hints:
         texts.append({"code": "parts", "ru": "Лист большой: снимите его частями, каждая часть с перекрытием "
-                                           "соседней — режим «частями» включён."})
+                                           "соседней — режим «частями» включён.",
+                      "uz": "Varaq katta: uni qismlarga bo'lib suratga oling, har bir qism qo'shnisini qoplab "
+                            "tursin — «qismlarga» rejimi yoqildi."})
     return {
         "ok": not hints,
         "mode": mode, "mode_ru": mode_ru,
         "hints": texts,
-        "ready_ru": ru.get("qc.ready", ""),
+        "ready_ru": ru.get("qc.ready", ""), "ready_uz": uz.get("qc.ready", ""),
         "px_per_mm": ppm,
         "tilt_deg": qc.tilt_deg,
         "sheet_area": qc.sheet_area,
