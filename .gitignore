@@ -27,6 +27,7 @@ configs/models/*.joblib
 data/ptbxl-plus/
 data/cpsc2018/
 data/ptbxl-extra/
+data/ptbxl_rhythm/
 data/cpsc2018-toddlers/
 data/ptbxl-toddlers/
 data/ludb/
