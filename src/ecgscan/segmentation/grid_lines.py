@@ -63,7 +63,7 @@ def _restore(removed: np.ndarray, kept: np.ndarray, reach: int, axis: int) -> np
 def drop_grid_lines(ink: np.ndarray, px_per_mm: float, *, keep_boxes=(), min_h_mm: float = 20.0,
                     min_v_mm: float = 8.0, min_frac: float = 0.02, reach_mm: float = 0.8,
                     slack_mm: float = 0.2, band_mm: float = 40.0,
-                    bridge_mm: float = 1.5) -> tuple[np.ndarray, float]:
+                    bridge_mm: float = 1.5, tile_mm: float | None = None) -> tuple[np.ndarray, float]:
     """(ink without the 5-mm grid lines, fraction of the ink removed)."""
     ink = ink.astype(bool)
     period = 5.0 * float(px_per_mm)
@@ -88,15 +88,21 @@ def drop_grid_lines(ink: np.ndarray, px_per_mm: float, *, keep_boxes=(), min_h_m
         # moves a line a few pixels from one side to the other.
         size = runs.shape[1 - axis]
         step = max(n, int(round(band_mm * px_per_mm)))
+        # R4, SD-104: along the lines' own direction too, in tiles of ``tile_mm``: over a whole
+        # page (44 periods) a scale off by half a percent or a slight tilt moves the lattice by
+        # a quarter period, and half the lines were left (ecgdig 1210-v3: 11 "rows").
+        span = runs.shape[axis]
+        tile = span if tile_mm is None else max(int(round(3 * period)), int(round(tile_mm * px_per_mm)))
         for a in range(0, size, step):
-            part = runs[:, a:a + step] if axis == 0 else runs[a:a + step, :]
-            on = _lattice(part.mean(axis=1 - axis), period, min_frac)
-            if on is None:
-                continue
-            if axis == 0:
-                found[0][:, a:a + step] = part & on[:, None]
-            else:
-                found[1][a:a + step, :] = part & on[None, :]
+            for c in range(0, span, tile):
+                part = runs[c:c + tile, a:a + step] if axis == 0 else runs[a:a + step, c:c + tile]
+                on = _lattice(part.mean(axis=1 - axis), period, min_frac)
+                if on is None:
+                    continue
+                if axis == 0:
+                    found[0][c:c + tile, a:a + step] = part & on[:, None]
+                else:
+                    found[1][a:a + step, c:c + tile] = part & on[None, :]
     for x0, y0, x1, y1 in keep_boxes:
         for m in found.values():
             m[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = False

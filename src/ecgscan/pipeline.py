@@ -597,7 +597,7 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
         # looked for again; a page read without it is never touched (on clean renders the
         # removal took baseline pieces lying on a line: HR 64 -> 70).
         clean, dropped = drop_grid_lines(ink, ppm, keep_boxes=pulse_boxes, min_h_mm=float(gl_cfg.get("min_h_mm", 20)),
-                                         min_v_mm=float(gl_cfg.get("min_v_mm", 8)))
+                                         min_v_mm=float(gl_cfg.get("min_v_mm", 8)), tile_mm=gl_cfg.get("tile_mm"))
         if dropped:
             again = detect_layout(clean, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"],
                                   pulse_bottoms=[p.bottom for p in pulses], stroke_min_height_mm=stroke_h,
