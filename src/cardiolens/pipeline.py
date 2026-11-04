@@ -344,6 +344,10 @@ def run_pipeline(
         low_res = px_mm < PHOTO_LOW_RES_PX_PER_MM
         on_screen = any(n.startswith("device screen photo") for n in sig.provenance.notes)
         what_ru, what_uz = ("экран", "ekran") if on_screen else ("лист", "varaq")
+        # D192: the retake advice follows the reason, not one line for all.
+        tip_ru, tip_uz = RETAKE_TIPS["scale" if scale_conflict else "flat" if leads_inconsistent else
+                                     "grid" if grid_in_trace else
+                                     "sharp" if qrs_impossible or readers_disagree else "flat"]
         findings.findings = [Finding(
             code="photo_unreliable", group="quality",
             label_ru=f"Снимок ЭКГ не распознан надёжно ({why_ru}) — "
@@ -351,13 +355,13 @@ def run_pipeline(
                         if rate is not None else "")
                      + (f"снимок мелкий (~{px_mm:.1f} пикс/мм, нужно от {PHOTO_LOW_RES_PX_PER_MM:.0f}): "
                         f"снимите ближе, чтобы {what_ru} занял весь кадр, и отправьте как файл, а не как фото"
-                        if low_res else "переснимите лист ровно, без перекоса и тени"),
+                        if low_res else tip_ru),
             label_uz=f"EKG surati ishonchli o'qilmadi ({why_uz}) — "
                      + (f"YuQS {rate:.0f} /daq II tasma bo'yicha; o'q, voltaj va intervallar keltirilmaydi — "
                         if rate is not None else "")
                      + (f"surat kichik (~{px_mm:.1f} piksel/mm, kamida {PHOTO_LOW_RES_PX_PER_MM:.0f} kerak): "
                         f"yaqinroqdan, {what_uz} butun kadrni egallaydigan qilib oling va rasm emas, fayl sifatida yuboring"
-                        if low_res else "varaqni tekis, qiyshaymasdan va soyasiz qayta suratga oling"),
+                        if low_res else tip_uz),
             evidence=[Evidence(feature="panel_lag_ms", value=f"{lag:.0f}" if lag is not None else "—"),
                       Evidence(feature="einthoven_r", value=f"{ein:.2f}" if ein is not None else "—"),
                       Evidence(feature="px_per_mm", value=f"{px_mm:.1f}"),
@@ -445,9 +449,12 @@ def run_pipeline(
     if no_ecg:
         findings.findings = [Finding(
             code="no_ecg_signal", group="quality",
-            label_ru="ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении) — проверьте электроды"
+            # D192: on a photo the electrodes are not the problem; the advice is about the shot.
+            label_ru=NO_TRACE_ON_PHOTO_RU if sig.provenance.digitized else
+                     "ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении) — проверьте электроды"
                      + (_UNITS_HINT_RU if sig.source in _FILE_SOURCES else ""),
-            label_uz="EKG signali aniqlanmadi (hech bir tarmoqda QRS yo'q) — elektrodlarni tekshiring"
+            label_uz=NO_TRACE_ON_PHOTO_UZ if sig.provenance.digitized else
+                     "EKG signali aniqlanmadi (hech bir tarmoqda QRS yo'q) — elektrodlarni tekshiring"
                      + (_UNITS_HINT_UZ if sig.source in _FILE_SOURCES else ""),
             evidence=[Evidence(feature="hf_peak_to_peak_uv", value=f"{hf_uv:.0f}")],
             confidence=0.95)]
@@ -576,6 +583,25 @@ def limb_only_rate(sig: SignalRepresentation, m: Measurements, other_gate: bool,
 # A file in mV read as µV is 1000x too small and looks like no ECG at all (D119).
 PHOTO_MIN_QRS_MS = 55.0         # D186: a digitised QRS below this was not traced (true adult QRS >= 60)
 PHOTO_LOW_RES_PX_PER_MM = 6.0   # D126: an unreliable photo below this asks for a closer shot sent as a file
+# D192: retake advice by the reason a photo was gated (ru, uz).
+RETAKE_TIPS = {
+    "scale": (("снимите весь лист строго сверху, чтобы в кадр попали сетка и калибровочный импульс "
+               "(прямоугольник в начале строки)"),
+              ("varaqni to'liq, tepadan to'g'ri suratga oling: kadrda to'r va kalibrlash impulsi "
+               "(qator boshidagi to'rtburchak) bo'lsin")),
+    "flat": ("положите лист ровно, без изгибов, и держите камеру параллельно листу",
+             "varaqni bukmasdan tekis qo'ying va kamerani varaqqa parallel tuting"),
+    "grid": ("снимите при ровном свете, без вспышки и бликов; если есть файл или PDF с аппарата — пришлите его",
+             ("bir tekis yorug'likda, chaqnoqsiz va yaltirashsiz suratga oling; apparatdan fayl yoki PDF bo'lsa — "
+              "uni yuboring")),
+    "sharp": ("снимите резко, при хорошем свете, чтобы весь лист был в кадре",
+              "varaq butunlay kadrga tushadigan qilib, yaxshi yorug'likda, aniq suratga oling"),
+}
+NO_TRACE_ON_PHOTO_RU = ("Кривая ЭКГ на снимке не найдена — снимите весь лист резко и при хорошем свете; "
+                        "бледная печать и ч/б копия читаются хуже, лучше оригинал или файл с аппарата")
+NO_TRACE_ON_PHOTO_UZ = ("Suratda EKG egri chizig'i topilmadi — varaqni to'liq, aniq va yaxshi yorug'likda "
+                        "suratga oling; xira bosma va oq-qora nusxa yomonroq o'qiladi, asl nusxa yoki "
+                        "apparatdan fayl yaxshiroq")
 # The scanner's coarse mode (D170) marks its signal with this provenance note:
 # "coarse: px_per_mm=3.1". The finding groups that need a fine time or voltage scale.
 COARSE_NOTE_PREFIX = "coarse:"
