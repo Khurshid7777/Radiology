@@ -115,6 +115,7 @@ def health() -> dict:
     return {
         "status": "ok", "service": "cardiolens", "version": "0.1.0",
         "llm": provider_status(cfg.llm),
+        "analyses_kept_on_disk": service.persist.enabled(),     # D199
         "ml": ml_status(cfg),
     }
 

@@ -32,6 +32,7 @@ def refusal_kind(message: str) -> str:
 
 def quality_row(result, client: str | None = None) -> dict:
     """The derived-only line for one finished analysis."""
+    from cardiolens.contracts.findings import released_rate
     from cardiolens.pipeline import device_mismatches
 
     sig, m = result.signal, result.measurements
@@ -58,6 +59,7 @@ def quality_row(result, client: str | None = None) -> dict:
         "device": dev or None,
         "device_mismatch": [k for k, _, _ in device_mismatches(m, dev)] if dev else None,
         "findings": [c for c in codes if c not in GATE_CODES],
+        "rate_released": released_rate(result.findings) is not None,     # D189: the rate is shown
     }
 
 
@@ -79,6 +81,15 @@ def append(path: str | Path | None, row: dict) -> None:
 
 
 DEVICE_KEYS = ("hr_bpm", "pr_ms", "qrs_ms", "qt_ms")
+# Gates under which no number is shown (the page, the PDF and the bot hide them, D178).
+HIDING = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_implausible"})
+
+
+def shown(row: dict, key: str) -> bool:
+    """Was this number shown to the user (D198)? Not under a hiding gate — except the rate a
+    gated page still states from its lead-II strip (D189)."""
+    hiding = set(row.get("gates") or []) & HIDING
+    return not hiding or (key == "hr_bpm" and bool(row.get("rate_released")) and hiding == {"photo_unreliable"})
 
 
 def read(path: str | Path | None) -> list[dict]:
@@ -112,9 +123,12 @@ def summarize(rows: list[dict], since_ts: int = 0) -> dict:
         for k in DEVICE_KEYS:
             if dev.get(k) is None or r.get(k) is None:
                 continue
-            s = out["device"].setdefault(k, {"n": 0, "agree": 0, "gated": 0, "abs_err": []})
+            s = out["device"].setdefault(k, {"n": 0, "agree": 0, "gated": 0, "shown_mismatch": 0, "abs_err": []})
             s["n"] += 1
-            s["agree"] += k not in (r.get("device_mismatch") or [])
+            mismatch = k in (r.get("device_mismatch") or [])
+            s["agree"] += not mismatch
+            # D198: shown to the user and off the recorder's printed value — a silent error in real use.
+            s["shown_mismatch"] += mismatch and shown(r, k)
             s["gated"] += bool(r.get("gates"))
             s["abs_err"].append(abs(r[k] - dev[k]))
     for s in out["device"].values():

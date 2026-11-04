@@ -15,6 +15,7 @@ services:
       ECGSCAN_API_KEYS: ${ECGSCAN_API_KEYS:?set ECGSCAN_API_KEYS in deploy/.env}
       ECGSCAN_STORAGE_KEY: ${ECGSCAN_STORAGE_KEY:-}
       CARDIOLENS_SHARE_SECRET: ${CARDIOLENS_SHARE_SECRET:-}    # D197, made by server_env.sh
+      CARDIOLENS_ANALYSES_DIR: /data/analyses                     # D199, encrypted, 30 days
       ECGSCAN_SERVICE_DIR: /data/scanner_service
       CARDIOLENS_FEEDBACK_PATH: /data/feedback/feedback.jsonl
       CARDIOLENS_QUALITY_PATH: /data/feedback/quality.jsonl

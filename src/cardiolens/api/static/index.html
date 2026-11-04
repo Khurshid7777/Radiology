@@ -178,7 +178,7 @@
     <label for="prior">Сравнить с прошлой ЭКГ</label>
     <select id="prior"><option value="">не сравнивать</option></select>
     <div class="hint">В списке — анализы, сделанные в этом браузере. Сравнение покажет новые и исчезнувшие
-      находки, изменение ЧСС и QTc. Прошлый анализ хранится на сервере ограниченное время.</div>
+      находки, изменение ЧСС и QTc. Анализы хранятся на сервере 30 дней (зашифрованно).</div>
 
     <details id="more">
       <summary>Дополнительно (необязательно)</summary>
@@ -201,6 +201,10 @@
       <label>Ключ клиники</label>
       <input id="apikey" type="password" autocomplete="off" placeholder="выдаёт администратор">
       <div class="hint" id="keyhint"></div>
+      <details id="qualbox" style="margin-top:10px">
+        <summary>Качество за 30 дней (по журналу, без данных пациентов)</summary>
+        <div id="qual" class="muted">—</div>
+      </details>
     </details>
 
     <button class="primary" id="run">Получить заключение</button>
@@ -254,7 +258,7 @@
 
   <div class="card hidden" id="histcard">
     <h3>Последние анализы в этом браузере</h3>
-    <div class="hint">Хранятся на сервере ограниченное время. Ссылка открывает PDF без ключа 7 дней — без снимка листа.</div>
+    <div class="hint">Анализы хранятся на сервере 30 дней (зашифрованно). Ссылка открывает PDF без ключа 7 дней — без снимка листа.</div>
     <div id="histlist"></div>
   </div>
 </div>
@@ -749,6 +753,37 @@ function fillHistory() {
 }
 $('sharebtn').addEventListener('click', () => { if (lastId) shareLink(lastId, $('shareout')); });
 fillHistory();
+
+// D198: the quality log's summary — what real use looks like, and how often a number we showed
+// disagreed with the value the recorder printed on the same sheet.
+const Q_NAMES = { hr_bpm: 'ЧСС', pr_ms: 'PR', qrs_ms: 'QRS', qt_ms: 'QT' };
+const ROUTE_NAMES = { scanner: 'сканер', readers: 'читатели CardioLens', file: 'файл записи' };
+async function loadQuality() {
+  const out = $('qual');
+  out.textContent = 'Загружаю…';
+  try {
+    const r = await authed('/api/quality/summary?days=30');
+    if (r.status === 401) { out.textContent = 'Нужен ключ клиники.'; return; }
+    if (!r.ok) throw new Error(r.status);
+    const q = await r.json();
+    if (!q.analyses) { out.textContent = 'Пока нет анализов за 30 дней.'; return; }
+    const rows = [`<div>Анализов: <b>${q.analyses}</b></div>`];
+    const refused = Object.entries(q.refused || {});
+    if (refused.length) rows.push('<div>Отказы: ' + refused.map(([k, v]) => `${esc(k)} — ${v}`).join(', ') + '</div>');
+    rows.push('<div>Маршрут: ' + Object.entries(q.routes || {}).map(([k, v]) =>
+      `${esc(ROUTE_NAMES[k] || k)} — ${v.read} (под воротами ${v.gated})`).join('; ') + '</div>');
+    const gates = Object.entries(q.gates || {});
+    if (gates.length) rows.push('<div>Ворота: ' + gates.map(([k, v]) => `${esc(k)} — ${v}`).join(', ') + '</div>');
+    const dev = Object.entries(q.device || {});
+    if (dev.length) {
+      rows.push('<div style="margin-top:6px">Сверка с распечаткой аппарата:</div><table><tr><th></th><th>сверено</th><th>совпало</th><th>медиана ошибки</th><th>показано и расходится</th></tr>' +
+        dev.map(([k, v]) => `<tr><td>${esc(Q_NAMES[k] || k)}</td><td>${v.n}</td><td>${v.agree}</td><td>${v.median_abs_err ?? '—'}</td>` +
+          `<td${v.shown_mismatch ? ' style="color:var(--crit);font-weight:600"' : ''}>${v.shown_mismatch ?? 0}</td></tr>`).join('') + '</table>');
+    } else rows.push('<div>Сверки с аппаратом пока нет (шапка аппарата не прочитана ни на одном снимке).</div>');
+    out.innerHTML = rows.join('');
+  } catch (e) { out.textContent = 'Не удалось загрузить сводку.'; }
+}
+$('qualbox').addEventListener('toggle', () => { if ($('qualbox').open) loadQuality(); });
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 

@@ -38,7 +38,7 @@ def test_the_summary_counts_routes_gates_and_recorder_agreement():
     s = quality.summarize(rows)
     assert s["routes"]["scanner"] == {"read": 2, "gated": 1}
     assert s["refused"] == {"portrait": 1}
-    assert s["device"]["hr_bpm"] == {"n": 2, "agree": 1, "gated": 1, "median_abs_err": 30}
+    assert s["device"]["hr_bpm"] == {"n": 2, "agree": 1, "gated": 1, "shown_mismatch": 0, "median_abs_err": 30}
 
 
 def test_an_upload_writes_one_line_and_the_summary_reads_it(monkeypatch, tmp_path):

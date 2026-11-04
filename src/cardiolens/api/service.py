@@ -12,6 +12,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
+from cardiolens.api import persist
 from cardiolens.layer1_ingestion import (
     generate_synthetic_ecg,
     is_dicom,
@@ -259,6 +260,7 @@ def run_and_store(sig, *, mode: str | None, prior_id: str | None = None,
     _STORE[analysis_id] = result
     _OWNERS[analysis_id] = owner
     _STORE.move_to_end(analysis_id)
+    persist.save(analysis_id, result, owner)       # D199: survives a restart, encrypted
     while len(_STORE) > STORE_MAX_ENTRIES:
         old_id, _ = _STORE.popitem(last=False)  # evict least-recently-used
         _OWNERS.pop(old_id, None)
@@ -267,6 +269,10 @@ def run_and_store(sig, *, mode: str | None, prior_id: str | None = None,
 
 def get_analysis(analysis_id: str, *, owner: str | None = None) -> PipelineResult | None:
     """``owner``: the caller's key name; another key's analysis reads as absent (D136)."""
+    if analysis_id not in _STORE:                  # D199: after a restart, from disk
+        kept = persist.load(analysis_id)
+        if kept is not None:
+            _STORE[analysis_id], _OWNERS[analysis_id] = kept
     if owner is not None and _OWNERS.get(analysis_id) not in (None, owner):
         return None
     result = _STORE.get(analysis_id)
