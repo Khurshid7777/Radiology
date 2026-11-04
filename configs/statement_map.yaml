@@ -36,6 +36,9 @@ wpw_preexcitation:          {aha: av_conduction, snomed: ["74390002"], scp: [WPW
 lbbb:                       {aha: intraventricular_conduction, snomed: ["164909002", "733534002"], scp: [CLBBB], code15: ["LBBB"]}
 rbbb:                       {aha: intraventricular_conduction, snomed: ["59118001", "713427006"], scp: [CRBBB], code15: ["RBBB"]}
 wide_qrs_nonspecific:       {aha: intraventricular_conduction, snomed: ["698252002"], scp: [IVCD], code15: []}
+left_anterior_fascicular_block: {aha: intraventricular_conduction, snomed: ["445118002"], scp: [LAFB], code15: []}
+left_posterior_fascicular_block: {aha: intraventricular_conduction, snomed: ["445211001"], scp: [LPFB], code15: []}
+incomplete_rbbb:            {aha: intraventricular_conduction, snomed: ["713426002"], scp: [IRBBB], code15: []}
 left_axis_deviation:        {aha: axis_voltage, snomed: ["39732003"], scp: [], code15: []}
 right_axis_deviation:       {aha: axis_voltage, snomed: ["47665007"], scp: [], code15: []}
 extreme_axis:               {aha: axis_voltage, snomed: [], scp: [], code15: []}

@@ -1,6 +1,6 @@
 """D201: run the pipeline over the rhythm and conduction bench and score each class.
 
-    python tools/rhythm_bench/run.py --data data/ptbxl_rhythm --out <dir> [--shard k/n]   # rows, resumable
+    python tools/rhythm_bench/run.py --data data/ptbxl_rhythm --out <dir> [--shard k/n] [--meas]   # rows, resumable
     python tools/rhythm_bench/run.py --data data/ptbxl_rhythm --out <dir> --score [--md table.md]
 
 A row per record (codes found, rate, QRS, PR): <out>/rows/<ecg_id>.json. Scoring: for each PTB-XL class
@@ -42,7 +42,7 @@ CLASS_CODES = {
 INTEREST = set(CLASS_CODES)
 
 
-def run_rows(data: Path, out: Path, shard: str) -> None:
+def run_rows(data: Path, out: Path, shard: str, meas: bool = False) -> None:
     warnings.filterwarnings("ignore")
     from cardiolens.layer1_ingestion import load_wfdb
     from cardiolens.pipeline import run_pipeline
@@ -51,9 +51,13 @@ def run_rows(data: Path, out: Path, shard: str) -> None:
     k, n = (int(v) for v in shard.split("/"))
     rows = out / "rows"
     rows.mkdir(parents=True, exist_ok=True)
+    mdir = out / "meas"
+    if meas:
+        mdir.mkdir(exist_ok=True)
     for rec in man[k::n]:
         dest = rows / f"{rec['ecg_id']}.json"
-        if dest.exists():
+        mdest = mdir / f"{rec['ecg_id']}.json"
+        if dest.exists() and (not meas or mdest.exists()):
             continue
         row = {"ecg_id": rec["ecg_id"], "labels": rec["labels"]}
         try:
@@ -69,6 +73,9 @@ def run_rows(data: Path, out: Path, shard: str) -> None:
             row.update(codes=sorted(res.findings.codes()), hr=m.heart_rate_bpm, qrs=m.intervals.qrs_ms,
                        pr=m.intervals.pr_ms, axis=m.axes.qrs_deg,
                        alerts=[a.code for a in res.safety.alerts])
+            if meas:   # the measurements, to re-run a rule without the pipeline while tuning it
+                mdest.write_text(json.dumps({"labels": rec["labels"], "age": sig.patient.age_years,
+                                             "sex": sig.patient.sex, "m": m.model_dump(mode="json")}))
         except Exception as e:  # a failure is a result too
             row.update(error=f"{type(e).__name__}: {str(e)[:120]}")
         dest.write_text(json.dumps(row))
@@ -106,9 +113,10 @@ def main() -> None:
     ap.add_argument("--shard", default="0/1")
     ap.add_argument("--score", action="store_true")
     ap.add_argument("--md", type=Path)
+    ap.add_argument("--meas", action="store_true", help="also keep each record's measurements (tuning)")
     a = ap.parse_args()
     if not a.score:
-        run_rows(a.data, a.out, a.shard)
+        run_rows(a.data, a.out, a.shard, a.meas)
         return
     t = score(a.out)
     lines = ["| class | n | found | sens | spec on controls | false on controls |", "|---|---|---|---|---|---|"]

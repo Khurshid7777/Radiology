@@ -199,3 +199,21 @@ q_wave:
   q_ms_min: 30
   q_depth_uv_min: 100
   q_depth_r_ratio_min: 0.25
+
+# Fascicular blocks and incomplete RBBB (D202; AHA/ACCF/HRS 2009, Surawicz et al., part III).
+# LAFB: axis -45..-90 ("possible" from lafb_possible_from), R > S in aVL, rS in II/III/aVF, no
+# inferior-infarct Q (QS or Q >= rs_q_ms_max in >= 2 inferior leads). LPFB (adults only): axis
+# +90..+180, rS in I/aVL, R > S in III/aVF, no RVH (R V1 >= rvh_r_v1_uv with R > S in V1). The initial
+# q of qR is not required (require_q): the median-beat Q detector misses small septal q (PTB-XL LAFB
+# 0.72 without it, 0.67 with it; LPFB 0.60 / 0.37). Both: QRS < 120 alone, with a complete RBBB =
+# bifascicular, with a nonspecific wide QRS allowed (with_ivcd). IRBBB: rSr' in V1 with the QRS in
+# irbbb_qrs_ms; above it the adult QRS is already "wide" (> 110) and typed by _conduction_findings.
+fascicular:
+  lafb_axis: [-90, -45]
+  lafb_possible_from: -30
+  lpfb_axis: [90, 180]
+  require_q: false
+  rs_q_ms_max: 30
+  rvh_r_v1_uv: 700
+  with_ivcd: true
+  irbbb_qrs_ms: [90, 110]

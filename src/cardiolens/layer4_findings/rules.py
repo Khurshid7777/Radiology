@@ -276,6 +276,7 @@ def detect_findings(
             ))
 
     _conduction_findings(m, norms, fs, sig.patient)
+    _fascicular_findings(m, norms, fs, sig.patient)
     _qt_findings(iv, norms, is_pediatric, sig, fs)
 
     # Complete (third-degree) AV block: atrioventricular dissociation (§7.1, §10). Not
@@ -758,6 +759,101 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
             label_ru=f"Расширение QRS ({iv.qrs_ms} мс)",
             label_uz=f"QRS kengayishi ({iv.qrs_ms} ms)",
             evidence=_ev(qrs_ms=iv.qrs_ms, norm_high=qrs_hi), confidence=0.8,
+        ))
+
+
+def _rs(m: Measurements, lead: str) -> tuple[float, float] | None:
+    """(R height, S depth) on the median beat, µV."""
+    for st in m.morphology.st:
+        if st.lead == lead and st.r_height_uv is not None and st.s_depth_uv is not None:
+            return st.r_height_uv, st.s_depth_uv
+    return None
+
+
+def _has_q(m: Measurements, lead: str) -> bool:
+    q = m.morphology.q_waves.get(lead)
+    return bool(q) and q[0] > 0 and q[1] > 0 and not q[3]
+
+
+def _fascicular_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
+    """Fascicular blocks and incomplete RBBB (D202; AHA/ACCF/HRS 2009, Surawicz et al.,
+    Circulation 2009;119:e235, part III). Rules on the limb-lead QRS shape and the axis:
+
+    LAFB: axis -45..-90, qR in aVL, rS in II, III, aVF. LPFB (adults): axis +90..+180, rS in I and
+    aVL, qR in III and aVF, other causes of a right axis excluded (RVH by R in V1). With a complete
+    RBBB either one is a bifascicular block; with an LBBB neither is named (the block covers it).
+    IRBBB: QRS within the incomplete band with a terminal R' in V1."""
+    cfg = norms.get("fascicular")
+    iv = m.intervals
+    if not cfg or iv.qrs_ms is None:
+        return
+    codes = fs.codes()
+    if codes & {"lbbb", "wpw_preexcitation"}:
+        return
+    rbbb = "rbbb" in codes
+    # A wide QRS without a typed block (wide_qrs_nonspecific) still carries the fascicular axis: the
+    # envelope over-reads QRS by ~10 ms and PTB-XL names LAFB with an IVCD (D202).
+    if iv.qrs_ms >= 120 and not rbbb and not (cfg.get("with_ivcd") and "wide_qrs_nonspecific" in codes):
+        return
+    axis = m.axes.qrs_deg
+    need_q = bool(cfg.get("require_q", True))
+
+    def rS(lead):
+        v = _rs(m, lead)
+        return v is not None and v[1] > v[0]
+
+    # An old inferior infarct turns II/III/aVF negative too, without a fascicular block: a QS or a
+    # Q >= rs_q_ms_max in two or more inferior leads is the infarct's, not an rS (D202: 45 of 62
+    # PTB-XL inferior MIs with a left axis carry it, 40 of 344 LAFB).
+    def infarct_q(lead):
+        q = m.morphology.q_waves.get(lead)
+        return bool(q) and (q[3] or q[0] >= float(cfg.get("rs_q_ms_max", 30)))
+
+    inferior_mi = sum(infarct_q(ld) for ld in ("II", "III", "aVF")) >= 2
+
+    def qR(lead):
+        v = _rs(m, lead)
+        return v is not None and v[0] > v[1] and (not need_q or _has_q(m, lead))
+
+    pair = " в сочетании с полной БПНПГ — двухпучковая блокада" if rbbb else ""
+    pair_uz = " to'liq o'ng oyoqcha blokadasi bilan — ikki tutamli blokada" if rbbb else ""
+    lo, hi = cfg.get("lafb_axis", [-90, -45])
+    # Between -30 and -45 degrees the block is "possible" (below the AHA bar of -45; the axis itself
+    # is read +-10 degrees): PTB-XL cardiologists name LAFB there in 94 of 293 records (D202).
+    possible_hi = float(cfg.get("lafb_possible_from", hi))
+    if (axis is not None and lo <= axis <= possible_hi and not inferior_mi and qR("aVL")
+            and all(rS(ld) for ld in ("II", "III", "aVF"))):
+        definite = axis <= hi
+        what = "Блокада" if definite else "Возможна блокада"
+        what_uz = "Chap" if definite else "Ehtimol, chap"
+        fs.findings.append(Finding(
+            code="left_anterior_fascicular_block", group="interval",
+            label_ru=f"{what} передней ветви левой ножки (ось {axis}°, R в aVL, rS в II/III/aVF){pair}",
+            label_uz=f"{what_uz} oyoqcha old tarmog'i blokadasi (o'q {axis}°){pair_uz}",
+            evidence=_ev(qrs_axis_deg=axis, qrs_ms=iv.qrs_ms, with_rbbb=rbbb, definite=definite),
+            confidence=0.7 if definite else 0.55,
+        ))
+    lo, hi = cfg.get("lpfb_axis", [90, 180])
+    adult = getattr(patient, "age_years", None) is None or patient.age_years >= 18
+    v1 = _rs(m, "V1")
+    rvh = v1 is not None and v1[0] >= float(cfg.get("rvh_r_v1_uv", 700)) and v1[0] > v1[1] and not rbbb
+    if (adult and not rvh and axis is not None and lo <= axis <= hi and rS("I") and rS("aVL")
+            and qR("III") and qR("aVF")):
+        fs.findings.append(Finding(
+            code="left_posterior_fascicular_block", group="interval",
+            label_ru=f"Блокада задней ветви левой ножки (ось {axis}°, rS в I/aVL, R в III/aVF){pair}; "
+                     f"диагноз исключения — сверьте с клиникой (гипертрофия ПЖ, боковой инфаркт)",
+            label_uz=f"Chap oyoqcha orqa tarmog'i blokadasi (o'q {axis}°){pair_uz}; istisno tashxisi",
+            evidence=_ev(qrs_axis_deg=axis, qrs_ms=iv.qrs_ms, with_rbbb=rbbb), confidence=0.55,
+        ))
+    band = cfg.get("irbbb_qrs_ms")
+    if (band and not rbbb and band[0] <= iv.qrs_ms <= band[1] and m.qrs_v1_terminal_positive is True
+            and "wide_qrs_nonspecific" not in codes):
+        fs.findings.append(Finding(
+            code="incomplete_rbbb", group="interval",
+            label_ru=f"Неполная блокада правой ножки: rSr' в V1 при QRS {iv.qrs_ms} мс (часто вариант нормы)",
+            label_uz=f"O'ng oyoqcha to'liq bo'lmagan blokadasi (QRS {iv.qrs_ms} ms, V1 da rSr')",
+            evidence=_ev(qrs_ms=iv.qrs_ms, v1_terminal="positive"), confidence=0.6,
         ))
 
 

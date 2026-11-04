@@ -693,7 +693,8 @@ def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
 _PACED_EXCLUDES = ("lbbb", "rbbb", "wide_qrs_nonspecific", "lvh", "lvh_probable",
                    "first_degree_av_block", "sinus_rhythm", "left_axis_deviation", "st_depression",
                    "t_inversion", "secondary_st_t_change", "pathological_q_waves", "brugada_pattern",
-                   "atrial_fibrillation")
+                   "atrial_fibrillation", "left_anterior_fascicular_block",
+                   "left_posterior_fascicular_block", "incomplete_rbbb")
 
 
 @functools.lru_cache(maxsize=2)
