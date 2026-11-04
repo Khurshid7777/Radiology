@@ -42,6 +42,9 @@ def fetch_bytes(url: str, tries: int = 5) -> bytes:
 
 RARE_FULL = ("2AVB", "3AVB", "AFLT", "WPW", "SVTAC", "PSVT", "LPFB")
 SAMPLED = ("LAFB", "IRBBB", "CRBBB", "CLBBB", "AFIB", "PVC", "PACE", "1AVB", "IVCD", "STACH")
+# Sampled after the controls so the earlier selection stays the same (D203: a slow regular rhythm
+# is where a 2:1 AV block hides; sinus bradycardia is its specificity control).
+EXTRA = ("SBRAD",)
 
 
 def select(rows: list[dict], per_class: int, controls: int, seed: int) -> list[dict]:
@@ -62,6 +65,10 @@ def select(rows: list[dict], per_class: int, controls: int, seed: int) -> list[d
             and r["ecg_id"] not in chosen]
     for r in rng.sample(norm, min(controls, len(norm))):
         chosen[r["ecg_id"]] = r
+    for code in EXTRA:
+        pool = [r for r in rows if code in labels[r["ecg_id"]] and r["ecg_id"] not in chosen]
+        for r in rng.sample(pool, min(per_class, len(pool))):
+            chosen[r["ecg_id"]] = r
     return list(chosen.values())
 
 
