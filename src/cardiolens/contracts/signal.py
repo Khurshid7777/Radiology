@@ -49,6 +49,7 @@ class PatientContext(BaseModel):
     calcium: float | None = None         # mmol/L
     medications: list[str] = Field(default_factory=list)
     symptoms: list[str] = Field(default_factory=list)
+    symptom_onset: str | None = None     # D195: lt12h | 12to48h | gt48h | unknown
     prior_ecg_id: str | None = None
 
 

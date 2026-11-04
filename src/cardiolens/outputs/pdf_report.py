@@ -142,7 +142,8 @@ def _register_font() -> str:
         return "Helvetica"  # fallback (Cyrillic may not render)
 
 
-def write_pdf(result: PipelineResult, path: str) -> str:
+def write_pdf(result: PipelineResult, path: str, *, include_photo: bool = True) -> str:
+    """``include_photo=False``: the shared copy (D197) carries no picture of the sheet."""
     font = _register_font()
     tmp = Path(tempfile.mkdtemp(prefix="cardiolens_"))
     wave_png = str(tmp / "wave.png")
@@ -170,7 +171,7 @@ def write_pdf(result: PipelineResult, path: str) -> str:
     flow.append(Image(wave_png, width=17 * cm, height=17 * cm * 0.5))
     flow.append(Spacer(1, 0.2 * cm))
 
-    overlay = result.signal.provenance.overlay_jpeg
+    overlay = result.signal.provenance.overlay_jpeg if include_photo else None
     if overlay:
         # A photo read by the scanner: the traces drawn over the page, as the doctor's
         # confirmation screen shows them (TZ scanner §6.3; D163).

@@ -58,6 +58,16 @@ def format_conclusion(result: PipelineResult, lang: str = "ru") -> str:
             lines.append("  ⚠ " + (c.text_ru if is_ru else c.text_uz))
 
     # Serial comparison against a prior ECG (TZ §8.4).
+    # D195: the ticked symptoms and the advice from them.
+    ctx = result.signal.context
+    from cardiolens.clinical_context import context_line
+
+    line = context_line(ctx.symptoms or [], ctx.symptom_onset, "ru" if is_ru else "uz")
+    if line:
+        lines.append("")
+        lines.append(("Симптомы: " if is_ru else "Simptomlar: ") + line)
+        for a in result.symptom_advice:
+            lines.append(("  ⚠ " if a.urgent else "  • ") + (a.ru if is_ru else a.uz))
     if result.serial and result.serial.skipped_ru:      # D193
         lines.append("")
         lines.append(("Сравнение с прошлой ЭКГ: " + result.serial.skipped_ru) if is_ru

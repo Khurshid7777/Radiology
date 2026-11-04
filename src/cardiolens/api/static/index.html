@@ -159,6 +159,22 @@
         </div></div>
     </div>
 
+    <label>Симптомы (необязательно)</label>
+    <div class="symp" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin:2px 0 6px">
+      <label style="font-weight:400"><input type="checkbox" name="symptom" value="chest_pain"> боль в груди</label>
+      <label style="font-weight:400"><input type="checkbox" name="symptom" value="dyspnea"> одышка</label>
+      <label style="font-weight:400"><input type="checkbox" name="symptom" value="syncope"> обморок</label>
+      <label style="font-weight:400"><input type="checkbox" name="symptom" value="palpitations"> сердцебиение</label>
+    </div>
+    <select id="onset">
+      <option value="">когда началось — не указано</option>
+      <option value="lt12h">менее 12 ч назад</option>
+      <option value="12to48h">12–48 ч назад</option>
+      <option value="gt48h">более 48 ч назад</option>
+      <option value="unknown">не знаю</option>
+    </select>
+    <div class="hint">Симптомы не меняют находки: они добавляют подсказку о срочности. В текст заключения ИИ они не передаются.</div>
+
     <label for="prior">Сравнить с прошлой ЭКГ</label>
     <select id="prior"><option value="">не сравнивать</option></select>
     <div class="hint">В списке — анализы, сделанные в этом браузере. Сравнение покажет новые и исчезнувшие
@@ -198,6 +214,8 @@
     <h3>Заключение</h3>
     <pre id="concl_ru"></pre>
     <a class="btn" id="pdf" download><button class="primary">Скачать PDF</button></a>
+    <button type="button" id="sharebtn" style="margin-top:8px">🔗 Ссылка для коллеги</button>
+    <div class="muted" id="shareout" style="word-break:break-all;margin-top:4px"></div>
     <div class="muted" id="narr_src" style="margin-top:8px"></div>
     <div id="overlay_box" class="hidden" style="margin-top:12px">
       <h3>Что прочитано с фото</h3>
@@ -210,6 +228,10 @@
       <summary>Подробно: измерения, находки, кривая, заключение на узбекском</summary>
       <h3>Измерения</h3>
       <table id="meas"></table>
+      <div id="advice_box" class="hidden">
+        <h3>Подсказка по симптомам</h3>
+        <div id="advice"></div>
+      </div>
       <div id="serial_box" class="hidden">
         <h3>Сравнение с прошлой ЭКГ</h3>
         <div id="serial"></div>
@@ -228,6 +250,12 @@
       </details>
     </details>
     <div class="disclaimer" id="disc"></div>
+  </div>
+
+  <div class="card hidden" id="histcard">
+    <h3>Последние анализы в этом браузере</h3>
+    <div class="hint">Хранятся на сервере ограниченное время. Ссылка открывает PDF без ключа 7 дней — без снимка листа.</div>
+    <div id="histlist"></div>
   </div>
 </div>
 
@@ -556,6 +584,8 @@ $('run').addEventListener('click', async () => {
   if ($('k').value) fd.append('potassium', $('k').value);
   if ($('ca').value) fd.append('calcium', $('ca').value);
   if ($('prior').value) fd.append('prior_ecg_id', $('prior').value);    // D193
+  const symp = [...document.querySelectorAll('input[name=symptom]:checked')].map(x => x.value);   // D195
+  if (symp.length) { fd.append('symptoms', symp.join(',')); if ($('onset').value) fd.append('symptom_onset', $('onset').value); }
 
   $('run').disabled = true; $('results').classList.add('hidden'); startProgress();
   try {
@@ -609,7 +639,7 @@ function render(d) {
   if (d.speed_note_ru) $('meas').innerHTML += `<tr><td colspan="4" class="notice">${esc(d.speed_note_ru)}</td></tr>`;
   if (d.device_ru) $('meas').innerHTML += `<tr><td colspan="4" class="muted">${esc(d.device_ru)}</td></tr>`;
   $('findings').innerHTML = (d.findings || [])
-    .map(f => `<span class="chip ${f.critical ? 'crit' : ''}">${esc(f.label_ru)}</span>`).join('') || '<span class="muted">—</span>';
+    .map(f => `<span class="chip ${f.critical ? 'crit' : ''}">${esc(f.label_ru + leadSuffix(f))}</span>`).join('') || '<span class="muted">—</span>';
 
   blobUrl(`/api/analysis/${d.analysis_id}/waveform.svg`).then(u => { $('wave').src = u; }).catch(() => {});
   blobUrl(`/api/analysis/${d.analysis_id}/graph.png`).then(u => { $('graph').src = u; }).catch(() => {});
@@ -629,9 +659,22 @@ function render(d) {
     $('pdf').href = u; $('pdf').download = `cardiolens_${d.analysis_id}.pdf`;
   }).catch(() => {});
   $('disc').textContent = it.disclaimer.ru;
+  lastId = d.analysis_id; $('shareout').textContent = '';     // D197
   renderSerial(d.serial_comparison);
+  const adv = d.symptom_advice || [];                    // D195
+  $('advice_box').classList.toggle('hidden', !adv.length);
+  $('advice').innerHTML = adv.map(a => `<div class="${a.urgent ? 'crit' : 'notice'}" style="margin:4px 0">${a.urgent ? '⚠ ' : ''}${esc(a.ru)}</div>`).join('');
   rememberAnalysis(d, unreliable);
   $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// D196: the leads a finding rests on, when its name does not give them already.
+function leadSuffix(f) {
+  const ev = (f.evidence || []).find(e => e.feature === 'leads');
+  const leads = ev && ev.value ? ev.value.split(',').map(x => x.trim()).filter(Boolean) : [];
+  if (!leads.length) return '';
+  const words = new Set(String(f.label_ru).split(/[\s,()]+/));
+  return leads.every(l => words.has(l)) ? '' : ` (отведения: ${leads.join(', ')})`;
 }
 
 // D193: the comparison with a prior ECG.
@@ -667,8 +710,45 @@ function rememberAnalysis(d, unreliable) {
   const h = [{ id: String(d.analysis_id), t: Date.now(), hr }, ...loadHistory().filter(x => x.id !== d.analysis_id)].slice(0, HIST_MAX);
   try { localStorage.setItem(HIST_KEY, JSON.stringify(h)); } catch (e) { /* private mode: no list */ }
   fillPrior();
+  fillHistory();
 }
 fillPrior();
+
+// D197: the history list, the PDF again, and a signed link for a colleague (PDF without the photo).
+let lastId = null;
+async function shareLink(id, out) {
+  out.textContent = 'Делаю ссылку…';
+  try {
+    const r = await authed(`/api/analysis/${id}/share`, { method: 'POST' });
+    if (r.status === 404) { out.textContent = 'Этот анализ больше не хранится на сервере.'; return; }
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json(), url = location.origin + d.url;
+    const until = new Date(d.expires_at * 1000).toLocaleDateString('ru-RU');
+    try { await navigator.clipboard.writeText(url); out.textContent = `Ссылка скопирована (до ${until}): ${url}`; }
+    catch (e) { out.textContent = `Ссылка (до ${until}): ${url}`; }
+  } catch (e) { out.textContent = 'Не удалось сделать ссылку — проверьте ключ клиники и связь.'; }
+}
+async function openPdf(id, out) {
+  try { window.open(await blobUrl(`/api/analysis/${id}/report.pdf`), '_blank'); }
+  catch (e) { out.textContent = String(e.message).startsWith('404') ? 'Этот анализ больше не хранится на сервере.' : 'Не удалось открыть PDF.'; }
+}
+function fillHistory() {
+  const h = loadHistory();
+  $('histcard').classList.toggle('hidden', !h.length);
+  $('histlist').innerHTML = h.map((x, i) => {
+    const t = new Date(x.t), when = t.toLocaleDateString('ru-RU') + ' ' + t.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)">
+      <span style="flex:1;min-width:160px">${esc(when)} · ЧСС ${x.hr == null ? '—' : esc(x.hr)}</span>
+      <button type="button" data-pdf="${i}">PDF</button><button type="button" data-share="${i}">🔗 Ссылка</button>
+      <div class="muted" id="hout${i}" style="flex-basis:100%;word-break:break-all"></div></div>`;
+  }).join('');
+  h.forEach((x, i) => {
+    $('histlist').querySelector(`[data-pdf="${i}"]`).addEventListener('click', () => openPdf(x.id, $('hout' + i)));
+    $('histlist').querySelector(`[data-share="${i}"]`).addEventListener('click', () => shareLink(x.id, $('hout' + i)));
+  });
+}
+$('sharebtn').addEventListener('click', () => { if (lastId) shareLink(lastId, $('shareout')); });
+fillHistory();
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 

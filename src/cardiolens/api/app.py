@@ -10,6 +10,8 @@ Endpoints:
   GET  /api/analysis/{id}/waveform.svg
   GET  /api/analysis/{id}/graph.png
   GET  /api/analysis/{id}/conclusion?lang=ru|uz
+  POST /api/analysis/{id}/share  -> a signed 7-day link to the PDF, no photo (D197)
+  GET  /s/{token}                -> that PDF, without a key
 
 Everything under /api/analyze and /api/analysis needs an API key (``X-API-Key``, the same
 keys as /scans in ``$ECGSCAN_API_KEYS``); a key sees only its own analyses (D136). The web
@@ -23,9 +25,13 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import hashlib
+import hmac
 import os
+import secrets
 import shutil
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -344,6 +350,8 @@ async def analyze(
     potassium: float | None = Form(default=None),
     calcium: float | None = Form(default=None),
     prior_ecg_id: str | None = Form(default=None),
+    symptoms: str | None = Form(default=None),        # D195: "chest_pain,syncope"
+    symptom_onset: str | None = Form(default=None),
     client: str | None = Form(default=None),     # "telegram": refusals keep the bot's wording (D161)
     paper_speed_mm_s: float | None = Form(default=None),   # D179: printed on the strip, given by the user
     gain_mm_mv: float | None = Form(default=None),
@@ -374,6 +382,8 @@ async def analyze(
         service.apply_patient_overrides(
             sig, age_years=age_years, age_days=age_days, sex=sex,
             potassium=potassium, calcium=calcium,
+            symptoms=[x.strip() for x in (symptoms or "").split(",") if x.strip()],
+            symptom_onset=symptom_onset,
         )
         analysis_id, result = await _in_analysis_thread(
             service.run_and_store, sig, mode=mode, prior_id=prior_ecg_id, owner=who
@@ -403,6 +413,56 @@ def _require(analysis_id: str, who: str):
     if result is None:
         raise HTTPException(status_code=404, detail="analysis not found")
     return result
+
+
+# D197: a shared link names the analysis and its expiry, signed with the server's secret. No patient
+# data in it; without a configured secret one is made at start (links then end with a restart, as the
+# in-memory analyses do).
+SHARE_DAYS = 7
+_SHARE_SECRET = (os.environ.get("CARDIOLENS_SHARE_SECRET") or "").encode() or secrets.token_bytes(32)
+
+
+def _share_sig(analysis_id: str, exp: int) -> str:
+    return hmac.new(_SHARE_SECRET, f"{analysis_id}.{exp}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def share_token(analysis_id: str, exp: int) -> str:
+    return f"{analysis_id}.{exp}.{_share_sig(analysis_id, exp)}"
+
+
+def _share_target(token: str) -> str | None:
+    """The analysis a token names, or None when it is forged, malformed or expired."""
+    parts = token.split(".")
+    if len(parts) != 3 or not parts[1].isdigit():
+        return None
+    aid, exp, sig = parts[0], int(parts[1]), parts[2]
+    if not hmac.compare_digest(sig, _share_sig(aid, exp)) or exp < time.time():
+        return None
+    return aid
+
+
+@app.post("/api/analysis/{analysis_id}/share")
+def share(analysis_id: str, who: str = Depends(actor)) -> JSONResponse:
+    _require(analysis_id, who)                  # only the owner's analysis
+    exp = int(time.time()) + SHARE_DAYS * 86400
+    return JSONResponse({"url": f"/s/{share_token(analysis_id, exp)}", "expires_at": exp})
+
+
+@app.get("/s/{token}")
+def shared_pdf(token: str):
+    aid = _share_target(token)
+    if aid is None:
+        return PlainTextResponse("Ссылка недействительна или её срок истёк.", status_code=404)
+    result = service.get_analysis(aid)
+    if result is None:
+        return PlainTextResponse("Этот анализ больше не хранится на сервере. Попросите прислать PDF файлом.",
+                                 status_code=410)
+    tmp = tempfile.mkdtemp()
+    path = str(Path(tmp) / f"{aid}.pdf")
+    write_pdf(result, path, include_photo=False)
+    return FileResponse(path, media_type="application/pdf", filename=f"cardiolens_{aid}.pdf",
+                        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"},
+                        background=_cleanup(tmp))
 
 
 @app.get("/api/analysis/{analysis_id}/report.pdf")

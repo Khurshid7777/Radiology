@@ -222,6 +222,8 @@ def apply_patient_overrides(
     sex: str | None = None,
     potassium: float | None = None,
     calcium: float | None = None,
+    symptoms: list[str] | None = None,
+    symptom_onset: str | None = None,
 ):
     if age_years is not None:
         sig.patient.age_years = age_years
@@ -233,6 +235,10 @@ def apply_patient_overrides(
         sig.context.potassium = potassium
     if calcium is not None:
         sig.context.calcium = calcium
+    if symptoms:      # D195: known codes only
+        from cardiolens.clinical_context import clean
+
+        sig.context.symptoms, sig.context.symptom_onset = clean(symptoms, symptom_onset)
     return sig
 
 

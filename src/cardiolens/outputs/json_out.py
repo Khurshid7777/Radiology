@@ -52,6 +52,7 @@ def result_to_dict(result: PipelineResult) -> dict[str, Any]:
             for a in result.safety.alerts
         ],
         "serial_comparison": result.serial.to_dict() if result.serial else None,
+        "symptom_advice": [{"ru": a.ru, "uz": a.uz, "urgent": a.urgent} for a in result.symptom_advice],
         "interpretation": {
             "summary": [c.model_dump() for c in r.summary],
             "causal_explanation": [c.model_dump() for c in r.causal_explanation],

@@ -20,6 +20,7 @@ from cardiolens.arrhythmia import (
     vt_run_finding,
 )
 from cardiolens.calibration import TemperatureScaler
+from cardiolens.clinical_context import ESCALATING, Advice, advise
 from cardiolens.config import (
     AppConfig,
     configs_dir,
@@ -74,6 +75,7 @@ class PipelineResult:
     config: AppConfig
     audit_log: list[str] = field(default_factory=list)
     serial: SerialComparison | None = None
+    symptom_advice: list[Advice] = field(default_factory=list)     # D195
 
 
 # TZ 18.6: how far ours may differ from the recorder's printed values (D183).
@@ -549,7 +551,9 @@ def run_pipeline(
     requested_mode = mode or cfg.mode
     data = InterpretationInput(
         findings=findings, causal_graph=causal, measurements=m,
-        patient=sig.patient, context=sig.context, mode=requested_mode,
+        # D195: the ticked symptoms stay out of the narrative's input.
+        patient=sig.patient, context=sig.context.model_copy(update={"symptoms": [], "symptom_onset": None}),
+        mode=requested_mode,
         critical_labels=[(a.label_ru, a.label_uz) for a in safety.alerts],
         disclaimer_ru=cfg.disclaimers.ru, disclaimer_uz=cfg.disclaimers.uz,
     )
@@ -560,9 +564,20 @@ def run_pipeline(
     )
     audit.append(f"[L6] provider={report.mode} escalation={report.escalation_reason}")
 
+    # D195: advice from the ticked symptoms; it only ever raises urgency.
+    symptoms = sig.context.symptoms or []
+    advice = advise(symptoms, sig.context.symptom_onset, findings.codes(),
+                    {f.code: f.label_ru for f in findings.findings}) if symptoms else []
+    if report.mode == "B" and set(symptoms) & ESCALATING:
+        report.mode = "escalate"
+        report.escalation_reason = "симптомы (боль в груди или обморок) — нужен просмотр врача"
+    if advice:
+        audit.append(f"[symptoms] {symptoms} onset={sig.context.symptom_onset} advice={len(advice)}")
+
     return PipelineResult(
         signal=sig, measurements=m, findings=findings, causal_graph=causal,
         safety=safety, report=report, config=cfg, audit_log=audit, serial=serial,
+        symptom_advice=advice,
     )
 
 
