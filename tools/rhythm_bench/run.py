@@ -24,7 +24,7 @@ CLASS_CODES = {
     "3AVB": {"complete_av_block"},
     "2AVB": {"second_degree_av_block", "av_block_2_1", "high_grade_av_block", "complete_av_block"},
     "1AVB": {"first_degree_av_block"},
-    "AFIB": {"atrial_fibrillation"},
+    "AFIB": {"atrial_fibrillation", "possible_atrial_fibrillation"},
     "AFLT": {"atrial_flutter"},
     "SVTAC": {"supraventricular_tachycardia", "atrial_tachycardia"},
     "PSVT": {"supraventricular_tachycardia", "atrial_tachycardia"},

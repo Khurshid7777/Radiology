@@ -59,3 +59,5 @@ data/segmenter2/
 
 # D204: open VF databases (vfdb, cudb), downloaded by tools/vf_bench
 data/vf_bench/
+# D205: Chapman/Ningbo signals extracted from the PhysioNet zip for AF training
+data/ecg-arrhythmia-extra/

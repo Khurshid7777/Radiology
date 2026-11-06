@@ -10,6 +10,9 @@ heart_rate_bpm: [60, 100]
 rhythm:
   # Regular atrial (F-wave) rate band for atrial flutter (bpm).
   atrial_flutter_bpm: [200, 350]
+  # Flutter with 2:1 conduction (D205): a regular narrow 130-170/min with an f-wave index at
+  # least this is flutter, not SVT / sinus tachycardia.
+  flutter_2to1_fwave_min: 0.8
   # A regular rhythm whose "atrial rate" is an HR harmonic is the QRS-T train of a
   # sinus tachycardia, not flutter (D83, D84): 2 x HR below 240/min, or 3 x HR (true
   # 3:1 flutter on PTB-XL is never regular), within the tolerance. Regularity by the

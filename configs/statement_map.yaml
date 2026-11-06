@@ -17,6 +17,7 @@
 # old/acute infarction by territory.
 
 atrial_fibrillation:        {aha: rhythm, snomed: ["164889003"], scp: [AFIB], code15: ["AF"]}
+possible_atrial_fibrillation: {aha: rhythm, snomed: ["164889003"], scp: [AFIB], code15: []}   # D205 second path
 atrial_flutter:             {aha: rhythm, snomed: ["164890007"], scp: [AFLT], code15: []}
 sinus_rhythm:               {aha: rhythm, snomed: ["426783006"], scp: [SR], code15: []}
 sinus_bradycardia:          {aha: rhythm, snomed: ["426177001"], scp: [SBRAD], code15: ["SB"]}

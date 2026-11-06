@@ -302,6 +302,25 @@ def detect_findings(
             label_uz=f"Bo'lmachalar titrashi (bo'lmacha chastotasi {m.atrial_rate_bpm}/daq)",
             evidence=_ev(atrial_rate_bpm=m.atrial_rate_bpm), confidence=0.65,
         ))
+    # Flutter with 2:1 conduction (D205): the F waves are locked to the QRS, so the atrial-rate search
+    # (template subtraction) removes them, and a regular narrow rhythm at ~150 was named SVT or sinus
+    # tachycardia (15 of 28 missed PTB-XL flutters). The fibrillatory-wave band power survives: at a
+    # regular 130-170/min with a narrow QRS, an f-wave index >= flutter_2to1_fwave_min is flutter (bench:
+    # 25 of 39 flutters in that band, 4 of 28 SVT / sinus tachycardias).
+    fl21 = norms.get("rhythm", {}).get("flutter_2to1_fwave_min")
+    codes_now = fs.codes()
+    if (fl21 is not None and not is_pediatric and "atrial_flutter" not in codes_now
+            and "atrial_fibrillation" not in codes_now and hr is not None and 130 <= hr <= 170
+            and m.rhythm_regular is True and m.fwave_index is not None and m.fwave_index >= float(fl21)
+            and (m.intervals.qrs_ms or 0) < 120):
+        fs.findings = [f for f in fs.findings if f.code != "supraventricular_tachycardia"]
+        fs.findings.append(Finding(
+            code="atrial_flutter", group="rhythm",
+            label_ru=f"Трепетание предсердий, вероятно с проведением 2:1 (регулярный ритм {hr}/мин, "
+                     f"волны трепетания) — сверьте по II, III, aVF, V1",
+            label_uz=f"Bo'lmachalar titrashi, ehtimol 2:1 o'tkazuvchanlik (muntazam ritm {hr}/daq)",
+            evidence=_ev(fwave_index=m.fwave_index, heart_rate_bpm=hr, route="2to1"), confidence=0.6,
+        ))
     # A detected non-sinus rhythm (AF / flutter) replaces the sinus_* rate codes:
     # "sinus rhythm at 80" is wrong in AF, and the rate qualifier belongs to the
     # arrhythmia label instead (rapid/slow ventricular response).

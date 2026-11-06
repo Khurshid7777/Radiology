@@ -235,6 +235,7 @@ def run_pipeline(
                 if (m.p_onset_ratio or 0) >= SA_SURE_P_ONSET and (m.pr_std_ms or 99) < SA_SURE_PR_STD_MS:
                     findings.findings = [f for f in findings.findings if f.code != "irregular_rhythm"]
                 audit.append("[L4] sinus arrhythmia")
+    _af_second_path(sig, m, findings, audit)
     # Paced rhythm (TZ §7.1): the spike must be time-locked to the QRS (an artifact
     # spike lands at random), or seen by many leads at once and QRS-locked (D75).
     r_times = [r / sig.sampling_rate_hz for r in (m.r_peaks_samples or [])]
@@ -725,12 +726,43 @@ def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
 # separate diagnoses under a pacemaker (ported from claude/vibrant-curie-ro1zsz).
 # Nor is AF by the P/RR rule (D91): paced beats have no P and the pacer sets the RR;
 # on 294 PTB-XL paced records it fired 55 times, once with AF in the report.
+# AF second path (D205): names that contradict a possible AF and are taken back when it is raised.
+_AF_CONTRADICTED = {"sinus_rhythm", "supraventricular_ectopy", "atrial_bigeminy", "atrial_trigeminy",
+                    "sinus_arrhythmia"}
+
+
+def _af_second_path(sig, m, findings: FindingSet, audit: list[str]) -> None:
+    """A model trained on Chapman/Ningbo (ml/af.py) where the AF rule is silent: at P(AF) >= its
+    threshold it adds "possible AF — check" and withdraws the sinus / ectopy names that say otherwise.
+    It never sets the AF finding itself, and does nothing without its model file."""
+    from cardiolens.ml.af import af_features, af_probability, load_af_model
+
+    codes = findings.codes()
+    model = load_af_model()
+    if model is None or codes & {"atrial_fibrillation", "atrial_flutter", "ventricular_tachycardia"}:
+        return
+    if len(m.r_peaks_samples or []) < 7:
+        return
+    p = af_probability(af_features(sig, m), model)
+    if p < float(model["threshold"]):
+        return
+    dropped = sorted(codes & _AF_CONTRADICTED)
+    findings.findings = [f for f in findings.findings if f.code not in _AF_CONTRADICTED]
+    findings.findings.append(Finding(
+        code="possible_atrial_fibrillation", group="rhythm",
+        label_ru="Возможна фибрилляция предсердий — проверьте по записи (ритм нерегулярен, волна перед QRS "
+                 "не повторяется)",
+        label_uz="Bo'lmachalar fibrillyatsiyasi bo'lishi mumkin — yozuv bo'yicha tekshiring",
+        evidence=[Evidence(feature="af_model_p", value=f"{p:.2f}")], confidence=round(min(0.7, p), 2)))
+    audit.append(f"[L4] AF second path (D205): p={p:.2f}; withdrew {dropped}")
+
+
 _PACED_EXCLUDES = ("lbbb", "rbbb", "wide_qrs_nonspecific", "lvh", "lvh_probable",
                    "first_degree_av_block", "sinus_rhythm", "left_axis_deviation", "st_depression",
                    "t_inversion", "secondary_st_t_change", "pathological_q_waves", "brugada_pattern",
                    "atrial_fibrillation", "left_anterior_fascicular_block",
                    "left_posterior_fascicular_block", "incomplete_rbbb", "supraventricular_ectopy",
-                   "atrial_bigeminy", "atrial_trigeminy", "sinus_arrhythmia")
+                   "atrial_bigeminy", "atrial_trigeminy", "sinus_arrhythmia", "possible_atrial_fibrillation")
 
 
 @functools.lru_cache(maxsize=2)
