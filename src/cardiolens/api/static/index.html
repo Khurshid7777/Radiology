@@ -5,16 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CardioVision — заключение по ЭКГ</title>
 <style>
+  /* D210 (UI P1): the brief's two-colour base — navy #0a172b and steel #a0bdcf; red only for what is
+     critical; green / orange / red of the read traces are drawn by the server and not restyled here. */
   :root {
-    --bg: #f6f7f9; --card: #ffffff; --ink: #1a1f26; --muted: #5b6672;
-    --line: #e3e7ec; --brand: #b00020; --brand2: #1565c0;
-    --ok: #2e7d32; --warn: #b26a00; --crit: #b00020;
+    --navy-900: #0a172b; --navy-700: #1c2e4a; --navy-500: #3d5675; --steel-300: #a0bdcf;
+    --steel-100: #dce6ee; --steel-050: #f1f5f8;
+    --bg: var(--steel-050); --card: #ffffff; --ink: var(--navy-900); --muted: #4a5d74;
+    --line: var(--steel-100); --brand: var(--navy-900); --brand2: #1d5f99; --on-brand: #ffffff;
+    --ok: #2e7d32; --warn: #8a5a00; --crit: #b00020; --focus: #1d5f99;
+    --dur-fast: 150ms; --dur-base: 250ms; --dur-slow: 400ms; --ease: cubic-bezier(.2,.7,.2,1);
+    --grid-1: color-mix(in srgb, var(--steel-300) 22%, transparent);
+    --grid-5: color-mix(in srgb, var(--steel-300) 40%, transparent);
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#12151a; --card:#1b2027; --ink:#e8ecf1; --muted:#9aa5b1;
-      --line:#2a313a; --brand:#ff5a6e; --brand2:#5a9be6; }
+    :root { --bg:#0a172b; --card:#13233b; --ink:#e7eef4; --muted:#a0bdcf;
+      --line:#26395a; --brand:#a0bdcf; --brand2:#8cc3ef; --on-brand:#0a172b; --focus:#8cc3ef;
+      --ok:#7bc67e; --warn:#f0b257; --crit:#ff8a95; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important; scroll-behavior: auto !important; }
   }
   * { box-sizing: border-box; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  html { -webkit-text-size-adjust: 100%; }
+  .num, table td, #meas { font-variant-numeric: tabular-nums; }
   body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
     background: var(--bg); color: var(--ink); line-height: 1.45; }
   header { background: var(--card); border-bottom: 1px solid var(--line);
@@ -22,22 +37,63 @@
   header h1 { margin:0; font-size: 20px; }
   header .sub { color: var(--muted); font-size: 13px; }
   header .llm { margin-left:auto; font-size:12px; padding:3px 10px; border-radius:999px;
-    border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
-  header .langsw button { padding:3px 9px; font-size:12px; margin-left:4px; }
+    border:1px solid var(--line); color:var(--muted); max-width:100%; overflow-wrap:anywhere; }
+  header { background-image: linear-gradient(var(--grid-5) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-5) 1px, transparent 1px);
+    background-size: 25px 25px; background-position: -1px -1px; }
+  header .langsw button { padding:3px 9px; font-size:12px; margin-left:4px; width:auto; min-height:32px; min-width:44px; }
+  header .langsw { display:flex; }
+  /* The "who writes the text" badge is filled from /health after load: on a narrow screen it has its own
+     one-line row (cut with an ellipsis, the full text in the title), so filling it moves nothing (CLS). */
+  @media (max-width:700px) {
+    header .llm { order:5; flex-basis:100%; margin-left:0; white-space:nowrap; overflow:hidden;
+      text-overflow:ellipsis; }
+  }
   header .langsw button.on { background:var(--brand2); color:#fff; border-color:var(--brand2); }
   header .llm.local { color:var(--ok); border-color:var(--ok); }
   header .llm.claude { color:var(--brand2); border-color:var(--brand2); }
-  .wrap { max-width: 720px; margin: 16px auto; padding: 0 16px; display:grid; gap:14px; }
+  .wrap { max-width: 720px; margin: 16px auto; padding: 0 16px; display:grid; gap:14px; grid-template-columns: minmax(0, 1fr); }
+  .wrap > * { min-width: 0; }
+  @media (min-width:1024px) {
+    .wrap { max-width: 1180px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items:start; }
+    .wrap > #stepper, .wrap > #results, .wrap > #histcard { grid-column: 1 / -1; }
+    .stepnav { display:none; }
+  }
+  /* The stepper (D210 P1): a progress indicator at >= 1024 px; below it one step per screen. */
+  #stepper { display:flex; gap:6px; list-style:none; margin:0; padding:0; counter-reset: s; }
+  #stepper li { flex:1; display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted);
+    padding:8px 10px; border-radius:10px; background:var(--card); border:1px solid var(--line); min-width:0; }
+  #stepper li b { display:inline-grid; place-items:center; flex:none; width:24px; height:24px; border-radius:50%;
+    border:2px solid var(--steel-300); font-size:12px; color:var(--ink); }
+  #stepper li span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #stepper li.cur { color:var(--ink); border-color:var(--navy-500); font-weight:600; }
+  #stepper li.cur b { background:var(--brand); border-color:var(--brand); color:var(--on-brand); }
+  #stepper li.done b { background:var(--steel-300); border-color:var(--steel-300); color:var(--navy-900); }
+  .stepnav { display:flex; gap:10px; margin-top:12px; }
+  .stepnav .stepof { align-self:center; color:var(--muted); font-size:13px; white-space:nowrap; }
+  @media (max-width:1023px) {
+    body[data-step="1"] [data-step]:not([data-step="1"]),
+    body[data-step="2"] [data-step]:not([data-step="2"]),
+    body[data-step="3"] [data-step]:not([data-step="3"]) { display:none !important; }
+  }
   .card { background: var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
   .card h2 { margin:0 0 10px; font-size:15px; }
   .step { display:inline-block; width:24px; height:24px; line-height:24px; text-align:center;
-    border-radius:50%; background:var(--brand); color:#fff; font-size:13px; margin-right:8px; }
+    border-radius:50%; background:var(--brand); color:var(--on-brand); font-size:13px; margin-right:8px; }
   label { display:block; font-size:13px; margin:10px 0 4px; color:var(--muted); }
-  select, input, button { width:100%; padding:11px 12px; border-radius:10px;
-    border:1px solid var(--line); background:var(--bg); color:var(--ink); font-size:16px; }
+  select, input, button { width:100%; padding:11px 12px; border-radius:10px; min-height:44px;
+    border:1px solid color-mix(in srgb, var(--navy-500) 45%, var(--line)); background:var(--bg); color:var(--ink);
+    font-size:16px; font-family:inherit; }
+  input[type=checkbox] { width:auto; min-height:0; }
+  button { cursor:pointer; transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
   .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .drop { display:block; border:2px dashed var(--line); border-radius:12px; padding:22px 14px;
-    text-align:center; cursor:pointer; color:var(--muted); background:var(--bg); }
+  .drop { display:block; border:2px dashed var(--steel-300); border-radius:12px; padding:22px 14px;
+    text-align:center; cursor:pointer; color:var(--muted); background-color:var(--bg);
+    background-image: linear-gradient(var(--grid-1) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-1) 1px, transparent 1px),
+      linear-gradient(var(--grid-5) 1px, transparent 1px), linear-gradient(90deg, var(--grid-5) 1px, transparent 1px);
+    background-size: 5px 5px, 5px 5px, 25px 25px, 25px 25px; }
+  .drop:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
   .drop.over { border-color:var(--brand2); color:var(--brand2); }
   .drop b { display:block; color:var(--ink); font-size:16px; margin-bottom:4px; }
   .drop .chosen { color:var(--ok); font-weight:600; margin-top:6px; word-break:break-all; }
@@ -45,16 +101,23 @@
   .seg button { background:var(--bg); cursor:pointer; }
   .seg button.on { background: color-mix(in srgb, var(--brand2) 16%, transparent);
     border-color:var(--brand2); color:var(--brand2); font-weight:600; }
-  button.primary { background: var(--brand); color:#fff; border:none; cursor:pointer;
+  button.primary { background: var(--brand); color:var(--on-brand); border:none; cursor:pointer;
     font-weight:600; font-size:17px; padding:14px; margin-top:6px; }
   button.primary:disabled { opacity:.6; cursor:progress; }
   .progress { color:var(--brand2); font-size:14px; margin-top:8px; min-height:20px; }
   .err { color:var(--crit); font-size:14px; margin-top:8px; }
   .hint { color:var(--muted); font-size:12.5px; margin-top:6px; }
-  .notice { color:#8a5a00; background:#fff6e0; border-radius:6px; padding:8px 10px; font-size:13.5px; margin-top:8px; }
+  .notice { color:var(--warn); background:color-mix(in srgb, var(--warn) 12%, var(--card)); border-radius:6px;
+    padding:8px 10px; font-size:13.5px; margin-top:8px; }
+  .tips { list-style:none; display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 0; padding:0; }
+  .tips li { display:flex; flex-direction:column; align-items:center; gap:4px; text-align:center; font-size:12.5px;
+    color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:8px 4px; }
+  .tips svg { width:34px; height:34px; color:var(--navy-500); }
+  .warnline { margin-top:8px; font-size:13px; color:var(--warn); }
   .notice:empty { display:none; }
   .cambtn { display:block; width:100%; margin-top:10px; padding:12px; border-radius:10px; font-size:16px;
     border:1px solid var(--brand2); background:transparent; color:var(--brand2); cursor:pointer; }
+  .modeseg { margin-top:4px; }
   #cam { position:fixed; inset:0; background:#000; z-index:50; display:none; flex-direction:column; }
   #cam.on { display:flex; }
   #camview { position:relative; flex:1; overflow:hidden; }
@@ -97,7 +160,7 @@
   h3 { font-size:14px; margin:14px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
 </style>
 </head>
-<body>
+<body data-step="1">
 <header>
   <h1>CardioVision</h1>
   <span class="sub">заключение по фото ЭКГ · поддержка решений врача</span>
@@ -106,7 +169,12 @@
 </header>
 
 <div class="wrap">
-  <div class="card">
+  <ol id="stepper" aria-label="Шаги">
+    <li id="st1" class="cur"><b>1</b><span>Снимок</span></li>
+    <li id="st2"><b>2</b><span>Пациент</span></li>
+    <li id="st3"><b>3</b><span>Заключение</span></li>
+  </ol>
+  <div class="card" data-step="1" id="card1">
     <h2><span class="step">1</span>Снимок или файл ЭКГ</h2>
     <label class="drop" id="drop" for="files">
       <b>Нажмите, чтобы выбрать фото</b>
@@ -115,10 +183,19 @@
     </label>
     <input id="files" type="file" multiple class="hidden"
            accept="image/*,.heic,.heif,.pdf,.hea,.dat,.edf,.bdf,.csv,.txt,.dcm,.scp">
-    <div class="hint">Подойдёт фото бумажной ЭКГ или экрана прибора (JPG, PNG, HEIC), PDF, а также
+    <ul class="tips" aria-label="Как снимать">
+      <li><svg viewBox="0 0 40 40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="14" width="24" height="18" rx="2"/><path d="M20 3v8M16 7l4 4 4-4"/></svg>Сверху и ровно</li>
+      <li><svg viewBox="0 0 40 40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="20" cy="20" r="7"/><path d="M20 4v4M20 32v4M4 20h4M32 20h4M9 9l3 3M28 28l3 3M31 9l-3 3M12 28l-3 3M8 32 32 8"/></svg>Без бликов</li>
+      <li><svg viewBox="0 0 40 40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11V5h6M29 5h6v6M35 29v6h-6M11 35H5v-6"/><path d="M11 22l4-6 3 9 4-12 3 9h4"/></svg>Лист целиком</li>
+    </ul>
+    <div class="warnline">Фото из Telegram или WhatsApp сжато — читается только ориентировочно. Лучше оригинал из галереи.</div>
+    <details>
+      <summary>Подробнее о съёмке</summary>
+      <div class="hint">Подойдёт фото бумажной ЭКГ или экрана прибора (JPG, PNG, HEIC), PDF, а также
       файл записи (WFDB, EDF, CSV, DICOM, SCP). Снимайте прямо сверху, без бликов, чтобы лист занимал
       весь кадр. Лучше всего — оригинал из галереи: фото, пересланное через Telegram или WhatsApp, сжато
       и читается только ориентировочно. Несколько фото одной ЭКГ можно выбрать вместе.</div>
+    </details>
     <button type="button" class="cambtn" id="camopen">📷 Снять камерой с подсказками</button>
     <div class="row2" style="display:flex;gap:10px;margin-top:10px">
       <div style="flex:1"><label for="speed">Скорость ленты</label>
@@ -136,8 +213,11 @@
           <option value="5">5 мм/мВ</option>
         </select></div>
     </div>
-    <div class="hint">Посмотрите на край ленты: аппарат печатает там скорость и усиление (например,
+    <details>
+      <summary>Где посмотреть скорость и усиление?</summary>
+      <div class="hint">Посмотрите на край ленты: аппарат печатает там скорость и усиление (например,
       «50 мм/сек, 20 мм/мВ»). Если они не 25 и 10 — выберите их здесь, иначе ЧСС и амплитуды будут неверны.</div>
+    </details>
     <div class="notice" id="filewarn"></div>
     <div class="notice hidden" id="rotbox">
       <div id="rotmsg">Фото вертикальное. Поверните его так, чтобы строки ЭКГ шли слева направо, — иначе его не прочитать.</div>
@@ -148,18 +228,25 @@
         <button type="button" id="rotok">Строки уже идут слева направо</button>
       </div>
     </div>
+    <div class="stepnav"><span class="stepof">Шаг 1 из 3</span><button type="button" class="primary" id="next1">Далее</button></div>
   </div>
 
-  <div class="card">
+  <div class="card" data-step="2" id="card2">
     <h2><span class="step">2</span>О пациенте</h2>
     <div class="row">
-      <div><label>Возраст, лет <span style="color:var(--crit)">*</span></label>
+      <div><label for="age">Возраст, лет <span style="color:var(--crit)">*</span></label>
         <input id="age" type="number" inputmode="decimal" min="0" max="120" step="any" placeholder="например, 54"></div>
       <div><label>Пол <span style="color:var(--crit)">*</span></label>
         <div class="seg">
           <button type="button" id="sex_m" data-v="male">Муж</button>
           <button type="button" id="sex_f" data-v="female">Жен</button>
         </div></div>
+    </div>
+
+    <label id="mode_l">Режим</label>
+    <div class="seg modeseg" role="group" aria-labelledby="mode_l">
+      <button type="button" id="mode_a" data-v="A" class="on" aria-pressed="true">A — поддержка врача</button>
+      <button type="button" id="mode_b" data-v="B" aria-pressed="false">B — автономный (с проверкой)</button>
     </div>
 
     <label>Симптомы (необязательно)</label>
@@ -169,7 +256,7 @@
       <label style="font-weight:400"><input type="checkbox" name="symptom" value="syncope"> обморок</label>
       <label style="font-weight:400"><input type="checkbox" name="symptom" value="palpitations"> сердцебиение</label>
     </div>
-    <select id="onset">
+    <select id="onset" aria-label="Когда начались симптомы">
       <option value="">когда началось — не указано</option>
       <option value="lt12h">менее 12 ч назад</option>
       <option value="12to48h">12–48 ч назад</option>
@@ -186,22 +273,24 @@
     <details id="more">
       <summary>Дополнительно (необязательно)</summary>
       <div class="row">
-        <div><label>Калий K⁺, ммоль/л</label><input id="k" type="number" inputmode="decimal" step="0.1" placeholder="—"></div>
-        <div><label>Кальций Ca²⁺, ммоль/л</label><input id="ca" type="number" inputmode="decimal" step="0.01" placeholder="—"></div>
+        <div><label for="k">Калий K⁺, ммоль/л</label><input id="k" type="number" inputmode="decimal" step="0.1" placeholder="—"></div>
+        <div><label for="ca">Кальций Ca²⁺, ммоль/л</label><input id="ca" type="number" inputmode="decimal" step="0.01" placeholder="—"></div>
       </div>
-      <label>Режим</label>
-      <select id="mode">
+      <select id="mode" class="hidden" aria-hidden="true" tabindex="-1">
         <option value="A">A — поддержка врача</option>
         <option value="B">B — автономный (с проверкой)</option>
       </select>
-      <div class="row">
-        <div><label>Частота, Гц (только для CSV)</label><input id="fs" type="number" placeholder="500"></div>
-        <div><label>Единицы (только для CSV)</label>
+      <div class="row hidden" id="csvrow">
+        <div><label for="fs">Частота, Гц (только для CSV)</label><input id="fs" type="number" placeholder="500"></div>
+        <div><label for="unit">Единицы (только для CSV)</label>
           <select id="unit"><option value="uv">µV</option><option value="mv">mV</option></select></div>
       </div>
-      <label>Демо-случай (вместо файла, синтетика)</label>
+    </details>
+    <details id="svc">
+      <summary>Служебное</summary>
+      <label for="case">Демо-случай (вместо файла, синтетика)</label>
       <select id="case"></select>
-      <label>Ключ клиники</label>
+      <label for="apikey">Ключ клиники</label>
       <input id="apikey" type="password" autocomplete="off" placeholder="выдаёт администратор">
       <div class="hint" id="keyhint"></div>
       <details id="qualbox" style="margin-top:10px">
@@ -211,11 +300,13 @@
     </details>
 
     <button class="primary" id="run">Получить заключение</button>
-    <div class="progress" id="progress"></div>
-    <div class="err" id="err"></div>
+    <div class="progress" id="progress" role="status" aria-live="polite"></div>
+    <div class="err" id="err" role="alert"></div>
+    <div class="stepnav"><button type="button" id="back2">Назад</button><span class="stepof">Шаг 2 из 3</span></div>
   </div>
 
-  <div class="card hidden" id="results">
+  <div class="card hidden" id="results" data-step="3">
+    <div class="stepnav" style="margin:0 0 10px"><button type="button" id="back3">К данным пациента</button><span class="stepof">Шаг 3 из 3</span></div>
     <div id="banner" class="banner"></div>
     <div id="critical"></div>
     <h3>Заключение</h3>
@@ -259,7 +350,7 @@
     <div class="disclaimer" id="disc"></div>
   </div>
 
-  <div class="card hidden" id="histcard">
+  <div class="card hidden" id="histcard" data-step="3">
     <h3>Последние анализы в этом браузере</h3>
     <div class="hint">Анализы хранятся на сервере 30 дней (зашифрованно). Ссылка открывает PDF без ключа 7 дней — без снимка листа.</div>
     <div id="histlist"></div>
@@ -282,6 +373,17 @@
 // D200: the page in Uzbek (Latin). Russian phrase -> Uzbek; a phrase missing here stays Russian.
 // A draft translation: to be read by a native speaker before wide use.
 const UZ = {
+  // D210 (UI P1)
+  'Шаги': 'Bosqichlar', 'Снимок': 'Surat', 'Пациент': 'Bemor', 'Заключение': 'Xulosa',
+  'Далее': 'Keyingi', 'Назад': 'Orqaga', 'К данным пациента': 'Bemor ma\'lumotlariga',
+  'Шаг 1 из 3': '1-qadam (3 dan)', 'Шаг 2 из 3': '2-qadam (3 dan)', 'Шаг 3 из 3': '3-qadam (3 dan)',
+  'Как снимать': 'Qanday suratga olish', 'Сверху и ровно': 'Tepadan va tekis', 'Без бликов': 'Yaltirashsiz',
+  'Лист целиком': 'Varaq to\'liq',
+  'Фото из Telegram или WhatsApp сжато — читается только ориентировочно. Лучше оригинал из галереи.':
+    'Telegram yoki WhatsApp\'dan kelgan surat siqilgan — faqat taxminiy o\'qiladi. Galereyadagi asl nusxa yaxshiroq.',
+  'Подробнее о съёмке': 'Suratga olish haqida batafsil',
+  'Где посмотреть скорость и усиление?': 'Tezlik va kuchaytirishni qayerdan ko\'rish mumkin?',
+  'Служебное': 'Xizmat uchun', 'Когда начались симптомы': 'Belgilar qachon boshlangan',
   'заключение по фото ЭКГ · поддержка решений врача': 'EKG surati bo\'yicha xulosa · shifokor qarorini qo\'llab-quvvatlash',
   'Кто пишет текст заключения (/health)': 'Xulosa matnini kim yozadi (/health)',
   'Текст заключения: …': 'Xulosa matni: …',
@@ -360,8 +462,8 @@ const UZ = {
   'Сначала выберите фото или файл ЭКГ.': 'Avval EKG surati yoki faylini tanlang.',
   'Сначала поверните фото: строки ЭКГ должны идти слева направо.': 'Avval suratni burang: EKG qatorlari chapdan o\'ngga borishi kerak.',
   'Укажите возраст пациента.': 'Bemorning yoshini kiriting.', 'Укажите пол пациента.': 'Bemorning jinsini ko\'rsating.',
-  'Нужен ключ клиники — его выдаёт администратор (раздел «Дополнительно»).': 'Klinika kaliti kerak — uni administrator beradi («Qo\'shimcha» bo\'limi).',
-  'ключ клиники не подходит — проверьте его в разделе «Дополнительно»': 'klinika kaliti mos emas — uni «Qo\'shimcha» bo\'limida tekshiring',
+  'Нужен ключ клиники — его выдаёт администратор (раздел «Служебное»).': 'Klinika kaliti kerak — uni administrator beradi («Xizmat uchun» bo\'limi).',
+  'ключ клиники не подходит — проверьте его в разделе «Служебное»': 'klinika kaliti mos emas — uni «Xizmat uchun» bo\'limida tekshiring',
   'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.': 'Server bilan aloqa yo\'q. Internetni tekshirib, qayta urinib ko\'ring.',
   'Готово — заключение для врача': 'Tayyor — shifokor uchun xulosa', 'Готово — автономное заключение': 'Tayyor — avtonom xulosa',
   '⚠ Требуется просмотр врача': '⚠ Shifokor ko\'rigi talab qilinadi',
@@ -430,7 +532,7 @@ $('apikey').addEventListener('change', () => {
 function keyStatus() {
   const has = !!$('apikey').value.trim();
   $('keyhint').textContent = t(has ? 'Ключ сохранён в этом браузере.' : 'Без ключа клиники анализ не запустится.');
-  if (!has) $('more').open = true;
+  if (!has) $('svc').open = true;
 }
 function authed(url, opts = {}) {
   return fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-API-Key': $('apikey').value.trim() } });
@@ -447,6 +549,8 @@ function showChosen() {
   const names = [...files.files].map(f => f.name);
   $('chosen').textContent = names.length ? '✓ ' + names.join(', ') : '';
   if (names.length) $('case').value = '';
+  // D210 (UI P1): rate and units matter for a CSV record only.
+  $('csvrow').classList.toggle('hidden', !names.some(n => /\.(csv|txt)$/i.test(n)));
   checkPhotoSize();
   checkPortrait();
 }
@@ -581,7 +685,7 @@ async function camCheck() {
     fd.append('parts', $('campartsbox').checked ? 'true' : 'false');
     const r = await authed('/api/capture/check', { method: 'POST', body: fd });
     if (!r.ok) { $('camhint').textContent = r.status === 401 || r.status === 403
-        ? 'Нужен ключ клиники (раздел «Дополнительно»).' : t('Проверка кадра недоступна — можно снять вручную.'); return; }
+        ? 'Нужен ключ клиники (раздел «Служебное»).' : t('Проверка кадра недоступна — можно снять вручную.'); return; }
     const d = await r.json();
     camDraw(d, c.width, c.height);
     // D177: what is in view is told apart on the server; a sheet too big to take whole
@@ -643,6 +747,32 @@ files.addEventListener('change', showChosen);
 ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', e => { files.files = e.dataTransfer.files; showChosen(); });
+
+// D210 (UI P1): the mode A / B stays visible on the form (it changes how the result reads).
+for (const id of ['mode_a', 'mode_b']) {
+  $(id).addEventListener('click', () => {
+    $('mode').value = $(id).dataset.v;
+    for (const b of ['mode_a', 'mode_b']) {
+      $(b).classList.toggle('on', $(b).dataset.v === $('mode').value);
+      $(b).setAttribute('aria-pressed', String($(b).dataset.v === $('mode').value));
+    }
+  });
+}
+// D210 (UI P1): the steps. At >= 1024 px both input cards are side by side and the stepper only shows
+// progress; below it one step per screen. What is typed stays in the page between the steps.
+function setStep(n) {
+  document.body.dataset.step = String(n);
+  for (let i = 1; i <= 3; i++) {
+    const li = $('st' + i);
+    li.classList.toggle('cur', i === n); li.classList.toggle('done', i < n);
+    if (i === n) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
+  }
+  if (window.matchMedia('(max-width:1023px)').matches) window.scrollTo({ top: 0 });
+}
+$('next1').addEventListener('click', () => { setStep(2); $('age').focus({ preventScroll: true }); });
+$('back2').addEventListener('click', () => setStep(1));
+$('back3').addEventListener('click', () => setStep(2));
+setStep(1);
 
 // Step 2: sex as two buttons.
 let sex = '';
@@ -707,7 +837,7 @@ $('run').addEventListener('click', async () => {
   const age = parseFloat($('age').value);
   if (!(age >= 0 && age <= 120)) { $('err').textContent = t('Укажите возраст пациента.'); $('age').focus(); return; }
   if (!sex) { $('err').textContent = t('Укажите пол пациента.'); return; }
-  if (!$('apikey').value.trim()) { $('err').textContent = t('Нужен ключ клиники — его выдаёт администратор (раздел «Дополнительно»).'); $('more').open = true; return; }
+  if (!$('apikey').value.trim()) { $('err').textContent = t('Нужен ключ клиники — его выдаёт администратор (раздел «Служебное»).'); $('svc').open = true; return; }
 
   fd.append('mode', $('mode').value);
   // D179: the speed and gain printed on the strip, when the user gives them.
@@ -726,13 +856,14 @@ $('run').addEventListener('click', async () => {
   $('run').disabled = true; $('results').classList.add('hidden'); startProgress();
   try {
     const r = await authed('/api/analyze', { method: 'POST', body: fd });
-    if (r.status === 401) { $('more').open = true; throw new Error(t('ключ клиники не подходит — проверьте его в разделе «Дополнительно»')); }
+    if (r.status === 401) { $('svc').open = true; throw new Error(t('ключ клиники не подходит — проверьте его в разделе «Служебное»')); }
     if (!r.ok) {
       let detail = r.statusText;
       try { detail = (await r.json()).detail || detail; } catch (e) {}
       throw new Error(detail);
     }
     render(await r.json());
+    setStep(3);
   } catch (e) {
     $('err').textContent = (e.message === 'Failed to fetch' || e.message === 'Load failed')
       ? t('Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.') : e.message;
@@ -802,7 +933,8 @@ function render(d, redraw = false) {
   const adv = d.symptom_advice || [];                    // D195
   $('advice_box').classList.toggle('hidden', !adv.length);
   $('advice').innerHTML = adv.map(a => `<div class="${a.urgent ? 'crit' : 'notice'}" style="margin:4px 0">${a.urgent ? '⚠ ' : ''}${esc(L(a.ru, a.uz))}</div>`).join('');
-  if (!redraw) { rememberAnalysis(d, unreliable); $('results').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  if (!redraw) { rememberAnalysis(d, unreliable);
+    $('results').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }
 }
 
 // D196: the leads a finding rests on, when its name does not give them already.
@@ -830,21 +962,22 @@ function renderSerial(sc) {
 // rate only — no patient data, no conclusion text (D193).
 const HIST_KEY = 'cardiolens_history_v1', HIST_MAX = 10;
 function loadHistory() {
-  try { const h = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); return Array.isArray(h) ? h : []; }
+  // D210: only the number and the time are kept (entries written before keep no rate either).
+  try { const h = JSON.parse(localStorage.getItem(HIST_KEY) || '[]');
+    return Array.isArray(h) ? h.map(x => ({ id: String(x.id), t: x.t })) : []; }
   catch (e) { return []; }
 }
 function fillPrior() {
   const sel = $('prior'), keep = sel.value;
   sel.innerHTML = `<option value="">${t('не сравнивать')}</option>` + loadHistory().map(h => {
     const t = new Date(h.t), when = t.toLocaleDateString('ru-RU') + ' ' + t.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    return `<option value="${esc(h.id)}">${esc(when)} · ${L('ЧСС', 'YuQS')} ${h.hr == null ? '—' : esc(h.hr)}</option>`;
+    return `<option value="${esc(h.id)}">${esc(when)}</option>`;
   }).join('');
   sel.value = keep && [...sel.options].some(o => o.value === keep) ? keep : '';
 }
 function rememberAnalysis(d, unreliable) {
   if (!d.analysis_id) return;
-  const hr = unreliable || d.measurements.heart_rate_bpm == null ? null : Math.round(d.measurements.heart_rate_bpm);
-  const h = [{ id: String(d.analysis_id), t: Date.now(), hr }, ...loadHistory().filter(x => x.id !== d.analysis_id)].slice(0, HIST_MAX);
+  const h = [{ id: String(d.analysis_id), t: Date.now() }, ...loadHistory().filter(x => x.id !== d.analysis_id)].slice(0, HIST_MAX);
   try { localStorage.setItem(HIST_KEY, JSON.stringify(h)); } catch (e) { /* private mode: no list */ }
   fillPrior();
   fillHistory();
@@ -875,7 +1008,7 @@ function fillHistory() {
   $('histlist').innerHTML = h.map((x, i) => {
     const t = new Date(x.t), when = t.toLocaleDateString('ru-RU') + ' ' + t.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     return `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)">
-      <span style="flex:1;min-width:160px">${esc(when)} · ${L('ЧСС', 'YuQS')} ${x.hr == null ? '—' : esc(x.hr)}</span>
+      <span style="flex:1;min-width:160px">${esc(when)}</span>
       <button type="button" data-pdf="${i}">PDF</button><button type="button" data-share="${i}">🔗 ${L('Ссылка', 'Havola')}</button>
       <div class="muted" id="hout${i}" style="flex-basis:100%;word-break:break-all"></div></div>`;
   }).join('');
