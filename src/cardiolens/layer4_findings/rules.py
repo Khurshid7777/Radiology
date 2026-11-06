@@ -298,13 +298,18 @@ def detect_findings(
     # not the block itself (Chapman odd half 14 of 37 complete blocks, sinus bradycardia 0 of 155;
     # PTB-XL sinus bradycardia 8 of 256).
     esc = norms.get("rhythm", {}).get("escape_wide")
+    # Wide QRS, or no conducted P measured at all (no PR spread: no P found before the beats) — the
+    # variant chosen on the even Chapman half.
+    wide_esc = (m.intervals.qrs_ms or 0) >= float(esc["qrs_min"]) if esc else False
+    no_conducted_p = m.pr_std_ms is None
     if (esc and not is_pediatric and hr is not None and hr < float(esc["hr_max"])
-            and (m.intervals.qrs_ms or 0) >= float(esc["qrs_min"])
+            and (wide_esc or no_conducted_p)
             and not fs.codes() & {"complete_av_block", "atrial_fibrillation"}):
         fs.findings.append(Finding(
             code="slow_wide_escape_rhythm", group="rhythm",
-            label_ru=f"Медленный ритм с широкими QRS ({hr}/мин, QRS {m.intervals.qrs_ms} мс): исключите полную "
-                     f"АВ-блокаду — ищите зубцы P, не связанные с QRS",
+            label_ru=(f"Медленный ритм с широкими QRS ({hr}/мин, QRS {m.intervals.qrs_ms} мс)" if wide_esc else
+                      f"Медленный ритм без проведённых зубцов P ({hr}/мин)")
+                     + ": исключите полную АВ-блокаду — ищите зубцы P, не связанные с QRS",
             label_uz=f"Keng QRS li sekin ritm ({hr}/daq): to'liq AV blokadani istisno qiling",
             evidence=_ev(heart_rate_bpm=hr, qrs_ms=m.intervals.qrs_ms), confidence=0.6,
         ))

@@ -99,3 +99,11 @@ def test_a_slow_wide_rhythm_asks_to_exclude_complete_block():
     assert "slow_wide_escape_rhythm" in _codes(m)
     m.heart_rate_bpm = 55
     assert "slow_wide_escape_rhythm" not in _codes(m)
+
+
+def test_a_slow_rhythm_without_a_conducted_p_asks_too():
+    m = _m(40, qrs=90)
+    m.heart_rate_bpm, m.pr_std_ms = 38, None
+    assert "slow_wide_escape_rhythm" in _codes(m)
+    m.pr_std_ms = 12.0
+    assert "slow_wide_escape_rhythm" not in _codes(m)
