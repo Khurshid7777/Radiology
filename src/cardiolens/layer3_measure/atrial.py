@@ -388,17 +388,31 @@ P_TRAIN_RATE_RANGE = (45.0, 150.0)
 
 
 def p_train(
-    leads: dict[str, np.ndarray], rpeaks: np.ndarray, fs: float,
+    leads: dict[str, np.ndarray], rpeaks: np.ndarray, fs: float, qrs_ms: float | None = None,
 ) -> dict | None:
     """Best regular P train over ``leads`` (both polarities): its rate, regular
     fraction, PR spread and P/QRS counts; None without a usable train."""
+    cands = p_train_candidates(leads, rpeaks, fs, qrs_ms)
+    return max(cands, key=lambda c: c["score"]) if cands else None
+
+
+def p_train_candidates(
+    leads: dict[str, np.ndarray], rpeaks: np.ndarray, fs: float, qrs_ms: float | None = None,
+) -> list[dict]:
+    """Every (lead, polarity) P train with its score (D206): the best-scoring one is often the
+    residual locked to the QRS (rate = HR, fixed "PR"), and a dissociated train is a runner-up."""
     rp = np.asarray(rpeaks, dtype=int)
     if len(rp) < 4:
-        return None
+        return []
     nyq = fs / 2.0
     b, a = butter(2, [P_TRAIN_BAND_HZ[0] / nyq, min(P_TRAIN_BAND_HZ[1] / nyq, 0.99)], btype="band")
-    w1, w2 = int(P_TRAIN_BLANK_S[0] * fs), int(P_TRAIN_BLANK_S[1] * fs)
-    best = None
+    # The QRS blank widens with a wide QRS (D206): the template-subtraction residual of a 150-190 ms
+    # escape complex reaches past +-60/100 ms, and those edges formed a train locked to the QRS that
+    # out-scored the dissociated P waves of complete AV block.
+    half = (qrs_ms or 0.0) / 2000.0
+    w1 = int(max(P_TRAIN_BLANK_S[0], half + 0.03) * fs)
+    w2 = int(max(P_TRAIN_BLANK_S[1], half + 0.07) * fs)
+    out: list[dict] = []
     for name in P_TRAIN_LEADS:
         x = leads.get(name)
         if x is None:
@@ -432,10 +446,9 @@ def p_train(
             pr_iqr = (float(np.subtract(*np.percentile(prs, [75, 25])))
                       if len(prs) >= 4 else None)
             score = regular * min(1.0, len(pk) / len(rp))
-            if best is None or score > best[0]:
-                best = (score, dict(rate_bpm=60.0 / period, regular=regular, pr_iqr_s=pr_iqr,
-                                    n_p=len(pk), n_r=len(rp), lead=name))
-    return best[1] if best else None
+            out.append(dict(rate_bpm=60.0 / period, regular=regular, pr_iqr_s=pr_iqr,
+                            n_p=len(pk), n_r=len(rp), lead=name, score=score))
+    return out
 
 
 def p_train_dissociated(train: dict | None, heart_rate_bpm: float | None) -> bool:

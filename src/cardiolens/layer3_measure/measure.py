@@ -876,7 +876,8 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
             notes.append("atrial activity: no organised P waves -> not AV dissociation")
         if ATRIAL_P_TRAIN:
             train = p_train({ln: sig.lead(ln).astype(np.float64)
-                             for ln in P_TRAIN_LEADS if ln in sig.lead_names}, rpeaks, fs)
+                             for ln in P_TRAIN_LEADS if ln in sig.lead_names}, rpeaks, fs,
+                            m.intervals.qrs_ms)
             flutter = rate is not None and FLUTTER_BAND_BPM[0] <= rate <= FLUTTER_BAND_BPM[1]
             av = p_train_dissociated(train, m.heart_rate_bpm) and not flutter
             if av:
