@@ -118,6 +118,50 @@
   .cambtn { display:block; width:100%; margin-top:10px; padding:12px; border-radius:10px; font-size:16px;
     border:1px solid var(--brand2); background:transparent; color:var(--brand2); cursor:pointer; }
   .modeseg { margin-top:4px; }
+  /* D210 P2: the analysis overlay — a scan line over the photo while the server works (no invented
+     progress: the server gives no stages). Only transform / opacity move. */
+  #scanbox { position:relative; margin-top:12px; border-radius:10px; overflow:hidden; min-height:120px;
+    background-color: var(--navy-900); }
+  #scanbox img { display:block; width:100%; max-height:260px; object-fit:contain; border:0; border-radius:0;
+    background:#fff; opacity:.9; }
+  #scanbox .veil { position:absolute; inset:0; background-color: color-mix(in srgb, var(--navy-900) 60%, transparent);
+    background-image: linear-gradient(rgba(160,189,207,.18) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(160,189,207,.18) 1px, transparent 1px);
+    background-size: 10px 10px; }
+  #scanbox .bar { position:absolute; top:0; bottom:0; left:0; width:3px; background:#a0bdcf;
+    box-shadow: 0 0 18px 6px rgba(160,189,207,.55); animation: scan 1.6s var(--ease) infinite alternate; }
+  #scanbox.done .bar { animation: scanEnd .35s var(--ease) forwards; }
+  #scanbox.done { animation: veilOut .35s var(--ease) forwards; }
+  @keyframes scan { from { transform: translateX(0); } to { transform: translateX(calc(var(--w, 300px) - 3px)); } }
+  @keyframes scanEnd { to { transform: translateX(calc(var(--w, 300px) - 3px)); opacity:0; } }
+  @keyframes veilOut { to { opacity:0; } }
+  @media (prefers-reduced-motion: reduce) { #scanbox .bar { display:none; } }
+  /* D210 P2: two layers — "Result" (light, the essentials and every warning) and "Laboratory" (dark). */
+  .layers { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:12px; background:var(--bg);
+    border:1px solid var(--line); border-radius:12px; padding:4px; }
+  .layers button { border:0; background:transparent; font-weight:600; }
+  .layers button[aria-selected="true"] { background:var(--brand); color:var(--on-brand); }
+  .lab { background:#0a172b; color:#e7eef4; border-radius:12px; padding:14px; margin-top:4px;
+    --ink:#e7eef4; --muted:#a0bdcf; --line:#26395a; --bg:#13233b; --card:#13233b; --brand2:#8cc3ef;
+    --crit:#ff8a95; --warn:#f0b257; }
+  /* While an image is still on its way (the waveform SVG is ~270 KB): an ECG-paper placeholder, no broken icon. */
+  img.lazy:not([src]) { display:block; width:100%; height:160px; color:transparent; border:1px solid var(--line);
+    background-color:var(--bg); background-image: linear-gradient(var(--grid-5) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-5) 1px, transparent 1px); background-size: 20px 20px; }
+  .lab h3 { color:#a0bdcf; }
+  .lab.opening { animation: curtain .35s var(--ease); }
+  @keyframes curtain { from { clip-path: circle(0 at var(--cx, 75%) 0); } to { clip-path: circle(150% at var(--cx, 75%) 0); } }
+  @media (prefers-reduced-motion: reduce) { .lab.opening { animation: none; } }
+  .keys { display:grid; grid-template-columns:repeat(auto-fit, minmax(96px, 1fr)); gap:8px; margin:10px 0; }
+  .key { background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
+  .key .k { font-size:12px; color:var(--muted); }
+  .key .v { font-size:22px; font-weight:700; font-variant-numeric: tabular-nums; }
+  .key .u { font-size:12px; color:var(--muted); margin-left:2px; }
+  .clsw { display:flex; gap:6px; justify-content:flex-end; margin:-4px 0 4px; }
+  .clsw button { width:auto; min-width:44px; padding:4px 10px; font-size:13px; }
+  .clsw button[aria-pressed="true"] { background:var(--brand); color:var(--on-brand); border-color:var(--brand); }
+  .actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+  .keepnote { margin-top:10px; }
   #cam { position:fixed; inset:0; background:#000; z-index:50; display:none; flex-direction:column; }
   #cam.on { display:flex; }
   #camview { position:relative; flex:1; overflow:hidden; }
@@ -176,6 +220,7 @@
   </ol>
   <div class="card" data-step="1" id="card1">
     <h2><span class="step">1</span>Снимок или файл ЭКГ</h2>
+    <div class="notice keepnote hidden" id="keepnote"></div>
     <label class="drop" id="drop" for="files">
       <b>Нажмите, чтобы выбрать фото</b>
       с телефона или компьютера — или перетащите сюда
@@ -300,6 +345,7 @@
     </details>
 
     <button class="primary" id="run">Получить заключение</button>
+    <div id="scanbox" class="hidden" aria-hidden="true"><img id="scanimg" alt=""><div class="veil"></div><div class="bar"></div></div>
     <div class="progress" id="progress" role="status" aria-live="polite"></div>
     <div class="err" id="err" role="alert"></div>
     <div class="stepnav"><button type="button" id="back2">Назад</button><span class="stepof">Шаг 2 из 3</span></div>
@@ -307,23 +353,37 @@
 
   <div class="card hidden" id="results" data-step="3">
     <div class="stepnav" style="margin:0 0 10px"><button type="button" id="back3">К данным пациента</button><span class="stepof">Шаг 3 из 3</span></div>
-    <div id="banner" class="banner"></div>
-    <div id="critical"></div>
-    <h3>Заключение</h3>
-    <pre id="concl_ru"></pre>
-    <a class="btn" id="pdf" download><button class="primary">Скачать PDF</button></a>
-    <button type="button" id="sharebtn" style="margin-top:8px">🔗 Ссылка для коллеги</button>
-    <div class="muted" id="shareout" style="word-break:break-all;margin-top:4px"></div>
-    <div class="muted" id="narr_src" style="margin-top:8px"></div>
-    <div id="overlay_box" class="hidden" style="margin-top:12px">
-      <h3>Что прочитано с фото</h3>
-      <div class="muted">Цветные линии должны лежать на кривых ЭКГ: зелёные — прочитано уверенно, оранжевые —
-        сомнительно, красные — плохо. Если линии не на кривых, заключению верить нельзя — переснимите лист.</div>
-      <img id="overlay" alt="прочитанные трассы на снимке" style="max-width:100%;margin-top:8px;border:1px solid #ddd;border-radius:6px">
+    <div class="layers" role="tablist" aria-label="Слои результата">
+      <button type="button" role="tab" id="tab_res" aria-selected="true" aria-controls="lay1">Результат</button>
+      <button type="button" role="tab" id="tab_lab" aria-selected="false" aria-controls="lay2">Лаборатория</button>
     </div>
-
-    <details style="margin-top:12px">
-      <summary>Подробно: измерения, находки, кривая, заключение на узбекском</summary>
+    <div id="lay1" role="tabpanel" aria-labelledby="tab_res">
+      <div id="banner" class="banner"></div>
+      <div id="critical"></div>
+      <div id="warnbox"></div>
+      <div class="keys" id="keys"></div>
+      <h3>Заключение</h3>
+      <div class="clsw" role="group" aria-label="Язык заключения">
+        <button type="button" id="cl_ru" aria-pressed="true">RU</button><button type="button" id="cl_uz" aria-pressed="false">UZ</button>
+      </div>
+      <pre id="concl_ru"></pre>
+      <a class="btn" id="pdf" download><button class="primary" tabindex="-1">Скачать PDF</button></a>
+      <button type="button" id="sharebtn" style="margin-top:8px">🔗 Ссылка для коллеги</button>
+      <div class="muted" id="shareout" style="word-break:break-all;margin-top:4px"></div>
+      <div class="actions">
+        <button type="button" id="rescan">Переснять</button>
+        <button type="button" id="newpat">Новый пациент</button>
+      </div>
+      <div class="muted" id="narr_src" style="margin-top:8px"></div>
+      <div id="overlay_box" class="hidden" style="margin-top:12px">
+        <h3>Что прочитано с фото</h3>
+        <div class="muted">Цветные линии должны лежать на кривых ЭКГ: зелёные — прочитано уверенно, оранжевые —
+          сомнительно, красные — плохо. Если линии не на кривых, заключению верить нельзя — переснимите лист.</div>
+        <img id="overlay" alt="прочитанные трассы на снимке" style="max-width:100%;margin-top:8px;border:1px solid #ddd;border-radius:6px">
+      </div>
+      <div class="disclaimer" id="disc"></div>
+    </div>
+    <div id="lay2" role="tabpanel" aria-labelledby="tab_lab" class="lab" hidden>
       <h3>Измерения</h3>
       <table id="meas"></table>
       <div id="advice_box" class="hidden">
@@ -337,8 +397,8 @@
       <h3>Находки</h3>
       <div id="findings"></div>
       <div class="grid2" style="margin-top:14px">
-        <div><h3>Кривая ЭКГ</h3><img id="wave" alt="ЭКГ"></div>
-        <div><h3>Причинный граф</h3><img id="graph" alt="граф"></div>
+        <div><h3>Кривая ЭКГ</h3><img id="wave" class="lazy" alt="ЭКГ"></div>
+        <div><h3>Причинный граф</h3><img id="graph" class="lazy" alt="граф"></div>
       </div>
       <h3>Xulosa (UZ)</h3>
       <pre id="concl_uz"></pre>
@@ -346,8 +406,7 @@
         <summary>Ход рассуждений</summary>
         <ol class="trace" id="trace"></ol>
       </details>
-    </details>
-    <div class="disclaimer" id="disc"></div>
+    </div>
   </div>
 
   <div class="card hidden" id="histcard" data-step="3">
@@ -373,6 +432,11 @@
 // D200: the page in Uzbek (Latin). Russian phrase -> Uzbek; a phrase missing here stays Russian.
 // A draft translation: to be read by a native speaker before wide use.
 const UZ = {
+  'Анализирую снимок…': 'Surat tahlil qilinmoqda…', 'Анализирую запись…': 'Yozuv tahlil qilinmoqda…',
+  'Это занимает дольше обычного…': 'Bu odatdagidan uzoqroq davom etmoqda…',
+  // D210 (UI P2)
+  'Слои результата': 'Natija qatlamlari', 'Результат': 'Natija', 'Лаборатория': 'Laboratoriya',
+  'Язык заключения': 'Xulosa tili', 'Переснять': 'Qayta suratga olish', 'Новый пациент': 'Yangi bemor',
   // D210 (UI P1)
   'Шаги': 'Bosqichlar', 'Снимок': 'Surat', 'Пациент': 'Bemor', 'Заключение': 'Xulosa',
   'Далее': 'Keyingi', 'Назад': 'Orqaga', 'К данным пациента': 'Bemor ma\'lumotlariga',
@@ -456,9 +520,6 @@ const UZ = {
   'Снимаю частями (каждая часть с перекрытием) — включается сам, если лист большой':
     'Qismlarga bo\'lib olaman (har bir qism qoplama bilan) — varaq katta bo\'lsa o\'zi yoqiladi',
   'Отмена': 'Bekor qilish', 'Снять': 'Suratga olish', 'Готово': 'Tayyor',
-  'Отправляю…': 'Yuborilmoqda…', 'Читаю ЭКГ со снимка…': 'Suratdan EKG o\'qilmoqda…',
-  'Измеряю и ищу находки…': 'O\'lchanmoqda va topilmalar izlanmoqda…', 'Пишу заключение…': 'Xulosa yozilmoqda…',
-  'Ещё немного — сложный снимок…': 'Yana biroz — murakkab surat…',
   'Сначала выберите фото или файл ЭКГ.': 'Avval EKG surati yoki faylini tanlang.',
   'Сначала поверните фото: строки ЭКГ должны идти слева направо.': 'Avval suratni burang: EKG qatorlari chapdan o\'ngga borishi kerak.',
   'Укажите возраст пациента.': 'Bemorning yoshini kiriting.', 'Укажите пол пациента.': 'Bemorning jinsini ko\'rsating.',
@@ -810,21 +871,37 @@ async function loadHealth() {
   } catch (e) { $('llm').textContent = L('Текст заключения: ?', 'Xulosa matni: ?'); }
 }
 
-// What the page says while the server works: reading a photo through the scanner, the
-// analysis and the narrative take tens of seconds together.
-const STAGES = [[0, 'Отправляю…'], [2, 'Читаю ЭКГ со снимка…'], [10, 'Измеряю и ищу находки…'],
-                [20, 'Пишу заключение…'], [45, 'Ещё немного — сложный снимок…']];
-let timer = null;
+// What the page says while the server works (D210 P2). The server reports no stages, so none are
+// invented: one sentence, the elapsed seconds, and after 10 s that it takes longer than usual. The
+// status line is aria-live; the scan line over the photo is decoration (aria-hidden).
+let timer = null, scanUrl = null;
 function startProgress() {
   const t0 = Date.now();
+  const img = [...files.files].find(f => /^image\//.test(f.type));
+  if (scanUrl) { URL.revokeObjectURL(scanUrl); scanUrl = null; }
+  if (img) { scanUrl = URL.createObjectURL(img); $('scanimg').src = scanUrl; $('scanimg').classList.remove('hidden'); }
+  else { $('scanimg').removeAttribute('src'); $('scanimg').classList.add('hidden'); }
+  const box = $('scanbox'); box.classList.remove('hidden', 'done');
+  box.style.setProperty('--w', box.clientWidth + 'px');
+  let last = '';
   const tick = () => {
     const s = Math.round((Date.now() - t0) / 1000);
-    const stage = STAGES.filter(x => x[0] <= s).pop()[1];
-    $('progress').textContent = `${t(stage)} ${s} ${L('с', 's')}`;
+    const msg = t(s >= 10 ? 'Это занимает дольше обычного…' : (img ? 'Анализирую снимок…' : 'Анализирую запись…'));
+    if (msg !== last) { $('progress').textContent = msg; last = msg; }    // the live region speaks only on a change
+    $('progress').dataset.s = `${s} ${L('с', 's')}`;
   };
   tick(); timer = setInterval(tick, 1000);
 }
-function stopProgress() { clearInterval(timer); timer = null; $('progress').textContent = ''; }
+function stopProgress(ok) {
+  clearInterval(timer); timer = null; $('progress').textContent = '';
+  const box = $('scanbox');
+  const end = () => { box.classList.add('hidden'); box.classList.remove('done');
+    if (scanUrl) { URL.revokeObjectURL(scanUrl); scanUrl = null; } $('scanimg').removeAttribute('src'); };
+  if (ok && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    box.classList.add('done'); setTimeout(end, 350);                 // a last sweep, <= 400 ms, the result is already drawn
+    box.addEventListener('click', end, { once: true });              // skippable
+  } else end();
+}
 
 $('run').addEventListener('click', async () => {
   $('err').textContent = '';
@@ -854,6 +931,7 @@ $('run').addEventListener('click', async () => {
   if (symp.length) { fd.append('symptoms', symp.join(',')); if ($('onset').value) fd.append('symptom_onset', $('onset').value); }
 
   $('run').disabled = true; $('results').classList.add('hidden'); startProgress();
+  let ok = false;
   try {
     const r = await authed('/api/analyze', { method: 'POST', body: fd });
     if (r.status === 401) { $('svc').open = true; throw new Error(t('ключ клиники не подходит — проверьте его в разделе «Служебное»')); }
@@ -863,11 +941,12 @@ $('run').addEventListener('click', async () => {
       throw new Error(detail);
     }
     render(await r.json());
+    ok = true;
     setStep(3);
   } catch (e) {
     $('err').textContent = (e.message === 'Failed to fetch' || e.message === 'Load failed')
       ? t('Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.') : e.message;
-  } finally { $('run').disabled = false; stopProgress(); }
+  } finally { $('run').disabled = false; stopProgress(ok); }
 });
 
 let lastData = null;
@@ -882,6 +961,12 @@ function render(d, redraw = false) {
 
   $('critical').innerHTML = (d.critical_alerts || [])
     .map(a => `<div class="crit">⚠ ${esc(L(a.label_ru, a.label_uz))}</div>`).join('');
+  // D210 P2: every warning in the first layer — the photo's own (quality findings: compressed, unreliable,
+  // screen photo, device mismatch…), the assumed paper speed, the device read from the page.
+  const warns = (d.findings || []).filter(f => f.group === 'quality').map(f => L(f.label_ru, f.label_uz));
+  if (d.speed_note_ru) warns.push(d.speed_note_ru);
+  if (d.device_ru) warns.push(d.device_ru);
+  $('warnbox').innerHTML = warns.map(w => `<div class="notice">⚠ ${esc(w)}</div>`).join('');
 
   const m = d.measurements, iv = m.intervals;
   // D178: an unreliable photo's numbers are not shown as measurements.
@@ -904,15 +989,19 @@ function render(d, redraw = false) {
     <tr><td>${L('Ось QRS', 'QRS o\'qi')}</td><td>${m.axes.qrs_deg ?? '—'}°</td>
         <td>${L('Уверенность', 'Ishonch')}</td><td>${d.interpretation.confidence.value} (${L(d.interpretation.confidence.word_ru, d.interpretation.confidence.word_uz)})</td></tr>`;
 
+  renderKeys(d, unreliable, unreliable && rate ? rate.value : null);
   // D180: the paper speed was assumed, not read: said next to the numbers.
   if (d.speed_note_ru) $('meas').innerHTML += `<tr><td colspan="4" class="notice">${esc(d.speed_note_ru)}</td></tr>`;
   if (d.device_ru) $('meas').innerHTML += `<tr><td colspan="4" class="muted">${esc(d.device_ru)}</td></tr>`;
   $('findings').innerHTML = (d.findings || [])
     .map(f => `<span class="chip ${f.critical ? 'crit' : ''}">${esc(L(f.label_ru, f.label_uz) + leadSuffix(f))}</span>`).join('') || '<span class="muted">—</span>';
 
+  if (!redraw) { $('wave').removeAttribute('src'); $('graph').removeAttribute('src'); }
   blobUrl(`/api/analysis/${d.analysis_id}/waveform.svg`).then(u => { $('wave').src = u; }).catch(() => {});
   blobUrl(`/api/analysis/${d.analysis_id}/graph.png`).then(u => { $('graph').src = u; }).catch(() => {});
-  $('concl_ru').textContent = L(d.conclusion_ru, d.conclusion_uz);     // the main one in the page's language
+  $('concl_ru').textContent = (concLang === 'uz') ? d.conclusion_uz : d.conclusion_ru;   // D210 P2: RU | UZ switch
+  $('cl_ru').setAttribute('aria-pressed', String(concLang === 'ru'));
+  $('cl_uz').setAttribute('aria-pressed', String(concLang === 'uz'));
   $('concl_uz').textContent = L(d.conclusion_uz, d.conclusion_ru);
   const it = d.interpretation;
   $('narr_src').textContent = L('Текст: ', 'Matn: ') + providerLabel(it.provider, it.provider_model) +
@@ -933,9 +1022,65 @@ function render(d, redraw = false) {
   const adv = d.symptom_advice || [];                    // D195
   $('advice_box').classList.toggle('hidden', !adv.length);
   $('advice').innerHTML = adv.map(a => `<div class="${a.urgent ? 'crit' : 'notice'}" style="margin:4px 0">${a.urgent ? '⚠ ' : ''}${esc(L(a.ru, a.uz))}</div>`).join('');
-  if (!redraw) { rememberAnalysis(d, unreliable);
+  if (!redraw) { showLayer(1, false); rememberAnalysis(d, unreliable);
     $('results').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }
 }
+
+// D210 P2: the key values, exactly as the API gave them (the same numbers as the measurements table);
+// none for an unreliable photo except the rate a gated page still states (D189).
+function renderKeys(d, unreliable, releasedRate) {
+  const m = d.measurements, iv = m.intervals;
+  const items = unreliable
+    ? (releasedRate != null ? [[L('ЧСС', 'YuQS'), releasedRate, L('/мин', '/daq')]] : [])
+    : [[L('ЧСС', 'YuQS'), m.heart_rate_bpm, L('/мин', '/daq')], ['PR', iv.pr_ms, L('мс', 'ms')],
+       ['QRS', iv.qrs_ms, L('мс', 'ms')], ['QTc (Bazett)', iv.qtc_bazett_ms, L('мс', 'ms')],
+       [L('Ось QRS', 'QRS o\'qi'), m.axes.qrs_deg, '°']];
+  $('keys').innerHTML = items.filter(x => x[1] != null).map(([k, v, u]) =>
+    `<div class="key"><div class="k">${esc(k)}</div><span class="v" data-v="${esc(v)}">${esc(v)}</span><span class="u">${esc(u)}</span></div>`).join('');
+}
+let concLang = lang;
+for (const c of ['ru', 'uz']) $('cl_' + c).addEventListener('click', () => { concLang = c; if (lastData) render(lastData, true); });
+function showLayer(n, animate = true) {
+  const lab = n === 2;
+  $('tab_res').setAttribute('aria-selected', String(!lab)); $('tab_lab').setAttribute('aria-selected', String(lab));
+  $('lay1').hidden = lab; $('lay2').hidden = !lab;
+  if (lab && animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const b = $('tab_lab').getBoundingClientRect(), p = $('results').getBoundingClientRect();
+    $('lay2').style.setProperty('--cx', `${Math.round(b.left + b.width / 2 - p.left)}px`);
+    $('lay2').classList.remove('opening'); void $('lay2').offsetWidth; $('lay2').classList.add('opening');
+  }
+}
+$('tab_res').addEventListener('click', () => showLayer(1));
+$('tab_lab').addEventListener('click', () => showLayer(2));
+for (const [id, other] of [['tab_res', 'tab_lab'], ['tab_lab', 'tab_res']])
+  $(id).addEventListener('keydown', e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { $(other).click(); $(other).focus(); } });
+
+// D210 P2: "re-take" keeps the patient (and says so, so the data never drift to another patient);
+// "new patient" clears the form and the result. The clinic key, the language and the mode stay.
+function clearFile() {
+  files.value = ''; $('chosen').textContent = ''; $('filewarn').textContent = '';
+  rot.pending = false; $('rotbox').classList.add('hidden'); $('csvrow').classList.add('hidden');
+  $('results').classList.add('hidden'); $('err').textContent = ''; lastData = null; lastId = null;
+}
+$('rescan').addEventListener('click', () => {
+  clearFile();
+  const who = [$('age').value ? $('age').value + ' ' + L('лет', 'yosh') : '', sex === 'male' ? L('муж', 'erkak') : sex === 'female' ? L('жен', 'ayol') : '']
+    .filter(Boolean).join(', ');
+  $('keepnote').textContent = L(`Данные пациента сохранены: ${who || '—'}. Для другого пациента нажмите «Новый пациент».`,
+                                `Bemor ma'lumotlari saqlandi: ${who || '—'}. Boshqa bemor uchun «Yangi bemor»ni bosing.`);
+  $('keepnote').classList.remove('hidden');
+  setStep(1); $('drop').scrollIntoView({ block: 'center' });
+});
+$('newpat').addEventListener('click', () => {
+  clearFile();
+  for (const id of ['age', 'k', 'ca', 'fs']) $(id).value = '';
+  for (const id of ['onset', 'prior', 'speed', 'gain', 'case']) $(id).value = '';
+  $('unit').value = 'uv';
+  document.querySelectorAll('input[name=symptom]').forEach(x => { x.checked = false; });
+  sex = ''; $('sex_m').classList.remove('on'); $('sex_f').classList.remove('on');
+  $('keepnote').classList.add('hidden'); $('keepnote').textContent = '';
+  setStep(1); window.scrollTo({ top: 0 });
+});
 
 // D196: the leads a finding rests on, when its name does not give them already.
 function leadSuffix(f) {
@@ -1053,7 +1198,7 @@ $('qualbox').addEventListener('toggle', () => { if ($('qualbox').open) loadQuali
 
 // D200: the language switch.
 function setLang(l) {
-  lang = l;
+  lang = l; concLang = l;
   try { localStorage.setItem('cardiolens_lang_v1', l); } catch (e) {}
   applyLang(); fillPrior(); fillHistory(); loadHealth();
   const hasKey = !!$('apikey').value.trim();
