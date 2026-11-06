@@ -29,6 +29,8 @@ MIN_PP_S = 0.25
 HEIGHT_K = 3.0                  # peak height above the residual's robust SD in the T-P segment
 PR_RANGE_MS = (80.0, 400.0)     # a P this far before a QRS is conducted to it
 PP_TOL = 0.15                   # |PP - n x period| / period for a regular P-P
+COMBINE = False                 # attempt 2: also search the first principal component of all residuals
+COMBINE_LEADS = ("I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6")
 
 
 @dataclass
@@ -133,14 +135,31 @@ def p_wave_series(sig, rpeaks, qrs_ms: float | None, qt_ms: float | None) -> PSe
     nyq = fs / 2.0
     b, a = butter(2, [BAND_HZ[0] / nyq, min(BAND_HZ[1] / nyq, 0.99)], btype="band")
     out = None
-    for lead in P_LEADS:
+    resid = []
+    for lead in COMBINE_LEADS if COMBINE else P_LEADS:
         if lead not in sig.lead_names:
             continue
         x = filtfilt(b, a, np.asarray(sig.lead(lead), dtype=np.float64))
         y = _cancel_qrst(x, rp, fs, qt_ms or 400.0)
         if y is None:
             continue
+        resid.append(y)
+        if lead not in P_LEADS:
+            continue
         s = _series(y, rp, fs, qrs_ms or 100.0, lead)
+        if s is not None and (out is None or (s.pp_regular, len(s.p)) > (out.pp_regular, len(out.p))):
+            out = s
+    if COMBINE and len(resid) >= 3:
+        # First principal component of the residuals (D207, attempt 2): a small P seen in several
+        # leads at once rises above each lead's own noise.
+        r = np.vstack([v for v in resid if np.isfinite(v).all()]) if resid else np.empty((0, 0))
+        if r.shape[0] < 3:
+            return out
+        r = r - r.mean(axis=1, keepdims=True)
+        r = r / (np.std(r, axis=1, keepdims=True) + 1e-9)
+        w, v = np.linalg.eigh(r @ r.T / r.shape[1])          # leads x leads: small and stable
+        pc = v[:, -1] @ r
+        s = _series(pc, rp, fs, qrs_ms or 100.0, "PC1")
         if s is not None and (out is None or (s.pp_regular, len(s.p)) > (out.pp_regular, len(out.p))):
             out = s
     return out
