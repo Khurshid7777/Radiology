@@ -118,6 +118,18 @@
   .cambtn { display:block; width:100%; margin-top:10px; padding:12px; border-radius:10px; font-size:16px;
     border:1px solid var(--brand2); background:transparent; color:var(--brand2); cursor:pointer; }
   .modeseg { margin-top:4px; }
+  /* D210 P4: speed and gain as segments ("auto" first); the selects stay as the form's values. */
+  .seg4 { display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; }
+  .seg4 button { padding:9px 4px; font-size:14px; }
+  .seg4 button.on { background: color-mix(in srgb, var(--brand2) 16%, transparent); border-color:var(--brand2);
+    color:var(--brand2); font-weight:600; }
+  /* D210 P4: a live ECG line in the header (decoration: aria-hidden, paused in a hidden tab, still on reduced motion). */
+  header .pulse { width:96px; height:24px; flex:none; align-self:center; color:var(--crit); }
+  header .pulse path { fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round;
+    stroke-dasharray: 60 140; animation: pulse 2.4s linear infinite; }
+  @keyframes pulse { from { stroke-dashoffset: 200; } to { stroke-dashoffset: 0; } }
+  .paused header .pulse path { animation-play-state: paused; }
+  @media (prefers-reduced-motion: reduce) { header .pulse path { animation:none; stroke-dasharray:none; } }
   /* D210 P2: the analysis overlay — a scan line over the photo while the server works (no invented
      progress: the server gives no stages). Only transform / opacity move. */
   #scanbox { position:relative; margin-top:12px; border-radius:10px; overflow:hidden; min-height:120px;
@@ -197,16 +209,16 @@
   #cam.on { display:flex; }
   #camview { position:relative; flex:1; overflow:hidden; }
   #camvideo, #camdraw { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
-  #cammode { color:#9ecbff; font-size:14px; text-align:center; padding:6px 12px 0; background:#111; }
-  #camhint { color:#fff; font-size:17px; text-align:center; padding:10px 12px; min-height:48px; background:#111; }
+  #cammode { color:#a0bdcf; font-size:14px; text-align:center; padding:6px 12px 0; background:#0a172b; }
+  #camhint { color:#fff; font-size:17px; text-align:center; padding:10px 12px; min-height:48px; background:#0a172b; }
   #camhint.ok { background:#1b5e20; }
-  #cambar { display:flex; gap:8px; padding:10px; background:#111; align-items:center; }
+  #cambar { display:flex; gap:8px; padding:10px; background:#0a172b; align-items:center; }
   #cambar button { flex:1; padding:14px 8px; border-radius:10px; font-size:16px; border:0; }
   #camshot { background:#fff; color:#000; font-weight:700; }
   #camdone { background:var(--ok); color:#fff; }
-  #camclose { background:#333; color:#fff; }
+  #camclose { background:#1c2e4a; color:#fff; }
   #camcount { color:#ccc; font-size:13px; min-width:64px; text-align:center; }
-  #camparts { color:#ccc; font-size:13px; padding:6px 12px 8px; background:#111; display:flex; gap:8px; align-items:center; }
+  #camparts { color:#dce6ee; font-size:13px; padding:6px 12px 8px; background:#0a172b; display:flex; gap:8px; align-items:center; }
   details { margin-top:6px; }
   details summary { cursor:pointer; color:var(--brand2); font-size:14px; }
   .banner { padding:12px 14px; border-radius:10px; font-weight:600; margin-bottom:12px; }
@@ -238,6 +250,7 @@
 </head>
 <body data-step="1">
 <header>
+  <svg class="pulse" viewBox="0 0 96 24" aria-hidden="true" focusable="false"><path d="M0 14 H30 L34 14 L37 5 L41 21 L45 9 L48 14 H96"/></svg>
   <h1>CardioVision</h1>
   <span class="sub">заключение по фото ЭКГ · поддержка решений врача</span>
   <span class="llm" id="llm" title="Кто пишет текст заключения (/health)">Текст заключения: …</span>
@@ -274,16 +287,24 @@
       и читается только ориентировочно. Несколько фото одной ЭКГ можно выбрать вместе.</div>
     </details>
     <button type="button" class="cambtn" id="camopen">📷 Снять камерой с подсказками</button>
-    <div class="row2" style="display:flex;gap:10px;margin-top:10px">
+    <label id="speed_l">Скорость ленты</label>
+    <div class="seg4" role="group" aria-labelledby="speed_l" data-for="speed">
+      <button type="button" data-v="" aria-pressed="true" class="on">авто</button><button type="button" data-v="25" aria-pressed="false">25 мм/с</button><button type="button" data-v="50" aria-pressed="false">50 мм/с</button><button type="button" data-v="12.5" aria-pressed="false">12,5 мм/с</button>
+    </div>
+    <label id="gain_l">Усиление</label>
+    <div class="seg4" role="group" aria-labelledby="gain_l" data-for="gain">
+      <button type="button" data-v="" aria-pressed="true" class="on">авто</button><button type="button" data-v="10" aria-pressed="false">10 мм/мВ</button><button type="button" data-v="20" aria-pressed="false">20 мм/мВ</button><button type="button" data-v="5" aria-pressed="false">5 мм/мВ</button>
+    </div>
+    <div class="row2 hidden" aria-hidden="true" style="display:none">
       <div style="flex:1"><label for="speed">Скорость ленты</label>
-        <select id="speed">
+        <select id="speed" tabindex="-1">
           <option value="">авто (обычно 25 мм/с)</option>
           <option value="25">25 мм/с</option>
           <option value="50">50 мм/с</option>
           <option value="12.5">12,5 мм/с</option>
         </select></div>
       <div style="flex:1"><label for="gain">Усиление</label>
-        <select id="gain">
+        <select id="gain" tabindex="-1">
           <option value="">авто (обычно 10 мм/мВ)</option>
           <option value="10">10 мм/мВ</option>
           <option value="20">20 мм/мВ</option>
@@ -473,6 +494,7 @@
 // D200: the page in Uzbek (Latin). Russian phrase -> Uzbek; a phrase missing here stays Russian.
 // A draft translation: to be read by a native speaker before wide use.
 const UZ = {
+  'авто': 'avto',
   // D210 (UI P3)
   'Кривая ЭКГ: стрелки — курсор, Enter — точка линейки, Esc — сбросить':
     'EKG egri chizig\'i: strelkalar — kursor, Enter — chizg\'ich nuqtasi, Esc — tozalash',
@@ -820,6 +842,12 @@ function camDraw(d, fw, fh) {
   g.setLineDash([10, 8]); g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 2;
   g.strokeRect(ox + fw * k * 0.05, oy + fh * k * 0.08, fw * k * 0.9, fh * k * 0.84);
   g.setLineDash([]);
+  // D210 P4: corner markers on the guide (drawing only; the capture logic is unchanged).
+  const gx = ox + fw * k * 0.05, gy = oy + fh * k * 0.08, gw = fw * k * 0.9, gh = fh * k * 0.84, c = Math.min(gw, gh) * 0.08;
+  g.strokeStyle = '#a0bdcf'; g.lineWidth = 5; g.lineCap = 'round';
+  for (const [x, y, sx, sy] of [[gx, gy, 1, 1], [gx + gw, gy, -1, 1], [gx, gy + gh, 1, -1], [gx + gw, gy + gh, -1, -1]]) {
+    g.beginPath(); g.moveTo(x, y + sy * c); g.lineTo(x, y); g.lineTo(x + sx * c, y); g.stroke();
+  }
   if (d.corners) {
     g.strokeStyle = d.ok ? '#4caf50' : '#ffb300'; g.lineWidth = 4; g.beginPath();
     d.corners.forEach(([x, y], i) => (i ? g.lineTo : g.moveTo).call(g, ox + x * k, oy + y * k));
@@ -854,6 +882,16 @@ files.addEventListener('change', showChosen);
 ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', e => { files.files = e.dataTransfer.files; showChosen(); });
+
+// D210 P4: speed and gain segments write the hidden selects the form reads (D179).
+document.querySelectorAll('.seg4').forEach(grp => {
+  const sel = $(grp.dataset.for);
+  const sync = () => grp.querySelectorAll('button').forEach(b => {
+    const on = b.dataset.v === sel.value; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  grp.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { sel.value = b.dataset.v; sync(); }));
+  sel.addEventListener('change', sync); grp._sync = sync;
+});
+document.addEventListener('visibilitychange', () => document.documentElement.classList.toggle('paused', document.hidden));
 
 // D210 (UI P1): the mode A / B stays visible on the form (it changes how the result reads).
 for (const id of ['mode_a', 'mode_b']) {
@@ -1292,6 +1330,7 @@ $('newpat').addEventListener('click', () => {
   clearFile();
   for (const id of ['age', 'k', 'ca', 'fs']) $(id).value = '';
   for (const id of ['onset', 'prior', 'speed', 'gain', 'case']) $(id).value = '';
+  document.querySelectorAll('.seg4').forEach(g => g._sync && g._sync());
   $('unit').value = 'uv';
   document.querySelectorAll('input[name=symptom]').forEach(x => { x.checked = false; });
   sex = ''; $('sex_m').classList.remove('on'); $('sex_f').classList.remove('on');
