@@ -126,3 +126,47 @@ def test_a_link_for_a_colleague_opens_the_pdf_without_a_key(api, tmp_path, monke
     r = TestClient(cardiolens_app).get(url.removeprefix("https://cardio.vision-ai.uz"))
     assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
     assert api.share("000000000000") is None                  # unknown or gone: no link, no exception
+
+
+# --- D209: a plain photo, questions after the file, the doctor's note ---
+
+def test_a_plain_photo_is_taken_in_analyze_mode():
+    from ecgscan_bot.logic import intake
+
+    assert intake(_cfg(), kind="photo", mime=None, size=None, lang="ru") is None
+
+
+def test_questions_start_with_what_the_caption_did_not_say():
+    from ecgscan_bot.logic import first_question, patient_answer
+
+    assert first_question(None) == "patient" and first_question("54") == "patient"
+    assert first_question("54 м") == "note"
+    assert patient_answer("54 м").age_years == 54 and patient_answer("ж").sex == "female"
+    assert patient_answer("не знаю") is None and patient_answer("") is None
+
+
+def test_the_note_is_cleaned():
+    from cardiolens.api.service import NOTE_MAX, clean_note
+
+    assert clean_note("нет") is None and clean_note("Yo'q") is None and clean_note("  ") is None
+    assert clean_note("ИБС,\nстенокардия\x07") == "ИБС, стенокардия"
+    assert len(clean_note("а" * 1000)) == NOTE_MAX
+
+
+def test_the_note_is_in_the_reply_and_never_reaches_the_narrative(api, tmp_path, monkeypatch):
+    import cardiolens.pipeline as pl
+
+    seen = {}
+    real = pl.interpret
+
+    def spy(data, *a, **k):
+        seen["ctx"] = data.context
+        return real(data, *a, **k)
+
+    monkeypatch.setattr(pl, "interpret", spy)
+    text, aid, _ = analyse(_cfg(), api, [("page.png", _page(tmp_path))], "ru", "54 м",
+                           note="ИБС, постинфарктный кардиосклероз")
+    assert aid and "Диагноз / описание со слов врача: ИБС, постинфарктный кардиосклероз" in text
+    assert seen["ctx"].clinical_note is None
+    plain, _, _ = analyse(_cfg(), api, [("page.png", _page(tmp_path))], "ru", "54 м")
+    assert "со слов врача" not in plain

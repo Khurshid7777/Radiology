@@ -30,9 +30,13 @@ def test_whitelist_and_language():
 
 
 def test_compressed_photo_is_refused_with_advice():
+    # D209: the analyze mode reads Telegram's photo in the coarse mode (D170); the scan mode still asks
+    # for the file.
     cfg = _cfg()
-    assert "файлом" in intake(cfg, kind="photo", mime=None, size=None, lang="ru")
-    assert "fayl" in intake(cfg, kind="photo", mime=None, size=None, lang="uz")
+    assert intake(cfg, kind="photo", mime=None, size=None, lang="ru") is None
+    scan = _cfg(mode="scan")
+    assert "файлом" in intake(scan, kind="photo", mime=None, size=None, lang="ru")
+    assert "fayl" in intake(scan, kind="photo", mime=None, size=None, lang="uz")
     assert intake(_cfg(mode="scan"), kind="document", mime="application/pdf", size=10, lang="ru").startswith("Нужен файл")
     assert intake(cfg, kind="document", mime="application/pdf", size=10, lang="ru") is None   # analyze mode reads PDF (D158)
     assert "20" in intake(cfg, kind="document", mime="image/jpeg", size=30 * 1024 * 1024, lang="ru")

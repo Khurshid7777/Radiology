@@ -31,6 +31,20 @@ _T = {
               "Hamkasb uchun havola (rasmsiz PDF, 7 kun amal qiladi):\n{url}"),
     "share_fail": ("Ссылку сделать не удалось — анализ больше не хранится или сервер недоступен.",
                    "Havola yaratilmadi — tahlil saqlanmagan yoki server mavjud emas."),
+    "ask_patient": (("Укажите пол и возраст пациента, например: «54 м», «ж 7», «3 мес м».\n"
+                    "Если не знаете — нажмите «Пропустить» (тогда нормы взрослого)."),
+                    ("Bemorning jinsi va yoshini yozing, masalan: «54 e», «a 7», «3 oy e».\n"
+                    "Bilmasangiz — «O'tkazib yuborish» (unda kattalar me'yori).")),
+    "ask_patient_again": ("Не понял ответ. Напишите, например, «54 м» или «ж 7», или нажмите «Пропустить».",
+                          "Javobni tushunmadim. Masalan «54 e» yoki «a 7» yozing, yoki «O'tkazib yuborish»."),
+    "ask_note": (("Есть ли диагноз или описание (заключение врача, аппарата, клиника)? Напишите текст "
+                 "или нажмите «Нет». Не пишите ФИО пациента."),
+                 ("Tashxis yoki tavsif bormi (shifokor, apparat xulosasi, klinika)? Matn yozing yoki «Yo'q» "
+                 "tugmasini bosing. Bemor F.I.Sh.ni yozmang.")),
+    "btn_skip": ("Пропустить", "O'tkazib yuborish"),
+    "btn_no": ("Нет", "Yo'q"),
+    "analysing": ("Анализирую…", "Tahlil qilinmoqda…"),
+    "pending_expired": ("Вопросы устарели — пришлите ЭКГ ещё раз.", "Savollar eskirdi — EKGni qayta yuboring."),
     "expired": ("Этот ответ устарел — пришлите ЭКГ ещё раз.", "Bu javob eskirgan — EKGni qayta yuboring."),
 }
 

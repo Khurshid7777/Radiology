@@ -588,7 +588,8 @@ def run_pipeline(
     data = InterpretationInput(
         findings=findings, causal_graph=causal, measurements=m,
         # D195: the ticked symptoms stay out of the narrative's input.
-        patient=sig.patient, context=sig.context.model_copy(update={"symptoms": [], "symptom_onset": None}),
+        patient=sig.patient, context=sig.context.model_copy(update={"symptoms": [], "symptom_onset": None,
+                                                                   "clinical_note": None}),
         mode=requested_mode,
         critical_labels=[(a.label_ru, a.label_uz) for a in safety.alerts],
         disclaimer_ru=cfg.disclaimers.ru, disclaimer_uz=cfg.disclaimers.uz,

@@ -50,6 +50,9 @@ class PatientContext(BaseModel):
     medications: list[str] = Field(default_factory=list)
     symptoms: list[str] = Field(default_factory=list)
     symptom_onset: str | None = None     # D195: lt12h | 12to48h | gt48h | unknown
+    # D209: the doctor's diagnosis or description, as typed (<= 300 chars). Shown in the conclusion and
+    # the PDF as "the doctor's words"; never sent to the narrative (it may hold a name), never logged.
+    clinical_note: str | None = None
     prior_ecg_id: str | None = None
 
 

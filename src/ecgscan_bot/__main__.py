@@ -26,11 +26,13 @@ from ecgscan_bot.logic import (
     allowed,
     analyse,
     apply_choice,
+    first_question,
     handle_file,
     intake,
     is_admin,
     lang_of,
     parse_scale,
+    patient_answer,
     render,
     scale_buttons,
     symptom_buttons,
@@ -63,6 +65,7 @@ async def main() -> None:
         raise SystemExit(f"set {TOKEN_ENV}, ECGSCAN_BOT_API_KEY and ECGSCAN_BOT_ALLOWED")
     bot, dp = Bot(token), Dispatcher()
     store = AccessStore()      # D208: invite codes and who joined with them
+    pending: dict[int, dict] = {}   # D209: chat -> the files waiting for the answers to the questions
     api = AnalyzeApi(cfg) if cfg.mode == "analyze" else ScanApi(cfg)
     log.info("bot mode %s, api %s, %d allowed users", cfg.mode, cfg.api_url, len(cfg.allowed))
     albums: dict[str, dict] = {}     # media_group_id -> {"files", "captions", "message", "lang", "task"}
@@ -117,12 +120,12 @@ async def main() -> None:
 
     async def answer_analysis(message: Message, files: list[tuple[str, bytes]], caption: str | None,
                               lang: str, scale: PaperScale | None = None, symptoms: list[str] | None = None,
-                              onset: str | None = None) -> None:
+                              onset: str | None = None, note: str | None = None) -> None:
         busy = asyncio.create_task(keep_busy(message.chat.id))
         scale = scale if scale is not None else parse_scale(caption)
         try:
             text, aid, body = await asyncio.to_thread(analyse, cfg, api, files, lang, caption, scale,
-                                                      symptoms, onset)
+                                                      symptoms, onset, note)
             log.info("analysis %s answered (%d file(s))", aid, len(files))
             await message.answer(text)
             if aid:
@@ -139,7 +142,7 @@ async def main() -> None:
 
                 sym, ons = (symptoms, onset) if symptoms is not None else parse_symptoms(caption)
                 rec = {"files": files, "caption": caption, "scale": scale, "lang": lang, "chat": message.chat.id,
-                       "aid": aid, "body": body, "symptoms": list(sym), "onset": ons,
+                       "aid": aid, "body": body, "symptoms": list(sym), "onset": ons, "note": note,
                        "patient_given": parse_caption(caption).given}
                 token = keep(rec)
                 await message.answer(t("bot.recalc", lang) + "\n" + tr("actions", lang),
@@ -152,7 +155,40 @@ async def main() -> None:
         album = albums.pop(group_id, None)
         if album:
             caption = " ".join(c for c in album["captions"] if c) or None
-            await answer_analysis(album["message"], album["files"], caption, album["lang"])
+            await begin(album["message"], album["files"], caption, album["lang"])
+
+    async def begin(message: Message, files: list[tuple[str, bytes]], caption: str | None, lang: str) -> None:
+        """D209: before the analysis, ask what the caption did not say — sex and age, then the
+        doctor's diagnosis or description (both optional: "skip" / "no")."""
+        now = asyncio.get_running_loop().time()
+        stage = first_question(caption)
+        pending[message.chat.id] = {"files": files, "caption": caption, "lang": lang, "stage": stage,
+                                    "at": now, "message": message}
+        await ask(message, stage, lang)
+
+    async def ask(message: Message, stage: str, lang: str, again: bool = False) -> None:
+        if stage == "patient":
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=tr("btn_skip", lang),
+                                                                             callback_data="q:skip")]])
+            await message.answer(tr("ask_patient_again" if again else "ask_patient", lang), reply_markup=kb)
+        else:
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=tr("btn_no", lang),
+                                                                             callback_data="q:no")]])
+            await message.answer(tr("ask_note", lang), reply_markup=kb)
+
+    async def run_pending(chat_id: int, note: str | None) -> None:
+        p = pending.pop(chat_id, None)
+        if p is None:
+            return
+        await p["message"].answer(tr("analysing", p["lang"]))
+        await answer_analysis(p["message"], p["files"], p["caption"], p["lang"], note=note)
+
+    def live_pending(chat_id: int) -> dict | None:
+        p = pending.get(chat_id)
+        if p and asyncio.get_running_loop().time() - p["at"] > RECALC_KEEP_S:
+            pending.pop(chat_id, None)
+            return None
+        return p
 
     async def join(message: Message, code: str | None) -> None:
         user = message.from_user
@@ -230,8 +266,12 @@ async def main() -> None:
                 await message.answer(refusal)
                 return
             buf = io.BytesIO()
-            await bot.download(doc, destination=buf)
-            name = doc.file_name or "ecg"
+            if message.photo:     # D209: the largest size Telegram kept, read in the coarse mode (D170)
+                await bot.download(message.photo[-1], destination=buf)
+                name = "photo.jpg"
+            else:
+                await bot.download(doc, destination=buf)
+                name = doc.file_name or "ecg"
             if cfg.mode != "analyze":
                 await message.answer(t("bot.received", lang))
                 text, scan_id = await asyncio.to_thread(handle_file, cfg, api, buf.getvalue(), name, lang)
@@ -256,7 +296,7 @@ async def main() -> None:
                 album["task"] = asyncio.create_task(flush_album(group))
                 return
             await message.answer(t("bot.received", lang))
-            await answer_analysis(message, [(name, buf.getvalue())], message.caption, lang)
+            await begin(message, [(name, buf.getvalue())], message.caption, lang)
         except Exception:  # Telegram download, a bug: the doctor still gets an answer
             log.exception("upload failed")
             with contextlib.suppress(Exception):
@@ -293,7 +333,7 @@ async def main() -> None:
             await query.message.edit_reply_markup(reply_markup=None)
         del recent[token]
         await answer_analysis(query.message, rec["files"], rec["caption"], rec["lang"], scale,
-                              rec["symptoms"], rec["onset"])
+                              rec["symptoms"], rec["onset"], rec.get("note"))
 
     @dp.callback_query(F.data.startswith("sy:"))
     async def symptoms_open(query: CallbackQuery) -> None:
@@ -317,7 +357,7 @@ async def main() -> None:
                 await query.message.edit_reply_markup(reply_markup=None)
             del recent[token]
             await answer_analysis(query.message, rec["files"], rec["caption"], rec["lang"], rec["scale"],
-                                  rec["symptoms"], rec["onset"])
+                                  rec["symptoms"], rec["onset"], rec.get("note"))
             return
         rec["symptoms"], rec["onset"] = toggle_symptom(rec["symptoms"], rec["onset"], choice)
         with contextlib.suppress(Exception):
@@ -344,6 +384,45 @@ async def main() -> None:
         store.set_lang(query.from_user.id, rec["lang"])
         await query.message.answer(render(rec["body"], rec["lang"], rec["scale"], rec["patient_given"]),
                                    reply_markup=actions(token, rec, rec["lang"]))
+
+    @dp.callback_query(F.data.startswith("q:"))
+    async def question_button(query: CallbackQuery) -> None:
+        await query.answer()
+        if query.message is None:
+            return
+        chat = query.message.chat.id
+        p = live_pending(chat)
+        if p is None or not allowed(cfg, query.from_user.id, query.message.chat.type, store):
+            await query.message.answer(tr("pending_expired", user_lang(query.from_user)))
+            return
+        with contextlib.suppress(Exception):
+            await query.message.edit_reply_markup(reply_markup=None)
+        if query.data == "q:skip" and p["stage"] == "patient":
+            p["stage"] = "note"
+            await ask(p["message"], "note", p["lang"])
+        elif query.data == "q:no" and p["stage"] == "note":
+            await run_pending(chat, None)
+
+    @dp.message(F.text)
+    async def text_answer(message: Message) -> None:
+        lang = guard(message)
+        if lang is None:
+            await message.answer(not_allowed(message))
+            return
+        p = live_pending(message.chat.id)
+        if p is None:
+            await message.answer(t("bot.welcome", lang))
+            return
+        if p["stage"] == "patient":
+            if patient_answer(message.text) is None:
+                await ask(message, "patient", p["lang"], again=True)
+                return
+            # The answer joins the caption: parse_caption reads age and sex from it.
+            p["caption"] = f"{p['caption'] or ''} {message.text}".strip()
+            p["stage"] = "note"
+            await ask(message, "note", p["lang"])
+        else:
+            await run_pending(message.chat.id, message.text)
 
     @dp.message()
     async def other(message: Message) -> None:

@@ -225,6 +225,7 @@ def apply_patient_overrides(
     calcium: float | None = None,
     symptoms: list[str] | None = None,
     symptom_onset: str | None = None,
+    clinical_note: str | None = None,
 ):
     if age_years is not None:
         sig.patient.age_years = age_years
@@ -240,7 +241,22 @@ def apply_patient_overrides(
         from cardiolens.clinical_context import clean
 
         sig.context.symptoms, sig.context.symptom_onset = clean(symptoms, symptom_onset)
+    note = clean_note(clinical_note)
+    if note:
+        sig.context.clinical_note = note
     return sig
+
+
+NOTE_MAX = 300
+_NO_NOTE = {"нет", "no", "yo'q", "yoq", "yo‘q", "-", "—", "не знаю", "нету"}
+
+
+def clean_note(text: str | None) -> str | None:
+    """D209: printable text only, one line, at most NOTE_MAX characters; "нет" / "yo'q" mean none."""
+    if not text:
+        return None
+    t = " ".join("".join(ch if ch.isprintable() else " " for ch in text).split())[:NOTE_MAX].strip()
+    return None if not t or t.lower() in _NO_NOTE else t
 
 
 # --- Bounded in-memory analysis store (MVP; not for multi-worker production) ---

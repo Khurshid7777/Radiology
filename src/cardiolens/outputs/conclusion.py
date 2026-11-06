@@ -62,6 +62,11 @@ def format_conclusion(result: PipelineResult, lang: str = "ru") -> str:
     ctx = result.signal.context
     from cardiolens.clinical_context import context_line
 
+    if ctx.clinical_note:      # D209: the doctor's words, as typed — the analysis above does not use them
+        lines.append("")
+        lines.append(("Диагноз / описание со слов врача: " if is_ru else "Shifokor tashxisi / tavsifi: ")
+                     + ctx.clinical_note)
+
     line = context_line(ctx.symptoms or [], ctx.symptom_onset, "ru" if is_ru else "uz")
     if line:
         lines.append("")

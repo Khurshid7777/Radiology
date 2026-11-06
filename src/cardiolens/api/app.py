@@ -357,6 +357,7 @@ async def analyze(
     prior_ecg_id: str | None = Form(default=None),
     symptoms: str | None = Form(default=None),        # D195: "chest_pain,syncope"
     symptom_onset: str | None = Form(default=None),
+    clinical_note: str | None = Form(default=None),   # D209: the doctor's diagnosis / description
     client: str | None = Form(default=None),     # "telegram": refusals keep the bot's wording (D161)
     paper_speed_mm_s: float | None = Form(default=None),   # D179: printed on the strip, given by the user
     gain_mm_mv: float | None = Form(default=None),
@@ -388,7 +389,7 @@ async def analyze(
             sig, age_years=age_years, age_days=age_days, sex=sex,
             potassium=potassium, calcium=calcium,
             symptoms=[x.strip() for x in (symptoms or "").split(",") if x.strip()],
-            symptom_onset=symptom_onset,
+            symptom_onset=symptom_onset, clinical_note=clinical_note,
         )
         analysis_id, result = await _in_analysis_thread(
             service.run_and_store, sig, mode=mode, prior_id=prior_ecg_id, owner=who

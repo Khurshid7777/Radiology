@@ -161,7 +161,10 @@ def intake(cfg: BotConfig, *, kind: str, mime: str | None, size: int | None, lan
     """What to answer *instead of* scanning: ``kind`` is 'photo' (compressed by Telegram),
     'document' or 'other'. ``None`` means: download the file and scan it."""
     if kind == "photo":
-        return t("bot.send_as_document", lang)       # Telegram's photo is ~4 px/mm, below 8 (SD-009, D72)
+        # D209: Telegram's photo (~1280 px, ~3-4 px/mm) is read in the coarse mode of D170 — rate and
+        # rhythm, no intervals or ST, said in the reply — as the web page does. The scanner-only mode
+        # still needs the original file.
+        return None if cfg.mode == "analyze" else t("bot.send_as_document", lang)
     if kind != "document" or mime not in (ANALYZE_MIME if cfg.mode == "analyze" else IMAGE_MIME):
         return t("bot.not_an_image", lang)
     if size is not None and size > cfg.max_mb * 1024 * 1024:
@@ -249,7 +252,7 @@ class AnalyzeApi:
 
     def analyze(self, files: list[tuple[str, bytes]], *, patient: Patient = Patient(),
                 scale: PaperScale = PaperScale(), symptoms: list[str] | None = None,
-                onset: str | None = None) -> dict:
+                onset: str | None = None, note: str | None = None) -> dict:
         """One analysis of one or several files (an album is one record: pages of a device,
         parts of a strip, parts of a page on the capture board — D155)."""
         form = {"mode": "A", "client": "telegram"}
@@ -267,6 +270,8 @@ class AnalyzeApi:
             form["symptoms"] = ",".join(symptoms)
         if onset:
             form["symptom_onset"] = onset
+        if note:                                   # D209: the doctor's diagnosis / description
+            form["clinical_note"] = note
         r = self.http.post("/api/analyze", files=[("files", (name, data)) for name, data in files],
                            data=form, headers=self.headers)
         if r.status_code == 400:
@@ -366,7 +371,8 @@ def handle_analysis(cfg: BotConfig, api: AnalyzeApi, files: list[tuple[str, byte
 
 def analyse(cfg: BotConfig, api: AnalyzeApi, files: list[tuple[str, bytes]], lang: str,
             caption: str | None = None, scale: PaperScale | None = None,
-            symptoms: list[str] | None = None, onset: str | None = None) -> tuple[str, str | None, dict | None]:
+            symptoms: list[str] | None = None, onset: str | None = None,
+            note: str | None = None) -> tuple[str, str | None, dict | None]:
     """``handle_analysis`` plus the response body (to answer again in the other language, D208).
     Symptoms: those given by the buttons, else those written in the caption."""
     patient = parse_caption(caption)
@@ -375,6 +381,8 @@ def analyse(cfg: BotConfig, api: AnalyzeApi, files: list[tuple[str, bytes]], lan
         symptoms, onset = parse_symptoms(caption)
     try:
         extra = {"symptoms": symptoms, "onset": onset} if symptoms else {}   # no symptoms: the call as before
+        if note:
+            extra["note"] = note
         body = api.analyze(files, patient=patient, scale=scale, **extra)
     except AnalyzeRefused as e:
         return str(e), None, None
@@ -420,3 +428,16 @@ def handle_file(cfg: BotConfig, api: ScanApi, data: bytes, filename: str, lang: 
     if body is None:
         return t("bot.timeout", lang, url=link(cfg, scan_id)), scan_id
     return verdict(cfg, body, lang), scan_id
+
+
+# --- D209: questions after the file -------------------------------------------------------------------
+
+def patient_answer(text: str | None) -> Patient | None:
+    """The doctor's answer to "sex and age": a Patient when it names an age or a sex, else None."""
+    p = parse_caption(text)
+    return p if (p.age_years is not None or p.age_days is not None or p.sex is not None) else None
+
+
+def first_question(caption: str | None) -> str:
+    """'patient' when the caption does not give both age and sex, else 'note'."""
+    return "note" if parse_caption(caption).given else "patient"
