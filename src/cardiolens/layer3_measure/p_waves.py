@@ -157,7 +157,7 @@ def p_wave_series(sig, rpeaks, qrs_ms: float | None, qt_ms: float | None) -> PSe
             return out
         r = r - r.mean(axis=1, keepdims=True)
         r = r / (np.std(r, axis=1, keepdims=True) + 1e-9)
-        w, v = np.linalg.eigh(r @ r.T / r.shape[1])          # leads x leads: small and stable
+        _, v = np.linalg.eigh(r @ r.T / r.shape[1])          # leads x leads: small and stable
         pc = v[:, -1] @ r
         s = _series(pc, rp, fs, qrs_ms or 100.0, "PC1")
         if s is not None and (out is None or (s.pp_regular, len(s.p)) > (out.pp_regular, len(out.p))):
