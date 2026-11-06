@@ -24,6 +24,7 @@ const [base, key] = [process.argv[2] || 'http://127.0.0.1:8765', process.argv[3]
     check(`${w}: result shown <= 400 ms after the response`, shownMs <= 400, shownMs + ' ms');
     const m = api.measurements, iv = m.intervals;
     const want = [m.heart_rate_bpm, iv.pr_ms, iv.qrs_ms, iv.qtc_bazett_ms, m.axes.qrs_deg].filter(v => v != null).map(String);
+    await p.waitForTimeout(700);   // the count-up ends on the API's text (P3)
     const got = await p.$$eval('#keys .v', els => els.map(e => e.textContent));
     check(`${w}: key values == API`, JSON.stringify(got) === JSON.stringify(want), JSON.stringify({ got, want }));
     const q = (api.findings || []).filter(f => f.group === 'quality').length + (api.speed_note_ru ? 1 : 0) + (api.device_ru ? 1 : 0);

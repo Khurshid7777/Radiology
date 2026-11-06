@@ -30,8 +30,15 @@ def test_the_mode_stays_visible_on_the_form():
 
 
 def test_key_values_are_the_api_values_unformatted():
-    body = PAGE[PAGE.index("function renderKeys"):PAGE.index("let concLang")]
+    body = PAGE[PAGE.index("function renderKeys"):PAGE.index("// D210 P3: a scale only")]
     assert "m.heart_rate_bpm" in body and "toFixed" not in body and "Math.round" not in body
+    count = PAGE[PAGE.index("function countUp"):PAGE.index("// D210 P3: the ECG viewer")]
+    assert "p.e.textContent = p.s" in count and "D = 600" in count        # the last frame is the API's text
+
+
+def test_scales_only_from_the_server_ranges():
+    body = PAGE[PAGE.index("function scale(v, r, u)"):PAGE.index("function countUp")]
+    assert "r[0] == null || r[1] == null" in body and "n[nk]" in PAGE and "d.norms" in PAGE
 
 
 def test_motion_respects_reduced_motion_and_moves_only_transform_or_opacity():

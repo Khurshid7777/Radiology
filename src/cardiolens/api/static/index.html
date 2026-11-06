@@ -157,6 +157,37 @@
   .key .k { font-size:12px; color:var(--muted); }
   .key .v { font-size:22px; font-weight:700; font-variant-numeric: tabular-nums; }
   .key .u { font-size:12px; color:var(--muted); margin-left:2px; }
+  /* D210 P3: the norm scale under a value (only when the server gave the range), the ECG viewer, the graph. */
+  .key { cursor:default; }
+  .key .scale { position:relative; height:6px; margin-top:6px; background:var(--line); border-radius:3px; }
+  .key .scale .band { position:absolute; top:0; bottom:0; border-radius:3px;
+    background: color-mix(in srgb, var(--steel-300) 70%, transparent); }
+  .key .scale .mark { position:absolute; top:-4px; width:3px; height:14px; border-radius:2px; background:var(--ink);
+    transform:translateX(-1px); }
+  .key .nr { font-size:11px; color:var(--muted); margin-top:3px; font-variant-numeric: tabular-nums; }
+  #ecgv svg { width:100%; display:block; background:#fff; border-radius:8px; touch-action:none; cursor:crosshair; }
+  #ecgv svg:focus-visible { outline:3px solid #8cc3ef; }
+  #ecgv .trace { fill:none; stroke:#b00020; stroke-width:1.3; }
+  #ecgv .trace.draw { animation: draw 1.2s var(--ease) forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) { #ecgv .trace.draw { animation:none; stroke-dashoffset:0 !important; } }
+  #ecgv .lab-l { font: 600 12px system-ui, sans-serif; fill:#0a172b; }
+  #ecgv .lab-l.marked { fill:#b00020; }
+  #ecgread { margin-top:6px; font-size:13px; min-height:20px; font-variant-numeric: tabular-nums; }
+  .ecgbar { display:flex; gap:8px; align-items:center; margin-top:6px; }
+  .ecgbar button { width:auto; padding:6px 12px; font-size:13px; }
+  #cgv svg { width:100%; display:block; }
+  #cgv .node rect { fill:#13233b; stroke:#a0bdcf; stroke-width:1.5; }
+  #cgv .node.obs rect { fill:#1c2e4a; stroke:#e7eef4; stroke-width:2; }
+  #cgv .node.unobs rect { stroke-dasharray:4 3; }
+  #cgv .node text { fill:#e7eef4; font: 12px system-ui, sans-serif; }
+  #cgv .node:focus { outline:none; } #cgv .node:focus rect { stroke:#8cc3ef; stroke-width:3; }
+  #cgv .edge { stroke:#a0bdcf; stroke-width:1.5; fill:none; }
+  #cgv.lit .node:not(.on), #cgv.lit .edge:not(.on) { opacity:.25; }
+  #cgv .node, #cgv .edge { opacity:0; animation: fadeIn var(--dur-base) var(--ease) forwards; }
+  @keyframes fadeIn { to { opacity:1; } }
+  @media (prefers-reduced-motion: reduce) { #cgv .node, #cgv .edge { animation:none; opacity:1; } }
+  #cglist li { margin:3px 0; }
   .clsw { display:flex; gap:6px; justify-content:flex-end; margin:-4px 0 4px; }
   .clsw button { width:auto; min-width:44px; padding:4px 10px; font-size:13px; }
   .clsw button[aria-pressed="true"] { background:var(--brand); color:var(--on-brand); border-color:var(--brand); }
@@ -202,6 +233,7 @@
   td:first-child { color:var(--muted); }
   .trace li { font-family: ui-monospace, Menlo, monospace; font-size:12px; margin:2px 0; }
   h3 { font-size:14px; margin:14px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  @media (min-width:1024px) { .card .stepnav { display:none; } }   /* both cards side by side: no step buttons */
 </style>
 </head>
 <body data-step="1">
@@ -397,8 +429,17 @@
       <h3>Находки</h3>
       <div id="findings"></div>
       <div class="grid2" style="margin-top:14px">
-        <div><h3>Кривая ЭКГ</h3><img id="wave" class="lazy" alt="ЭКГ"></div>
-        <div><h3>Причинный граф</h3><img id="graph" class="lazy" alt="граф"></div>
+        <div><h3>Кривая ЭКГ</h3><img id="wave" class="lazy" alt="ЭКГ">
+          <div id="ecgv" class="hidden">
+            <svg id="ecgsvg" tabindex="0" role="img" aria-label="Кривая ЭКГ: стрелки — курсор, Enter — точка линейки, Esc — сбросить"></svg>
+            <div id="ecgread" aria-live="polite"></div>
+            <div class="ecgbar"><button type="button" id="ecgclear">Сбросить линейку</button>
+              <span class="muted">Две точки — линейка: интервал в мс</span></div>
+          </div></div>
+        <div><h3>Причинный граф</h3><img id="graph" class="lazy" alt="граф">
+          <div id="cgv" class="hidden"><svg id="cgsvg" role="group" aria-label="Причинный граф"></svg>
+            <button type="button" id="cglistbtn" style="margin-top:6px" aria-expanded="false">Показать списком</button>
+            <ul id="cglist" class="hidden"></ul></div></div>
       </div>
       <h3>Xulosa (UZ)</h3>
       <pre id="concl_uz"></pre>
@@ -432,6 +473,11 @@
 // D200: the page in Uzbek (Latin). Russian phrase -> Uzbek; a phrase missing here stays Russian.
 // A draft translation: to be read by a native speaker before wide use.
 const UZ = {
+  // D210 (UI P3)
+  'Кривая ЭКГ: стрелки — курсор, Enter — точка линейки, Esc — сбросить':
+    'EKG egri chizig\'i: strelkalar — kursor, Enter — chizg\'ich nuqtasi, Esc — tozalash',
+  'Сбросить линейку': 'Chizg\'ichni tozalash', 'Две точки — линейка: интервал в мс': 'Ikki nuqta — chizg\'ich: interval ms da',
+  'Показать списком': 'Ro\'yxat ko\'rinishida',
   'Анализирую снимок…': 'Surat tahlil qilinmoqda…', 'Анализирую запись…': 'Yozuv tahlil qilinmoqda…',
   'Это занимает дольше обычного…': 'Bu odatdagidan uzoqroq davom etmoqda…',
   // D210 (UI P2)
@@ -1022,6 +1068,8 @@ function render(d, redraw = false) {
   const adv = d.symptom_advice || [];                    // D195
   $('advice_box').classList.toggle('hidden', !adv.length);
   $('advice').innerHTML = adv.map(a => `<div class="${a.urgent ? 'crit' : 'notice'}" style="margin:4px 0">${a.urgent ? '⚠ ' : ''}${esc(L(a.ru, a.uz))}</div>`).join('');
+  renderGraph(d);
+  if (!redraw) renderViewer(d);
   if (!redraw) { showLayer(1, false); rememberAnalysis(d, unreliable);
     $('results').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }
 }
@@ -1029,15 +1077,184 @@ function render(d, redraw = false) {
 // D210 P2: the key values, exactly as the API gave them (the same numbers as the measurements table);
 // none for an unreliable photo except the rate a gated page still states (D189).
 function renderKeys(d, unreliable, releasedRate) {
-  const m = d.measurements, iv = m.intervals;
+  const m = d.measurements, iv = m.intervals, n = d.norms || {};
   const items = unreliable
-    ? (releasedRate != null ? [[L('ЧСС', 'YuQS'), releasedRate, L('/мин', '/daq')]] : [])
-    : [[L('ЧСС', 'YuQS'), m.heart_rate_bpm, L('/мин', '/daq')], ['PR', iv.pr_ms, L('мс', 'ms')],
-       ['QRS', iv.qrs_ms, L('мс', 'ms')], ['QTc (Bazett)', iv.qtc_bazett_ms, L('мс', 'ms')],
-       [L('Ось QRS', 'QRS o\'qi'), m.axes.qrs_deg, '°']];
-  $('keys').innerHTML = items.filter(x => x[1] != null).map(([k, v, u]) =>
-    `<div class="key"><div class="k">${esc(k)}</div><span class="v" data-v="${esc(v)}">${esc(v)}</span><span class="u">${esc(u)}</span></div>`).join('');
+    ? (releasedRate != null ? [[L('ЧСС', 'YuQS'), releasedRate, L('/мин', '/daq'), 'heart_rate_bpm']] : [])
+    : [[L('ЧСС', 'YuQS'), m.heart_rate_bpm, L('/мин', '/daq'), 'heart_rate_bpm'], ['PR', iv.pr_ms, L('мс', 'ms'), 'pr_ms'],
+       ['QRS', iv.qrs_ms, L('мс', 'ms'), 'qrs_ms'], ['QTc (Bazett)', iv.qtc_bazett_ms, L('мс', 'ms'), 'qtc_ms'],
+       [L('Ось QRS', 'QRS o\'qi'), m.axes.qrs_deg, '°', 'qrs_axis_deg']];
+  $('keys').innerHTML = items.filter(x => x[1] != null).map(([k, v, u, nk]) =>
+    `<div class="key"><div class="k">${esc(k)}</div><span class="v" data-v="${esc(v)}">${esc(v)}</span><span class="u">${esc(u)}</span>${scale(v, n[nk], u)}</div>`).join('');
+  countUp();
 }
+// D210 P3: a scale only when the server gave both bounds (no range is hard-coded in the page).
+function scale(v, r, u) {
+  if (!r || r[0] == null || r[1] == null || !isFinite(Number(v))) return '';
+  const [lo, hi] = r.map(Number), pad = (hi - lo) * 0.6, a = lo - pad, b = hi + pad;
+  const pos = x => Math.max(0, Math.min(100, (x - a) / (b - a) * 100));
+  return `<div class="scale" aria-hidden="true"><div class="band" style="left:${pos(lo)}%;width:${pos(hi) - pos(lo)}%"></div>` +
+    `<div class="mark" style="left:${pos(Number(v))}%"></div></div><div class="nr">${L('норма', 'me\'yor')} ${esc(lo)}–${esc(hi)}${u === '°' ? '°' : ''}</div>`;
+}
+// D210 P3: the numbers count up to the API's value in <= 600 ms; the last frame is the API's own text.
+// A tap or reduced motion shows the final value at once.
+function countUp() {
+  const els = [...document.querySelectorAll('#keys .v')];
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const t0 = performance.now(), D = 600;
+  const parts = els.map(e => { const s = e.dataset.v, dec = (s.split('.')[1] || '').length; return { e, s, x: Number(s), dec }; })
+    .filter(p => isFinite(p.x));
+  let stop = false;
+  const done = () => { stop = true; parts.forEach(p => { p.e.textContent = p.s; }); };
+  $('keys').addEventListener('click', done, { once: true });
+  const step = now => {
+    if (stop) return;
+    const k = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - k, 3);
+    if (k >= 1) { done(); return; }
+    parts.forEach(p => { p.e.textContent = (p.x * e).toFixed(p.dec); });
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+// D210 P3: the ECG viewer — the waveform SVG's own samples (waveform.json), drawn on ECG paper at
+// 25 mm/s and 10 mm/mV; a crosshair reads time and amplitude, two points make a ruler. Under a photo gate
+// the server sends no samples and the picture stays.
+const V = { data: null, px: 0, rows: [], cursor: null, pts: [], ruler: '' };
+async function renderViewer(d) {
+  $('ecgv').classList.add('hidden'); $('wave').classList.remove('hidden'); V.data = null; V.pts = []; V.ruler = '';
+  try {
+    const r = await authed(`/api/analysis/${d.analysis_id}/waveform.json`);
+    if (!r.ok) return;
+    const w = await r.json();
+    if (w.gated || !Object.keys(w.leads).length || lastData !== d) return;
+    V.data = w; $('ecgv').classList.remove('hidden'); $('wave').classList.add('hidden');
+    drawViewer(true);
+  } catch (e) { /* the picture stays */ }
+}
+function drawViewer(animate) {
+  const w = V.data, svg = $('ecgsvg'); if (!w) return;
+  const W = Math.max(280, $('ecgv').clientWidth || 600), mm = W / 125, rowH = 25 * mm;   // 5 s x 25 mm/s
+  V.px = mm; const leads = Object.entries(w.leads), H = rowH * leads.length;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('height', H);
+  let g = `<defs><pattern id="mm1" width="${mm}" height="${mm}" patternUnits="userSpaceOnUse"><path d="M ${mm} 0 L 0 0 0 ${mm}" fill="none" stroke="#f6d0d0" stroke-width=".5"/></pattern>` +
+    `<pattern id="mm5" width="${5 * mm}" height="${5 * mm}" patternUnits="userSpaceOnUse"><rect width="${5 * mm}" height="${5 * mm}" fill="url(#mm1)"/><path d="M ${5 * mm} 0 L 0 0 0 ${5 * mm}" fill="none" stroke="#efa3a3" stroke-width="1"/></pattern></defs>` +
+    `<rect width="${W}" height="${H}" fill="url(#mm5)"/>`;
+  V.rows = [];
+  leads.forEach(([name, L1], i) => {
+    const mid = rowH * i + rowH / 2, hz = w.hz;
+    const pts = L1.uv.map((u, k) => `${(k / hz * 25 * mm).toFixed(1)},${(mid - u / 1000 * 10 * mm).toFixed(1)}`);
+    V.rows.push({ name, mid, top: rowH * i, t0: L1.t0, uv: L1.uv, hz });
+    g += `<path class="trace${animate ? ' draw' : ''}" d="M ${pts.join(' L ')}"/>` +
+      `<text class="lab-l${w.marked && w.marked[name] ? ' marked' : ''}" x="6" y="${rowH * i + 14}">${esc(name)}${w.marked && w.marked[name] ? ' · ' + esc(w.marked[name]) : ''}</text>`;
+  });
+  g += `<g id="ecgcur"></g><g id="ecgrul"></g>`;
+  svg.innerHTML = g;
+  if (animate && !matchMedia('(prefers-reduced-motion: reduce)').matches)
+    svg.querySelectorAll('.trace').forEach(p => { const L2 = p.getTotalLength(); p.style.strokeDasharray = L2; p.style.strokeDashoffset = L2; });
+  drawRuler();
+}
+function viewerAt(x, y) {
+  const row = V.rows.find(r => y >= r.top && y < r.top + 25 * V.px) || V.rows[0];
+  const t = x / V.px / 25, k = Math.max(0, Math.min(row.uv.length - 1, Math.round(t * row.hz)));
+  return { row, t, mv: row.uv[k] / 1000, x: k / row.hz * 25 * V.px };
+}
+function showCursor(x, y) {
+  if (!V.data) return;
+  const a = viewerAt(x, y); V.cursor = { x: a.x, y };
+  const H = 25 * V.px * V.rows.length;
+  $('ecgcur').innerHTML = `<line x1="${a.x}" x2="${a.x}" y1="0" y2="${H}" stroke="#1d5f99" stroke-width="1"/>`;
+  // The ruler's result stays; the crosshair's reading goes after it.
+  const cur = `${a.row.name}: t = ${Math.round((a.row.t0 + a.t) * 1000)} ${L('мс', 'ms')}, ${a.mv.toFixed(2)} ${L('мВ', 'mV')}`;
+  $('ecgread').textContent = V.ruler ? `${V.ruler} · ${cur}` : cur;
+}
+function addPoint(x, y) {
+  if (!V.data) return;
+  const a = viewerAt(x, y);
+  if (V.pts.length >= 2) V.pts = [];
+  V.pts.push({ x: a.x, t: a.t });
+  drawRuler();
+}
+function drawRuler() {
+  const g = $('ecgrul'); if (!g) return;
+  const H = 25 * V.px * V.rows.length;
+  g.innerHTML = V.pts.map(p => `<line x1="${p.x}" x2="${p.x}" y1="0" y2="${H}" stroke="#0a172b" stroke-width="1.5" stroke-dasharray="4 3"/>`).join('');
+  if (V.pts.length === 2) {
+    const dt = Math.abs(V.pts[1].t - V.pts[0].t) * 1000;
+    const [x1, x2] = [V.pts[0].x, V.pts[1].x].sort((a, b) => a - b);
+    g.innerHTML += `<line x1="${x1}" x2="${x2}" y1="12" y2="12" stroke="#0a172b" stroke-width="2"/>`;
+    V.ruler = `${L('Линейка', 'Chizg\'ich')}: ${Math.round(dt)} ${L('мс', 'ms')}` + (dt > 200 ? ` (≈ ${Math.round(60000 / dt)} ${L('/мин', '/daq')})` : '');
+    $('ecgread').textContent = V.ruler;
+  } else if (V.pts.length === 1) { V.ruler = L('Первая точка поставлена — выберите вторую', 'Birinchi nuqta qo\'yildi — ikkinchisini tanlang');
+    $('ecgread').textContent = V.ruler; }
+  else V.ruler = '';
+}
+function svgXY(e) { const r = $('ecgsvg').getBoundingClientRect(), vb = $('ecgsvg').viewBox.baseVal;
+  return [(e.clientX - r.left) * vb.width / r.width, (e.clientY - r.top) * vb.height / r.height]; }
+$('ecgsvg').addEventListener('pointermove', e => showCursor(...svgXY(e)));
+$('ecgsvg').addEventListener('pointerdown', e => { const [x, y] = svgXY(e); showCursor(x, y); addPoint(x, y); });
+$('ecgsvg').addEventListener('keydown', e => {
+  if (!V.data) return;
+  const c = V.cursor || { x: 0, y: V.rows[0].mid }, dx = (e.shiftKey ? 40 : 4) / 1000 * 25 * V.px;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); showCursor(Math.max(0, c.x + (e.key === 'ArrowRight' ? dx : -dx)), c.y); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault();
+    const i = Math.max(0, Math.min(V.rows.length - 1, V.rows.findIndex(r => r.mid === c.y) + (e.key === 'ArrowDown' ? 1 : -1)));
+    showCursor(c.x, V.rows[i].mid); }
+  else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addPoint(c.x, c.y); }
+  else if (e.key === 'Escape') { V.pts = []; drawRuler(); $('ecgread').textContent = ''; }
+});
+$('ecgclear').addEventListener('click', () => { V.pts = []; drawRuler(); $('ecgread').textContent = ''; });
+window.addEventListener('resize', () => { if (V.data && !$('ecgv').classList.contains('hidden')) drawViewer(false); });
+
+// D210 P3: the causal graph from the answer's nodes and edges — layered left to right, observed findings
+// solid, expected ones dashed; a click / Enter on a node lights its chain; the same as a list.
+const REL = { causes: ['вызывает', 'sabab bo\'ladi'], progresses_to: ['переходит в', 'o\'tadi'], reciprocal: ['реципрокно', 'retsiprok'] };
+function renderGraph(d) {
+  const g = d.causal_graph || {}, nodes = g.nodes || [], edges = g.edges || [];
+  $('cgv').classList.toggle('hidden', !nodes.length); $('graph').classList.toggle('hidden', !!nodes.length);
+  if (!nodes.length) return;
+  const lvl = {}; nodes.forEach(n => { lvl[n.id] = 0; });
+  for (let i = 0; i < nodes.length; i++) edges.forEach(e => { if (e.from in lvl && e.to in lvl) lvl[e.to] = Math.max(lvl[e.to], lvl[e.from] + 1); });
+  const cols = {}; nodes.forEach(n => { (cols[lvl[n.id]] = cols[lvl[n.id]] || []).push(n); });
+  // Levels run top to bottom (a chain stays readable in a narrow column), nodes of one level side by side.
+  const nc = Math.max(...Object.keys(cols).map(Number)) + 1, BW = 170, BH = 46, GX = 16, GY = 34;
+  const per = Math.max(...Object.values(cols).map(x => x.length));
+  const W = per * (BW + GX) + 8, H = nc * (BH + GY) + 8;
+  const pos = {}; Object.entries(cols).forEach(([c, ns]) => ns.forEach((n, r) => {
+    pos[n.id] = { x: (W - ns.length * (BW + GX)) / 2 + r * (BW + GX) + GX / 2, y: c * (BH + GY) + 4 }; }));
+  const wrap = s => { const w = String(s).split(' '), out = ['']; w.forEach(x => { if ((out[out.length - 1] + ' ' + x).length > 24) out.push(x); else out[out.length - 1] = (out[out.length - 1] + ' ' + x).trim(); }); return out.slice(0, 3); };
+  let svg = `<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a0bdcf"/></marker></defs>`;
+  edges.forEach((e, i) => { const a = pos[e.from], b = pos[e.to]; if (!a || !b) return;
+    svg += `<path class="edge" data-f="${esc(e.from)}" data-t="${esc(e.to)}" style="animation-delay:${i * 40}ms" marker-end="url(#arr)" d="M ${a.x + BW / 2} ${a.y + BH} C ${a.x + BW / 2} ${a.y + BH + GY / 2}, ${b.x + BW / 2} ${b.y - GY / 2}, ${b.x + BW / 2} ${b.y - 2}"/>`; });
+  nodes.forEach((n, i) => { const p = pos[n.id], lines = wrap(L(n.label_ru, n.label_uz));
+    svg += `<g class="node ${n.observed ? 'obs' : 'unobs'}" data-id="${esc(n.id)}" tabindex="0" role="button" style="animation-delay:${i * 40}ms"
+      aria-label="${esc(L(n.label_ru, n.label_uz))}${n.observed ? L(' — найдено', ' — topildi') : L(' — ожидается', ' — kutiladi')}">
+      <rect x="${p.x}" y="${p.y}" width="${BW}" height="${BH}" rx="8"/>` +
+      lines.map((l, k) => `<text x="${p.x + 8}" y="${p.y + 16 + k * 13}">${esc(l)}</text>`).join('') + `</g>`; });
+  const el = $('cgsvg'); el.setAttribute('viewBox', `0 0 ${W} ${H}`); el.style.maxWidth = W + 'px'; el.style.margin = '0 auto';
+  el.innerHTML = svg;
+  const light = id => {
+    const on = new Set([id]); let grow = true;
+    while (grow) { grow = false; edges.forEach(e => { if (on.has(e.from) && !on.has(e.to)) { on.add(e.to); grow = true; } }); }
+    grow = true; while (grow) { grow = false; edges.forEach(e => { if (on.has(e.to) && !on.has(e.from) && (e.to === id || lvl[e.to] <= lvl[id])) { on.add(e.from); grow = true; } }); }
+    $('cgv').classList.add('lit');
+    el.querySelectorAll('.node').forEach(x => x.classList.toggle('on', on.has(x.dataset.id)));
+    el.querySelectorAll('.edge').forEach(x => x.classList.toggle('on', on.has(x.dataset.f) && on.has(x.dataset.t)));
+  };
+  el.querySelectorAll('.node').forEach(x => {
+    x.addEventListener('click', () => light(x.dataset.id));
+    x.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); light(x.dataset.id); }
+      if (e.key === 'Escape') $('cgv').classList.remove('lit'); });
+  });
+  const nm = Object.fromEntries(nodes.map(n => [n.id, L(n.label_ru, n.label_uz)]));
+  $('cglist').innerHTML = edges.length ? edges.map(e => `<li>${esc(nm[e.from] || e.from)} → ${esc(nm[e.to] || e.to)}` +
+    ` <span class="muted">(${esc(REL[e.relation] ? L(...REL[e.relation]) : e.relation)})</span></li>`).join('')
+    : nodes.map(n => `<li>${esc(nm[n.id])}</li>`).join('');
+}
+$('cglistbtn').addEventListener('click', () => {
+  const open = $('cglist').classList.toggle('hidden') === false;
+  $('cglistbtn').setAttribute('aria-expanded', String(open));
+});
+
 let concLang = lang;
 for (const c of ['ru', 'uz']) $('cl_' + c).addEventListener('click', () => { concLang = c; if (lastData) render(lastData, true); });
 function showLayer(n, animate = true) {

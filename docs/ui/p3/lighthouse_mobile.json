@@ -1,0 +1,14 @@
+{
+ "categories": {
+  "performance": 1,
+  "accessibility": 1,
+  "best-practices": 0.96,
+  "seo": 0.9
+ },
+ "audits": {
+  "largest-contentful-paint": "1.4\u00a0s",
+  "cumulative-layout-shift": "0",
+  "total-blocking-time": "0\u00a0ms",
+  "total-byte-weight": "Total size was 101\u00a0KiB"
+ }
+}
