@@ -292,6 +292,22 @@ def detect_findings(
                          ventricular_rate_bpm=hr), confidence=0.8,
         ))
 
+    # A slow wide-QRS rhythm (D206): the escape rhythm of complete AV block, whose small dissociated P
+    # waves the P-train search often cannot find (Chapman: 11 of 75 complete blocks found). Below
+    # escape_wide_hr_max with QRS >= escape_wide_qrs_min, a block is said to be excluded — a warning,
+    # not the block itself (Chapman odd half 14 of 37 complete blocks, sinus bradycardia 0 of 155;
+    # PTB-XL sinus bradycardia 8 of 256).
+    esc = norms.get("rhythm", {}).get("escape_wide")
+    if (esc and not is_pediatric and hr is not None and hr < float(esc["hr_max"])
+            and (m.intervals.qrs_ms or 0) >= float(esc["qrs_min"])
+            and not fs.codes() & {"complete_av_block", "atrial_fibrillation"}):
+        fs.findings.append(Finding(
+            code="slow_wide_escape_rhythm", group="rhythm",
+            label_ru=f"Медленный ритм с широкими QRS ({hr}/мин, QRS {m.intervals.qrs_ms} мс): исключите полную "
+                     f"АВ-блокаду — ищите зубцы P, не связанные с QRS",
+            label_uz=f"Keng QRS li sekin ritm ({hr}/daq): to'liq AV blokadani istisno qiling",
+            evidence=_ev(heart_rate_bpm=hr, qrs_ms=m.intervals.qrs_ms), confidence=0.6,
+        ))
     # Atrial flutter: regular atrial rate ~250-350/min (sawtooth) (§7.1).
     fl_lo, fl_hi = norms.get("rhythm", {}).get("atrial_flutter_bpm", [240, 350])
     if (m.atrial_rate_bpm is not None and fl_lo <= m.atrial_rate_bpm <= fl_hi

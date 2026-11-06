@@ -91,3 +91,11 @@ def test_incomplete_rbbb_is_an_rsr_in_v1_below_the_wide_qrs():
     assert IRBBB not in _codes(_m(40, qrs=100, v1_terminal=False))
     codes = _codes(_m(40, qrs=140, v1_terminal=True))
     assert "rbbb" in codes and IRBBB not in codes
+
+
+def test_a_slow_wide_rhythm_asks_to_exclude_complete_block():
+    m = _m(-10, qrs=150, v1_terminal=False)
+    m.heart_rate_bpm = 38
+    assert "slow_wide_escape_rhythm" in _codes(m)
+    m.heart_rate_bpm = 55
+    assert "slow_wide_escape_rhythm" not in _codes(m)

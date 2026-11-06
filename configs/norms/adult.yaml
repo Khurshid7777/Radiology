@@ -13,6 +13,8 @@ rhythm:
   # Flutter with 2:1 conduction (D205): a regular narrow 130-170/min with an f-wave index at
   # least this is flutter, not SVT / sinus tachycardia.
   flutter_2to1_fwave_min: 0.8
+  # Slow wide-QRS rhythm -> "exclude complete AV block" (D206).
+  escape_wide: {hr_max: 45, qrs_min: 120}
   # A regular rhythm whose "atrial rate" is an HR harmonic is the QRS-T train of a
   # sinus tachycardia, not flutter (D83, D84): 2 x HR below 240/min, or 3 x HR (true
   # 3:1 flutter on PTB-XL is never regular), within the tolerance. Regularity by the

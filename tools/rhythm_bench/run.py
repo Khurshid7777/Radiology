@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 # PTB-XL class -> the CardioLens codes that count as finding it (a detector may be stricter or more
 # general; e.g. a high-grade block found as complete counts for 2AVB under "do not miss").
 CLASS_CODES = {
-    "3AVB": {"complete_av_block"},
+    "3AVB": {"complete_av_block", "slow_wide_escape_rhythm"},
     "2AVB": {"second_degree_av_block", "av_block_2_1", "high_grade_av_block", "complete_av_block"},
     "1AVB": {"first_degree_av_block"},
     "AFIB": {"atrial_fibrillation", "possible_atrial_fibrillation"},
