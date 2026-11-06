@@ -36,7 +36,7 @@ def test_key_values_are_the_api_values_unformatted():
 
 def test_motion_respects_reduced_motion_and_moves_only_transform_or_opacity():
     assert "prefers-reduced-motion: reduce" in PAGE
-    frames = re.findall(r"@keyframes \w+ \{(.*?)\}\s*\}", PAGE, flags=re.S)
+    frames = re.findall(r"@keyframes \w+ \{(.*?)\}\s*\}", PAGE, flags=re.DOTALL)
     assert frames and all(not re.search(r"\b(width|height|top|left|margin)\s*:", f) for f in frames)
 
 

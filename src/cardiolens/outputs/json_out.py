@@ -26,6 +26,15 @@ def finite(obj: Any) -> Any:
     return obj
 
 
+def _norms(result: PipelineResult) -> dict[str, Any] | None:
+    from cardiolens.outputs.display import display_norms
+
+    try:
+        return display_norms(result)
+    except Exception:          # the scales are decoration: never let them break the answer
+        return None
+
+
 def result_to_dict(result: PipelineResult) -> dict[str, Any]:
     cfg = result.config
     r = result.report
@@ -53,6 +62,7 @@ def result_to_dict(result: PipelineResult) -> dict[str, Any]:
         ],
         "serial_comparison": result.serial.to_dict() if result.serial else None,
         "symptom_advice": [{"ru": a.ru, "uz": a.uz, "urgent": a.urgent} for a in result.symptom_advice],
+        "norms": _norms(result),                 # D210 UI P3: the ranges the rules used, for the page's scales
         "interpretation": {
             "summary": [c.model_dump() for c in r.summary],
             "causal_explanation": [c.model_dump() for c in r.causal_explanation],

@@ -503,6 +503,14 @@ def waveform_svg(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
     return FileResponse(path, media_type="image/svg+xml", background=_cleanup(tmp))
 
 
+@app.get("/api/analysis/{analysis_id}/waveform.json")
+def waveform_json(analysis_id: str, who: str = Depends(actor)) -> JSONResponse:
+    """D210 UI P3: the waveform SVG's samples for the page's viewer (crosshair, ruler); none under a gate."""
+    from cardiolens.outputs.display import waveform_samples
+
+    return JSONResponse(waveform_samples(_require(analysis_id, who)))
+
+
 @app.get("/api/analysis/{analysis_id}/graph.png")
 def graph_png(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
     result = _require(analysis_id, who)
