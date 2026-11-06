@@ -13,7 +13,7 @@
 #
 # Statements the AHA list has and CardioLens does not emit yet (gaps, plan step 3):
 # second-degree AV block (Mobitz I/II, 2:1), left anterior / posterior fascicular block,
-# incomplete bundle branch blocks, premature atrial complexes, junctional rhythm,
+# incomplete LBBB, junctional rhythm, ectopic atrial rhythm (D204 list),
 # old/acute infarction by territory.
 
 atrial_fibrillation:        {aha: rhythm, snomed: ["164889003"], scp: [AFIB], code15: ["AF"]}
@@ -21,11 +21,17 @@ atrial_flutter:             {aha: rhythm, snomed: ["164890007"], scp: [AFLT], co
 sinus_rhythm:               {aha: rhythm, snomed: ["426783006"], scp: [SR], code15: []}
 sinus_bradycardia:          {aha: rhythm, snomed: ["426177001"], scp: [SBRAD], code15: ["SB"]}
 sinus_tachycardia:          {aha: rhythm, snomed: ["427084000"], scp: [STACH], code15: ["ST"]}
+supraventricular_ectopy:     {aha: rhythm, snomed: ["284470004", "63593006"], scp: [PAC], code15: []}
+atrial_bigeminy:            {aha: rhythm, snomed: ["251173003"], scp: [], code15: []}
+atrial_trigeminy:           {aha: rhythm, snomed: [], scp: [], code15: []}
+ventricular_trigeminy:      {aha: rhythm, snomed: ["251180001"], scp: [TRIGU], code15: []}
+sinus_arrhythmia:           {aha: rhythm, snomed: ["427393009"], scp: [SARRH], code15: []}
 supraventricular_tachycardia: {aha: rhythm, snomed: ["426761007", "67198005", "713422000"], scp: [SVTAC, PSVT], code15: []}
 paced_rhythm:               {aha: pacemaker, snomed: ["10370003"], scp: [PACE], code15: []}
 ventricular_ectopy:         {aha: rhythm, snomed: ["427172004", "17338001"], scp: [PVC], code15: []}
 ventricular_bigeminy:       {aha: rhythm, snomed: ["11157007"], scp: [BIGU], code15: []}
 ventricular_tachycardia:    {aha: rhythm, snomed: ["164895002"], scp: [], code15: []}
+ventricular_fibrillation:   {aha: rhythm, snomed: ["164896001", "111288001"], scp: [], code15: []}
 wide_complex_tachycardia:   {aha: rhythm, snomed: [], scp: [], code15: []}
 sinus_pause:                {aha: rhythm, snomed: [], scp: [], code15: []}
 irregular_rhythm:           {aha: rhythm, snomed: [], scp: [], code15: []}

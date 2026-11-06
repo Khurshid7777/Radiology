@@ -17,6 +17,8 @@ from cardiolens.contracts.findings import FindingSet
 # Codes considered critical when present (mapped from Layer-4 findings).
 # TZ §10 must-not-miss list; recall is prioritised over specificity.
 CRITICAL_CODES = {
+    "ventricular_fibrillation": ("Фибрилляция / трепетание желудочков (D204)",
+                                 "Qorinchalar fibrillyatsiyasi / titrashi"),
     "st_elevation": ("STEMI (подозрение)", "STEMI (shubha)"),
     "long_qt": ("Длинный QT — риск TdP", "Uzun QT — TdP xavfi"),
     "peaked_t_waves": ("Паттерн гиперкалиемии (остроконечные T)",

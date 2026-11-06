@@ -817,6 +817,11 @@ def _fascicular_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
 
     pair = " в сочетании с полной БПНПГ — двухпучковая блокада" if rbbb else ""
     pair_uz = " to'liq o'ng oyoqcha blokadasi bilan — ikki tutamli blokada" if rbbb else ""
+    # Bifascicular block with a long PR (D204): the "trifascicular" pattern of the older literature —
+    # the PR may come from the AV node, so it is named as a combination, not as a third block.
+    if rbbb and "first_degree_av_block" in codes:
+        pair += " и АВ-блокада I степени («трёхпучковая» картина — риск полной блокады)"
+        pair_uz += " va I darajali AV blokada («uch tutamli» ko'rinish)"
     lo, hi = cfg.get("lafb_axis", [-90, -45])
     # Between -30 and -45 degrees the block is "possible" (below the AHA bar of -45; the axis itself
     # is read +-10 degrees): PTB-XL cardiologists name LAFB there in 94 of 293 records (D202).

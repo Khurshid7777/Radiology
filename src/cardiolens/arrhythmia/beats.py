@@ -257,6 +257,16 @@ _PVC_LEADS = ("II", "V1", "V5")
 _PVC_HALF_S = 0.10
 
 
+def _bigeminal_rr(rr: np.ndarray) -> bool:
+    """RR alternating short-long: most consecutive pairs differ by >= 15 % in alternating sign."""
+    if rr.size < 5:
+        return False
+    d = np.diff(rr) / np.median(rr)
+    big = np.abs(d) >= 0.15
+    alt = np.sign(d[1:]) != np.sign(d[:-1])
+    return bool(np.mean(big) >= 0.7 and np.mean(alt) >= 0.7)
+
+
 def detect_pvc_beats(sig, rpeaks, fs: float) -> list[int]:
     """Indices (into ``rpeaks``) of beats meeting the 12-lead PVC rule.
 
@@ -275,20 +285,132 @@ def detect_pvc_beats(sig, rpeaks, fs: float) -> list[int]:
         return []
     segs = {n: np.stack([sig.lead(n)[rp[i] - half:rp[i] + half].astype(float) for i in ok])
             for n in leads}
-    tmpl = {n: np.median(segs[n], axis=0) for n in leads}
     rr = np.diff(rp).astype(float)
     med = float(np.median(rr)) or 1.0
+    # Bigeminy (D204): half the beats are early, so the median RR sits between the short and the
+    # long one and the median beat blends both shapes. Prematurity is then judged against the
+    # upper-quartile RR, and the template is built from the beats that are not early.
+    ref = med
+    if _bigeminal_rr(rr):
+        ref = float(np.percentile(rr, _RUN_TEMPLATE_RR_PCT))
+        late = [k for k, i in enumerate(ok) if i > 0 and rr[i - 1] >= 0.92 * ref]
+        if len(late) >= 3:
+            tmpl = {n: np.median(segs[n][late], axis=0) for n in leads}
+        else:
+            tmpl = {n: np.median(segs[n], axis=0) for n in leads}
+    else:
+        tmpl = {n: np.median(segs[n], axis=0) for n in leads}
     out = []
     for k, i in enumerate(ok):
         if i == 0 or i >= len(rp) - 1:
             continue
-        if rr[i - 1] / med > _PVC_PRE_MAX or rr[i] / med < _PVC_POST_MIN:
+        if rr[i - 1] / ref > _PVC_PRE_MAX or rr[i] / med < _PVC_POST_MIN:
             continue
         corr = np.mean([np.corrcoef(segs[n][k], tmpl[n])[0, 1] for n in leads])
         if corr <= _PVC_CORR_MAX:
             out.append(i)
     return out
 
+
+
+# Supraventricular (atrial / junctional) premature beats (D204; AHA/ACCF/HRS 2009 statement list,
+# ESC 2019 SVT): early, but shaped like the dominant beat — the impulse reaches the ventricles over
+# the normal pathway. Prematurity is judged against the strip's reference RR (upper quartile, as for
+# the runs: the median is ectopic when ectopy dominates) and against the RR just before, so the slow
+# drift of a sinus arrhythmia is not called premature.
+PAC_PRE_REF_MAX = 0.80     # preceding RR <= this x reference RR
+PAC_PRE_PREV_MAX = 0.85    # ... and <= this x the RR before it
+PAC_CORR_MIN = 0.90        # same shape as the dominant beat (mean over II, V1, V5)
+
+
+def pac_beat_stats(sig, rpeaks, fs: float, skip=()) -> list[tuple[int, float, float, float]]:
+    """(index, pre-RR / reference RR, pre-RR / previous RR, shape correlation) for interior beats
+    not in ``skip`` (the PVCs); the PAC rule thresholds these."""
+    rp = np.asarray(rpeaks, dtype=int)
+    if rp.size < 5:
+        return []
+    leads = [n for n in _PVC_LEADS if n in sig.lead_names] or list(sig.lead_names[:3])
+    half = int(_PVC_HALF_S * fs)
+    n_samples = sig.signal.shape[1]
+    ok = [i for i, r in enumerate(rp) if r - half >= 0 and r + half < n_samples]
+    if len(ok) < 5:
+        return []
+    segs = {n: np.stack([sig.lead(n)[rp[i] - half:rp[i] + half].astype(float) for i in ok]) for n in leads}
+    tmpl = {n: np.median(segs[n], axis=0) for n in leads}
+    rr = np.diff(rp).astype(float)
+    ref = float(np.percentile(rr, _RUN_TEMPLATE_RR_PCT)) or 1.0
+    skip = set(skip)
+    out = []
+    for k, i in enumerate(ok):
+        if i < 2 or i >= len(rp) - 1 or i in skip or (i - 1) in skip:
+            continue
+        corr = float(np.mean([np.corrcoef(segs[n][k], tmpl[n])[0, 1] for n in leads]))
+        out.append((i, rr[i - 1] / ref, rr[i - 1] / rr[i - 2], corr))
+    return out
+
+
+def detect_pac_beats(sig, rpeaks, fs: float, skip=()) -> list[int]:
+    return [i for i, pre_ref, pre_prev, corr in pac_beat_stats(sig, rpeaks, fs, skip)
+            if pre_ref <= PAC_PRE_REF_MAX and pre_prev <= PAC_PRE_PREV_MAX and corr >= PAC_CORR_MIN]
+
+
+# Sinus arrhythmia (D204; AHA/ACCF/HRS 2009: sinus rhythm whose P-P varies by more than 10 %, here
+# 25 % of the median RR — PTB-XL labels only the marked kind): a conducted P with a stable PR on a
+# rhythm without premature beats. Where the P is beyond doubt it replaces "irregular rhythm, exclude
+# AF"; otherwise both are named.
+SA_RANGE_MIN = 0.25        # (max RR - min RR) / median RR
+SA_PR_STD_MAX_MS = 40.0
+SA_SURE_P_ONSET = 0.8      # refined P onset before >= 80 % of beats ...
+SA_SURE_PR_STD_MS = 25.0   # ... with the PR within this
+
+
+def sinus_arrhythmia_finding(m, fs: float):
+    from cardiolens.contracts.findings import Evidence, Finding
+
+    rp = np.asarray(m.r_peaks_samples or [], dtype=float)
+    if rp.size < 5 or m.pr_std_ms is None or m.pr_std_ms >= SA_PR_STD_MAX_MS:
+        return None
+    rr = np.diff(rp) / fs * 1000.0
+    rel = float((rr.max() - rr.min()) / np.median(rr))
+    if rel < SA_RANGE_MIN:
+        return None
+    return Finding(code="sinus_arrhythmia", group="rhythm",
+                   label_ru=f"Синусовая аритмия (RR {rr.min():.0f}–{rr.max():.0f} мс, P перед каждым QRS)",
+                   label_uz=f"Sinus aritmiyasi (RR {rr.min():.0f}–{rr.max():.0f} ms)",
+                   evidence=[Evidence(feature="rr_range_rel", value=f"{rel:.2f}"),
+                             Evidence(feature="pr_std_ms", value=str(m.pr_std_ms))], confidence=0.6)
+
+
+def _allorhythmia(idx: list[int], every: int) -> bool:
+    """Ectopic beats on every ``every``-th beat (bigeminy 2, trigeminy 3): >= 3 beats, most gaps equal."""
+    from itertools import pairwise
+
+    gaps = [b - a for a, b in pairwise(idx)]
+    return len(idx) >= 3 and sum(g == every for g in gaps) / len(gaps) >= 0.6
+
+
+def pac_findings(pac_idx: list[int], n_beats: int):
+    """supraventricular_ectopy, or atrial bigeminy / trigeminy (D204)."""
+    from cardiolens.contracts.findings import Evidence, Finding
+
+    if not pac_idx:
+        return []
+    burden = len(pac_idx) / max(1, n_beats)
+    ev = [Evidence(feature="pac_count", value=str(len(pac_idx))),
+          Evidence(feature="beats", value=str(n_beats)),
+          Evidence(feature="burden", value=f"{burden:.0%}")]
+    if _allorhythmia(pac_idx, 2):
+        return [Finding(code="atrial_bigeminy", group="rhythm",
+                        label_ru=f"Наджелудочковая (предсердная) бигеминия (НЖЭ {burden:.0%} ударов)",
+                        label_uz=f"Supraventrikulyar bigeminiya (SVES {burden:.0%})", evidence=ev, confidence=0.65)]
+    if _allorhythmia(pac_idx, 3):
+        return [Finding(code="atrial_trigeminy", group="rhythm",
+                        label_ru=f"Наджелудочковая (предсердная) тригеминия (НЖЭ {burden:.0%} ударов)",
+                        label_uz=f"Supraventrikulyar trigeminiya (SVES {burden:.0%})", evidence=ev, confidence=0.65)]
+    return [Finding(code="supraventricular_ectopy", group="rhythm",
+                    label_ru=f"Наджелудочковая экстрасистолия — {len(pac_idx)} НЖЭ / {n_beats} уд.",
+                    label_uz=f"Supraventrikulyar ekstrasistoliya — {len(pac_idx)} SVES / {n_beats}",
+                    evidence=ev, confidence=0.65)]
 
 # Ventricular runs (non-sustained VT) on a 10-s strip (D40; first iteration D38).
 # Chosen on MIT-BIH DS1+DS2, INCART windows and PTB-XL/Chapman development records.
@@ -424,6 +546,11 @@ def pvc_findings(pvc_idx: list[int], n_beats: int):
         return [Finding(code="ventricular_bigeminy", group="rhythm",
                         label_ru=f"Желудочковая бигеминия (ЖЭ {burden:.0%} ударов)",
                         label_uz=f"Ventrikulyar bigeminiya (VES {burden:.0%})",
+                        evidence=ev, confidence=0.7)]
+    if _allorhythmia(pvc_idx, 3):   # D204
+        return [Finding(code="ventricular_trigeminy", group="rhythm",
+                        label_ru=f"Желудочковая тригеминия (ЖЭ {burden:.0%} ударов)",
+                        label_uz=f"Ventrikulyar trigeminiya (VES {burden:.0%})",
                         evidence=ev, confidence=0.7)]
     return [Finding(code="ventricular_ectopy", group="rhythm",
                     label_ru=f"Желудочковая экстрасистолия — {len(pvc_idx)} ЖЭ / {n_beats} уд.",

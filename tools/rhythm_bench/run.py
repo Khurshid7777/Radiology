@@ -36,8 +36,15 @@ CLASS_CODES = {
     "LAFB": {"left_anterior_fascicular_block"},
     "LPFB": {"left_posterior_fascicular_block"},
     "IVCD": {"wide_qrs_nonspecific"},
-    "PVC": {"ventricular_ectopy", "ventricular_bigeminy"},
+    "PVC": {"ventricular_ectopy", "ventricular_bigeminy", "ventricular_trigeminy"},
     "PACE": {"paced_rhythm"},
+    # D204 wave 1
+    "PAC": {"supraventricular_ectopy", "atrial_bigeminy", "atrial_trigeminy"},
+    "SVARR": {"supraventricular_ectopy", "atrial_bigeminy", "atrial_trigeminy"},
+    "BIGU": {"ventricular_bigeminy"},
+    "TRIGU": {"ventricular_trigeminy"},
+    "SARRH": {"sinus_arrhythmia"},
+    "ILBBB": {"incomplete_lbbb"},
 }
 INTEREST = set(CLASS_CODES)
 

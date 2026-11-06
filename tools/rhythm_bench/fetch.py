@@ -45,6 +45,9 @@ SAMPLED = ("LAFB", "IRBBB", "CRBBB", "CLBBB", "AFIB", "PVC", "PACE", "1AVB", "IV
 # Sampled after the controls so the earlier selection stays the same (D203: a slow regular rhythm
 # is where a 2:1 AV block hides; sinus bradycardia is its specificity control).
 EXTRA = ("SBRAD",)
+# D204: ectopy, sinus arrhythmia and incomplete LBBB, again after the earlier selection.
+EXTRA_FULL = ("BIGU", "TRIGU", "ILBBB")
+EXTRA_SAMPLED = ("PAC", "SVARR", "SARRH")
 
 
 def select(rows: list[dict], per_class: int, controls: int, seed: int) -> list[dict]:
@@ -66,6 +69,14 @@ def select(rows: list[dict], per_class: int, controls: int, seed: int) -> list[d
     for r in rng.sample(norm, min(controls, len(norm))):
         chosen[r["ecg_id"]] = r
     for code in EXTRA:
+        pool = [r for r in rows if code in labels[r["ecg_id"]] and r["ecg_id"] not in chosen]
+        for r in rng.sample(pool, min(per_class, len(pool))):
+            chosen[r["ecg_id"]] = r
+    for code in EXTRA_FULL:
+        for r in rows:
+            if code in labels[r["ecg_id"]]:
+                chosen.setdefault(r["ecg_id"], r)
+    for code in EXTRA_SAMPLED:
         pool = [r for r in rows if code in labels[r["ecg_id"]] and r["ecg_id"] not in chosen]
         for r in rng.sample(pool, min(per_class, len(pool))):
             chosen[r["ecg_id"]] = r

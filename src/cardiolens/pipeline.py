@@ -14,11 +14,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from cardiolens.arrhythmia import (
+    SA_SURE_P_ONSET,
+    SA_SURE_PR_STD_MS,
+    detect_pac_beats,
     detect_pvc_beats,
     detect_ventricular_runs,
+    pac_findings,
     pvc_findings,
+    sinus_arrhythmia_finding,
     vt_run_finding,
 )
+from cardiolens.arrhythmia.vf import detect_vf
 from cardiolens.calibration import TemperatureScaler
 from cardiolens.clinical_context import ESCALATING, Advice, advise
 from cardiolens.config import (
@@ -119,6 +125,11 @@ def run_pipeline(
     # is a one-sample step, the largest |diff| outlier, and it sits just before R, so the
     # coupling check passes too: 3 of 4 clean synthetic pages were read as paced.
     pacing_ratio = 0.0 if sig.provenance.digitized else pacing_spike_ratio(sig)
+    # Ventricular fibrillation / flutter (D204): read off the raw signal, before any QRS search —
+    # VF has no QRS, and the R-peak path called it "no ECG signal" or nothing. Not on a photo: a
+    # digitised trace's own noise is not a rhythm, and photos stay under their gates (D178).
+    vf_on = (not sig.provenance.digitized) and detect_vf(sig.signal.astype("float64"),
+                                                         sig.sampling_rate_hz)[0]
     spike_times = pacing_spike_times(sig) if pacing_ratio >= cfg.pacing.spike_ratio_min else []
     ml_spike_times = pacing_multilead_spike_times(sig, cfg.pacing.multilead_k,
                                                   cfg.pacing.multilead_min_leads)
@@ -210,6 +221,20 @@ def run_pipeline(
                 and "atrial_fibrillation" in findings.codes()):
             findings.findings = [f for f in findings.findings if f.code != "atrial_fibrillation"]
             audit.append(f"[L4] AF withdrawn: RR CV {cv_left:.3f} without the PVC intervals (D106)")
+    # Supraventricular premature beats and sinus arrhythmia (D204): only over an organised atrial
+    # rhythm — in AF or flutter every beat is "early" or "late" by chance.
+    if not runs and not findings.codes() & {"atrial_fibrillation", "atrial_flutter"}:
+        pac_idx = detect_pac_beats(sig, m.r_peaks_samples or [], sig.sampling_rate_hz, skip=pvc_idx)
+        if pac_idx:
+            findings.findings.extend(pac_findings(pac_idx, len(m.r_peaks_samples)))
+            audit.append(f"[L4] PAC rule: {len(pac_idx)} supraventricular premature beat(s)")
+        elif not pvc_idx:
+            sa = sinus_arrhythmia_finding(m, sig.sampling_rate_hz)
+            if sa is not None:
+                findings.findings.append(sa)
+                if (m.p_onset_ratio or 0) >= SA_SURE_P_ONSET and (m.pr_std_ms or 99) < SA_SURE_PR_STD_MS:
+                    findings.findings = [f for f in findings.findings if f.code != "irregular_rhythm"]
+                audit.append("[L4] sinus arrhythmia")
     # Paced rhythm (TZ §7.1): the spike must be time-locked to the QRS (an artifact
     # spike lands at random), or seen by many leads at once and QRS-locked (D75).
     r_times = [r / sig.sampling_rate_hz for r in (m.r_peaks_samples or [])]
@@ -464,6 +489,16 @@ def run_pipeline(
             confidence=0.95)]
         quality_ok = False
         audit.append("[L2] no ECG signal (8-40 Hz below threshold in every lead) — all findings and alerts withheld")
+    if vf_on:
+        findings.findings.insert(0, Finding(
+            code="ventricular_fibrillation", group="rhythm",
+            label_ru="Фибрилляция / трепетание желудочков: хаотичные волны без комплексов QRS — немедленно оцените "
+                     "пациента (сознание, пульс); если это не артефакт — реанимация и дефибрилляция",
+            label_uz="Qorinchalar fibrillyatsiyasi / titrashi: QRS komplekssiz xaotik to'lqinlar — bemorni zudlik "
+                     "bilan baholang (hush, puls); artefakt bo'lmasa — reanimatsiya va defibrillyatsiya",
+            evidence=[Evidence(feature="vf_detector", value="leakage + spectrum, raw signal")],
+            confidence=0.7, critical=True))
+        audit.append("[L4] ventricular fibrillation / flutter pattern on the raw signal (D204)")
     # The recorder's own printed measurements against ours (scanner S3, TZ 18.6, D183). Advisory:
     # a mis-read digit in the header must not withhold our numbers, so it never gates.
     dev = sig.provenance.device_measurements
@@ -694,7 +729,8 @@ _PACED_EXCLUDES = ("lbbb", "rbbb", "wide_qrs_nonspecific", "lvh", "lvh_probable"
                    "first_degree_av_block", "sinus_rhythm", "left_axis_deviation", "st_depression",
                    "t_inversion", "secondary_st_t_change", "pathological_q_waves", "brugada_pattern",
                    "atrial_fibrillation", "left_anterior_fascicular_block",
-                   "left_posterior_fascicular_block", "incomplete_rbbb")
+                   "left_posterior_fascicular_block", "incomplete_rbbb", "supraventricular_ectopy",
+                   "atrial_bigeminy", "atrial_trigeminy", "sinus_arrhythmia")
 
 
 @functools.lru_cache(maxsize=2)

@@ -56,3 +56,6 @@ data/segmenter/
 # training checkpoints (the ONNX export and its model card are committed)
 models/segmenter/*.pt
 data/segmenter2/
+
+# D204: open VF databases (vfdb, cudb), downloaded by tools/vf_bench
+data/vf_bench/
