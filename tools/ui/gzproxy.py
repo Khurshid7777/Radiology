@@ -1,6 +1,9 @@
 """Local stand-in for Caddy's `encode gzip`: serves PAGE at / gzipped, forwards the rest to the app."""
-import gzip, sys, urllib.request
+import gzip
+import sys
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
 PAGE, PORT, APP = sys.argv[1], int(sys.argv[2]), "http://127.0.0.1:8765"
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
