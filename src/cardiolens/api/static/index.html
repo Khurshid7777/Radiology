@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CardioVision — заключение по ЭКГ</title>
+<meta name="description" content="CardioVision: заключение по фото или файлу ЭКГ — поддержка решений врача, не заменяет врача.">
+<meta name="theme-color" content="#0a172b">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a172b'/%3E%3Cpath d='M3 18h8l2-7 3 13 3-9 2 3h8' fill='none' stroke='%23a0bdcf' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   /* D210 (UI P1): the brief's two-colour base — navy #0a172b and steel #a0bdcf; red only for what is
      critical; green / orange / red of the read traces are drawn by the server and not restyled here. */
@@ -12,7 +15,7 @@
     --steel-100: #dce6ee; --steel-050: #f1f5f8;
     --bg: var(--steel-050); --card: #ffffff; --ink: var(--navy-900); --muted: #4a5d74;
     --line: var(--steel-100); --brand: var(--navy-900); --brand2: #1d5f99; --on-brand: #ffffff;
-    --ok: #2e7d32; --warn: #8a5a00; --crit: #b00020; --focus: #1d5f99;
+    --ok: #2e7d32; --ok-ink: #256b29; --warn: #8a5a00; --crit: #b00020; --focus: #1d5f99;
     --dur-fast: 150ms; --dur-base: 250ms; --dur-slow: 400ms; --ease: cubic-bezier(.2,.7,.2,1);
     --grid-1: color-mix(in srgb, var(--steel-300) 22%, transparent);
     --grid-5: color-mix(in srgb, var(--steel-300) 40%, transparent);
@@ -20,7 +23,7 @@
   @media (prefers-color-scheme: dark) {
     :root { --bg:#0a172b; --card:#13233b; --ink:#e7eef4; --muted:#a0bdcf;
       --line:#26395a; --brand:#a0bdcf; --brand2:#8cc3ef; --on-brand:#0a172b; --focus:#8cc3ef;
-      --ok:#7bc67e; --warn:#f0b257; --crit:#ff8a95; }
+      --ok:#7bc67e; --ok-ink:#7bc67e; --warn:#f0b257; --crit:#ff8a95; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important;
@@ -222,7 +225,7 @@
   details { margin-top:6px; }
   details summary { cursor:pointer; color:var(--brand2); font-size:14px; }
   .banner { padding:12px 14px; border-radius:10px; font-weight:600; margin-bottom:12px; }
-  .banner.A { background: color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok); }
+  .banner.A { background: color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok-ink); }   /* AA 5.35:1 (P5) */
   .banner.B { background: color-mix(in srgb, var(--brand2) 15%, transparent); color:var(--brand2); }
   .banner.escalate { background: color-mix(in srgb, var(--crit) 18%, transparent); color:var(--crit); }
   .crit { border-left:4px solid var(--crit); background: color-mix(in srgb, var(--crit) 8%, transparent);
@@ -246,6 +249,7 @@
   .trace li { font-family: ui-monospace, Menlo, monospace; font-size:12px; margin:2px 0; }
   h3 { font-size:14px; margin:14px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
   @media (min-width:1024px) { .card .stepnav { display:none; } }   /* both cards side by side: no step buttons */
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--dur-base); }
 </style>
 </head>
 <body data-step="1">
@@ -906,6 +910,14 @@ for (const id of ['mode_a', 'mode_b']) {
 // D210 (UI P1): the steps. At >= 1024 px both input cards are side by side and the stepper only shows
 // progress; below it one step per screen. What is typed stays in the page between the steps.
 function setStep(n) {
+  // D210 P5: the step change as a view transition where the browser has one (a fade otherwise is instant).
+  const go = () => applyStep(n);
+  if (document.startViewTransition && document.body.dataset.step && document.body.dataset.step !== String(n) &&
+      !matchMedia('(prefers-reduced-motion: reduce)').matches && matchMedia('(max-width:1023px)').matches)
+    document.startViewTransition(go);
+  else go();
+}
+function applyStep(n) {
   document.body.dataset.step = String(n);
   for (let i = 1; i <= 3; i++) {
     const li = $('st' + i);

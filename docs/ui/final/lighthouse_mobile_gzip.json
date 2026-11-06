@@ -1,0 +1,17 @@
+{
+ "note": "through tools/ui/gzproxy.py (gzip, as Caddy on the server)",
+ "categories": {
+  "performance": 1,
+  "accessibility": 1,
+  "best-practices": 1,
+  "seo": 1
+ },
+ "audits": {
+  "first-contentful-paint": "0.9\u00a0s",
+  "largest-contentful-paint": "0.9\u00a0s",
+  "cumulative-layout-shift": "0",
+  "total-blocking-time": "0\u00a0ms",
+  "speed-index": "0.9\u00a0s",
+  "total-byte-weight": "Total size was 32\u00a0KiB"
+ }
+}
