@@ -41,6 +41,11 @@ services:
       ECGSCAN_BOT_ALLOWED: ${ECGSCAN_BOT_ALLOWED:?set ECGSCAN_BOT_ALLOWED in deploy/.env}
       ECGSCAN_BOT_API_URL: http://cardiolens:8000
       ECGSCAN_BOT_MODE: analyze
+      # D208: invite codes and who joined with them (ids only), on the app's volume; links for colleagues.
+      ECGSCAN_BOT_STORE: /data/bot/access.json
+      ECGSCAN_BOT_PUBLIC_URL: https://cardio.vision-ai.uz
+    volumes:
+      - appdata:/data
 
   caddy:
     image: caddy:2.8.4

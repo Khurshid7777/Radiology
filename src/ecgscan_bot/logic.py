@@ -20,6 +20,7 @@ ALLOWED_ENV = "ECGSCAN_BOT_ALLOWED"
 API_KEY_ENV = "ECGSCAN_BOT_API_KEY"
 API_URL_ENV = "ECGSCAN_BOT_API_URL"
 MODE_ENV = "ECGSCAN_BOT_MODE"
+PUBLIC_URL_ENV = "ECGSCAN_BOT_PUBLIC_URL"   # the site, for links sent to colleagues (D208)
 IMAGE_MIME = ("image/jpeg", "image/png", "image/tiff")                     # what /scans takes
 ANALYZE_MIME = IMAGE_MIME + ("image/heic", "image/heif", "application/pdf")  # /api/analyze reads these too (D158)
 
@@ -118,10 +119,42 @@ def lang_of(language_code: str | None) -> str:
     return "uz" if (language_code or "").lower().startswith("uz") else "ru"
 
 
-def allowed(cfg: BotConfig, user_id: int | None, chat_type: str | None = "private") -> bool:
-    """A whitelisted user in a private chat: in a group the verdict (and the overlay)
-    would reach every member (D136)."""
-    return user_id is not None and user_id in cfg.allowed and chat_type == "private"
+def allowed(cfg: BotConfig, user_id: int | None, chat_type: str | None = "private", store=None) -> bool:
+    """A whitelisted user (an administrator) or one who joined with a live invite code (D208), in a
+    private chat: in a group the verdict (and the overlay) would reach every member (D136)."""
+    if user_id is None or chat_type != "private":
+        return False
+    return user_id in cfg.allowed or (store is not None and store.is_member(user_id))
+
+
+def is_admin(cfg: BotConfig, user_id: int | None) -> bool:
+    return user_id is not None and user_id in cfg.allowed
+
+
+# Symptoms in a caption (D208 -> D195 codes): words a doctor or a patient writes.
+_SYMPTOM_WORDS = {
+    "chest_pain": ("боль в груди", "боли в груди", "загрудинн", "давит в груди", "ko'krakda og'riq",
+                   "ko‘krakda og‘riq", "chest pain"),
+    "dyspnea": ("одышк", "задыха", "hansira", "nafas qis", "dyspn", "short of breath"),
+    "syncope": ("обморок", "потеря сознания", "потерял сознание", "hushdan", "syncope", "faint"),
+    "palpitations": ("сердцебиени", "перебои", "yurak urishi", "yurak tez", "palpitat"),
+}
+_ONSET_RE = re.compile(r"(\d{1,3})\s*(?:ч|час|часа|часов|soat|h|hours?)(?![\w])", re.IGNORECASE)
+
+
+def parse_symptoms(text: str | None) -> tuple[list[str], str | None]:
+    """D195 symptom codes and the onset band from a caption ("боль в груди 3 ч"); empty when none.
+    The onset is read only next to a symptom: a lone number is the age (parse_caption)."""
+    if not text:
+        return [], None
+    low = text.lower()
+    found = [code for code, words in _SYMPTOM_WORDS.items() if any(w in low for w in words)]
+    onset = None
+    m = _ONSET_RE.search(low)
+    if found and m:
+        h = int(m.group(1))
+        onset = "lt12h" if h < 12 else "12to48h" if h <= 48 else "gt48h"
+    return found, onset
 
 
 def intake(cfg: BotConfig, *, kind: str, mime: str | None, size: int | None, lang: str) -> str | None:
@@ -215,7 +248,8 @@ class AnalyzeApi:
         self.headers = {"X-API-Key": cfg.api_key or ""}
 
     def analyze(self, files: list[tuple[str, bytes]], *, patient: Patient = Patient(),
-                scale: PaperScale = PaperScale()) -> dict:
+                scale: PaperScale = PaperScale(), symptoms: list[str] | None = None,
+                onset: str | None = None) -> dict:
         """One analysis of one or several files (an album is one record: pages of a device,
         parts of a strip, parts of a page on the capture board — D155)."""
         form = {"mode": "A", "client": "telegram"}
@@ -229,6 +263,10 @@ class AnalyzeApi:
             form["age_days"] = str(patient.age_days)
         if patient.sex:
             form["sex"] = patient.sex
+        if symptoms:                               # D208 -> D195: the server keeps the known codes only
+            form["symptoms"] = ",".join(symptoms)
+        if onset:
+            form["symptom_onset"] = onset
         r = self.http.post("/api/analyze", files=[("files", (name, data)) for name, data in files],
                            data=form, headers=self.headers)
         if r.status_code == 400:
@@ -239,6 +277,19 @@ class AnalyzeApi:
     def pdf(self, analysis_id: str) -> bytes | None:
         r = self.http.get(f"/api/analysis/{analysis_id}/report.pdf", headers=self.headers)
         return r.content if r.status_code == 200 else None
+
+    def share(self, analysis_id: str) -> str | None:
+        """A signed 7-day link to the PDF without the photo (D197), absolute when the site's address
+        is known (D208); None when the analysis is gone or the server says no."""
+        try:
+            r = self.http.post(f"/api/analysis/{analysis_id}/share", headers=self.headers)
+        except Exception:
+            return None
+        if r.status_code != 200:
+            return None
+        url = r.json().get("url")
+        base = os.environ.get(PUBLIC_URL_ENV) or self.cfg.public_url
+        return f"{base.rstrip('/')}{url}" if base and url and url.startswith("/") else url
 
     def overlay(self, analysis_id: str) -> bytes | None:
         """The scanner's confirmation overlay of the photo (D163): the traces it read, drawn
@@ -309,17 +360,54 @@ def handle_analysis(cfg: BotConfig, api: AnalyzeApi, files: list[tuple[str, byte
     """Analyse through ``/api/analyze``: (reply text, analysis id). A refusal is said in the
     readers' words; server trouble is answered, never raised. ``scale``: speed and gain
     chosen by a button; otherwise those written in the caption, if any."""
+    text, aid, _ = analyse(cfg, api, files, lang, caption, scale)
+    return text, aid
+
+
+def analyse(cfg: BotConfig, api: AnalyzeApi, files: list[tuple[str, bytes]], lang: str,
+            caption: str | None = None, scale: PaperScale | None = None,
+            symptoms: list[str] | None = None, onset: str | None = None) -> tuple[str, str | None, dict | None]:
+    """``handle_analysis`` plus the response body (to answer again in the other language, D208).
+    Symptoms: those given by the buttons, else those written in the caption."""
     patient = parse_caption(caption)
     scale = scale if scale is not None else parse_scale(caption)
+    if symptoms is None:
+        symptoms, onset = parse_symptoms(caption)
     try:
-        body = api.analyze(files, patient=patient, scale=scale)
+        extra = {"symptoms": symptoms, "onset": onset} if symptoms else {}   # no symptoms: the call as before
+        body = api.analyze(files, patient=patient, scale=scale, **extra)
     except AnalyzeRefused as e:
-        return str(e), None
+        return str(e), None, None
     except Exception:  # network, HTTP error: the user gets a plain answer
-        return t("bot.server_error", lang), None
-    text = conclusion_reply(body, lang, patient_given=patient.given)
+        return t("bot.server_error", lang), None, None
+    return render(body, lang, scale, patient.given), body.get("analysis_id"), body
+
+
+def render(body: dict, lang: str, scale: PaperScale, patient_given: bool) -> str:
+    text = conclusion_reply(body, lang, patient_given=patient_given)
     line = scale_line(body, scale, lang)
-    return (f"{text}\n\n{line}" if line else text), body.get("analysis_id")
+    return f"{text}\n\n{line}" if line else text
+
+
+def symptom_buttons(selected: list[str], onset: str | None, lang: str) -> list[list[tuple[str, str]]]:
+    """Rows of (label, choice): four symptom toggles, the onset, and "re-run" (D208)."""
+    from ecgscan_bot.texts import ONSET_BTN, SYMPTOM_BTN, tr
+
+    i = 1 if lang == "uz" else 0
+    sym = [(("✓ " if c in selected else "") + names[i], f"y={c}") for c, names in SYMPTOM_BTN.items()]
+    ons = [(("✓ " if c == onset else "") + names[i], f"o={c}") for c, names in ONSET_BTN.items()]
+    return [sym[:2], sym[2:], ons, [(tr("btn_recalc_sym", lang), "go")]]
+
+
+def toggle_symptom(selected: list[str], onset: str | None, choice: str) -> tuple[list[str], str | None]:
+    from ecgscan_bot.texts import ONSET_BTN, SYMPTOM_BTN
+
+    key, _, value = choice.partition("=")
+    if key == "y" and value in SYMPTOM_BTN:
+        selected = [c for c in selected if c != value] if value in selected else [*selected, value]
+    elif key == "o" and value in ONSET_BTN:
+        onset = None if onset == value else value
+    return selected, onset
 
 
 def handle_file(cfg: BotConfig, api: ScanApi, data: bytes, filename: str, lang: str) -> tuple[str, str | None]:
