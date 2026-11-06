@@ -27,7 +27,14 @@ DIRS = ("data/ecg-arrhythmia-extra", "data/ecg-arrhythmia-train", "data/ecg-arrh
         "data/ecg-arrhythmia")
 
 
-def chapman_list(seed: int = 0, require_signal: bool = True) -> list[tuple[str, list[str], float | None]]:
+AVB_CODES = {"27885002": "3AVB", "195042002": "2AVB", "54016002": "MOBITZ1", "270492004": "1AVB",
+             "233917008": "AVB", "426177001": "SB", "284470004": "APB", "426783006": "SR"}
+AVB_PER_CLASS = {"3AVB": 200, "2AVB": 200, "MOBITZ1": 200, "AVB": 150, "1AVB": 300, "SB": 300, "APB": 300,
+                 "SR": 200}
+
+
+def chapman_list(seed: int = 0, require_signal: bool = True, codes: dict | None = None,
+                 per_class: dict | None = None) -> list[tuple[str, list[str], float | None]]:
     seen: dict[str, tuple[str, list[str], float | None]] = {}
     for d in DIRS:
         for hea in Path(d).rglob("*.hea"):
@@ -43,19 +50,19 @@ def chapman_list(seed: int = 0, require_signal: bool = True) -> list[tuple[str, 
                         age = float(line[5:].strip())
                     except ValueError:
                         age = None
-            labels = sorted({CHAPMAN[c] for c in dx if c in CHAPMAN})
+            labels = sorted({(codes or CHAPMAN)[c] for c in dx if c in (codes or CHAPMAN)})
             if labels and (age is None or age >= 18):
                 seen[hea.stem] = (str(hea.with_suffix("")), labels, age)
     rng = random.Random(seed)
     chosen: dict[str, tuple] = {}
-    for cls, k in PER_CLASS.items():
+    for cls, k in (per_class or PER_CLASS).items():
         pool = [v for name, v in sorted(seen.items()) if cls in v[1] and name not in chosen]
         for v in rng.sample(pool, min(k, len(pool))):
             chosen[Path(v[0]).name] = v
     return list(chosen.values())
 
 
-def run(items, out: Path, shard: str) -> None:
+def run(items, out: Path, shard: str, keep_meas: bool = False) -> None:
     warnings.filterwarnings("ignore")
     from cardiolens.layer1_ingestion import load_wfdb
     from cardiolens.ml.af import af_features
@@ -73,6 +80,16 @@ def run(items, out: Path, shard: str) -> None:
             res = run_pipeline(sig, mode="A")
             row = {"labels": labels, "codes": sorted(res.findings.codes()),
                    "f": af_features(res.signal, res.measurements)}
+            if keep_meas:   # D206: the measurements and the P train, to tune the AV-block rule offline
+                import numpy as np
+
+                from cardiolens.layer3_measure.atrial import P_TRAIN_LEADS, p_train
+
+                row["m"] = res.measurements.model_dump(mode="json", exclude={"morphology", "voltages"})
+                sg = res.signal
+                row["p_train"] = p_train({ln: sg.lead(ln).astype(np.float64) for ln in P_TRAIN_LEADS
+                                          if ln in sg.lead_names}, np.asarray(res.measurements.r_peaks_samples),
+                                         sg.sampling_rate_hz)
         except Exception as e:     # a failure is a row too
             row = {"labels": labels, "error": f"{type(e).__name__}: {str(e)[:100]}"}
         dest.write_text(json.dumps(row))
@@ -80,15 +97,16 @@ def run(items, out: Path, shard: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("which", choices=["chapman", "ptbxl"])
+    ap.add_argument("which", choices=["chapman", "chapman-avb", "ptbxl"])
     ap.add_argument("--data", type=Path, default=Path("data/ptbxl_rhythm"))
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--shard", default="0/1")
     a = ap.parse_args()
-    if a.which == "chapman":
+    if a.which in ("chapman", "chapman-avb"):
         # The same selection as extract.py; a record read from the zip lives in the extra folder.
+        kw = {"codes": AVB_CODES, "per_class": AVB_PER_CLASS} if a.which == "chapman-avb" else {}
         items = []
-        for path, labels, age in chapman_list(require_signal=False):
+        for path, labels, age in chapman_list(require_signal=False, **kw):
             if not Path(path).with_suffix(".mat").exists():
                 path = str(Path("data/ecg-arrhythmia-extra") / Path(path).name)
             items.append((path, labels, age))
@@ -96,7 +114,7 @@ def main() -> None:
         man = json.loads((a.data / "manifest.json").read_text())["records"]
         items = [(str(a.data / r["filename_hr"]), r["labels"],
                   float(r["age"]) if r.get("age") not in (None, "") else None) for r in man]
-    run(items, a.out, a.shard)
+    run(items, a.out, a.shard, keep_meas=a.which == "chapman-avb")
 
 
 if __name__ == "__main__":

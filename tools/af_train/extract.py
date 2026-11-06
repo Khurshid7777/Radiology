@@ -55,8 +55,10 @@ class _Ranged(io.RawIOBase):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--set", choices=["af", "avb"], default="af", help="af: D205 selection, avb: D206")
     a = ap.parse_args()
-    want = dump.chapman_list(require_signal=False)
+    kw = {"codes": dump.AVB_CODES, "per_class": dump.AVB_PER_CLASS} if a.set == "avb" else {}
+    want = dump.chapman_list(require_signal=False, **kw)
     missing = {Path(p).name for p, _, _ in want if not Path(p).with_suffix(".mat").exists()}
     print(f"[extract] {len(want)} chosen, {len(missing)} without a signal on disk", flush=True)
     z = zipfile.ZipFile(io.BufferedReader(_Ranged(URL), buffer_size=1 << 20))
