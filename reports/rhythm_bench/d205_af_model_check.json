@@ -1,0 +1,122 @@
+{
+ "chapman_rows": 4854,
+ "chapman_af": 1520,
+ "cv_auc": {
+  "lr": 0.944,
+  "hgb": 0.947
+ },
+ "ptbxl_auc": {
+  "lr": 0.959,
+  "hgb": 0.971
+ },
+ "lr": {
+  "model": "logistic",
+  "threshold": 0.949,
+  "AFIB": {
+   "rule": "343/412",
+   "rule_or_model": "346/412",
+   "model_only_new": 3
+  },
+  "PAC": {
+   "rule": "27/277",
+   "rule_or_model": "27/277",
+   "model_only_new": 0
+  },
+  "SARRH": {
+   "rule": "20/281",
+   "rule_or_model": "20/281",
+   "model_only_new": 0
+  },
+  "PVC": {
+   "rule": "44/387",
+   "rule_or_model": "44/387",
+   "model_only_new": 0
+  },
+  "AFLT": {
+   "rule": "7/56",
+   "rule_or_model": "16/56",
+   "model_only_new": 9
+  },
+  "STACH": {
+   "rule": "8/331",
+   "rule_or_model": "9/331",
+   "model_only_new": 1
+  },
+  "SBRAD": {
+   "rule": "3/259",
+   "rule_or_model": "3/259",
+   "model_only_new": 0
+  },
+  "SVTAC": {
+   "rule": "1/26",
+   "rule_or_model": "1/26",
+   "model_only_new": 0
+  },
+  "PSVT": {
+   "rule": "2/23",
+   "rule_or_model": "2/23",
+   "model_only_new": 0
+  },
+  "controls": {
+   "rule": "2/360",
+   "rule_or_model": "2/360",
+   "model_only_new": 0
+  },
+  "sinus_rhythm_left_on_AF": 28
+ },
+ "hgb_reference": {
+  "model": "hgb",
+  "threshold": 0.959,
+  "AFIB": {
+   "rule": "343/412",
+   "rule_or_model": "344/412",
+   "model_only_new": 1
+  },
+  "PAC": {
+   "rule": "27/277",
+   "rule_or_model": "28/277",
+   "model_only_new": 1
+  },
+  "SARRH": {
+   "rule": "20/281",
+   "rule_or_model": "20/281",
+   "model_only_new": 0
+  },
+  "PVC": {
+   "rule": "44/387",
+   "rule_or_model": "44/387",
+   "model_only_new": 0
+  },
+  "AFLT": {
+   "rule": "7/56",
+   "rule_or_model": "7/56",
+   "model_only_new": 0
+  },
+  "STACH": {
+   "rule": "8/331",
+   "rule_or_model": "9/331",
+   "model_only_new": 1
+  },
+  "SBRAD": {
+   "rule": "3/259",
+   "rule_or_model": "3/259",
+   "model_only_new": 0
+  },
+  "SVTAC": {
+   "rule": "1/26",
+   "rule_or_model": "1/26",
+   "model_only_new": 0
+  },
+  "PSVT": {
+   "rule": "2/23",
+   "rule_or_model": "2/23",
+   "model_only_new": 0
+  },
+  "controls": {
+   "rule": "2/360",
+   "rule_or_model": "2/360",
+   "model_only_new": 0
+  },
+  "sinus_rhythm_left_on_AF": 28
+ }
+}
