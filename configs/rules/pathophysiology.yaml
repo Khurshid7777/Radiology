@@ -93,6 +93,20 @@ rules:
     explanation_ru: "Паттерн объясняется перестановкой электродов (артефакт), а не истинной патологией — переснять ЭКГ."
     explanation_uz: "Pattern elektrodlar almashinuvi (artefakt) bilan izohlanadi, haqiqiy patologiya emas — EKG qayta olinsin."
 
+  - id: "electrode_reversal_ra_ll"
+    label_ru: "Подозрение на перепутанные электроды RA/LL"
+    label_uz: "RA/LL elektrodlar almashinuvi shubhasi"
+    trigger_findings: ["lead_reversal_ra_ll"]
+    physiologic: "physiologic"   # artifact, not true pathology (D214)
+    critical: false
+    nodes:
+      - { id: "lead_reversal_ra_ll", kind: "artifact", label_ru: "Перестановка электродов RA/LL", label_uz: "RA/LL elektrodlar almashinuvi" }
+      - { id: "pseudo_pathology", kind: "finding", label_ru: "Псевдопатологический паттерн", label_uz: "Psevdopatologik pattern" }
+    edges:
+      - { from: "lead_reversal_ra_ll", to: "pseudo_pathology", relation: "explained_by" }
+    explanation_ru: "Инвертированное II и «поменявшиеся» aVR/aVF объясняются перестановкой электродов (артефакт) — переснять ЭКГ."
+    explanation_uz: "Teskari II va aVR/aVF almashinuvi elektrodlar almashinuvi (artefakt) bilan izohlanadi — EKG qayta olinsin."
+
   - id: "bbb_explains_wide_qrs"
     label_ru: "Блокада ножки пучка Гиса"
     label_uz: "Hisning oyoqcha blokadasi"

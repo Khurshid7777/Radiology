@@ -85,7 +85,7 @@ def test_hypocalcemia_long_qt_chain():
 
 def test_hypercalcemia_short_qt_chain():
     sig = _sig(calcium=2.8)
-    m = Measurements(heart_rate_bpm=70, intervals=Intervals(qrs_ms=90, qtc_bazett_ms=330))
+    m = Measurements(heart_rate_bpm=70, intervals=Intervals(qrs_ms=90, qtc_bazett_ms=320))
     fnd = detect_findings(sig, m, norms=load_norms("adult"), la_ra_reversed=False)
     g = analyze(fnd, load_rule_base(), sig.context)
     assert "short_qt" in fnd.codes()
@@ -103,3 +103,15 @@ def test_pericarditis_causal_rule_activates():
 def test_normal_ecg_clean_of_new_findings():
     codes = run_pipeline(generate_synthetic_ecg(heart_rate_bpm=72), mode="A").findings.codes()
     assert not ({"pericarditis", "left_atrial_enlargement", "right_atrial_enlargement"} & codes)
+
+
+def test_wide_qrs_correction_does_not_make_a_short_qt():
+    """D213: the Bogossian wide-QRS correction is for long QT; it called "short QT" on 154 PTB-XL records."""
+    sig = _sig()
+    m = Measurements(heart_rate_bpm=70, intervals=Intervals(qrs_ms=150, qt_ms=400, qtc_bazett_ms=420,
+                                                            qtc_fridericia_ms=410))
+    fnd = detect_findings(sig, m, norms=load_norms("adult"), la_ra_reversed=False)
+    assert "short_qt" not in fnd.codes() and "long_qt" not in fnd.codes()
+    m.intervals.qtc_fridericia_ms = 320
+    fnd = detect_findings(sig, m, norms=load_norms("adult"), la_ra_reversed=False)
+    assert "short_qt" in fnd.codes()

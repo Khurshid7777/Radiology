@@ -94,7 +94,9 @@ qtc_ms:
   formula: fridericia
   male_upper: 450
   female_upper: 460
-  short_lower: 350
+  # D213: 330, not 350 — measured QTc < 350 on 3.2 % / 1.7 % of PTB-XL normals (two sets), < 330 on
+  # 0.3 % / 0; ESC 2022 calls QTc <= 320 short on its own, <= 360 only with other signs.
+  short_lower: 330
   # In atrial fibrillation the QT varies beat to beat: long QT from this QTc, marked
   # approximate; below it a note that the QTc is not assessable (D146).
   af_long_min: 500

@@ -86,10 +86,70 @@ def assess_quality(
     if low:
         flags.append(f"low_sqi_leads:{','.join(map(str, low))}")
 
-    reversed_la_ra = detect_la_ra_reversal(sig)
+    swap = detect_limb_swap(sig)
+    reversed_la_ra = swap == "la_ra"
     if reversed_la_ra:
         flags.append("suspected_la_ra_reversal")
+    elif swap == "ra_ll":
+        flags.append("suspected_ra_ll_reversal")
 
     quality = Quality(per_lead_sqi=sqi, flags=flags)
     sig.quality = quality
     return quality, reversed_la_ra
+
+
+# D214: I and II predicted from V1-V6 (least squares on the even half of PTB-XL 1 714, 0.5-40 Hz, 100 Hz).
+# The chest leads do not change when two limb electrodes are exchanged, so the swap that brings the
+# recorded limb leads back into line with this prediction is the one that happened.
+_SWAP_COEF_I = (-0.4839, 0.1750, 0.0209, -0.0898, 0.2254, 0.0986)
+_SWAP_COEF_II = (0.0350, -0.1253, 0.0749, 0.1306, 0.0992, 0.2553)
+_SWAP_MARGIN = 1.15                      # sum of the two correlations; chosen on the even half (D214)
+_SWAP_NAMED = ("la_ra", "ra_ll")         # la_ll competes but is not named (low specificity, books D212)
+
+
+def swap_limb_leads(lead_i: np.ndarray, lead_ii: np.ndarray, kind: str) -> tuple[np.ndarray, np.ndarray]:
+    """(I, II) as recorded with ``kind`` electrodes exchanged; an involution, so it also undoes the swap."""
+    e = {"RA": np.zeros_like(lead_i), "LA": lead_i, "LL": lead_ii}
+    if kind != "none":
+        a, b = {"la_ra": ("LA", "RA"), "ra_ll": ("RA", "LL"), "la_ll": ("LA", "LL")}[kind]
+        e[a], e[b] = e[b], e[a]
+    return e["LA"] - e["RA"], e["LL"] - e["RA"]
+
+
+def _corr(a: np.ndarray, b: np.ndarray) -> float:
+    a, b = a - a.mean(), b - b.mean()
+    d = float(np.sqrt((a * a).sum() * (b * b).sum()))
+    return float((a * b).sum() / d) if d > 0 else 0.0
+
+
+def limb_swap_scores(sig: SignalRepresentation) -> dict[str, float] | None:
+    """Fit of each swap hypothesis (higher = better), or None without the needed leads."""
+    from scipy.signal import butter, filtfilt
+
+    need = ("I", "II", "V1", "V2", "V3", "V4", "V5", "V6")
+    if not set(need) <= set(sig.lead_names):
+        return None
+    fs = float(sig.sampling_rate_hz)
+    rows = np.array([sig.lead(ld).astype(np.float64) for ld in need])
+    if rows.shape[1] < int(3 * fs) or fs < 100:
+        return None
+    if any(is_lead_off(r) for r in rows):
+        return None
+    b, a = butter(2, [0.5 / (fs / 2), 40.0 / (fs / 2)], "band")
+    rows = filtfilt(b, a, rows, axis=1)[:, :: max(1, round(fs / 100.0))]
+    v = rows[2:]
+    pred_i, pred_ii = np.asarray(_SWAP_COEF_I) @ v, np.asarray(_SWAP_COEF_II) @ v
+    out = {}
+    for kind in ("none", "la_ra", "ra_ll", "la_ll"):
+        ti, tii = swap_limb_leads(rows[0], rows[1], kind)
+        out[kind] = _corr(ti, pred_i) + _corr(tii, pred_ii)
+    return out
+
+
+def detect_limb_swap(sig: SignalRepresentation) -> str | None:
+    """'la_ra', 'ra_ll' or None (D214). Without the chest leads, the TZ §5 LA/RA sign is used."""
+    sc = limb_swap_scores(sig)
+    if sc is None:
+        return "la_ra" if detect_la_ra_reversal(sig) else None
+    best = max(("la_ra", "ra_ll", "la_ll"), key=lambda k: sc[k])
+    return best if best in _SWAP_NAMED and sc[best] - sc["none"] > _SWAP_MARGIN else None

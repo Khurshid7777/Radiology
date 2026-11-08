@@ -406,6 +406,16 @@ def detect_findings(
             label_uz="LA/RA elektrodlar almashinuvi shubhasi",
             evidence=_ev(lead_I="inverted", aVR="upright"), confidence=0.65,
         ))
+    # D214: RA/LL exchanged — II inverted, aVR and aVF trade places; found by the chest-lead check.
+    if (sig.quality is not None and "suspected_ra_ll_reversal" in (sig.quality.flags or [])
+            and not is_pediatric):
+        fs.findings.append(Finding(
+            code="lead_reversal_ra_ll", group="other",
+            label_ru="Подозрение на перепутанные электроды RA/LL (правая рука / левая нога) — "
+                     "переснимите ЭКГ, ось и нижние отведения недостоверны",
+            label_uz="RA/LL elektrodlari almashgan bo'lishi mumkin — EKGni qayta oling",
+            evidence=_ev(check="chest_lead_prediction"), confidence=0.65,
+        ))
 
     # Pathological Q (old MI) and the Brugada type-1 pattern on the median beat (ported
     # from claude/vibrant-curie-ro1zsz D36, D89, D90). LBBB suppresses Brugada as in the source.
@@ -544,7 +554,11 @@ def _qt_findings(iv, norms, is_pediatric, sig, fs: FindingSet) -> None:
                      + (", BF da taxminiy)" if in_af else ")"),
             evidence=ev, confidence=0.85,
         ))
-    elif short_lower and qtc < short_lower:
+    # Short QT is judged on the measured QTc: the wide-QRS correction above is for the long-QT
+    # question only — applied here it called "short QT" on 154 of 209 PTB-XL records with the
+    # finding, all with a wide QRS (D213).
+    elif short_lower and (adjusted_from if adjusted_from is not None else qtc) < short_lower:
+        qtc = adjusted_from if adjusted_from is not None else qtc
         fs.findings.append(Finding(
             code="short_qt", group="interval",
             label_ru=f"Укорочение QT (QTc {qtc} мс, {formula})",
@@ -1030,6 +1044,8 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
         # the pericarditis pattern uses the primary (concordant) leads only.
         primary = set(elevated) - set(proportional)
         n_terr = sum(1 for _, _, leads, _ in _TERRITORIES if len(primary & leads) >= 2)
+        # D213 tried not counting aVR / V1 depression here (books: typical of pericarditis); on PTB-XL
+        # it took the STEMI alert off two infarct-labelled records and off no other — not accepted.
         if n_terr >= 2 and len(depressed) == 0:
             fs.findings.append(Finding(
                 code="pericarditis", group="other",

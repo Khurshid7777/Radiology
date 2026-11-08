@@ -75,6 +75,7 @@ pericarditis:               {aha: st_t_u, snomed: [], scp: [], code15: []}
 brugada_pattern:            {aha: st_t_u, snomed: ["418818005"], scp: [], code15: []}
 pathological_q_waves:       {aha: myocardial_infarction, snomed: ["164917005"], scp: [], code15: []}
 lead_reversal_la_ra:        {aha: technical, snomed: [], scp: [], code15: []}
+lead_reversal_ra_ll:        {aha: technical, snomed: [], scp: [], code15: []}
 no_ecg_signal:              {aha: technical, snomed: [], scp: [], code15: []}
 photo_unreliable:           {aha: technical, snomed: [], scp: [], code15: []}
 amplitude_implausible:      {aha: technical, snomed: [], scp: [], code15: []}

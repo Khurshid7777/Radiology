@@ -1,0 +1,64 @@
+{
+ "records": 1714,
+ "results": {
+  "recorded": {
+   "none": 1703,
+   "ra_ll": 8,
+   "la_ra": 3
+  },
+  "la_ra": {
+   "la_ra": 1565,
+   "ra_ll": 49,
+   "none": 100
+  },
+  "ra_ll": {
+   "ra_ll": 1506,
+   "none": 193,
+   "la_ra": 15
+  },
+  "la_ll": {
+   "none": 1691,
+   "la_ra": 16,
+   "ra_ll": 7
+  },
+  "ra_rl": {
+   "none": 1618,
+   "la_ra": 40,
+   "ra_ll": 56
+  },
+  "la_rl": {
+   "none": 1701,
+   "ra_ll": 12,
+   "la_ra": 1
+  }
+ },
+ "sensitivity": {
+  "la_ra": 0.913,
+  "ra_ll": 0.879,
+  "la_ll": 0.0,
+  "ra_rl": 0.0,
+  "la_rl": 0.0
+ },
+ "any_flag_on_swapped": {
+  "la_ra": 0.942,
+  "ra_ll": 0.887,
+  "la_ll": 0.013,
+  "ra_rl": 0.056,
+  "la_rl": 0.008
+ },
+ "false_on_recorded": 0.0064,
+ "false_by_label": {
+  "ABQRS": 8,
+  "AXIS_ALAD": 8,
+  "WPW": 5,
+  "AFIB": 4,
+  "SR": 4,
+  "ALMI": 4,
+  "ASMI": 3,
+  "LAFB": 3,
+  "STACH": 2,
+  "CRBBB": 2,
+  "SVARR": 1,
+  "ILBBB": 1
+ }
+}

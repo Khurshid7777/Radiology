@@ -20,7 +20,7 @@ def test_adult_norms_are_the_tables():
     sig.patient.age_years, sig.patient.sex = 54, "male"
     n = display_norms(run_pipeline(sig, mode="A"))
     assert n["heart_rate_bpm"] == [60, 100] and n["pr_ms"] == [120, 200] and n["qrs_ms"] == [70, 110]
-    assert n["qtc_ms"] == [350, 450] and n["qrs_axis_deg"] == [-30, 90] and n["table"] == "adult"
+    assert n["qtc_ms"] == [330, 450] and n["qrs_axis_deg"] == [-30, 90] and n["table"] == "adult"
 
 
 def test_no_sex_no_qtc_scale():
@@ -47,7 +47,7 @@ def test_the_endpoint_and_the_answer(monkeypatch):
     monkeypatch.setenv("ECGSCAN_API_KEYS", "a:key-a,b:key-b")
     a = TestClient(api.app, headers={"X-API-Key": "key-a"})
     d = a.post("/api/analyze", data={"case": "normal", "mode": "A", "age_years": "54", "sex": "female"}).json()
-    assert d["norms"]["qtc_ms"] == [350, 460]
+    assert d["norms"]["qtc_ms"] == [330, 460]
     r = a.get(f"/api/analysis/{d['analysis_id']}/waveform.json")
     assert r.status_code == 200 and r.json()["leads"]
     b = TestClient(api.app, headers={"X-API-Key": "key-b"})
