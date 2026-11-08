@@ -22,10 +22,10 @@ from cardiolens.ml.af import AF_FEATURES, vector
 RULE_AF = "atrial_fibrillation"
 
 
-def load(d: Path, positive: str) -> tuple[np.ndarray, np.ndarray, list[dict]]:
+def load(d: Path, positive: str, names=AF_FEATURES) -> tuple[np.ndarray, np.ndarray, list[dict]]:
     rows = [json.loads(p.read_text()) for p in sorted(d.glob("*.json"))]
     rows = [r for r in rows if "f" in r]
-    x = np.vstack([vector(r["f"]) for r in rows])
+    x = np.vstack([vector(r["f"], names) for r in rows])
     y = np.array([positive in r["labels"] for r in rows], dtype=int)
     return x, y, rows
 

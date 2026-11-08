@@ -19,6 +19,10 @@ AF_FEATURES = (
     "rr_turning", "rr_max_min", "pc_corr", "pc_keep", "pc_corr_v1", "pc_keep_v1", "fwave_index",
     "p_wave_ratio", "p_onset_ratio", "pr_std_ms", "atrial_rate", "qrs_ms",
 )
+# D211: the wave-before-QRS repeatability over seven leads (summaries); a model trained on these names
+# them in its "features" list, an older model keeps its own list.
+PC_LEADS = ("I", "II", "III", "aVF", "V1", "V2", "V3")
+AF_FEATURES_V2 = AF_FEATURES + ("pc_corr_med7", "pc_corr_max7", "pc_keep_med7", "pc_n_good7")
 # Plain JSON (scaler + logistic coefficients), not a pickle: loading it runs no code.
 MODEL_PATH = Path(__file__).resolve().parents[3] / "models" / "cardiolens" / "af_second_path.json"
 _MISSING = -1.0
@@ -51,12 +55,20 @@ def af_features(sig, m) -> dict[str, float]:
     """Named AF features of one record (missing values as -1)."""
     from cardiolens.layer4_findings.p_consistency import p_window_consistency
 
-    f = {k: _MISSING for k in AF_FEATURES}
+    f = {k: _MISSING for k in AF_FEATURES_V2}
     f.update(_rr_features(m.r_peaks_samples or [], sig.sampling_rate_hz))
     for lead, suffix in (("II", ""), ("V1", "_v1")):
         pc = p_window_consistency(sig, m.r_peaks_samples or [], lead=lead)
         if pc is not None:
             f["pc_corr" + suffix], f["pc_keep" + suffix] = pc
+    corr, keep = [], []
+    for lead in PC_LEADS:
+        pc = p_window_consistency(sig, m.r_peaks_samples or [], lead=lead)
+        if pc is not None:
+            corr.append(pc[0]); keep.append(pc[1])
+    if corr:
+        f["pc_corr_med7"], f["pc_corr_max7"] = float(np.median(corr)), float(max(corr))
+        f["pc_keep_med7"], f["pc_n_good7"] = float(np.median(keep)), float(sum(c >= 0.8 for c in corr))
     for key, val in (("hr", m.heart_rate_bpm), ("rr_cv", m.rr_cv), ("rr_mad_cv", m.rr_mad_cv),
                      ("fwave_index", m.fwave_index), ("p_wave_ratio", m.p_wave_ratio),
                      ("p_onset_ratio", m.p_onset_ratio), ("pr_std_ms", m.pr_std_ms),
@@ -66,8 +78,8 @@ def af_features(sig, m) -> dict[str, float]:
     return f
 
 
-def vector(f: dict[str, float]) -> np.ndarray:
-    return np.array([[f.get(k, _MISSING) for k in AF_FEATURES]], dtype=float)
+def vector(f: dict[str, float], names=AF_FEATURES) -> np.ndarray:
+    return np.array([[f.get(k, _MISSING) for k in names]], dtype=float)
 
 
 _MODEL: dict | None = None
@@ -84,6 +96,6 @@ def load_af_model(path: Path = MODEL_PATH) -> dict | None:
 
 
 def af_probability(f: dict[str, float], model: dict) -> float:
-    x = (vector(f)[0] - np.asarray(model["mean"])) / np.asarray(model["scale"])
+    x = (vector(f, model.get("features", AF_FEATURES))[0] - np.asarray(model["mean"])) / np.asarray(model["scale"])
     z = float(np.dot(x, np.asarray(model["coef"])) + model["intercept"])
     return float(1.0 / (1.0 + np.exp(-z)))

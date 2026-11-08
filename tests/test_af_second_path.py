@@ -54,4 +54,4 @@ def test_features_tolerate_a_short_strip():
     res = pl.run_pipeline(signal_from_case("normal"), mode="A")
     res.measurements.r_peaks_samples = res.measurements.r_peaks_samples[:3]
     f = AF.af_features(res.signal, res.measurements)
-    assert set(f) == set(AF.AF_FEATURES) and np.isfinite(list(f.values())).all()
+    assert set(f) == set(AF.AF_FEATURES_V2) and np.isfinite(list(f.values())).all()
