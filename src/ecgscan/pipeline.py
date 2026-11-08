@@ -366,17 +366,6 @@ def header_ocr_fields(reading, device_models: list[str]) -> HeaderOcr:
         device_text_conclusion=(f.conclusion or None) and f.conclusion[:500], phi_lines_dropped=f.phi_lines_dropped)
 
 
-
-def _rows_are_grid(guess, gl_cfg: dict) -> bool:
-    """R5, SD-105: the rows found are the grid's own lines: many, a multiple of 5 mm apart. On a
-    phone photo (perspective, a curled sheet) the page-wide check of the grid's vertical lines
-    misses them (ecgdig 1098-v4: 21 "rows" 10.2 mm apart, grid_in_mask False)."""
-    n = gl_cfg.get("rows_min")
-    if not n or guess.rows < int(n) or not guess.pitch_mm:
-        return False
-    k = guess.pitch_mm / 5.0
-    return round(k) >= 1 and abs(k - round(k)) <= float(gl_cfg.get("rows_pitch_tol", 0.1))
-
 def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHints | None = None, fs_out: float = 500.0,
          debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None,
          config: dict | None = None) -> ScanResult:
@@ -602,8 +591,7 @@ def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHin
     guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses],
                           stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
     gl_cfg = (cfg.get("segmentation") or {}).get("drop_grid_lines") or {}
-    if guess.name is None and not hints.layout and gl_cfg.get("enabled") and (
-            grid_in_mask(ink, ppm) or _rows_are_grid(guess, gl_cfg)):
+    if guess.name is None and not hints.layout and gl_cfg.get("enabled") and grid_in_mask(ink, ppm):
         # SD-099: a black grid (b/w scan) is in the mask as dark as the trace and its lines pass
         # for rows. Only then (no layout found) its straight 5-mm lines go and the rows are
         # looked for again; a page read without it is never touched (on clean renders the
