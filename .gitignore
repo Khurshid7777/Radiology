@@ -61,3 +61,6 @@ data/segmenter2/
 data/vf_bench/
 # D205: Chapman/Ningbo signals extracted from the PhysioNet zip for AF training
 data/ecg-arrhythmia-extra/
+
+# D212: owner library (copyrighted), local only
+data/books/
