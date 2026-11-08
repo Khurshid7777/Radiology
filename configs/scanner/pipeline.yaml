@@ -94,6 +94,8 @@ segmentation:
     min_h_mm: 20                 # a horizontal run this long on the 5-mm lattice is a grid line
     min_v_mm: 8                  # a vertical one this tall (pulse boxes kept)
     tile_mm: 20                  # SD-104: the lattice's phase found per tile this size, not per page (scale/tilt drift); null: per page
+    rows_min: 10                 # SD-105: also when the rows found are this many and a multiple of 5 mm apart (the grid itself); null: off
+    rows_pitch_tol: 0.1          # ... within this fraction of a 5-mm step
   kind: onnx                     # onnx (M6, SD-053: wins on the benchmark) | classic; no model -> error, never a silent fallback
   onnx_model: models/segmenter/trace_unet.onnx   # M6 (SD-052); sha256 below must match models/segmenter/model_card.json
   onnx:
