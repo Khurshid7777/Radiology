@@ -1,17 +1,14 @@
 """D219: small ECG pictures with a known signal — the score that the picture preparation is tuned on.
 
-    python tools/lowres_bench/run.py gen   --kit <ecg-image-generator> --kit-python <py> --n 80 --out <dir>
+    python tools/lowres_bench/run.py gen   --out <dir> [--n 80]   # pages drawn by ecgscan.bench.render
     python tools/lowres_bench/run.py score --out <dir> [--prep '{"enabled": true, "factor": 2}'] [--half even|odd|all]
 
-gen: PTB-XL records -> ECG-Image-Kit pages at 300 dpi (a 12-lead sheet ~2950 px wide, ~12 px/mm), then each
-page shrunk to widths 1000 / 1300 / 1600 px and saved as JPEG quality 80 (messenger / atlas-like), plus the
+gen: PTB-XL records -> paper pages drawn at 12 px/mm by the scanner's bench renderer (used read-only;
+layouts 3x4+rhythm and 6x2 alternate, pink grid, printed header with 25 mm/s 10 mm/mV), then each page shrunk to widths 1000 / 1300 / 1600 px and saved as JPEG quality 80 (messenger / atlas-like), plus the
 truth (the pipeline on the record itself). score: every small picture through the site's photo route
 with the given preparation (cardiolens.layer1_ingestion.image_prep.PREP), and
 
-    score = R x A - 3 x W
-
-R read share (no refusal, no photo gate), A accurate share of the read (HR within 5 bpm and QRS within 20 ms
-of the record), W silent-wrong share of all (read without a gate, HR off by more than 10 %). Images and rows
+    score = R_full x A_full + 0.5 x R_coarse x A_hr - 3 x W     (see score_rows) Images and rows
 stay in --out (outside git); only the summary goes to reports/.
 """
 
@@ -19,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 import warnings
 from concurrent.futures import ProcessPoolExecutor
@@ -27,34 +23,38 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "tools" / "eik_bench"))
 WIDTHS = (1000, 1300, 1600)
-GATES = {"photo_unreliable", "no_ecg_signal", "amplitude_implausible", "photo_coarse"}
+GATES = {"photo_unreliable", "no_ecg_signal", "amplitude_implausible"}
 
 
 def gen(a) -> None:
-    from PIL import Image
-    from run import generate, pick_records  # tools/eik_bench/run.py
+    import random
+
+    import cv2
 
     warnings.filterwarnings("ignore")
     from cardiolens.layer1_ingestion import load_wfdb
     from cardiolens.pipeline import run_pipeline
+    from ecgscan.bench.render import RenderSpec, render_page
+    from ecgscan.layout.registry import get_layout
 
-    inp, img, small = a.out / "records", a.out / "pages", a.out / "small"
-    for d in (inp, img, small):
-        d.mkdir(parents=True, exist_ok=True)
-    for hea in pick_records(a.ptbxl, a.n, a.seed):
-        for ext in (".hea", ".dat"):
-            shutil.copy(hea.with_suffix(ext), inp)
-    generate(a.kit, a.kit_python, inp, img, a.seed, [])
+    small = a.out / "small"
+    small.mkdir(parents=True, exist_ok=True)
+    heas = sorted(a.ptbxl.glob("records500/*/*.hea"))
+    random.Random(a.seed).shuffle(heas)
     truth = {}
-    for png in sorted(img.glob("*-0.png")):
-        rec = png.name.rsplit("-", 1)[0]
-        m = run_pipeline(load_wfdb(str(inp / rec))).measurements
+    for k, hea in enumerate(heas[: a.n]):
+        rec = hea.stem
+        sig = load_wfdb(str(hea.with_suffix("")))
+        m = run_pipeline(sig).measurements
         truth[rec] = {"hr": m.heart_rate_bpm, "qrs": m.intervals.qrs_ms}
-        im = Image.open(png).convert("RGB")
+        mv = {ld: sig.lead(ld).astype(float) / 1000.0 for ld in sig.lead_names}   # uV -> mV
+        layout = get_layout("3x4+rhythm" if k % 2 == 0 else "6x2")
+        img, _ = render_page(mv, sig.sampling_rate_hz, layout, RenderSpec(px_per_mm=12.0, grid="pink"))
         for w in WIDTHS:
-            im.resize((w, round(im.height * w / im.width)), Image.LANCZOS).save(small / f"{rec}_w{w}.jpg", quality=80)
+            h = round(img.shape[0] * w / img.shape[1])
+            cv2.imwrite(str(small / f"{rec}_w{w}.jpg"), cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA),
+                        [cv2.IMWRITE_JPEG_QUALITY, 80])
     (a.out / "truth.json").write_text(json.dumps(truth, indent=1))
     print(len(truth), "records,", len(truth) * len(WIDTHS), "small pictures", file=sys.stderr)
 
@@ -73,26 +73,37 @@ def _one(args) -> dict:
     except Exception as e:  # a refusal is a result
         return {"img": Path(path).name, "read": False, "why": str(e)[:80]}
     m = res.measurements
-    return {"img": Path(path).name, "read": True, "gated": bool(res.findings.codes() & GATES),
+    codes = res.findings.codes()
+    return {"img": Path(path).name, "read": True, "gated": bool(codes & GATES), "coarse": "photo_coarse" in codes,
             "hr": m.heart_rate_bpm, "qrs": m.intervals.qrs_ms}
 
 
 def score_rows(rows: list[dict], truth: dict) -> dict:
+    """score = R_full x A_full + 0.5 x R_coarse x A_hr - 3 x W (D219).
+
+    full: read without a gate; A_full = HR within 5 bpm and QRS within 20 ms. coarse: the scanner's coarse
+    read (photo_coarse: rate and rhythm given as approximate, intervals withheld); A_hr = HR within 5 bpm.
+    W (of all): read without photo_unreliable/no-signal, HR off by more than 10 %."""
     n = len(rows) or 1
-    ok_read = [r for r in rows if r["read"] and not r["gated"]]
     def rec(r):
         return r["img"].rsplit("_w", 1)[0]
-    def acc(r):
-        t = truth[rec(r)]
-        return (r["hr"] is not None and t["hr"] and abs(r["hr"] - t["hr"]) <= 5
-                and r["qrs"] is not None and t["qrs"] and abs(r["qrs"] - t["qrs"]) <= 20)
+    def hr_ok(r):
+        t = truth[rec(r)]["hr"]
+        return r.get("hr") is not None and t and abs(r["hr"] - t) <= 5
+    def qrs_ok(r):
+        t = truth[rec(r)]["qrs"]
+        return r.get("qrs") is not None and t and abs(r["qrs"] - t) <= 20
     def wrong(r):
-        t = truth[rec(r)]
-        return r["hr"] is not None and t["hr"] and abs(r["hr"] - t["hr"]) > 0.10 * t["hr"]
-    R = len(ok_read) / n
-    A = sum(acc(r) for r in ok_read) / max(1, len(ok_read))
-    W = sum(wrong(r) for r in ok_read) / n
-    return {"n": len(rows), "R": round(R, 3), "A": round(A, 3), "W": round(W, 3), "score": round(R * A - 3 * W, 3)}
+        t = truth[rec(r)]["hr"]
+        return r.get("hr") is not None and t and abs(r["hr"] - t) > 0.10 * t
+    full = [r for r in rows if r["read"] and not r.get("gated") and not r.get("coarse")]
+    coarse = [r for r in rows if r["read"] and r.get("coarse") and not r.get("gated")]
+    R_f, R_c = len(full) / n, len(coarse) / n
+    A_f = sum(hr_ok(r) and qrs_ok(r) for r in full) / max(1, len(full))
+    A_hr = sum(hr_ok(r) for r in coarse) / max(1, len(coarse))
+    W = sum(wrong(r) for r in full + coarse) / n
+    return {"n": len(rows), "R_full": round(R_f, 3), "A_full": round(A_f, 3), "R_coarse": round(R_c, 3),
+            "A_hr_coarse": round(A_hr, 3), "W": round(W, 3), "score": round(R_f * A_f + 0.5 * R_c * A_hr - 3 * W, 3)}
 
 
 def score(a) -> None:
@@ -116,8 +127,6 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("step", choices=("gen", "score"))
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--kit", type=Path)
-    ap.add_argument("--kit-python")
     ap.add_argument("--ptbxl", type=Path, default=ROOT / "data/ptbxl")
     ap.add_argument("--n", type=int, default=80)
     ap.add_argument("--seed", type=int, default=7)
