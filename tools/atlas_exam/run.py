@@ -118,10 +118,24 @@ def main() -> None:
     if a.only:
         rows = [r for r in rows if r["atlas"] in a.only.split(",")]
     rows = [r for r in rows if r.get("layout") != "split"]
-    with ProcessPoolExecutor(a.workers) as ex:
-        res = list(ex.map(run_case, rows))
+    # Resumable: each case is appended as it finishes; a case already in --rows is not run again.
     a.rows.parent.mkdir(parents=True, exist_ok=True)
-    a.rows.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in res) + "\n", encoding="utf-8")
+    done = {}
+    if a.rows.exists():
+        for line in a.rows.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                done[(r["atlas"], r["case"])] = r
+    todo = [r for r in rows if (r["atlas"], r["case"]) not in done]
+    print(f"{len(done)} done, {len(todo)} to run", file=sys.stderr, flush=True)
+    with ProcessPoolExecutor(a.workers) as ex, a.rows.open("a", encoding="utf-8") as fh:
+        for i, r in enumerate(ex.map(run_case, todo), 1):
+            done[(r["atlas"], r["case"])] = r
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+            fh.flush()
+            print(f"{i}/{len(todo)} {r['atlas']} {r['case']} {r['status']}", file=sys.stderr, flush=True)
+    keep = {(r["atlas"], r["case"]) for r in rows}
+    res = [r for k, r in done.items() if k in keep]
     s = summarize(res)
     print(json.dumps(s, ensure_ascii=False, indent=1))
     if a.out:
