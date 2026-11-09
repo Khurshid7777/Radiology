@@ -54,6 +54,7 @@ from cardiolens.layer3_measure.intervals import (
     qtc_framingham,
     qtc_fridericia,
 )
+from cardiolens.layer3_measure.pacing import pacing_spike_coupling
 from cardiolens.layer3_measure.voltages import measure_voltages
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -186,6 +187,9 @@ RECOVER_MAX_FLOOR = 0.25      # no recovery when the envelope between beats is t
                               # to the beats: noise, not QRS, reaches half their level (PTB-XL 15973)
 
 
+PACED_QRS_COUPLING_MIN = 0.5   # D220: spikes locked to the QRS on half of the beats ...
+PACED_QRS_SEARCH_MS = 250.0    # ... widen the QRS-bounds search (a paced QRS is ~190-200 ms)
+PACED_QRS_MAX_MS = 260.0
 PACED_R_MAX_OFFSET_S = 0.010   # a detection this close to a pacing spike sits on the spike
 PACED_QRS_WINDOW_S = (0.08, 0.30)   # an atrially paced QRS follows its spike after the AV delay
 PACED_QUIET_S = (0.02, 0.07)   # ... with a quiet envelope right after the spike (a ventricular
@@ -750,7 +754,15 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
     t_off: np.ndarray | None = None
     p_on = p_off = None
     if n_beats >= min_beats:
-        qrs_on, qrs_off = qrs_bounds_envelope(sig.signal, rpeaks, fs, hump_fraction=qrs_hump_fraction)
+        # D220: a ventricular-paced QRS (~190-200 ms) ends beyond the usual +-150 ms search; when the
+        # pacing spikes are locked to the QRS the envelope looks further (other records: unchanged).
+        paced_wide = bool(pacing_spikes_s) and pacing_spike_coupling(
+            list(pacing_spikes_s), [r / fs for r in rpeaks]) >= PACED_QRS_COUPLING_MIN
+        qrs_on, qrs_off = qrs_bounds_envelope(sig.signal, rpeaks, fs, hump_fraction=qrs_hump_fraction,
+                                              **({"search_ms": PACED_QRS_SEARCH_MS, "max_ms": PACED_QRS_MAX_MS}
+                                                 if paced_wide else {}))
+        if paced_wide:
+            m.notes.append("paced QRS: envelope search widened (D220)")
         p_on = p_off = None
         waves = _delineate(cleaned, rpeaks, fs)
         if waves is not None:

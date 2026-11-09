@@ -86,12 +86,14 @@ def envelope_floor(env: np.ndarray, rpeaks: np.ndarray) -> float:
 
 
 def qrs_bounds_envelope(
-    signal: np.ndarray, rpeaks: np.ndarray, fs: float, *, hump_fraction: float | None = None
+    signal: np.ndarray, rpeaks: np.ndarray, fs: float, *, hump_fraction: float | None = None,
+    search_ms: float | None = None, max_ms: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-beat QRS onset/offset (sample indices, NaN when not found).
 
     ``hump_fraction`` overrides ``QRS_HUMP_FRACTION`` for one call: the scanner asks
-    whether a digitised page's QRS width hinges on that threshold (D131)."""
+    whether a digitised page's QRS width hinges on that threshold (D131). ``search_ms`` / ``max_ms``
+    widen the search for a paced QRS (D220)."""
     hump = QRS_HUMP_FRACTION if hump_fraction is None else hump_fraction
     n_beats = len(rpeaks)
     on = np.full(n_beats, np.nan)
@@ -100,7 +102,8 @@ def qrs_bounds_envelope(
         return on, off
     env = spatial_velocity(signal, fs)
     n = env.size
-    half = int(QRS_SEARCH_MS / 1000.0 * fs)
+    half = int((search_ms or QRS_SEARCH_MS) / 1000.0 * fs)
+    qrs_max = max_ms or QRS_MAX_MS
     quiet = max(1, int(round(QRS_QUIET_MS / 1000.0 * fs)))
     gap = int(round(QRS_HUMP_GAP_MS / 1000.0 * fs))
     floor = envelope_floor(env, rpeaks)
@@ -137,7 +140,7 @@ def qrs_bounds_envelope(
             if hump <= 0 or g.size == 0 or g.max() < max(hump * peak, 2.0 * thr):
                 break
             j = int(end) + int(np.argmax(g))
-        if np.isfinite(on[i]) and np.isfinite(off[i]) and (off[i] - on[i]) > QRS_MAX_MS / 1000.0 * fs:
+        if np.isfinite(on[i]) and np.isfinite(off[i]) and (off[i] - on[i]) > qrs_max / 1000.0 * fs:
             on[i] = off[i] = np.nan
     return on, off
 

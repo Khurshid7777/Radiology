@@ -960,8 +960,15 @@ def paced_primary_elevation(m: Measurements, norms, patient=None) -> list[str]:
         j, j60 = st.j_point_uv, st.j60_uv
         if elev is None or j < elev or (j60 is not None and j60 < plateau * elev):
             continue
-        concordant = st.qrs_net_uv is not None and st.qrs_net_uv > 0
-        proportional = bool(st.s_depth_uv) and st.s_depth_uv > 0 and j >= prop_min and j / st.s_depth_uv >= prop_ratio
+        # The dominant deflection decides (D220): a paced QRS is often biphasic, R ~ S, and its net sign
+        # is chance. Concordant = clearly positive (R >= 2 S); proportional = S-dominant and J >= 25 % of S.
+        r, sd = st.r_height_uv, st.s_depth_uv
+        if r is not None and sd is not None:
+            concordant = r >= 2 * max(sd, 0.0) and r > 0
+            proportional = sd >= r and sd > 0 and j >= prop_min and j / sd >= prop_ratio
+        else:
+            concordant = st.qrs_net_uv is not None and st.qrs_net_uv > 0
+            proportional = bool(sd) and sd > 0 and j >= prop_min and j / sd >= prop_ratio
         if concordant or proportional:
             out.append(st.lead)
     return out
