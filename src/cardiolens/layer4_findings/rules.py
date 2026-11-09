@@ -567,6 +567,26 @@ def _qt_findings(iv, norms, is_pediatric, sig, fs: FindingSet) -> None:
         ))
 
 
+ANEURYSM_T_QRS_MAX = 0.36   # D221: OMI Manifest / Smith — T/QRS <= 0.36 in all of V1-V4: old LV aneurysm likely
+
+
+def _aneurysm_note(m: Measurements, elevated, fs: FindingSet) -> None:
+    """D221: a note on the STEMI alert when the anterior T waves are low against their QRS (old aneurysm);
+    the alert itself stays."""
+    f = fs.by_code("st_elevation")
+    ant = ("V1", "V2", "V3", "V4")
+    if f is None or len(set(elevated) & set(ant)) < 2:
+        return
+    ratios = [abs(t.qrs_ratio) for t in m.morphology.t_waves if t.lead in ant and t.qrs_ratio is not None]
+    if len(ratios) < 2 or max(ratios) > ANEURYSM_T_QRS_MAX:
+        return
+    f.label_ru += (f"; картина может соответствовать старой аневризме ЛЖ (T/QRS ≤ {ANEURYSM_T_QRS_MAX:g} в V1–V4) — "
+                   "сравните с прежней ЭКГ; при боли в груди — как острый инфаркт")
+    f.label_uz += (f"; eski chap qorincha anevrizmasiga mos kelishi mumkin (V1–V4 da T/QRS ≤ {ANEURYSM_T_QRS_MAX:g}) — "
+                   "oldingi EKG bilan solishtiring; ko'krak og'rig'ida — o'tkir infarkt kabi")
+    f.evidence.append(Evidence(feature="t_qrs_max_v1_v4", value=f"{max(ratios):.2f}"))
+
+
 def _territorial_st_elevation(elevated, depressed, elev, fs: FindingSet, proportional=()) -> None:
     """Focal (single-territory) ST elevation → STEMI with reciprocal check (§8.1)."""
     terr = _territory_of(set(elevated))
@@ -1088,6 +1108,7 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
         else:
             _territorial_st_elevation(elevated, depressed, thr.get("elevation_significant"), fs,
                                       proportional=sorted(set(proportional) & set(elevated)))
+            _aneurysm_note(m, elevated, fs)
     # Discordant depression under a block / LVH / pre-excitation is the expected
     # repolarisation of that QRS and goes to `secondary_st_t_change` (below), not
     # to the ischaemia code: with it inside, `st_depression` had 277 false calls on

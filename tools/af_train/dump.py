@@ -33,6 +33,12 @@ AVB_PER_CLASS = {"3AVB": 200, "2AVB": 200, "MOBITZ1": 200, "AVB": 150, "1AVB": 3
                  "SR": 200}
 
 
+# D222: escape and junctional beats (Chapman labels are per record) and their controls.
+ESC_CODES = {"426995002": "JEB", "75532003": "VEB", "251180001": "VET", "251164006": "JPT",
+             "426177001": "SB", "426783006": "SR", "284470004": "APB", "427172004": "VPB"}
+ESC_PER_CLASS = {"JEB": 200, "VEB": 200, "VET": 50, "JPT": 100, "SB": 300, "SR": 300, "APB": 200, "VPB": 200}
+
+
 def chapman_list(seed: int = 0, require_signal: bool = True, codes: dict | None = None,
                  per_class: dict | None = None) -> list[tuple[str, list[str], float | None]]:
     seen: dict[str, tuple[str, list[str], float | None]] = {}
@@ -97,14 +103,15 @@ def run(items, out: Path, shard: str, keep_meas: bool = False) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("which", choices=["chapman", "chapman-avb", "ptbxl"])
+    ap.add_argument("which", choices=["chapman", "chapman-avb", "chapman-esc", "ptbxl"])
     ap.add_argument("--data", type=Path, default=Path("data/ptbxl_rhythm"))
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--shard", default="0/1")
     a = ap.parse_args()
-    if a.which in ("chapman", "chapman-avb"):
+    if a.which in ("chapman", "chapman-avb", "chapman-esc"):
         # The same selection as extract.py; a record read from the zip lives in the extra folder.
-        kw = {"codes": AVB_CODES, "per_class": AVB_PER_CLASS} if a.which == "chapman-avb" else {}
+        kw = ({"codes": AVB_CODES, "per_class": AVB_PER_CLASS} if a.which == "chapman-avb" else
+              {"codes": ESC_CODES, "per_class": ESC_PER_CLASS} if a.which == "chapman-esc" else {})
         items = []
         for path, labels, age in chapman_list(require_signal=False, **kw):
             if not Path(path).with_suffix(".mat").exists():
@@ -114,7 +121,7 @@ def main() -> None:
         man = json.loads((a.data / "manifest.json").read_text())["records"]
         items = [(str(a.data / r["filename_hr"]), r["labels"],
                   float(r["age"]) if r.get("age") not in (None, "") else None) for r in man]
-    run(items, a.out, a.shard, keep_meas=a.which == "chapman-avb")
+    run(items, a.out, a.shard, keep_meas=a.which in ("chapman-avb", "chapman-esc"))
 
 
 if __name__ == "__main__":

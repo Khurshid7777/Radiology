@@ -55,9 +55,11 @@ class _Ranged(io.RawIOBase):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--set", choices=["af", "avb"], default="af", help="af: D205 selection, avb: D206")
+    ap.add_argument("--set", choices=["af", "avb", "esc"], default="af",
+                    help="af: D205 selection, avb: D206, esc: D222 escape beats")
     a = ap.parse_args()
-    kw = {"codes": dump.AVB_CODES, "per_class": dump.AVB_PER_CLASS} if a.set == "avb" else {}
+    kw = ({"codes": dump.AVB_CODES, "per_class": dump.AVB_PER_CLASS} if a.set == "avb" else
+          {"codes": dump.ESC_CODES, "per_class": dump.ESC_PER_CLASS} if a.set == "esc" else {})
     want = dump.chapman_list(require_signal=False, **kw)
     missing = {Path(p).name for p, _, _ in want if not Path(p).with_suffix(".mat").exists()}
     print(f"[extract] {len(want)} chosen, {len(missing)} without a signal on disk", flush=True)
