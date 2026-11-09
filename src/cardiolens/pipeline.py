@@ -60,6 +60,7 @@ from cardiolens.layer3_measure.pacing import (
 )
 from cardiolens.layer4_findings import detect_findings
 from cardiolens.layer4_findings.ml import apply_ml_evidence
+from cardiolens.layer4_findings.rules import paced_primary_elevation
 from cardiolens.layer5_causal import analyze
 from cardiolens.layer6_interpret import InterpretationInput, default_provider, interpret
 from cardiolens.layer6_interpret.provider import LLMProvider
@@ -260,6 +261,23 @@ def run_pipeline(
             confidence=0.8))
         dropped = [f.code for f in findings.findings if f.code in _PACED_EXCLUDES]
         findings.findings = [f for f in findings.findings if f.code not in _PACED_EXCLUDES]
+        # D217: ST elevation discordant to a paced QRS is expected (as under LBBB); the STEMI alert
+        # stays only with a concordant or proportionally large discordant elevation (Sgarbossa-Smith).
+        # A ventricular-paced QRS is wide; measured under 100 ms its end was not found and the "J point"
+        # lies inside the QRS (PTB-XL PACE: QRS 54-64 ms, "elevation" 1-1.3 mV) — ST is not assessable.
+        ventricular = single or ml_coupling >= cfg.pacing.multilead_coupling_min
+        qrs_unreliable = ventricular and (m.intervals.qrs_ms or 0) < 100
+        stemi = findings.by_code("st_elevation")
+        if stemi is not None and (qrs_unreliable or not paced_primary_elevation(m, norms, sig.patient)):
+            findings.findings = [f for f in findings.findings if f.code != "st_elevation"]
+            dropped.append("st_elevation")
+            any_el = findings.by_code("st_elevation_any")
+            if any_el is not None and qrs_unreliable:
+                any_el.label_ru += " — при ЭКС не оценивается: граница стимулированного QRS не найдена"
+                any_el.label_uz += " — EKS da baholanmaydi: stimullangan QRS chegarasi topilmadi"
+            elif any_el is not None:
+                any_el.label_ru += " — дискордантна стимулированному QRS (ожидаемо при ЭКС)"
+                any_el.label_uz += " — stimullangan QRS ga diskordant (EKS da kutiladi)"
         audit.append(f"[L4] paced rhythm: spike_ratio={pacing_ratio} coupling={coupling} "
                      f"multilead_coupling={ml_coupling}; withheld {dropped}")
     # Pause / dropped beat (TZ §7.1, §10) — R-peak based.

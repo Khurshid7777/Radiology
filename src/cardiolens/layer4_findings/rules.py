@@ -943,6 +943,30 @@ def _st_thresholds(norms, patient, lead: str) -> tuple[float | None, float | Non
     return elev, depr
 
 
+def paced_primary_elevation(m: Measurements, norms, patient=None) -> list[str]:
+    """Leads whose STEMI-grade elevation is primary on a paced QRS (D217, Sgarbossa-Smith): concordant
+    with the QRS, or discordant but at least ``proportional_discordant_ratio`` of the S depth."""
+    thr = norms.get("st_uv", {})
+    if not thr.get("elevation_significant"):
+        return []
+    plateau = float(thr.get("elevation_plateau_fraction", 0.8))
+    prop_ratio = float(thr.get("proportional_discordant_ratio", 0.25))
+    prop_min = float(thr.get("proportional_discordant_min_uv", thr["elevation_significant"]))
+    out = []
+    for st in m.morphology.st:
+        if st.lead == "aVR" or st.j_point_uv is None:
+            continue
+        elev, _ = _st_thresholds(norms, patient, st.lead)
+        j, j60 = st.j_point_uv, st.j60_uv
+        if elev is None or j < elev or (j60 is not None and j60 < plateau * elev):
+            continue
+        concordant = st.qrs_net_uv is not None and st.qrs_net_uv > 0
+        proportional = bool(st.s_depth_uv) and st.s_depth_uv > 0 and j >= prop_min and j / st.s_depth_uv >= prop_ratio
+        if concordant or proportional:
+            out.append(st.lead)
+    return out
+
+
 def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
     thr = norms.get("st_uv", {})
     if not (thr.get("elevation_significant") and thr.get("depression_significant")):
