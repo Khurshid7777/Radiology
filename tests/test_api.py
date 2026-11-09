@@ -245,17 +245,16 @@ def test_small_photo_refusal_speaks_of_the_gallery_not_telegram(tmp_path):
     assert "файлом" not in detail and "оригинал" in detail, detail
 
 
-def test_messenger_sized_photo_is_read_coarse(tmp_path):
-    """D170: a small copy (4 px/mm, ~1000 px) is read in the coarse mode: rate and rhythm,
-    no intervals, the photo_coarse descriptor, never a refusal."""
+def test_messenger_sized_photo_is_read_enlarged(tmp_path):
+    """D219 (was D170 coarse mode): a small copy (4 px/mm, ~1000 px) is enlarged x2 and read in full,
+    with the photo_low_resolution descriptor (intervals, ST, voltage approximate); never a refusal."""
     with open(_page_png(tmp_path, px_per_mm=4), "rb") as f:
         r = client.post("/api/analyze", data={"mode": "A"},
                         files={"files": ("page.png", f, "image/png")})
     assert r.status_code == 200, r.text
     d = r.json()
-    assert "photo_coarse" in {f["code"] for f in d["findings"]}
+    assert "photo_low_resolution" in {f["code"] for f in d["findings"]}
     assert d["measurements"]["heart_rate_bpm"] == pytest.approx(72, abs=5)
-    assert d["measurements"]["intervals"]["qrs_ms"] is None
 
 
 # --- D175: the web camera's live frame check -------------------------------------------------

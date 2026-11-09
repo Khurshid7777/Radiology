@@ -752,12 +752,24 @@ _AF_CONTRADICTED = {"sinus_rhythm", "supraventricular_ectopy", "atrial_bigeminy"
 
 
 def _approximate_long_qt(sig, findings: FindingSet, audit: list[str]) -> None:
-    """D219: from an enlarged small picture the QT is approximate (bench: 10-70 ms off); a long QT within
-    ENLARGED_QTC_MARGIN_MS of the limit is reported as approximate, not as the critical alert."""
+    """D219: a record read off an enlarged small picture says so (``photo_low_resolution``), and its QT
+    is approximate (bench: 10-70 ms off): a long QT within ENLARGED_QTC_MARGIN_MS of the limit is reported
+    as approximate, not as the critical alert."""
     from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, ENLARGED_QTC_MARGIN_MS
 
     f = findings.by_code("long_qt")
-    if f is None or ENLARGED_NOTE not in (sig.provenance.notes or []):
+    enlarged = ENLARGED_NOTE in (sig.provenance.notes or [])
+    if enlarged and findings.by_code("photo_low_resolution") is None:
+        # The doctor still hears that the picture was small: the bench vouches for rate and QRS, not for
+        # the ST levels or voltages of an enlarged picture.
+        findings.findings.append(Finding(
+            code="photo_low_resolution", group="other",
+            label_ru="Сжатый снимок низкого разрешения увеличен перед чтением: ЧСС и ритм надёжны, интервалы, "
+                     "ST и вольтаж ориентировочны — для точного заключения пришлите оригинал с камеры",
+            label_uz="Past aniqlikdagi siqilgan surat o'qishdan oldin kattalashtirildi: YUT va ritm ishonchli, "
+                     "intervallar, ST va voltaj taxminiy — aniq xulosa uchun kameradan asl nusxani yuboring",
+            evidence=[Evidence(feature="enlarged", value="x2")], confidence=0.9))
+    if f is None or not enlarged:
         return
     ev = {e.feature: e.value for e in f.evidence}
     try:

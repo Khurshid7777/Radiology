@@ -36,7 +36,7 @@ def test_long_qt_near_the_limit_from_an_enlarged_picture_is_approximate():
 
     fs = _long_qt(470)
     _approximate_long_qt(_SIG, fs, [])
-    assert fs.codes() == {"long_qt_approximate"}
+    assert fs.codes() == {"long_qt_approximate", "photo_low_resolution"}
     fs = _long_qt(495)
     _approximate_long_qt(_SIG, fs, [])
-    assert fs.codes() == {"long_qt"}
+    assert fs.codes() == {"long_qt", "photo_low_resolution"}

@@ -58,6 +58,7 @@ left_atrial_enlargement:    {aha: chamber_hypertrophy, snomed: ["67741000119109"
 right_atrial_enlargement:   {aha: chamber_hypertrophy, snomed: ["446358003"], scp: [RAO/RAE], code15: []}
 long_qt:                    {aha: st_t_u, snomed: ["111975006"], scp: [LNGQT], code15: []}
 long_qt_approximate:        {aha: st_t_u, snomed: ["111975006"], scp: [LNGQT], code15: []}   # D219
+photo_low_resolution:       {aha: technical, snomed: [], scp: [], code15: []}   # D219
 short_qt:                   {aha: st_t_u, snomed: ["77867006"], scp: [], code15: []}
 qtc_unreliable_af:          {aha: st_t_u, snomed: [], scp: [], code15: []}   # a note, not a diagnosis (D146)
 st_elevation:               {aha: st_t_u, snomed: ["164931005"], scp: [STE_], code15: []}

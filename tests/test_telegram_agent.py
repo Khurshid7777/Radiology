@@ -281,12 +281,14 @@ def test_bot_reader_scanner_first_then_cardiolens(tmp_path):
     sig = generate_synthetic_ecg(heart_rate_bpm=72, seed=5)
     page10 = render_ecg_page(sig, tmp_path / "p10.png", px_per_mm=10, calibration_pulse=True)
     assert digitize_photo(page10).provenance.notes[0].startswith("ecgscan scan_id=")
-    # D170: a small copy under 8 px/mm is read in the scanner's coarse mode; a camera-sized
+    # D219 (was D170): a small copy (long side < 2000 px) is enlarged x2 before reading; a camera-sized
     # photo whose grid is still coarse (> 2000 px) keeps the refusal.
     import cv2
 
+    from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE
+
     page6 = render_ecg_page(sig, tmp_path / "p6.png", px_per_mm=6, calibration_pulse=True)
-    assert any(n.startswith("coarse: px_per_mm=") for n in digitize_photo(page6).provenance.notes)
+    assert ENLARGED_NOTE in digitize_photo(page6).provenance.notes
     big = cv2.copyMakeBorder(cv2.imread(str(page6)), 400, 400, 400, 400, cv2.BORDER_CONSTANT, value=(255, 255, 255))
     cv2.imwrite(str(tmp_path / "big.png"), big)
     with pytest.raises(ValueError, match="низкое разрешение"):
