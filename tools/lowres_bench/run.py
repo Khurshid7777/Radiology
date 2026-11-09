@@ -46,8 +46,10 @@ def gen(a) -> None:
     for k, hea in enumerate(heas[: a.n]):
         rec = hea.stem
         sig = load_wfdb(str(hea.with_suffix("")))
-        m = run_pipeline(sig).measurements
-        truth[rec] = {"hr": m.heart_rate_bpm, "qrs": m.intervals.qrs_ms}
+        res = run_pipeline(sig)
+        m = res.measurements
+        truth[rec] = {"hr": m.heart_rate_bpm, "qrs": m.intervals.qrs_ms,
+                      "codes": sorted(res.findings.codes()), "alerts": sorted(a.code for a in res.safety.alerts)}
         mv = {ld: sig.lead(ld).astype(float) / 1000.0 for ld in sig.lead_names}   # uV -> mV
         layout = get_layout("3x4+rhythm" if k % 2 == 0 else "6x2")
         img, _ = render_page(mv, sig.sampling_rate_hz, layout, RenderSpec(px_per_mm=12.0, grid="pink"))
@@ -75,7 +77,8 @@ def _one(args) -> dict:
     m = res.measurements
     codes = res.findings.codes()
     return {"img": Path(path).name, "read": True, "gated": bool(codes & GATES), "coarse": "photo_coarse" in codes,
-            "hr": m.heart_rate_bpm, "qrs": m.intervals.qrs_ms}
+            "hr": m.heart_rate_bpm, "qrs": m.intervals.qrs_ms, "codes": sorted(codes),
+            "alerts": sorted(a.code for a in res.safety.alerts)}
 
 
 def score_rows(rows: list[dict], truth: dict) -> dict:
@@ -102,7 +105,12 @@ def score_rows(rows: list[dict], truth: dict) -> dict:
     A_f = sum(hr_ok(r) and qrs_ok(r) for r in full) / max(1, len(full))
     A_hr = sum(hr_ok(r) for r in coarse) / max(1, len(coarse))
     W = sum(wrong(r) for r in full + coarse) / n
-    return {"n": len(rows), "R_full": round(R_f, 3), "A_full": round(A_f, 3), "R_coarse": round(R_c, 3),
+    # Safety (D219): a critical alert the record itself does not raise; and diagnostic codes off the record's.
+    false_alert = sum(bool(set(r.get("alerts", [])) - set(truth[rec(r)].get("alerts", []))) for r in full + coarse) / n
+    jac = [len(set(r["codes"]) & set(truth[rec(r)]["codes"])) / max(1, len(set(r["codes"]) | set(truth[rec(r)]["codes"])))
+           for r in full if "codes" in truth[rec(r)]]
+    extra = {"false_alert": round(false_alert, 3), "codes_jaccard_full": round(sum(jac) / max(1, len(jac)), 3)}
+    return {**extra, "n": len(rows), "R_full": round(R_f, 3), "A_full": round(A_f, 3), "R_coarse": round(R_c, 3),
             "A_hr_coarse": round(A_hr, 3), "W": round(W, 3), "score": round(R_f * A_f + 0.5 * R_c * A_hr - 3 * W, 3)}
 
 
