@@ -1,6 +1,6 @@
 """D216: the atlas exam — ECG images from the owner's atlases through the site's photo route.
 
-    python tools/atlas_exam/run.py [--cases 'data/books/exam/cases_*.csv'] [--out reports/atlas_exam/<name>.json]
+    python tools/atlas_exam/run.py [--cases 'tools/atlas_exam/cases/cases_*.csv'] [--out reports/atlas_exam/<name>.json]
                                    [--workers 4] [--only bank,yung]
 
 Each image goes through ``digitize_photos`` + ``run_pipeline`` as an upload on the site (adult norms, no
@@ -105,7 +105,7 @@ def summarize(rows: list[dict]) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cases", default=str(ROOT / "data/books/exam/cases_*.csv"))
+    ap.add_argument("--cases", default=str(ROOT / "tools/atlas_exam/cases/cases_*.csv"))
     ap.add_argument("--out", type=Path)
     ap.add_argument("--rows", type=Path, default=ROOT / "data/books/exam/results.jsonl")
     ap.add_argument("--workers", type=int, default=4)

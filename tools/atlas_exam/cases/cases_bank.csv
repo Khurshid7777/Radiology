@@ -1,0 +1,58 @@
+atlas,case,png,ecg_page,answer_page,layout,crop,answer_ru,our_codes,adult,notes
+bank,001,png/bank_001.png,1,1,6x2,"14,47,1317,1025",ФП; ЭОС норма; ЧСС>=100,atrial_fibrillation,unknown,answer text right of image cropped out; t01
+bank,002,png/bank_002.png,3,3,6x2,"158,89,2211,1136",синусовый; ЭОС влево?; единичная ЖЭС; неспецифич. изменения T,sinus_rhythm;ventricular_ectopy,unknown,dark noisy scan; t02
+bank,003,png/bank_003.png,4,4,6x2,"158,89,1864,1358",трепетание предсердий; ЭОС влево; ЧСС 51-99,atrial_flutter;left_axis_deviation,unknown,t03
+bank,004,png/bank_004.png,5,5,6x2,"158,89,2203,1169",синусовый; ЭОС влево; депрессия ST в боковых; CLC?,sinus_rhythm;left_axis_deviation;st_depression,unknown,t04
+bank,005,png/bank_005.png,6,6,6x2,"158,89,1897,1358",синусовый; ЭОС горизонт.; АВ-блокада I; элевация ST в нижних; сглаженный T; нижний (заднедиафрагмальный) ИМ,sinus_rhythm;first_degree_av_block;st_elevation;flat_t_waves,unknown,t05
+bank,006,png/bank_006.png,7,7,6x2,"158,89,2169,1294",синусовый; ЭОС норма; замедление внутрижелуд. проводимости; неспецифич. T; WPW,sinus_rhythm;wpw_preexcitation,unknown,t06
+bank,007,png/bank_007.png,8,8,6x2,"158,89,2153,1175",предсердный ритм; ЭОС норма; элевация ST в передних; аномально отриц. T; передне-перегородочный ИМ,st_elevation;t_inversion,unknown,ectopic atrial rhythm has no code; t07
+bank,008,png/bank_008.png,9,9,6x2,"158,89,1994,1375",синусовый; ЭОС влево; CLC,sinus_rhythm;left_axis_deviation,unknown,t08
+bank,009,png/bank_009.png,10,10,6x2,"158,89,1842,1258",ритм ЭКС,paced_rhythm,unknown,t09
+bank,010,png/bank_010.png,11,11,6x2,"158,89,2175,1297",синусовый; ЭОС горизонт.; норма,sinus_rhythm,unknown,t10
+bank,011,png/bank_011.png,12,12,6x2,"158,89,1797,1281",синусовый; ЭОС горизонт.; неполная БПНПГ; элевация в передних; СРРЖ?,sinus_rhythm;incomplete_rbbb,unknown,early repol uncertain (author '?'); t11
+bank,012,png/bank_012.png,13,13,6x2,"158,89,2181,1086",синусовый; ЭОС вертикал.; полная БПНПГ; ST-T не оценимы,sinus_rhythm;rbbb,unknown,t12
+bank,013,png/bank_013.png,14,14,6x2,"158,89,2144,1094",ритм ЭКС,paced_rhythm,unknown,t13
+bank,014,png/bank_014.png,15,15,6x2,"158,89,2158,1081",синусовый; ЭОС норма; СРРЖ,sinus_rhythm;early_repolarisation,unknown,t14
+bank,015,png/bank_015.png,16,16,6x2,"158,89,2194,1119",трепетание предсердий; ЭОС норма; ЧСС>=100,atrial_flutter,unknown,t15
+bank,016,png/bank_016.png,17,17,6x2,"158,89,1850,1358",синусовый; ЭОС влево; блокада передней ветви ЛНПГ; ГЛЖ; заострённый T; СРРЖ,sinus_rhythm;left_axis_deviation;left_anterior_fascicular_block;lvh;peaked_t_waves;early_repolarisation,unknown,t16
+bank,017,png/bank_017.png,18,18,6x2,"158,89,1708,1253",ФП; ЭОС норма; ЧСС 51-99; единичная ЖЭС,atrial_fibrillation;ventricular_ectopy,unknown,same tracing as case 027 (identical timestamp 23.01.2020 11:56:16) but different answer (rate/couplets); t17
+bank,018,png/bank_018.png,19,19,6x2,"158,89,1819,1358",синусовый; ЭОС горизонт.; единичные НЖЭС и ЖЭС; аномально отриц. T,sinus_rhythm;supraventricular_ectopy;ventricular_ectopy;t_inversion,unknown,photo with vignetting; t18
+bank,019,png/bank_019.png,20,20,6x2,"158,89,1847,1356",синусовый; ЭОС вертикал.; норма,sinus_rhythm,unknown,t19
+bank,020,png/bank_020.png,21,21,6x2,"158,89,1825,1342",синусовый; ЭОС влево; полная БПНПГ; неспецифич. ST,sinus_rhythm;left_axis_deviation;rbbb,unknown,t20
+bank,021,png/bank_021.png,22,22,6x2,"158,89,1822,1358",АВ-узловой ритм <50; ЭОС вертикал.; высокий заострённый T; неполная БПНПГ,peaked_t_waves;incomplete_rbbb,unknown,junctional rhythm has no code; very noisy scan; t21
+bank,022,png/bank_022.png,23,23,6x2,"158,89,1842,1353",синусовый; ЭОС вправо; неполная БПНПГ; гипертрофия ПП,sinus_rhythm;right_axis_deviation;incomplete_rbbb;right_atrial_enlargement,unknown,t22
+bank,023,png/bank_023.png,24,24,6x2,"158,89,2225,1119",синусовый; ЭОС вертикал.; ГЛЖ,sinus_rhythm;lvh,unknown,t23
+bank,024,png/bank_024.png,25,25,6x2,"158,89,2225,1158",синусовая аритмия; ЧСС <50; ЭОС вертикал.; единичная НЖЭС,sinus_bradycardia;sinus_arrhythmia;supraventricular_ectopy,unknown,t24
+bank,025,png/bank_025.png,26,26,6x2,"158,128,1997,1139",ФП; ЭОС вертикал.; ЧСС >100; полная БПНПГ,atrial_fibrillation;rbbb,unknown,t25
+bank,026,png/bank_026.png,27,27,6x2,"158,128,1389,1225",синусовый; ЭОС вертикал.; неполная БПНПГ; гипертрофия ПП,sinus_rhythm;incomplete_rbbb;right_atrial_enlargement,unknown,black redaction bars top/bottom; t26
+bank,027,png/bank_027.png,28,28,6x2,"158,128,1825,1378",ФП; ЧСС >100; ЖЭС одиночные и парные,atrial_fibrillation;ventricular_ectopy,unknown,same tracing as case 017 with different answer; t27
+bank,028,png/bank_028.png,29,29,6x2,"158,167,1847,1433",трепетание предсердий; ЭОС горизонт.; одиночная ЖЭС; неспецифич. T,atrial_flutter;ventricular_ectopy,unknown,curled paper photo; t28
+bank,029,png/bank_029.png,30,30,6x2,"158,89,1850,1358",синусовый; ЭОС горизонт.; одиночная ЖЭС; ГЛЖ; неспецифич. T,sinus_rhythm;ventricular_ectopy;lvh,unknown,photo with vignetting; t29
+bank,030,png/bank_030.png,31,31,6x2,"158,89,1700,1247",синусовый; ЭОС горизонт.; неполная БПНПГ; АВ-блокада I,sinus_rhythm;incomplete_rbbb;first_degree_av_block,unknown,screen photo moire; t30
+bank,031,png/bank_031.png,32,32,6x2,"158,89,1919,1331",трепетание предсердий; ЭОС влево; ГЛЖ; высокий заострённый T; нижний ИМ,atrial_flutter;left_axis_deviation;lvh;peaked_t_waves,unknown,very noisy dark scan; handwritten number; t31
+bank,032,png/bank_032.png,33,33,6x2,"158,89,1956,1403",синусовый; ЭОС влево; неполная БПНПГ; ГПЖ; СРРЖ,sinus_rhythm;left_axis_deviation;incomplete_rbbb;rvh;early_repolarisation,unknown,handwritten number + UI arrow; t32
+bank,033,png/bank_033.png,34,34,6x2,"158,89,1911,1306",синусовый; ЭОС влево; АВ-блокада I; полная БПНПГ; ГПЖ?,sinus_rhythm;left_axis_deviation;first_degree_av_block;rbbb,unknown,handwritten number + UI arrow; t33
+bank,034,png/bank_034.png,35,35,6x2,"158,89,1806,1342",синусовый; ЭОС норма; полная БПНПГ,sinus_rhythm;rbbb,unknown,t34
+bank,035,png/bank_035.png,36,36,6x2,"158,89,1700,1369",синусовый; ЭОС горизонт.; неспецифич. ST-T,sinus_rhythm,unknown,t35
+bank,036,png/bank_036.png,37,37,6x2,"158,89,1756,1378",синусовый; ЭОС горизонт.; элевация ST в нижних; сглаженный T; нижний ИМ,sinus_rhythm;st_elevation;flat_t_waves,unknown,t36
+bank,037,png/bank_037.png,40,40,6x2,"158,89,1678,1239",синусовый; ЭОС норма; единичные НЖЭС и ЖЭС,sinus_rhythm;supraventricular_ectopy;ventricular_ectopy,unknown,dark photo; t37
+bank,038,png/bank_038.png,44,44,6x2,"158,89,2022,1414",синусовый; ЭОС горизонт.; ЧСС>=100,sinus_tachycardia,unknown,t38
+bank,039,png/bank_039.png,45,45,6x2,"158,128,1639,1414",синусовый; ЭОС влево; единичная ЖЭС; блокада передней ветви ЛНПГ,sinus_rhythm;left_axis_deviation;ventricular_ectopy;left_anterior_fascicular_block,unknown,t39
+bank,040,png/bank_040.png,46,46,6x2,"158,89,1658,1411",синусовый; ЭОС влево; блокада передней ветви ЛНПГ?; аномально отриц. T; заднебоковой ИМ,sinus_rhythm;left_axis_deviation;t_inversion,unknown,t40
+bank,041,png/bank_041.png,47,47,6x2,"158,128,1550,1311",синусовый; ЭОС влево; полная БПНПГ; ST-T не оценимы,sinus_rhythm;left_axis_deviation;rbbb,unknown,t41
+bank,042,png/bank_042.png,48,48,6x2,"158,89,1758,1328",синусовый; ЭОС горизонт.; норма,sinus_rhythm,unknown,t42
+bank,043,png/bank_043.png,49,49,6x2,"158,89,1736,1361",синусовый; ЭОС влево; гипертрофия ПП; депрессия ST в боковых,sinus_rhythm;left_axis_deviation;right_atrial_enlargement;st_depression,unknown,t43
+bank,044,png/bank_044.png,50,50,6x2,"158,89,2328,1408",синусовый; ЭОС норма; гипертрофия ЛП; аномально отриц. T; СРРЖ?,sinus_rhythm;left_atrial_enlargement;t_inversion,unknown,t44
+bank,045,png/bank_045.png,51,51,6x2,"158,89,1697,1447",синусовый; ЭОС влево; ГЛЖ; аномально отриц. T; СРРЖ?,sinus_rhythm;left_axis_deviation;lvh;t_inversion,unknown,strong moire; t45
+bank,046,png/bank_046.png,52,52,6x2,"158,89,1731,1444",синусовый; ЭОС норма; норма,sinus_rhythm,unknown,t46
+bank,047,png/bank_047.png,53,53,6x2,"158,89,1703,1356",синусовый; ЭОС горизонт.; ЧСС>=100,sinus_tachycardia,unknown,t47
+bank,048,png/bank_048.png,54,54,6x2,"158,128,2089,922",синусовый; ЭОС норма; депрессия ST в передних; аномально отриц. T,sinus_rhythm;st_depression;t_inversion,unknown,small image; t48
+bank,049,png/bank_049.png,55,55,6x2,"158,89,1911,1353",синусовый; ЭОС влево; полная БПНПГ; ГПЖ; ST-T не оценимы,sinus_rhythm;left_axis_deviation;rbbb;rvh,unknown,t49
+bank,050,png/bank_050.png,56,56,6x2,"158,89,1900,1367",синусовый; ЭОС вертикал.; ЧСС>=100; высокий заострённый T (гиперкалиемия?),sinus_tachycardia;peaked_t_waves,unknown,t50
+bank,051,png/bank_051.png,57,57,6x2,"158,89,1964,1408",синусовый; ЭОС горизонт.; неспецифич. ST-T и T,sinus_rhythm,unknown,t51
+bank,052,png/bank_052.png,58,58,6x2,"0,67,1672,1247",синусовый; ЭОС норма; норма,sinus_rhythm,unknown,answer text right of image cropped out; t52
+bank,053,png/bank_053.png,59,59,6x2,"167,122,1772,1131",синусовый; ЭОС горизонт.; неспецифич. ST; высокий заострённый T; гиперкалиемия,sinus_rhythm;peaked_t_waves,unknown,"partial_leads: source page overlays another ECG on lower right, region whitened (aVR-aVF right part and V4-V6 missing); t53"
+bank,054,png/bank_054.png,59,60,6x2,"811,564,2339,1653",ФП; ЭОС норма; ЧСС>=100; перенесённый передне-верхушечный ИМ,atrial_fibrillation;pathological_q_waves,unknown,"ECG-answer link inferred: answer on p60 (no image), grey ECG overlaid on p59 assumed to be its tracing; UI arrow in corner; t54"
+bank,055,png/bank_055.png,61,61,6x2,"397,89,1986,1200",синусовый; ЭОС норма; единичная ЖЭС,sinus_rhythm;ventricular_ectopy,unknown,t55
+bank,056,png/bank_056.png,62,62,6x2,"158,89,1892,1158",синусовый; ЭОС влево; полная БПНПГ; ST-T не оценимы,sinus_rhythm;left_axis_deviation;rbbb,unknown,"very faded photo, poor quality; t56"
+bank,057,png/bank_057.png,2,2,6x2,"292,161,1961,1125",синусовый; ЭОС влево (горизонт.?); полная БПНПГ; ST-T не оценимы,sinus_rhythm;rbbb,unknown,"answer was burned into the image, cropped out; not in earlier t01-t56 list"
