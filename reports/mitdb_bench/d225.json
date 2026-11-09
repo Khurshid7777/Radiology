@@ -1,0 +1,114 @@
+{
+ "124 (IVR": {
+  "windows": 2,
+  "codes": {
+   "sinus_bradycardia": 2,
+   "st_elevation_any": 2,
+   "st_elevation_nonspecific": 2,
+   "possible_atrial_fibrillation": 2,
+   "wide_qrs_nonspecific": 2
+  }
+ },
+ "124 (N": {
+  "windows": 12,
+  "codes": {
+   "sinus_bradycardia": 12,
+   "wpw_preexcitation": 10,
+   "secondary_st_t_change": 5,
+   "t_inversion": 4,
+   "wide_qrs_nonspecific": 2,
+   "possible_atrial_fibrillation": 1,
+   "st_elevation_any": 1
+  }
+ },
+ "124 (NOD": {
+  "windows": 2,
+  "codes": {
+   "wpw_preexcitation": 2,
+   "possible_atrial_fibrillation": 1,
+   "t_inversion": 1,
+   "irregular_rhythm": 1,
+   "ventricular_ectopy": 1,
+   "atrial_fibrillation": 1
+  }
+ },
+ "201 (N": {
+  "windows": 12,
+  "codes": {
+   "sinus_bradycardia": 12,
+   "wide_qrs_nonspecific": 12,
+   "irregular_rhythm": 9,
+   "sinus_arrhythmia": 4,
+   "ventricular_ectopy": 4,
+   "possible_atrial_fibrillation": 1,
+   "supraventricular_ectopy": 1,
+   "sinus_pause": 1
+  }
+ },
+ "207 (IVR": {
+  "windows": 10,
+  "codes": {
+   "secondary_st_t_change": 6,
+   "rbbb": 5,
+   "sinus_bradycardia": 4,
+   "sinus_rhythm": 4,
+   "irregular_rhythm": 2,
+   "atrial_fibrillation": 2,
+   "sinus_pause": 1,
+   "wpw_preexcitation": 1
+  }
+ },
+ "207 (N": {
+  "windows": 12,
+  "codes": {
+   "rbbb": 11,
+   "st_elevation_any": 8,
+   "irregular_rhythm": 7,
+   "atrial_fibrillation": 7,
+   "st_elevation_nonspecific": 5,
+   "sinus_rhythm": 4,
+   "first_degree_av_block": 4,
+   "long_qt": 3
+  }
+ },
+ "222 (N": {
+  "windows": 12,
+  "codes": {
+   "sinus_rhythm": 12,
+   "st_elevation_any": 5,
+   "long_qt": 3,
+   "right_atrial_enlargement": 3,
+   "sinus_arrhythmia": 1
+  }
+ },
+ "222 (NOD": {
+  "windows": 5,
+  "codes": {
+   "irregular_rhythm": 5,
+   "atrial_fibrillation": 5,
+   "qtc_unreliable_af": 3,
+   "long_qt": 2
+  }
+ },
+ "231 (BII": {
+  "windows": 12,
+  "codes": {
+   "sinus_bradycardia": 10,
+   "slow_wide_escape_rhythm": 8,
+   "rbbb": 8,
+   "complete_av_block": 2,
+   "irregular_rhythm": 1,
+   "supraventricular_ectopy": 1
+  }
+ },
+ "231 (N": {
+  "windows": 12,
+  "codes": {
+   "rbbb": 12,
+   "sinus_rhythm": 12,
+   "long_qt": 3,
+   "sinus_arrhythmia": 1,
+   "sinus_pause": 1
+  }
+ }
+}
