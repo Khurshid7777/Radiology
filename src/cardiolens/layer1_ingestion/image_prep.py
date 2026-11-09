@@ -14,8 +14,13 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-# Set from the D219 bench; "enabled": False restores the earlier behaviour exactly.
-PREP = {"enabled": False, "max_long_px": 2000, "factor": 2.0, "method": "lanczos", "blur": 0.0}
+# Chosen on the D219 bench (even half; accepted on the odd half): x2 Lanczos, no smoothing, for pictures
+# whose long side is under 2 000 px. "enabled": False restores the earlier behaviour exactly.
+PREP = {"enabled": True, "max_long_px": 2000, "factor": 2.0, "method": "lanczos", "blur": 0.0}
+# Provenance note on a record read from an enlarged picture: its QT is approximate (10-70 ms on the bench).
+ENLARGED_NOTE = "picture enlarged before reading (D219): intervals approximate"
+# Above the QTc limit by less than this, a long QT from an enlarged picture is not a critical alert.
+ENLARGED_QTC_MARGIN_MS = 40.0
 
 
 def needs_prep(size: tuple[int, int], prep: dict | None = None) -> bool:

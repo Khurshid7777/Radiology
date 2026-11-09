@@ -568,6 +568,7 @@ def run_pipeline(
     # alert: nothing read off it is a measurement. Any other quality failure keeps its
     # alerts (recall first, TZ §10) and says so (scanner branch D97, now D135).
     hard_gate = no_ecg or bad_photo or bad_units
+    _approximate_long_qt(sig, findings, audit)
     safety = scan_critical(findings, Measurements() if hard_gate else m)
     if not quality_ok and not hard_gate:
         for a in safety.alerts:
@@ -748,6 +749,26 @@ def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
 # AF second path (D205): names that contradict a possible AF and are taken back when it is raised.
 _AF_CONTRADICTED = {"sinus_rhythm", "supraventricular_ectopy", "atrial_bigeminy", "atrial_trigeminy",
                     "sinus_arrhythmia"}
+
+
+def _approximate_long_qt(sig, findings: FindingSet, audit: list[str]) -> None:
+    """D219: from an enlarged small picture the QT is approximate (bench: 10-70 ms off); a long QT within
+    ENLARGED_QTC_MARGIN_MS of the limit is reported as approximate, not as the critical alert."""
+    from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, ENLARGED_QTC_MARGIN_MS
+
+    f = findings.by_code("long_qt")
+    if f is None or ENLARGED_NOTE not in (sig.provenance.notes or []):
+        return
+    ev = {e.feature: e.value for e in f.evidence}
+    try:
+        qtc, upper = float(ev["qtc_ms"]), float(ev["upper"])
+    except (KeyError, ValueError):
+        return
+    if qtc < upper + ENLARGED_QTC_MARGIN_MS:
+        f.code = "long_qt_approximate"
+        f.label_ru += " — ориентировочно: снимок низкого разрешения, проверьте QT по оригиналу"
+        f.label_uz += " — taxminiy: past aniqlikdagi surat, QT ni asl nusxada tekshiring"
+        audit.append(f"[L4] long QT from an enlarged picture within {ENLARGED_QTC_MARGIN_MS:g} ms: approximate (D219)")
 
 
 def _af_second_path(sig, m, findings: FindingSet, audit: list[str]) -> None:

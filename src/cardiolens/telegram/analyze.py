@@ -193,10 +193,13 @@ def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: flo
     """A small single picture is enlarged first (D219, ``image_prep``); then ``_digitize_photo``."""
     if isinstance(path, list):
         return _digitize_photo(path, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
-    from cardiolens.layer1_ingestion.image_prep import prepared
+    from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, prepared
 
     with prepared(path) as p:
-        return _digitize_photo(p, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+        sig = _digitize_photo(p, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+        if str(p) != str(path):
+            sig.provenance.notes.append(ENLARGED_NOTE)
+        return sig
 
 
 def _digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: float | None = None,
