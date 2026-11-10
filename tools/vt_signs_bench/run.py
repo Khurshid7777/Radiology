@@ -40,7 +40,6 @@ def incart_one(args):
     path, sym = args
     warnings.filterwarnings("ignore")
     import wfdb
-
     from vt_signs import vt_signs
 
     ann = wfdb.rdann(path, "atr")
@@ -64,6 +63,7 @@ def ptbxl_one(args):
     data, r = args
     warnings.filterwarnings("ignore")
     from vt_signs import vt_signs
+
     from cardiolens.layer1_ingestion import load_wfdb
     from cardiolens.pipeline import run_pipeline
 
