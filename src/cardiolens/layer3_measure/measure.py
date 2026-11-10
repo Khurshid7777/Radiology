@@ -47,6 +47,7 @@ from cardiolens.layer3_measure.delineation import (
 from cardiolens.layer3_measure.global_beat import (
     global_q_waves,
     global_right_precordial_st,
+    global_rsr_prime,
     global_terminal_s,
 )
 from cardiolens.layer3_measure.intervals import (
@@ -715,6 +716,7 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
         m.morphology.q_waves = global_q_waves(sig.signal, rpeaks, fs, names)
         m.morphology.right_precordial_st = global_right_precordial_st(sig.signal, rpeaks, fs, names)
         m.morphology.terminal_s_lateral = global_terminal_s(sig.signal, rpeaks, fs, names)
+        m.rsr_prime_lead = global_rsr_prime(sig.signal, rpeaks, fs, names)
     m.n_beats = len(rpeaks)
 
     rr_s_mean = None

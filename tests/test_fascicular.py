@@ -86,10 +86,15 @@ def test_a_nonspecific_wide_qrs_keeps_the_fascicular_axis():
     assert "wide_qrs_nonspecific" in codes and LAFB in codes
 
 
-def test_incomplete_rbbb_is_an_rsr_in_v1_below_the_wide_qrs():
-    assert IRBBB in _codes(_m(40, qrs=100, v1_terminal=True))
-    assert IRBBB not in _codes(_m(40, qrs=100, v1_terminal=False))
-    codes = _codes(_m(40, qrs=140, v1_terminal=True))
+def test_incomplete_rbbb_is_an_rsr_in_v1_v2_below_the_wide_qrs():
+    """D229: the r' after the S on the median beat (``rsr_prime_lead``), QRS 80-110 ms."""
+    def m(qrs, lead):
+        x = _m(40, qrs=qrs, v1_terminal=lead is not None)
+        x.rsr_prime_lead = lead
+        return x
+    assert IRBBB in _codes(m(100, "V1")) and IRBBB in _codes(m(85, "V2"))
+    assert IRBBB not in _codes(m(100, None))
+    codes = _codes(m(140, "V1"))
     assert "rbbb" in codes and IRBBB not in codes
 
 
@@ -107,3 +112,27 @@ def test_a_slow_rhythm_without_a_conducted_p_asks_too():
     assert "slow_wide_escape_rhythm" in _codes(m)
     m.pr_std_ms = 12.0
     assert "slow_wide_escape_rhythm" not in _codes(m)
+
+
+def test_rsr_prime_detector_on_a_drawn_median_beat():
+    """D229: r-S-r' in V1 is found; a plain rS is not."""
+    import numpy as np
+
+    from cardiolens.layer3_measure.global_beat import global_rsr_prime
+
+    fs, n = 500.0, 5000
+    t = np.arange(n) / fs
+    rp = list(range(250, n - 400, 400))
+    sig = np.zeros((12, n))
+    def g(c, w, a):
+        return a * np.exp(-((t[:, None] - c) / w) ** 2).sum(axis=1)
+    for li in range(12):
+        sig[li] = g(np.array(rp) / fs, 0.010, 900)          # an R in every lead
+    v1 = 6
+    centers = np.array(rp) / fs
+    sig[v1] = g(centers - 0.020, 0.008, 250) + g(centers + 0.005, 0.010, -800) + g(centers + 0.040, 0.010, 400)
+    names = list(STANDARD_12_LEADS)
+    assert global_rsr_prime(sig, rp, fs, names) == "V1"
+    sig[v1] = g(centers - 0.020, 0.008, 250) + g(centers + 0.005, 0.012, -800)
+    sig[names.index("V2")] = sig[v1]
+    assert global_rsr_prime(sig, rp, fs, names) is None

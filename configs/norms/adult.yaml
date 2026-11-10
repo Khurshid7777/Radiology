@@ -223,4 +223,4 @@ fascicular:
   rs_q_ms_max: 30
   rvh_r_v1_uv: 700
   with_ivcd: true
-  irbbb_qrs_ms: [90, 110]
+  irbbb_qrs_ms: [80, 110]   # D229: 80 chosen with the r' detector on PTB-XL (even ecg_id)
