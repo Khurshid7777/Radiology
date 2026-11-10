@@ -44,6 +44,7 @@ from cardiolens.layer1_ingestion.strip import (
     GRID_IN_TRACE_NOTE,
     LEADS_INCONSISTENT_NOTE,
     SCALE_CONFLICT_NOTE,
+    SEGMENTER_FALLBACK_NOTE,
 )
 from cardiolens.layer2_preprocess import assess_quality, preprocess
 from cardiolens.layer2_preprocess.photo_quality import (
@@ -351,6 +352,8 @@ def run_pipeline(
     leads_inconsistent = sig.provenance.digitized and LEADS_INCONSISTENT_NOTE in sig.provenance.notes
     # Grid lines stripped out of the trace before a layout was found (D188).
     grid_in_trace = sig.provenance.digitized and GRID_IN_TRACE_NOTE in sig.provenance.notes
+    # Read only by the scanner's photo segmenter after the main one refused it (D231, scanner R5).
+    seg_fallback = sig.provenance.digitized and SEGMENTER_FALLBACK_NOTE in sig.provenance.notes
     # Below the digital minimum rate (D135: 50 Hz read QRS 178 ms, a false LBBB) a photo is
     # too small to measure; it is gated with the retake hint rather than refused.
     coarse_photo = sig.provenance.digitized and fs_in < cfg.ingestion.min_sampling_rate_hz
@@ -363,7 +366,8 @@ def run_pipeline(
     readers_disagree = (sig.provenance.digitized and m.page_beat_agreement is False
                         and not (sig.provenance.notes and sig.provenance.notes[0].startswith("ecgscan")))
     bad_photo = not no_ecg and not bad_units and (
-        scale_conflict or leads_inconsistent or grid_in_trace or qrs_impossible or readers_disagree or coarse_photo or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
+        scale_conflict or leads_inconsistent or grid_in_trace or seg_fallback or qrs_impossible or readers_disagree
+        or coarse_photo or page_unreliable(photo, photo_aligned, cfg.quality.photo_max_panel_lag_ms,
                                                           cfg.quality.photo_min_einthoven_r))
     if bad_photo:
         lag = photo["panel_lag_ms"] if photo else None
@@ -376,6 +380,8 @@ def run_pipeline(
                            "suratdagi tarmoqlar o'zaro mos emas") if leads_inconsistent else
                           ("линии сетки пришлось убирать из кривой",
                            "to'r chiziqlarini egri chiziqdan olib tashlashga to'g'ri keldi") if grid_in_trace else
+                          ("лист прочитан только запасным способом для фото",
+                           "varaq faqat suratlar uchun zaxira usul bilan o'qildi") if seg_fallback else
                           (f"QRS {m.intervals.qrs_ms:.0f} мс — уже, чем бывает",
                            f"QRS {m.intervals.qrs_ms:.0f} ms — bo'lishi mumkin bo'lganidan tor") if qrs_impossible else
                           ("комплексы не совпадают со столбцами листа",

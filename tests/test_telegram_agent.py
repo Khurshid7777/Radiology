@@ -410,3 +410,21 @@ def test_album_on_the_capture_board_is_one_page(tmp_path):
     assert result.measurements.heart_rate_bpm == pytest.approx(72, rel=0.05)
     plain = render_ecg_page(s, tmp_path / "p.png", px_per_mm=10, calibration_pulse=True)
     assert not on_capture_board([left, plain])
+
+
+def test_scanner_segmenter_fallback_is_gated():
+    """D231: a page read only by the scanner's photo segmenter (R5, SEGMENTER_FALLBACK) is photo_unreliable."""
+    from types import SimpleNamespace as NS
+
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from cardiolens.layer1_ingestion.strip import SEGMENTER_FALLBACK_NOTE
+    from cardiolens.pipeline import run_pipeline
+    from cardiolens.telegram.analyze import segmenter_fallback
+
+    assert segmenter_fallback(NS(status="needs_confirmation", warnings=["SEGMENTER_FALLBACK"]))
+    assert not segmenter_fallback(NS(status="needs_confirmation", warnings=["SPEED_UNCERTAIN"]))
+    sig = generate_synthetic_ecg(heart_rate_bpm=72)
+    sig.provenance.digitized = True
+    sig.provenance.notes = ["ecgscan scan_id=x status=needs_confirmation", SEGMENTER_FALLBACK_NOTE]
+    f = next(f for f in run_pipeline(sig, mode="A").findings.findings if f.code == "photo_unreliable")
+    assert "запасным" in f.label_ru
