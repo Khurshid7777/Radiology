@@ -39,6 +39,12 @@ ESC_CODES = {"426995002": "JEB", "75532003": "VEB", "251180001": "VET", "2511640
 ESC_PER_CLASS = {"JEB": 200, "VEB": 200, "VET": 50, "JPT": 100, "SB": 300, "SR": 300, "APB": 200, "VPB": 200}
 
 
+# D230: atrial tachycardia and the rhythms it is confused with.
+AT_CODES = {"713422000": "AT", "427084000": "ST", "426761007": "SVT", "233896004": "AVNRT",
+            "233897008": "AVRT", "164890007": "AFL"}
+AT_PER_CLASS = {"AT": 400, "ST": 400, "SVT": 300, "AVNRT": 50, "AVRT": 50, "AFL": 200}
+
+
 def chapman_list(seed: int = 0, require_signal: bool = True, codes: dict | None = None,
                  per_class: dict | None = None) -> list[tuple[str, list[str], float | None]]:
     seen: dict[str, tuple[str, list[str], float | None]] = {}
@@ -103,15 +109,16 @@ def run(items, out: Path, shard: str, keep_meas: bool = False) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("which", choices=["chapman", "chapman-avb", "chapman-esc", "ptbxl"])
+    ap.add_argument("which", choices=["chapman", "chapman-avb", "chapman-esc", "chapman-at", "ptbxl"])
     ap.add_argument("--data", type=Path, default=Path("data/ptbxl_rhythm"))
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--shard", default="0/1")
     a = ap.parse_args()
-    if a.which in ("chapman", "chapman-avb", "chapman-esc"):
+    if a.which in ("chapman", "chapman-avb", "chapman-esc", "chapman-at"):
         # The same selection as extract.py; a record read from the zip lives in the extra folder.
         kw = ({"codes": AVB_CODES, "per_class": AVB_PER_CLASS} if a.which == "chapman-avb" else
-              {"codes": ESC_CODES, "per_class": ESC_PER_CLASS} if a.which == "chapman-esc" else {})
+              {"codes": ESC_CODES, "per_class": ESC_PER_CLASS} if a.which == "chapman-esc" else
+              {"codes": AT_CODES, "per_class": AT_PER_CLASS} if a.which == "chapman-at" else {})
         items = []
         for path, labels, age in chapman_list(require_signal=False, **kw):
             if not Path(path).with_suffix(".mat").exists():
@@ -121,7 +128,7 @@ def main() -> None:
         man = json.loads((a.data / "manifest.json").read_text())["records"]
         items = [(str(a.data / r["filename_hr"]), r["labels"],
                   float(r["age"]) if r.get("age") not in (None, "") else None) for r in man]
-    run(items, a.out, a.shard, keep_meas=a.which in ("chapman-avb", "chapman-esc"))
+    run(items, a.out, a.shard, keep_meas=a.which in ("chapman-avb", "chapman-esc", "chapman-at"))
 
 
 if __name__ == "__main__":
