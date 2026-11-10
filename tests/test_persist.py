@@ -42,7 +42,14 @@ def test_nothing_readable_is_on_disk(disk):
     a = TestClient(api.app, headers={"X-API-Key": "key-a"})
     aid = a.post("/api/analyze", data={"case": "stemi", "mode": "A", "age_years": "61", "sex": "male"}).json()["analysis_id"]
     raw = (disk / f"{aid}.bin").read_bytes()
+    # The file is a Fernet token: base64 text. Short words (b"male") turn up in random base64 by chance
+    # (a flaky CI failure, 09.11), so the token's bytes are checked; a longer plaintext in the text too.
+    import base64
+
+    token = base64.urlsafe_b64decode(raw.strip() + b"=" * (-len(raw.strip()) % 4))
     for plain in (b"st_elevation", "Элевация".encode(), b"male", b"61.0", b"key-a"):
+        assert plain not in token
+    for plain in (b"st_elevation", "Элевация".encode(), b"key-a"):
         assert plain not in raw
     assert oct(os.stat(disk / f"{aid}.bin").st_mode)[-3:] == "600"
 
