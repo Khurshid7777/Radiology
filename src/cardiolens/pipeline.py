@@ -60,6 +60,7 @@ from cardiolens.layer3_measure.pacing import (
 )
 from cardiolens.layer4_findings import detect_findings
 from cardiolens.layer4_findings.ml import apply_ml_evidence
+from cardiolens.layer4_findings.rules import paced_primary_elevation
 from cardiolens.layer5_causal import analyze
 from cardiolens.layer6_interpret import InterpretationInput, default_provider, interpret
 from cardiolens.layer6_interpret.provider import LLMProvider
@@ -260,6 +261,23 @@ def run_pipeline(
             confidence=0.8))
         dropped = [f.code for f in findings.findings if f.code in _PACED_EXCLUDES]
         findings.findings = [f for f in findings.findings if f.code not in _PACED_EXCLUDES]
+        # D217: ST elevation discordant to a paced QRS is expected (as under LBBB); the STEMI alert
+        # stays only with a concordant or proportionally large discordant elevation (Sgarbossa-Smith).
+        # A ventricular-paced QRS is wide; measured under 100 ms its end was not found and the "J point"
+        # lies inside the QRS (PTB-XL PACE: QRS 54-64 ms, "elevation" 1-1.3 mV) — ST is not assessable.
+        ventricular = single or ml_coupling >= cfg.pacing.multilead_coupling_min
+        qrs_unreliable = ventricular and (m.intervals.qrs_ms or 0) < 100
+        stemi = findings.by_code("st_elevation")
+        if stemi is not None and (qrs_unreliable or not paced_primary_elevation(m, norms, sig.patient)):
+            findings.findings = [f for f in findings.findings if f.code != "st_elevation"]
+            dropped.append("st_elevation")
+            any_el = findings.by_code("st_elevation_any")
+            if any_el is not None and qrs_unreliable:
+                any_el.label_ru += " — при ЭКС не оценивается: граница стимулированного QRS не найдена"
+                any_el.label_uz += " — EKS da baholanmaydi: stimullangan QRS chegarasi topilmadi"
+            elif any_el is not None:
+                any_el.label_ru += " — дискордантна стимулированному QRS (ожидаемо при ЭКС)"
+                any_el.label_uz += " — stimullangan QRS ga diskordant (EKS da kutiladi)"
         audit.append(f"[L4] paced rhythm: spike_ratio={pacing_ratio} coupling={coupling} "
                      f"multilead_coupling={ml_coupling}; withheld {dropped}")
     # Pause / dropped beat (TZ §7.1, §10) — R-peak based.
@@ -550,6 +568,7 @@ def run_pipeline(
     # alert: nothing read off it is a measurement. Any other quality failure keeps its
     # alerts (recall first, TZ §10) and says so (scanner branch D97, now D135).
     hard_gate = no_ecg or bad_photo or bad_units
+    _approximate_long_qt(sig, findings, audit)
     safety = scan_critical(findings, Measurements() if hard_gate else m)
     if not quality_ok and not hard_gate:
         for a in safety.alerts:
@@ -730,6 +749,38 @@ def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
 # AF second path (D205): names that contradict a possible AF and are taken back when it is raised.
 _AF_CONTRADICTED = {"sinus_rhythm", "supraventricular_ectopy", "atrial_bigeminy", "atrial_trigeminy",
                     "sinus_arrhythmia"}
+
+
+def _approximate_long_qt(sig, findings: FindingSet, audit: list[str]) -> None:
+    """D219: a record read off an enlarged small picture says so (``photo_low_resolution``), and its QT
+    is approximate (bench: 10-70 ms off): a long QT within ENLARGED_QTC_MARGIN_MS of the limit is reported
+    as approximate, not as the critical alert."""
+    from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, ENLARGED_QTC_MARGIN_MS
+
+    f = findings.by_code("long_qt")
+    enlarged = ENLARGED_NOTE in (sig.provenance.notes or [])
+    if enlarged and findings.by_code("photo_low_resolution") is None:
+        # The doctor still hears that the picture was small: the bench vouches for rate and QRS, not for
+        # the ST levels or voltages of an enlarged picture.
+        findings.findings.append(Finding(
+            code="photo_low_resolution", group="other",
+            label_ru="Сжатый снимок низкого разрешения увеличен перед чтением: ЧСС и ритм надёжны, интервалы, "
+                     "ST и вольтаж ориентировочны — для точного заключения пришлите оригинал с камеры",
+            label_uz="Past aniqlikdagi siqilgan surat o'qishdan oldin kattalashtirildi: YUT va ritm ishonchli, "
+                     "intervallar, ST va voltaj taxminiy — aniq xulosa uchun kameradan asl nusxani yuboring",
+            evidence=[Evidence(feature="enlarged", value="x2")], confidence=0.9))
+    if f is None or not enlarged:
+        return
+    ev = {e.feature: e.value for e in f.evidence}
+    try:
+        qtc, upper = float(ev["qtc_ms"]), float(ev["upper"])
+    except (KeyError, ValueError):
+        return
+    if qtc < upper + ENLARGED_QTC_MARGIN_MS:
+        f.code = "long_qt_approximate"
+        f.label_ru += " — ориентировочно: снимок низкого разрешения, проверьте QT по оригиналу"
+        f.label_uz += " — taxminiy: past aniqlikdagi surat, QT ni asl nusxada tekshiring"
+        audit.append(f"[L4] long QT from an enlarged picture within {ENLARGED_QTC_MARGIN_MS:g} ms: approximate (D219)")
 
 
 def _af_second_path(sig, m, findings: FindingSet, audit: list[str]) -> None:

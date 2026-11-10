@@ -1,0 +1,1747 @@
+{
+ "note": "Owner's ECG library (D212/D216). Ids only; the files are copyrighted and stay in data/books/lib (git-ignored).",
+ "files": [
+  {
+   "id": "1Tgbljk_N84AKcrdkRojGkrDWMlFkzmuN",
+   "title": "Банк ЭКГ.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1Tgbljk_N84AKcrdkRojGkrDWMlFkzmuN__Банк ЭКГ.pdf",
+   "size": 11278013,
+   "sha256": "e9693fd90de5966c75a933dacab0038c195ff48f8cd3516ab3ca8a60e2071dba"
+  },
+  {
+   "id": "19IAuK35ZZEsYOyZ6N14_z8ta_nqGCV3o",
+   "title": "Электрокардиографические_критерии_окклюзирующих_и_прогностически.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "error": "OSError: [Errno 36] File name too long: '/home/user/Radiology/data/books/lib/.19IAuK35ZZEsYOyZ6N14_z8ta_nqGCV",
+   "file": "19IAuK35ZZEsYOyZ6N14_z8ta_nqGCV3o__Электрокардиографические_критерии_окклюзирующих_и_прогностически.pdf",
+   "size": 12079464,
+   "sha256": "2c812a3551f6963554e640c47dbc832ccc0e8539dadbac4fa74adae37711ba6d"
+  },
+  {
+   "id": "18KTCzXFZ5d3Dmwbvbs1ZKG5G9ybZUxuT",
+   "title": "smad 1.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "18KTCzXFZ5d3Dmwbvbs1ZKG5G9ybZUxuT__smad 1.pdf",
+   "size": 14509616,
+   "sha256": "cec0b76056d810485d9108898571d7ae91ae02995c1b2a9c8ee6cb45794a0273"
+  },
+  {
+   "id": "1PnALMYdS5cTl8aArPDkrf2d5nihixxPC",
+   "title": "Анализ проблемных ЭКГ.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1PnALMYdS5cTl8aArPDkrf2d5nihixxPC__Анализ проблемных ЭКГ.pdf",
+   "size": 8911400,
+   "sha256": "cab5f22e26799da3ac7360c3fe05764f87ceffa8c3b35f2411974a0808ef0c2a"
+  },
+  {
+   "id": "1532SMAyQFTAJH3WZ7-2Q8vHqBnkYR2Kl",
+   "title": "ЭКГ при ОИМ С Смит часть1.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1532SMAyQFTAJH3WZ7-2Q8vHqBnkYR2Kl__ЭКГ при ОИМ С Смит часть1.pdf",
+   "size": 9564306,
+   "sha256": "7fd35b14806aeca40bf91d40c1c06272d7a4fe58d636e8959a2114aed74ad166"
+  },
+  {
+   "id": "1ihxWMZe7o0GGaoJGb2GTLw3-elgZSY1N",
+   "title": "Plan_Medical_AI_Ecosystem_v1.docx",
+   "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1ihxWMZe7o0GGaoJGb2GTLw3-elgZSY1N__Plan_Medical_AI_Ecosystem_v1.docx",
+   "size": 33169,
+   "sha256": "bef0394d636a14b0fba1aaac9a522ba32c6309c190c742a99f2d94379bb3b5a2"
+  },
+  {
+   "id": "1WHvuZcK4PapV_o_36YFxfRpLHy-HMWC7",
+   "title": "AvatarStudio_дорожная_карта.docx",
+   "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1WHvuZcK4PapV_o_36YFxfRpLHy-HMWC7__AvatarStudio_дорожная_карта.docx",
+   "size": 18606,
+   "sha256": "4fd5802394d01bb10ec680972e50e6fd2f6258f49258206bcd85194b87078303"
+  },
+  {
+   "id": "1Ih771uVc6CE1Okewc-PHtMJNm2BUcvi1",
+   "title": "Atlas_EKG_150_klinicheskikh_situatsiy_Dzhon_Khempton.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1Ih771uVc6CE1Okewc-PHtMJNm2BUcvi1__Atlas_EKG_150_klinicheskikh_situatsiy_Dzhon_Khempton.pdf",
+   "size": 49358922,
+   "sha256": "f592b4321f5b268757687584c7fc336d13e6f22f1584ca08ddf3861eb0adc4d0"
+  },
+  {
+   "id": "175y0-TEuN-cvfmtveqqhO5CRhLvJQbJl",
+   "title": "Medicom-Atlas2.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "175y0-TEuN-cvfmtveqqhO5CRhLvJQbJl__Medicom-Atlas2.pdf",
+   "size": 17638503,
+   "sha256": "4c03dbcb31ea44a1957174bd0670079bf01a9638516b9db28a81c5c9af915f91"
+  },
+  {
+   "id": "1uJ6UDcwDaMh6fQphSK1-bScXftIkks8F",
+   "title": "Medicom-Atlas3.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1uJ6UDcwDaMh6fQphSK1-bScXftIkks8F__Medicom-Atlas3.pdf",
+   "size": 77786667,
+   "sha256": "d4040064c975f54baf02567609204aebd3bc6a1a8c76de37c654d1a4336f1b99"
+  },
+  {
+   "id": "1JczKDBPOAfB-W1qimdH4uTVPuLnEcdqA",
+   "title": "Ресинхронизирующая_терапия -5.pptx",
+   "mime": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1JczKDBPOAfB-W1qimdH4uTVPuLnEcdqA__Ресинхронизирующая_терапия -5.pptx",
+   "size": 8628665,
+   "sha256": "02c13a07f13529c241372322626e1d8990aad39e5152b3a3a80ce0c4df974cbe"
+  },
+  {
+   "id": "1iPB1B8U1ueju0hPbJxQwXCvDcNwBNkMW",
+   "title": "EKG_algoritmy.ppt",
+   "mime": "application/vnd.ms-powerpoint",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1iPB1B8U1ueju0hPbJxQwXCvDcNwBNkMW__EKG_algoritmy.ppt",
+   "size": 47962624,
+   "sha256": "a62a6a71e73fe04a0abe08a01fbf20447e95fa65993a2de5689bf35f9f05428c"
+  },
+  {
+   "id": "1yZFnPdNy5MJ-flRpz-0cUiOQULyztQay",
+   "title": "ЭКГ Корзун.ppt",
+   "mime": "application/vnd.ms-powerpoint",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1yZFnPdNy5MJ-flRpz-0cUiOQULyztQay__ЭКГ Корзун.ppt",
+   "size": 4620288,
+   "sha256": "ac7c3e800740b3f8a0fbaf42ae7a2bd903cc29422fff54eed0b69cf226759983"
+  },
+  {
+   "id": "1l1DcAVCHr8LbfIH2k7YAIl7bvylnRlBW",
+   "title": "SLR_vrachi.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1l1DcAVCHr8LbfIH2k7YAIl7bvylnRlBW__SLR_vrachi.pdf",
+   "size": 1607149,
+   "sha256": "3fa041331e66711dff4720557ed0f52427d75e7b90e456442ab3f9174d6a2017"
+  },
+  {
+   "id": "1OZaqJHHdZAw19ys6zQK5_FC1U-bj_fH-",
+   "title": "Оптимайзер. Модуляция СР.pptx",
+   "mime": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1OZaqJHHdZAw19ys6zQK5_FC1U-bj_fH-__Оптимайзер. Модуляция СР.pptx",
+   "size": 6213272,
+   "sha256": "0e1d3486856da9a3e243c9eff1a6198f389e5ad9545a2d9bf1af9bcb6e5af259"
+  },
+  {
+   "id": "1rt7bfFQkUcAhDErPFcJZUyryXLukOse5",
+   "title": "Datasets_Medical_AI_v1.docx",
+   "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1rt7bfFQkUcAhDErPFcJZUyryXLukOse5__Datasets_Medical_AI_v1.docx",
+   "size": 37876,
+   "sha256": "1d6a448bc77fec240c57d3121c890a074f88f9314ade59c271f400343df48496"
+  },
+  {
+   "id": "1lUjzUDK50zd1BYwNq3muNjbkqGeUwBa2",
+   "title": "ЭКГ Родионов.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1lUjzUDK50zd1BYwNq3muNjbkqGeUwBa2__ЭКГ Родионов.pdf",
+   "size": 3216112,
+   "sha256": "c1ab02dd790a7e14c0c30a3bce3a1b660115cbc85c1093a6dea033aceb45cec9"
+  },
+  {
+   "id": "15nLbCEmJZWVeyZNTxc2sLgPpNttR5dK7",
+   "title": "СМАД.pptx",
+   "mime": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "15nLbCEmJZWVeyZNTxc2sLgPpNttR5dK7__СМАД.pptx",
+   "size": 1895368,
+   "sha256": "6a24e764665389517a535d2f3b3098932d4dd3e6ed57f517abc6e67981aff940"
+  },
+  {
+   "id": "1R9E3AjySBf-RjaII7lL_MZjaHQgshD84",
+   "title": "ХМ.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1R9E3AjySBf-RjaII7lL_MZjaHQgshD84__ХМ.pdf",
+   "size": 1616476,
+   "sha256": "fda9ce530215dbc36f037271c20a85e8b287eafe32c37e954f183cb1fd85c2c3"
+  },
+  {
+   "id": "1o2sMN3nubQEtnT1AqyJkBtezNRY9g_8G",
+   "title": "Сердечно_легочныи_тест_эргоспирометрия_2015_09_1.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1o2sMN3nubQEtnT1AqyJkBtezNRY9g_8G__Сердечно_легочныи_тест_эргоспирометрия_2015_09_1.pdf",
+   "size": 2465334,
+   "sha256": "0c87bd8e151b1baf6240858ccf59f314e3a124a685a07cb99206fa9d3fa37d36"
+  },
+  {
+   "id": "13kVctggJW_5A3dq30peavUqpdtlxNIdP",
+   "title": "Kniga_Osnovnye_EKG-priznaki_narusheniy_ritma_serdtsa_2019.docx",
+   "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "13kVctggJW_5A3dq30peavUqpdtlxNIdP__Kniga_Osnovnye_EKG-priznaki_narusheniy_ritma_serdtsa_2019.docx",
+   "size": 1214027,
+   "sha256": "6dc6d6f18a91e3ee0dd7f85a1163ec895b4097c0ec35bbabf1aa8b91189b800e"
+  },
+  {
+   "id": "1-pdFdfDlBhcsj0RgunedS-tfp4y0cJCe",
+   "title": "Вебинар Основы ЭКС часть 2.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1-pdFdfDlBhcsj0RgunedS-tfp4y0cJCe__Вебинар Основы ЭКС часть 2.pdf",
+   "size": 5847762,
+   "sha256": "e11cd49e44184319701c3c55858c8737843ad519e1ebc07d641f3c3eea5125d4"
+  },
+  {
+   "id": "1sSPzHglQP8WV8lLnnobTmCntGlFN6m2d",
+   "title": "ЭКГ для медсестер и начинающих.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1sSPzHglQP8WV8lLnnobTmCntGlFN6m2d__ЭКГ для медсестер и начинающих.pdf",
+   "size": 6431713,
+   "sha256": "9d5ed71a0a985efafcf9b474d85e4d11f3f0e2323ef377bcfb4c2de8972ae1ff"
+  },
+  {
+   "id": "1JMWxFrqZV7RKM0fjpMB_Co-EAZ_8AG07",
+   "title": "VENTRICULAR_TACHYCARDIAS_IN_THE_ABSENCE_OF_STRUCTURAL_HEART_DISEASE.pptx",
+   "mime": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1JMWxFrqZV7RKM0fjpMB_Co-EAZ_8AG07__VENTRICULAR_TACHYCARDIAS_IN_THE_ABSENCE_OF_STRUCTURAL_HEART_DISEASE.pptx",
+   "size": 14534942,
+   "sha256": "46569a02519b30df643839bb1c5aebfbb38e06e3c7f4e1725fde5a179a3633d7"
+  },
+  {
+   "id": "1ptrLjfe9Gmf3g_ZnTeNfwS0Z8wX1a-LQ",
+   "title": "Tablitsa_tipichnykh_oshibok_nalozhenia_elektrodov_na_konechnosti.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1ptrLjfe9Gmf3g_ZnTeNfwS0Z8wX1a-LQ__Tablitsa_tipichnykh_oshibok_nalozhenia_elektrodov_na_konechnosti.pdf",
+   "size": 256091,
+   "sha256": "2965584c4d23655f93cea1bd741bb20a32dc838f6fb75b75cb847670035dfb97"
+  },
+  {
+   "id": "1nng21l2fSDlcXOz5AAOfjU6Y2MwMOdn3",
+   "title": "Osobennosti_nagruzochnykh_testov_chast_1.ppt",
+   "mime": "application/vnd.ms-powerpoint",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1nng21l2fSDlcXOz5AAOfjU6Y2MwMOdn3__Osobennosti_nagruzochnykh_testov_chast_1.ppt",
+   "size": 1931264,
+   "sha256": "013cae96a07b99cfa0ca147d693eca8f6c5dc4e9ba6bc43b3b8621a64b395924"
+  },
+  {
+   "id": "163g6Xd4km7UjI6f6QxB8GhDojb01r136",
+   "title": "2_5440637401162581863.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "163g6Xd4km7UjI6f6QxB8GhDojb01r136__2_5440637401162581863.pdf",
+   "size": 2685921,
+   "sha256": "8b5d2096eac704b41958618103111fa626817759432401ca588c1ae1aff1d907"
+  },
+  {
+   "id": "14aT4aXldIWn8VF75DKozGALY93Zf2NST",
+   "title": "Вебинар Основы ЭКС часть 1.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "14aT4aXldIWn8VF75DKozGALY93Zf2NST__Вебинар Основы ЭКС часть 1.pdf",
+   "size": 5093307,
+   "sha256": "32f26819cb90bacdcf10cb937ca91e9f60c67d1347f2d0a403eefbf47f6d146f"
+  },
+  {
+   "id": "1e41XZCLTJR0E_ZNwqGXFl4XWT6ismZxI",
+   "title": "Мониторирование_пациентов_с_электрокардиостимулятором.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1e41XZCLTJR0E_ZNwqGXFl4XWT6ismZxI__Мониторирование_пациентов_с_электрокардиостимулятором.pdf",
+   "size": 259068,
+   "sha256": "6630fbcaeebc3d6dc017d0a57e14de3622cb1fc02945c0ac31e5dec6cb561579"
+  },
+  {
+   "id": "1gI5ysSIVtbmAlV0WAxL4Wl5DJ4zqxJyr",
+   "title": "Морфология_QRS_при_ЖЭ_из_разных_источников.jpg",
+   "mime": "image/jpeg",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1gI5ysSIVtbmAlV0WAxL4Wl5DJ4zqxJyr__Морфология_QRS_при_ЖЭ_из_разных_источников.jpg",
+   "size": 1047742,
+   "sha256": "c5a418917eb98222150ee7fbd634261bb1fbc1fd05140e6102e1038c895de89f"
+  },
+  {
+   "id": "1v31le7vOvVAvD7FeZfU5Ii9hs2H0AGj8",
+   "title": "0lL7LYnMUb8.jpg",
+   "mime": "image/jpeg",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1v31le7vOvVAvD7FeZfU5Ii9hs2H0AGj8__0lL7LYnMUb8.jpg",
+   "size": 315174,
+   "sha256": "fdcb7521bcf84d06800dc17bf7ca844f4a9a95d0e34f9ead5b9b145cec7705a2"
+  },
+  {
+   "id": "17zYHFxbgvBOpXV3VItL9H7z48T0oNU0V",
+   "title": "Аритмии и блокады.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "17zYHFxbgvBOpXV3VItL9H7z48T0oNU0V__Аритмии и блокады.pdf",
+   "size": 49235921,
+   "sha256": "0828073b8b72a12ac30b520d9355a7033e0154982c3c146f4b71f9c2407033f4"
+  },
+  {
+   "id": "1cS985ztAsAayYRZkD4EeRTMjIoffPblV",
+   "title": "10.1038@s41569-019-0266-2.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1cS985ztAsAayYRZkD4EeRTMjIoffPblV__10.1038@s41569-019-0266-2.pdf",
+   "size": 3219688,
+   "sha256": "e2c021e9f91a788507f6e38295f4508909bbdbb4c933518df1118391a8c8e607"
+  },
+  {
+   "id": "1I165Fpw3bQNHoqkBk5iLW_CiUU3NeNMv",
+   "title": "EKGnadogositalnometape.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1I165Fpw3bQNHoqkBk5iLW_CiUU3NeNMv__EKGnadogositalnometape.pdf",
+   "size": 5886922,
+   "sha256": "fdb18d6c47b3ebabeeb44246356b3aa17856bbd75c8e2cbe829150439f22251d"
+  },
+  {
+   "id": "15Du4ruFoEx-19g6FxA_h0uvNJikXHcNC",
+   "title": "Medical_therapy_of_arrhythmias_associated_with_Wolff_Parkinson_White.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "15Du4ruFoEx-19g6FxA_h0uvNJikXHcNC__Medical_therapy_of_arrhythmias_associated_with_Wolff_Parkinson_White.pdf",
+   "size": 324667,
+   "sha256": "fc74885e9ad8c4e776b44f15415f01546e1cdf9178905c78f11379c017eb1759"
+  },
+  {
+   "id": "1NQ2j3ApJf5_sd3AFIhWYmI_S4SvQrO01",
+   "title": "Функц_нагрузочные_пробы_в_кард_2021.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1NQ2j3ApJf5_sd3AFIhWYmI_S4SvQrO01__Функц_нагрузочные_пробы_в_кард_2021.pdf",
+   "size": 1213099,
+   "sha256": "7904bae0b7ff0af03a439276532d46874c42425f2c9d9a576534e83d997e3359"
+  },
+  {
+   "id": "1fszOuK4xa9a4Va1CYPagilTYDpYicXip",
+   "title": "Screenshot_1.png",
+   "mime": "image/png",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1fszOuK4xa9a4Va1CYPagilTYDpYicXip__Screenshot_1.png",
+   "size": 207494,
+   "sha256": "fe7b00fc487608afb4610781a6e89642b1d3a005dab07d6ba9de9532887b1f4b"
+  },
+  {
+   "id": "1azUSyyz9U1ur0jd2rL0WN72fVseUk80a",
+   "title": "NWP.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1azUSyyz9U1ur0jd2rL0WN72fVseUk80a__NWP.pdf",
+   "size": 1423624,
+   "sha256": "524fb9cc312bf63dc2b72304698b2cbf5e3af1e8bf6440db8980341de8adf0d4"
+  },
+  {
+   "id": "1P0g0zhBLvt2-CBgDsdiuQwzNBuUsFFn8",
+   "title": "Т_зубец_в_норме_и_патологии_Александр_Юнг_2021_.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1P0g0zhBLvt2-CBgDsdiuQwzNBuUsFFn8__Т_зубец_в_норме_и_патологии_Александр_Юнг_2021_.pdf",
+   "size": 29301236,
+   "sha256": "cb6d36c77573178e7fc04a6a0a0aae92b878797fdeba283184d6abe2a7ef6f68"
+  },
+  {
+   "id": "1Ut7mLte1FjsG4KRPPHnwIAjeMVSGP45W",
+   "title": "Нормы ХМ.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1Ut7mLte1FjsG4KRPPHnwIAjeMVSGP45W__Нормы ХМ.pdf",
+   "size": 563664,
+   "sha256": "2f2a61f10789c832f818d54287ce525cc7b236dde5332ee6f1e1cecd9c1eef15"
+  },
+  {
+   "id": "1TwQU9Dnrei6D7HdrGUbahBQfpL5MfZNi",
+   "title": "19-10-2021_22-38-36.zip",
+   "mime": "application/x-zip-compressed",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1TwQU9Dnrei6D7HdrGUbahBQfpL5MfZNi__19-10-2021_22-38-36.zip",
+   "size": 773217,
+   "sha256": "c6ff38a054daca2596326aafbc93ea483569ea7c578d25602012999d37f79bab"
+  },
+  {
+   "id": "13qIAxBXcPmsjOm8-XnXYEQrzhg4gC5tX",
+   "title": "ХМ ОИМ ФЖ.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "13qIAxBXcPmsjOm8-XnXYEQrzhg4gC5tX__ХМ ОИМ ФЖ.pdf",
+   "size": 2462679,
+   "sha256": "3ef88c801c7ecb2bebc1650e10e3e9aae4a6936d9ce92efd08f84b4caeac42eb"
+  },
+  {
+   "id": "1wYnyxSzpYHYrWb0Ot2Mt_K8HEHOF5QkR",
+   "title": "Guidance_on_ECG_monitoring_in_NDR_RUS.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1wYnyxSzpYHYrWb0Ot2Mt_K8HEHOF5QkR__Guidance_on_ECG_monitoring_in_NDR_RUS.pdf",
+   "size": 1567772,
+   "sha256": "607f4e8d5280fb0e792cb0bc48ea2c8fa7c3e37473a120a76ce70c66aaa0fb12"
+  },
+  {
+   "id": "1H6P9f_PqAPk1oBinNo_DgIBgS-RNHGCr",
+   "title": "Анализ ЭКГ Нифонтов.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1H6P9f_PqAPk1oBinNo_DgIBgS-RNHGCr__Анализ ЭКГ Нифонтов.pdf",
+   "size": 4173965,
+   "sha256": "623043abcb5d06e55c24aa328080107010fb34517d6543eff5cc80903fed5fa2"
+  },
+  {
+   "id": "150IFMbufQ8jlb9Xu0jlYo2GdETQ_UAOf",
+   "title": "doc-197670244_624509078.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "150IFMbufQ8jlb9Xu0jlYo2GdETQ_UAOf__doc-197670244_624509078.pdf",
+   "size": 1074854,
+   "sha256": "781019997df12a5795094515087e7cb72c46d4b9b68802778d447158e30101ba"
+  },
+  {
+   "id": "1rAXOOQ_vhNZ8p4Pu1okmLkWjq-33oHue",
+   "title": "ЖЭС.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1rAXOOQ_vhNZ8p4Pu1okmLkWjq-33oHue__ЖЭС.pdf",
+   "size": 3836785,
+   "sha256": "31edab25e0fd1e3eddde31a8b217c4f7eef49c6c94f2c318a12a2ea50adcbbf7"
+  },
+  {
+   "id": "1dvobBbtpSZQNEVedh6TQS3g9bxqcbF7E",
+   "title": "Aritmology_broshura.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1dvobBbtpSZQNEVedh6TQS3g9bxqcbF7E__Aritmology_broshura.pdf",
+   "size": 1166261,
+   "sha256": "361a03971b2b842e47bd340307ba97a62e13c4f71bf21561432efb3b91b7c316"
+  },
+  {
+   "id": "1frxhnyYA7G1EWZF0SlJkKuiCL-l1Fj1E",
+   "title": "Неотложная_помощь_при_тахиритмиях.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1frxhnyYA7G1EWZF0SlJkKuiCL-l1Fj1E__Неотложная_помощь_при_тахиритмиях.pdf",
+   "size": 7310829,
+   "sha256": "064c7b233eeab7a9a6b768ea2b6c965abc544ffbcb0c373f4081269222848c8b"
+  },
+  {
+   "id": "1lpDi3mra9Yvha1uhTCS93ZPj_kS_Kkrs",
+   "title": "Основы_нормальной_электрофизиологии_сердца.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1lpDi3mra9Yvha1uhTCS93ZPj_kS_Kkrs__Основы_нормальной_электрофизиологии_сердца.pdf",
+   "size": 4276792,
+   "sha256": "c97e39d0224bded2e25477ac2f93e9d2294e1d4947de8aa105737fdfd72df25b"
+  },
+  {
+   "id": "1IpdNqoQgl3Aa8JGSn2-0vzINkRvJgEHL",
+   "title": "Rek_Holter_2013.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1IpdNqoQgl3Aa8JGSn2-0vzINkRvJgEHL__Rek_Holter_2013.pdf",
+   "size": 710240,
+   "sha256": "5f6d07a4b4e721150d327ef0326c0426aab72f70aca924d07d868aee3680557d"
+  },
+  {
+   "id": "1nsO9ekC_frj4Bi5268R_AJpBiL4VQXKF",
+   "title": "New Document(48) 04-Mar-2023 18-20-42(1).pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1nsO9ekC_frj4Bi5268R_AJpBiL4VQXKF__New Document(48) 04-Mar-2023 18-20-42(1).pdf",
+   "size": 17747125,
+   "sha256": "8fca43db315e44d0dbd3396d2cc54aefb204375f58afc0c538453b093d04014c"
+  },
+  {
+   "id": "19jsku9j1NIGaumwClHObnKXvDodgisfq",
+   "title": "Памятка по аритмиям GE.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "19jsku9j1NIGaumwClHObnKXvDodgisfq__Памятка по аритмиям GE.pdf",
+   "size": 1665429,
+   "sha256": "ba5f6677578ee5e1d85afb4ad06227ed5d66bc3167a18f35b93b266facea9a9f"
+  },
+  {
+   "id": "1f7nCJRrp5gq0Q6hcW6_UDMRawjME4TVc",
+   "title": "ЭКГ-линейки (3).doc",
+   "mime": "application/msword",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1f7nCJRrp5gq0Q6hcW6_UDMRawjME4TVc__ЭКГ-линейки (3).doc",
+   "size": 1076736,
+   "sha256": "0102b744c091093da416cb183c39f2f7e7b2d085f7cc62ee1d59f1880a00cb22"
+  },
+  {
+   "id": "10wWwDlbDQ_8nAYCidINQIIEM3gXN0ymj",
+   "title": "Причины широких QRS.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "10wWwDlbDQ_8nAYCidINQIIEM3gXN0ymj__Причины широких QRS.pdf",
+   "size": 132410,
+   "sha256": "513f6a2201589af7eb2c2d4e2a1014c8e732b0c3cca205fb679e00f8ac7f79aa"
+  },
+  {
+   "id": "1EfzS-HyAujyHWPMrj7hiyle0DVSSUOK4",
+   "title": "Тахикардия при ВПВ.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1EfzS-HyAujyHWPMrj7hiyle0DVSSUOK4__Тахикардия при ВПВ.pdf",
+   "size": 2359810,
+   "sha256": "31d38a417de7791c15ae3d68cfa1cae9d38a96847d9f5aed5f88befa5e741935"
+  },
+  {
+   "id": "1towzg1n_hhd9E8C5xvxiSkntfDyz47AM",
+   "title": "ECG dr. Allam.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1towzg1n_hhd9E8C5xvxiSkntfDyz47AM__ECG dr. Allam.pdf",
+   "size": 35528035,
+   "sha256": "d950e6a56a2aaf36c1d076207e591e20b4d8f13b386633364ea75906cf2ef115"
+  },
+  {
+   "id": "1uQEoNC-2KcZQPAxB88iKGW7hIFGg7pNl",
+   "title": "правленнаяРасположение_электродов_и_отведений_Александр_Юнг.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "error": "OSError: [Errno 36] File name too long: '/home/user/Radiology/data/books/lib/.1uQEoNC-2KcZQPAxB88iKGW7hIFGg7p",
+   "file": "1uQEoNC-2KcZQPAxB88iKGW7hIFGg7pNl__правленнаяРасположение_электродов_и_отведений_Александр_Юнг.pdf",
+   "size": 21241599,
+   "sha256": "58ec255933c39b149e6e585e196afb8e8ae975ff861bea66361756d6b46bc5c4"
+  },
+  {
+   "id": "15xOsC6L39ipp584BKtJ9cZx_uQoF9C43",
+   "title": "Мнемоника WОББЛЕР.png",
+   "mime": "image/png",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "15xOsC6L39ipp584BKtJ9cZx_uQoF9C43__Мнемоника WОББЛЕР.png",
+   "size": 439736,
+   "sha256": "b1ba953cc2945babcd158cf110959ee1313b02aaa76764e7f575c77e9e79bf33"
+  },
+  {
+   "id": "1zUOeQ2ow8CQdLjxbGJPerHttlpMuj0w2",
+   "title": "Мнемоника WОББЛЕР.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1zUOeQ2ow8CQdLjxbGJPerHttlpMuj0w2__Мнемоника WОББЛЕР.pdf",
+   "size": 658463,
+   "sha256": "92713697a315380bf41261fa0d2d1823f0119e3db2bc83d6b884951e42602f90"
+  },
+  {
+   "id": "1P6QFM5nwbPxcX_NU2dOzrbOAJ4MjfpZY",
+   "title": "Алгоритмы ЭКГ.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1P6QFM5nwbPxcX_NU2dOzrbOAJ4MjfpZY__Алгоритмы ЭКГ.pdf",
+   "size": 840276,
+   "sha256": "a7831d54d8d3ce3e4a849bf7904ab91512424d426bab90920cadd5948fe53005"
+  },
+  {
+   "id": "1q-loalutR6KERPEVy6Ubc-5DdurRZa3z",
+   "title": "EKG_2021.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1q-loalutR6KERPEVy6Ubc-5DdurRZa3z__EKG_2021.pdf",
+   "size": 35083095,
+   "sha256": "914ad0a6e032892bb198b68ef97c40650c6af163e58cf14295b65a6a24d75ec2"
+  },
+  {
+   "id": "1uEyiNdbtAm8q5Ss-HBpWM0hV-HZxBAzk",
+   "title": "Как_построить_лестничную_диаграмму.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1uEyiNdbtAm8q5Ss-HBpWM0hV-HZxBAzk__Как_построить_лестничную_диаграмму.pdf",
+   "size": 2717641,
+   "sha256": "95fbf6e693b1bf79a965cc63465442151f0fa5a076b94daf5e6ffd65b8468e70"
+  },
+  {
+   "id": "1OvJULHdr5c64P_qUkc9bZSyxLVL9J-7T",
+   "title": "Алгоритм_оценки_тахикардий_с_узкими_QRS_.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1OvJULHdr5c64P_qUkc9bZSyxLVL9J-7T__Алгоритм_оценки_тахикардий_с_узкими_QRS_.pdf",
+   "size": 97988,
+   "sha256": "113e6993f9d4ecba4b4c1c78437d6f46b67604d36a57add1d8bb3fa6950a15e2"
+  },
+  {
+   "id": "1bpWt5PhpzWgWKJNqTEVgD8unReL5GY0a",
+   "title": "BRUGADA_SYNDROME_FROM_PRIMARY_ELECTRIC_HEART_DISEA.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1bpWt5PhpzWgWKJNqTEVgD8unReL5GY0a__BRUGADA_SYNDROME_FROM_PRIMARY_ELECTRIC_HEART_DISEA.pdf",
+   "size": 432569,
+   "sha256": "6236c46fd36738254cb020ed1f5913d25a03f865b8d1b39cb2b6c363b7cf2c07"
+  },
+  {
+   "id": "1EQt3A1lD7ABOblhJD7fIdK64b067HbHq",
+   "title": "Drugs_To_Avoid_List_english.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1EQt3A1lD7ABOblhJD7fIdK64b067HbHq__Drugs_To_Avoid_List_english.pdf",
+   "size": 169968,
+   "sha256": "2784272fb2ce703a2503eda0373e4e22006f9e0b88065aa78ef5a0bbac5daac5"
+  },
+  {
+   "id": "1yIjJIogzSoSdKfOlGLqzw657tphQva5U",
+   "title": "Maps ECG v1 .pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1yIjJIogzSoSdKfOlGLqzw657tphQva5U__Maps ECG v1 .pdf",
+   "size": 3441808,
+   "sha256": "0b3b2a9ddb14dadb31e523f65a6f1f603eab131db0ec9aa70e32d3eb9a0ff0a1"
+  },
+  {
+   "id": "1vSc3Z5V-5C9YrfdMJ40vKcUU6OySW9vI",
+   "title": "ekg_lineiki.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1vSc3Z5V-5C9YrfdMJ40vKcUU6OySW9vI__ekg_lineiki.pdf",
+   "size": 575603,
+   "sha256": "cf804a43c2efbfd3adaa28be332746e5c65f4be0ceaf6391d112dae9ba734ee8"
+  },
+  {
+   "id": "10xXQfRpb8Yt73O4TleKJQ7qzEtz7qWM9",
+   "title": "Maps ECG v1 .png",
+   "mime": "image/png",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "10xXQfRpb8Yt73O4TleKJQ7qzEtz7qWM9__Maps ECG v1 .png",
+   "size": 38414,
+   "sha256": "e6e30467615195a4b420f1b94660fdc62a6153bb507c1a21b20926d10a0310ab"
+  },
+  {
+   "id": "1AZj3MNp2sgQYaVGPUu6jUDES_O4S0i0H",
+   "title": "ЭКГ-линейка.png",
+   "mime": "image/png",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1AZj3MNp2sgQYaVGPUu6jUDES_O4S0i0H__ЭКГ-линейка.png",
+   "size": 203386,
+   "sha256": "98967f03ef3f754790eff6bd30e49a7d29717265ba2008a41794af01d2dcb2a9"
+  },
+  {
+   "id": "1jyyd6RTj-9FTsVsmHDwGZdD2VA0_U0E0",
+   "title": "АНАТОМИЯ_И_КРОВОСНАБЖЕНИЕ_СЕРДЦА.doc",
+   "mime": "application/msword",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1jyyd6RTj-9FTsVsmHDwGZdD2VA0_U0E0__АНАТОМИЯ_И_КРОВОСНАБЖЕНИЕ_СЕРДЦА.doc",
+   "size": 12002304,
+   "sha256": "658075fd8ccb462662b4b95e02d49979a442197bc64b6793684aca121297cef6"
+  },
+  {
+   "id": "1Ssh70nG_1U0JJ9OY7C1_cYnvteIARYiW",
+   "title": "2_5314508355006371399.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1Ssh70nG_1U0JJ9OY7C1_cYnvteIARYiW__2_5314508355006371399.pdf",
+   "size": 2022798,
+   "sha256": "8c69a157acb3c1d8e048b71e9f2fd0c2fc5174737c8dd7fe94bd7e9c36dce1a0"
+  },
+  {
+   "id": "1lSdianobdJ48979IOLwj1pBrtZag6OYp",
+   "title": "Ритмы сердца.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1lSdianobdJ48979IOLwj1pBrtZag6OYp__Ритмы сердца.pdf",
+   "size": 940116,
+   "sha256": "72bdf528f868349e0b51ffabb8a35b1c6119cbb5d0f69a144ff009f4c60dee93"
+  },
+  {
+   "id": "17L2Ihd8EndY7-pL8fp5SSSKwfpKBPDRe",
+   "title": "ECG_Changes_In_Antiarrhythmic_Toxicity_&_Their_Management_On_A&E.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "17L2Ihd8EndY7-pL8fp5SSSKwfpKBPDRe__ECG_Changes_In_Antiarrhythmic_Toxicity_&_Their_Management_On_A&E.pdf",
+   "size": 4775687,
+   "sha256": "ecd7ce7574ace77077dd0356f512f1a1c0c5689737bc4b5ba081747f8e367845"
+  },
+  {
+   "id": "1Rc9a0IInF-nzUw7TUYs5RZUI-BRrmEvW",
+   "title": "KLINIChESKIJ_ANALIZ_REGULYaRNYKh_TAKhIKARDIJ_S_ShIROKIMI_KOMPLEKSAMI.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1Rc9a0IInF-nzUw7TUYs5RZUI-BRrmEvW__KLINIChESKIJ_ANALIZ_REGULYaRNYKh_TAKhIKARDIJ_S_ShIROKIMI_KOMPLEKSAMI.pdf",
+   "size": 4804746,
+   "sha256": "1d020e2c31b992f6226b85438679be38ace57d7b557741adeda34e4119b7cbbe"
+  },
+  {
+   "id": "1ySHtmO8UMEPHdAcz9XSqUA4RvsEWZi5R",
+   "title": "Функциональная диагностика.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1ySHtmO8UMEPHdAcz9XSqUA4RvsEWZi5R__Функциональная диагностика.pdf",
+   "size": 7621817,
+   "sha256": "73269cb19aa10c6df8f89fb23af7ca555d338fdbe69d4f116ebe13e797516acc"
+  },
+  {
+   "id": "1tMtrtAJz9NQLaliTMukeOQl5BQ45LAyZ",
+   "title": "приобретенный.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1tMtrtAJz9NQLaliTMukeOQl5BQ45LAyZ__приобретенный.pdf",
+   "size": 2779900,
+   "sha256": "3b7b753b1d20b7f2fcc7d29c888d6a0afca7b21e8b11c09aeed9790f38f1ff13"
+  },
+  {
+   "id": "1Y9DiV0ox63ggOPyB5eJqgUEjdxD9v56X",
+   "title": "Диагностика_редких_болезней_в_практике_кардиолога.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1Y9DiV0ox63ggOPyB5eJqgUEjdxD9v56X__Диагностика_редких_болезней_в_практике_кардиолога.pdf",
+   "size": 1985054,
+   "sha256": "b6503bd525cf3e2ffb54d85bc8f3b46735d684dd06c3eceeec11d044551af0c8"
+  },
+  {
+   "id": "18-cqCwm1E96EzILTJqsENfdxCGUieKos",
+   "title": "Manifest.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "18-cqCwm1E96EzILTJqsENfdxCGUieKos__Manifest.pdf",
+   "size": 2714543,
+   "sha256": "a91851fcc8b8f1cf9c10cecedf8aeb647478a858fa97f32fdf018c24fdf5411d"
+  },
+  {
+   "id": "1mXzdoADGW86ZnNIHdn2ePDGVkh-2p3KQ",
+   "title": "такоцубо.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1mXzdoADGW86ZnNIHdn2ePDGVkh-2p3KQ__такоцубо.pdf",
+   "size": 434403,
+   "sha256": "678895c563a8b18bbbca18b65a1c1e60ec49d0cf22f51fcbc8358cdaa95fa1e5"
+  },
+  {
+   "id": "1cB14kp7WN1VyW111yTcMAP3cc0SMiv-t",
+   "title": "Дифференциальная_диагностика_дефицита_прироста_зубца_R.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1cB14kp7WN1VyW111yTcMAP3cc0SMiv-t__Дифференциальная_диагностика_дефицита_прироста_зубца_R.pdf",
+   "size": 559065,
+   "sha256": "e557b2234cff7735671b489ca15f1e94f7a4bbd403678a210b45ec73851eaf8a"
+  },
+  {
+   "id": "11HKP28t3R786Omfc5qR4UfV7t4nAqMe8",
+   "title": "The+OMI+Manifesto.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "11HKP28t3R786Omfc5qR4UfV7t4nAqMe8__The+OMI+Manifesto.pdf",
+   "size": 1971816,
+   "sha256": "0f17bd7c21185dc8975941ef2a71e2b02be9f76a0b591c23d6832e2ba08c5467"
+  },
+  {
+   "id": "1SISJn55bVy1nMUdPyR-kevgMKufSP-vJ",
+   "title": "Чек-лист по ЭКГ.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1SISJn55bVy1nMUdPyR-kevgMKufSP-vJ__Чек-лист по ЭКГ.pdf",
+   "size": 927364,
+   "sha256": "a125b427da4062dd70c316030b9a6301ef02425e5beed67a42037b0b8b913067"
+  },
+  {
+   "id": "1Pd0bc5sxWe0sPTMYW4N3d_ZpIWYIZC_6",
+   "title": "Осложнения_электрокардиостимуляции.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1Pd0bc5sxWe0sPTMYW4N3d_ZpIWYIZC_6__Осложнения_электрокардиостимуляции.pdf",
+   "size": 1948883,
+   "sha256": "3f57300cff466c1fb2741ebf55a24ecac082152c3198d88a7bdf5997fb7b7394"
+  },
+  {
+   "id": "18x8ZQqZ9t34K7K0AUStwJvNMBSktAKAI",
+   "title": "Рек. по ЭКГ 12 отв 2023 (1).pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "18x8ZQqZ9t34K7K0AUStwJvNMBSktAKAI__Рек. по ЭКГ 12 отв 2023 (1).pdf",
+   "size": 4276183,
+   "sha256": "3f1341212e2291049bc188a3203ac7de70eabe0f279e37c6c41d0ab77a2630a6"
+  },
+  {
+   "id": "1KIMmm4MunfeTPO8nnn95jMC_PPXG6P2Y",
+   "title": "Калькулятор_расчета_корригированного_интервала_QT.xlsx",
+   "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1KIMmm4MunfeTPO8nnn95jMC_PPXG6P2Y__Калькулятор_расчета_корригированного_интервала_QT.xlsx",
+   "size": 50575,
+   "sha256": "c2d55c307781470e8aa2f8be9cdce5451fb8f030d8837ad443d4f12f93036195"
+  },
+  {
+   "id": "1wiFfYfUEDlMVj2U4pHdq-7TLVmf7Hhu5",
+   "title": "экг поражение ствола.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1wiFfYfUEDlMVj2U4pHdq-7TLVmf7Hhu5__экг поражение ствола.pdf",
+   "size": 1670660,
+   "sha256": "1a1bf66cfa1c064b56d72b87cdbe363a1d1b74df5afbb52f1af97a36de3e5c32"
+  },
+  {
+   "id": "1gbHRDJhclNjGTg4XsA0iPF7Uq7F7lGF9",
+   "title": "Dr. Yung's T-wave.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1gbHRDJhclNjGTg4XsA0iPF7Uq7F7lGF9__Dr. Yung's T-wave.pdf",
+   "size": 2999349,
+   "sha256": "68a6129285a965abb6bed7fce86386899b4535863e5ee5c16a24043fafe92b8c"
+  },
+  {
+   "id": "15f6xV5eXujREp1rWmtXJOP8mdM-jXsRk",
+   "title": "ТЭЛА.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "15f6xV5eXujREp1rWmtXJOP8mdM-jXsRk__ТЭЛА.pdf",
+   "size": 1316633,
+   "sha256": "c732439d3f63ccd453118a99e82662fab74721cdafea0613acc88791d4cb5bc4"
+  },
+  {
+   "id": "12jblHz7nzNPtPtLIUlNzu3G6TWAaemLN",
+   "title": "Pocket-guide-ECG-interpretation.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "12jblHz7nzNPtPtLIUlNzu3G6TWAaemLN__Pocket-guide-ECG-interpretation.pdf",
+   "size": 1775220,
+   "sha256": "6047c07ee12105523227c34561ec9aae213de8499f1065f6e0be411938fd8fe9"
+  },
+  {
+   "id": "163mEefHxRQXZ90HgCIuf2lzh2SuZIn4w",
+   "title": "Алгоритмы ЭКГ-диагностики.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "163mEefHxRQXZ90HgCIuf2lzh2SuZIn4w__Алгоритмы ЭКГ-диагностики.pdf",
+   "size": 373985,
+   "sha256": "c6758ec38c48378aca1efa414fb31dfe6664da80617170c844aefb3bf715fc47"
+  },
+  {
+   "id": "1I2IcPAmG9wGoOUliqMtwHndBOeTPriIf",
+   "title": "MKS_Poster_1_low.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1I2IcPAmG9wGoOUliqMtwHndBOeTPriIf__MKS_Poster_1_low.pdf",
+   "size": 306978,
+   "sha256": "0ee680d404bb9ebba303ee0a395c3a63dfc41ddba03fe614afebdf4b5f4e9262"
+  },
+  {
+   "id": "17hsJsz_70W-gyLjYkQJnNLjhcZDL41Wf",
+   "title": "КАРДИОНЕЙРОАБЛАЦИЯ (1).docx",
+   "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "17hsJsz_70W-gyLjYkQJnNLjhcZDL41Wf__КАРДИОНЕЙРОАБЛАЦИЯ (1).docx",
+   "size": 256761,
+   "sha256": "d3fc4644118a1e199494b76291eeee1d6803051c524682abac009df1fa7ef35d"
+  },
+  {
+   "id": "1b7FRdgypN4WtBe_gAr7pfq3oX1iCdNPP",
+   "title": "Vision AI — логотип.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1b7FRdgypN4WtBe_gAr7pfq3oX1iCdNPP__Vision AI — логотип.pdf",
+   "size": 4848173,
+   "sha256": "dcf8ad5a5cf580453b59d32f5ef96a3ae15e6831e61eda41b1a7533646f4cba1"
+  },
+  {
+   "id": "11tSR8YSMF8JsTBcocV-gc9pLcKMu6V9n",
+   "title": "Algoritmy_EKG_diagnostiki_Polyakova_Arabidze_2020.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "11tSR8YSMF8JsTBcocV-gc9pLcKMu6V9n__Algoritmy_EKG_diagnostiki_Polyakova_Arabidze_2020.pdf",
+   "size": 3715304,
+   "sha256": "4b2cf0d2475017907fbddd4e3a07d0f2fa5a070a131e98b3d4dc1aea0e34d5ae"
+  },
+  {
+   "id": "1rRij0__T6eWzTC91CUzGbxZV2OpmDHSs",
+   "title": "EKGshki-1.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1rRij0__T6eWzTC91CUzGbxZV2OpmDHSs__EKGshki-1.pdf",
+   "size": 3908810,
+   "sha256": "07cebe9acb61c58de63397e08cb5076af970655e3e3a4e2ef33144d3cfa0535f"
+  },
+  {
+   "id": "15Qmt5Xf1plLf1QHZFgtr9VG8KsLxqmj-",
+   "title": "Key ECG norms infographic PDF Final.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "15Qmt5Xf1plLf1QHZFgtr9VG8KsLxqmj-__Key ECG norms infographic PDF Final.pdf",
+   "size": 528701,
+   "sha256": "907f0b8fbd5159ee3d34aa0dcf147139cd703aa12538e7ca535f150ce788afe2"
+  },
+  {
+   "id": "1sBmabjJsK3EMUAAl4-q6m80rwtx_hOqu",
+   "title": "ЭКГ_диагностика_окклюзирующий_поражений_коронарных_артерий.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "error": "OSError: [Errno 36] File name too long: '/home/user/Radiology/data/books/lib/.1sBmabjJsK3EMUAAl4-q6m80rwtx_hO",
+   "file": "1sBmabjJsK3EMUAAl4-q6m80rwtx_hOqu__ЭКГ_диагностика_окклюзирующий_поражений_коронарных_артерий.pdf",
+   "size": 5428890,
+   "sha256": "e17c690f2017545661dcfc0d2431a43293fd32013b919e343c91633c61a6b0f1"
+  },
+  {
+   "id": "1mkk77BPQ8enX3tu9JOC-pkigq21FqoxX",
+   "title": "Тахиаритмии 2025.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1mkk77BPQ8enX3tu9JOC-pkigq21FqoxX__Тахиаритмии 2025.pdf",
+   "size": 2125656,
+   "sha256": "11627a89f27da1e460918f488333be62c6fec38a6ccf5fb7ae00427eab43ab05"
+  },
+  {
+   "id": "1JUDjZCSvu30ihC_rH6WZc2ENMFNLclLX",
+   "title": "76.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1JUDjZCSvu30ihC_rH6WZc2ENMFNLclLX__76.pdf",
+   "size": 2653084,
+   "sha256": "87c638e555e86a17c5a2432947c774eecda4daca9d6a78b58fadd2ff643c337e"
+  },
+  {
+   "id": "1M3tBxfZtJ132oC8L3bQKMus6My3MnRTF",
+   "title": "ЭКГ_признаков_OMI_при_отсутствии_классических_признаков_STEMI.pdf",
+   "mime": "application/pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1M3tBxfZtJ132oC8L3bQKMus6My3MnRTF__ЭКГ_признаков_OMI_при_отсутствии_классических_признаков_STEMI.pdf",
+   "size": 5660422,
+   "sha256": "8aa653c32d8adff05fffecdc105b64fa1de6e9c9759bb85ad8776bba4ae47241"
+  },
+  {
+   "id": "19NdAsIqNNDu09DSTIXIwv0M2AhEm9y6X",
+   "title": "Дополнительные отведения ЭКГ.pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "19NdAsIqNNDu09DSTIXIwv0M2AhEm9y6X__Дополнительные отведения ЭКГ.pdf",
+   "size": 1001611,
+   "sha256": "61e0191491e95feedd920dd886aa7ef2297e752f809d945be4820e75e8b5a06e"
+  },
+  {
+   "id": "1J_Y-MBfEJRflHkvhY8uAJE2kGqTbMr1I",
+   "title": "agonal_rhythm_-_landai.pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1J_Y-MBfEJRflHkvhY8uAJE2kGqTbMr1I__agonal_rhythm_-_landai.pdf",
+   "size": 636139,
+   "sha256": "522481454dc24ee84ae31222722c5d285b30d39ee4bae238758dbd19f13b6ff7"
+  },
+  {
+   "id": "1iN6AnzxvKNfqaPg-IxPEJVvmAWe3kBSs",
+   "title": "Brown-PCI-late-presenting-STEMI.pdf",
+   "source": "drive_folder_1KMCJYCD341E7eoM0i1X7WD-p60ME7mtU",
+   "file": "1iN6AnzxvKNfqaPg-IxPEJVvmAWe3kBSs__Brown-PCI-late-presenting-STEMI.pdf",
+   "size": 684496,
+   "sha256": "f214d026d6fd3c0787142aa3c0eea8b734d7fcbcb9166318fc696903b747d153"
+  },
+  {
+   "id": "1-JdqEXqdL3S9JXBfBm2k2nvpeTW_31of",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð­ÐÐ-Ð»Ð¸Ð½ÐµÐ¹ÐºÐ°.png",
+   "size": 203386,
+   "sha256": "98967f03ef3f754790eff6bd30e49a7d29717265ba2008a41794af01d2dcb2a9",
+   "duplicate_of": "1AZj3MNp2sgQYaVGPUu6jUDES_O4S0i0H"
+  },
+  {
+   "id": "1-NKZ-aViKDHv4gzv4QCzSZU-ejbPAgMu",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ¾Ð½Ð¸ÑÐ¾ÑÐ¸ÑÐ¾Ð²Ð°Ð½Ð¸Ðµ_Ð¿Ð°ÑÐ¸ÐµÐ½ÑÐ¾Ð²_Ñ_ÑÐ»ÐµÐºÑÑÐ¾ÐºÐ°ÑÐ´Ð¸Ð¾ÑÑÐ¸Ð¼ÑÐ»ÑÑÐ¾ÑÐ¾Ð¼.pdf",
+   "size": 259068,
+   "sha256": "6630fbcaeebc3d6dc017d0a57e14de3622cb1fc02945c0ac31e5dec6cb561579",
+   "duplicate_of": "1e41XZCLTJR0E_ZNwqGXFl4XWT6ismZxI"
+  },
+  {
+   "id": "1-qqscGVf0MY2M52FAjsxuMoiTF3ocfy1",
+   "source": "owner_links_2026-11-08",
+   "title": "EKG_2021.pdf",
+   "size": 35083095,
+   "sha256": "914ad0a6e032892bb198b68ef97c40650c6af163e58cf14295b65a6a24d75ec2",
+   "duplicate_of": "1q-loalutR6KERPEVy6Ubc-5DdurRZa3z"
+  },
+  {
+   "id": "10moTWp1NTe7AMv1Ukya14pONS86TZmAu",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð ÐµÑÐ¸Ð½ÑÑÐ¾Ð½Ð¸Ð·Ð¸ÑÑÑÑÐ°Ñ_ÑÐµÑÐ°Ð¿Ð¸Ñ -5.pptx",
+   "size": 8628665,
+   "sha256": "02c13a07f13529c241372322626e1d8990aad39e5152b3a3a80ce0c4df974cbe",
+   "duplicate_of": "1JczKDBPOAfB-W1qimdH4uTVPuLnEcdqA"
+  },
+  {
+   "id": "11LqPGi4vKJqK9Msq361M2AQMGTO9Jovm",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ½ÐµÐ¼Ð¾Ð½Ð¸ÐºÐ° WÐÐÐÐÐÐ .png",
+   "size": 439736,
+   "sha256": "b1ba953cc2945babcd158cf110959ee1313b02aaa76764e7f575c77e9e79bf33",
+   "duplicate_of": "15xOsC6L39ipp584BKtJ9cZx_uQoF9C43"
+  },
+  {
+   "id": "11Qm__c-Wjfhv6xGMernhcEsxdVOg0mZJ",
+   "source": "owner_links_2026-11-08",
+   "error": "OSError: [Errno 36] File name too long: '/home/user/Radiology/data/books/lib/.11Qm__c-Wjfhv6xGMernhcEsxdVOg0m",
+   "title": "ЭКГ_диагностика_окклюзирующий_поражений_коронарных_артерий.pdf",
+   "size": 5428890,
+   "sha256": "e17c690f2017545661dcfc0d2431a43293fd32013b919e343c91633c61a6b0f1",
+   "duplicate_of": "1sBmabjJsK3EMUAAl4-q6m80rwtx_hOqu"
+  },
+  {
+   "id": "11euwmseQ_TiiJ5KJzcrbW6yOkQHD2u-s",
+   "source": "owner_links_2026-11-08",
+   "title": "AvatarStudio_Ð´Ð¾ÑÐ¾Ð¶Ð½Ð°Ñ_ÐºÐ°ÑÑÐ°.docx",
+   "size": 18606,
+   "sha256": "4fd5802394d01bb10ec680972e50e6fd2f6258f49258206bcd85194b87078303",
+   "duplicate_of": "1WHvuZcK4PapV_o_36YFxfRpLHy-HMWC7"
+  },
+  {
+   "id": "129Gc_bVyvEGu9KZ_DOgwJIn9SLnaTdSK",
+   "source": "owner_links_2026-11-08",
+   "title": "MKS_Poster_1_low.pdf",
+   "size": 306978,
+   "sha256": "0ee680d404bb9ebba303ee0a395c3a63dfc41ddba03fe614afebdf4b5f4e9262",
+   "duplicate_of": "1I2IcPAmG9wGoOUliqMtwHndBOeTPriIf"
+  },
+  {
+   "id": "12BRBuRNxMvLZUmyyuUBy855-YJ7BEX3h",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ¾Ð¿Ð¾Ð»Ð½Ð¸ÑÐµÐ»ÑÐ½ÑÐµ Ð¾ÑÐ²ÐµÐ´ÐµÐ½Ð¸Ñ Ð­ÐÐ.pdf",
+   "size": 1001611,
+   "sha256": "61e0191491e95feedd920dd886aa7ef2297e752f809d945be4820e75e8b5a06e",
+   "duplicate_of": "19NdAsIqNNDu09DSTIXIwv0M2AhEm9y6X"
+  },
+  {
+   "id": "12hLAb3s0IIgWi4Ry9rJvd2ogCllGlEkI",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð¥Ð.pdf",
+   "size": 1616476,
+   "sha256": "fda9ce530215dbc36f037271c20a85e8b287eafe32c37e954f183cb1fd85c2c3",
+   "duplicate_of": "1R9E3AjySBf-RjaII7lL_MZjaHQgshD84"
+  },
+  {
+   "id": "13UWpzM4XoXDRrtskeLe38m2xXN0HSYlA",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ¾ÑÑÐ¾Ð»Ð¾Ð³Ð¸Ñ_QRS_Ð¿ÑÐ¸_ÐÐ­_Ð¸Ð·_ÑÐ°Ð·Ð½ÑÑ_Ð¸ÑÑÐ¾ÑÐ½Ð¸ÐºÐ¾Ð².jpg",
+   "size": 1047742,
+   "sha256": "c5a418917eb98222150ee7fbd634261bb1fbc1fd05140e6102e1038c895de89f",
+   "duplicate_of": "1gI5ysSIVtbmAlV0WAxL4Wl5DJ4zqxJyr"
+  },
+  {
+   "id": "13ZbLjQQFUtBEdG-Mc_AiOR8p5d_scSoJ",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ°Ðº_Ð¿Ð¾ÑÑÑÐ¾Ð¸ÑÑ_Ð»ÐµÑÑÐ½Ð¸ÑÐ½ÑÑ_Ð´Ð¸Ð°Ð³ÑÐ°Ð¼Ð¼Ñ.pdf",
+   "size": 2717641,
+   "sha256": "95fbf6e693b1bf79a965cc63465442151f0fa5a076b94daf5e6ffd65b8468e70",
+   "duplicate_of": "1uEyiNdbtAm8q5Ss-HBpWM0hV-HZxBAzk"
+  },
+  {
+   "id": "13rUN-B2MphkzHoCTZ4agR0JeRtTltYtQ",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ»Ð³Ð¾ÑÐ¸ÑÐ¼_Ð¾ÑÐµÐ½ÐºÐ¸_ÑÐ°ÑÐ¸ÐºÐ°ÑÐ´Ð¸Ð¹_Ñ_ÑÐ·ÐºÐ¸Ð¼Ð¸_QRS_.pdf",
+   "size": 97988,
+   "sha256": "113e6993f9d4ecba4b4c1c78437d6f46b67604d36a57add1d8bb3fa6950a15e2",
+   "duplicate_of": "1OvJULHdr5c64P_qUkc9bZSyxLVL9J-7T"
+  },
+  {
+   "id": "14T0Jk7yGT6bD_vYl_umHEcRj3T4ZDXDy",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð¢Ð°ÑÐ¸ÐºÐ°ÑÐ´Ð¸Ñ Ð¿ÑÐ¸ ÐÐÐ.pdf",
+   "size": 2359810,
+   "sha256": "31d38a417de7791c15ae3d68cfa1cae9d38a96847d9f5aed5f88befa5e741935",
+   "duplicate_of": "1EfzS-HyAujyHWPMrj7hiyle0DVSSUOK4"
+  },
+  {
+   "id": "14VfmMG5xJFlTQ-e2z8UlC2rRSzSyfUw2",
+   "source": "owner_links_2026-11-08",
+   "error": "OSError: [Errno 36] File name too long: '/home/user/Radiology/data/books/lib/.14VfmMG5xJFlTQ-e2z8UlC2rRSzSyfU",
+   "title": "Электрокардиографические_критерии_окклюзирующих_и_прогностически.pdf",
+   "size": 12079464,
+   "sha256": "2c812a3551f6963554e640c47dbc832ccc0e8539dadbac4fa74adae37711ba6d",
+   "duplicate_of": "19IAuK35ZZEsYOyZ6N14_z8ta_nqGCV3o"
+  },
+  {
+   "id": "14lQ6wT9K_5gYGaaNXTGh8NhwjM5jIOpP",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÑÐ¸ÑÐ¸Ð½Ñ ÑÐ¸ÑÐ¾ÐºÐ¸Ñ QRS.pdf",
+   "size": 132410,
+   "sha256": "513f6a2201589af7eb2c2d4e2a1014c8e732b0c3cca205fb679e00f8ac7f79aa",
+   "duplicate_of": "10wWwDlbDQ_8nAYCidINQIIEM3gXN0ymj"
+  },
+  {
+   "id": "15jIPotsVakzMkj8vTdv10XpHsw6o2L8e",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð­ÐÐ Ð¿ÑÐ¸ ÐÐÐ Ð¡ Ð¡Ð¼Ð¸Ñ ÑÐ°ÑÑÑ1.pdf",
+   "size": 9564306,
+   "sha256": "7fd35b14806aeca40bf91d40c1c06272d7a4fe58d636e8959a2114aed74ad166",
+   "duplicate_of": "1532SMAyQFTAJH3WZ7-2Q8vHqBnkYR2Kl"
+  },
+  {
+   "id": "190_nMPdp6Vwe_DVc3hWvQKvlssfRXCBD",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ°Ð¼ÑÑÐºÐ° Ð¿Ð¾ Ð°ÑÐ¸ÑÐ¼Ð¸ÑÐ¼ GE.pdf",
+   "size": 1665429,
+   "sha256": "ba5f6677578ee5e1d85afb4ad06227ed5d66bc3167a18f35b93b266facea9a9f",
+   "duplicate_of": "19jsku9j1NIGaumwClHObnKXvDodgisfq"
+  },
+  {
+   "id": "1A--ZRnnCR-EeGyG6eGtbDT3SmkAcXYMm",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð¢Ð­ÐÐ.pdf",
+   "size": 1316633,
+   "sha256": "c732439d3f63ccd453118a99e82662fab74721cdafea0613acc88791d4cb5bc4",
+   "duplicate_of": "15f6xV5eXujREp1rWmtXJOP8mdM-jXsRk"
+  },
+  {
+   "id": "1AjqUtJk0JlmyU3Cd_vjhFc-YNGrpNd6d",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ»Ð³Ð¾ÑÐ¸ÑÐ¼Ñ Ð­ÐÐ.pdf",
+   "size": 840276,
+   "sha256": "a7831d54d8d3ce3e4a849bf7904ab91512424d426bab90920cadd5948fe53005",
+   "duplicate_of": "1P6QFM5nwbPxcX_NU2dOzrbOAJ4MjfpZY"
+  },
+  {
+   "id": "1AuYHh8h9L_nYudcLl4T0Le0m0nH1z-8K",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð ÐµÐº. Ð¿Ð¾ Ð­ÐÐ 12 Ð¾ÑÐ² 2023 (1).pdf",
+   "size": 4276183,
+   "sha256": "3f1341212e2291049bc188a3203ac7de70eabe0f279e37c6c41d0ab77a2630a6",
+   "duplicate_of": "18x8ZQqZ9t34K7K0AUStwJvNMBSktAKAI"
+  },
+  {
+   "id": "1B3jHUsdMYN-CwI3_ZndDMdDoKpkz9j88",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ½ÐµÐ¼Ð¾Ð½Ð¸ÐºÐ° WÐÐÐÐÐÐ .pdf",
+   "size": 658463,
+   "sha256": "92713697a315380bf41261fa0d2d1823f0119e3db2bc83d6b884951e42602f90",
+   "duplicate_of": "1zUOeQ2ow8CQdLjxbGJPerHttlpMuj0w2"
+  },
+  {
+   "id": "1Bfs2AQTyp7n6xY8yAd4W2k10p2jZgisy",
+   "source": "owner_links_2026-11-08",
+   "title": "Guidance_on_ECG_monitoring_in_NDR_RUS.pdf",
+   "size": 1567772,
+   "sha256": "607f4e8d5280fb0e792cb0bc48ea2c8fa7c3e37473a120a76ce70c66aaa0fb12",
+   "duplicate_of": "1wYnyxSzpYHYrWb0Ot2Mt_K8HEHOF5QkR"
+  },
+  {
+   "id": "1CTWboDjvBPcNG-ZE5fY-gGDs-eeGnwX_",
+   "source": "owner_links_2026-11-08",
+   "title": "Aritmology_broshura.pdf",
+   "size": 1166261,
+   "sha256": "361a03971b2b842e47bd340307ba97a62e13c4f71bf21561432efb3b91b7c316",
+   "duplicate_of": "1dvobBbtpSZQNEVedh6TQS3g9bxqcbF7E"
+  },
+  {
+   "id": "1Cl4vCwe7AEZ8XI8Uyn1XVMqEFYYSJDWS",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ½Ð°Ð»Ð¸Ð· Ð¿ÑÐ¾Ð±Ð»ÐµÐ¼Ð½ÑÑ Ð­ÐÐ.pdf",
+   "size": 8911400,
+   "sha256": "cab5f22e26799da3ac7360c3fe05764f87ceffa8c3b35f2411974a0808ef0c2a",
+   "duplicate_of": "1PnALMYdS5cTl8aArPDkrf2d5nihixxPC"
+  },
+  {
+   "id": "1E7iqhygK6Fwu90Diuj15Dy3DA5jR7-CZ",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð­ÐÐ-Ð»Ð¸Ð½ÐµÐ¹ÐºÐ¸ (3).doc",
+   "size": 1076736,
+   "sha256": "0102b744c091093da416cb183c39f2f7e7b2d085f7cc62ee1d59f1880a00cb22",
+   "duplicate_of": "1f7nCJRrp5gq0Q6hcW6_UDMRawjME4TVc"
+  },
+  {
+   "id": "1FBDoAJm3qfTMY28T7f20Y5KDaQQ0mfkW",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð­ÐÐ_Ð¿ÑÐ¸Ð·Ð½Ð°ÐºÐ¾Ð²_OMI_Ð¿ÑÐ¸_Ð¾ÑÑÑÑÑÑÐ²Ð¸Ð¸_ÐºÐ»Ð°ÑÑÐ¸ÑÐµÑÐºÐ¸Ñ_Ð¿ÑÐ¸Ð·Ð½Ð°ÐºÐ¾Ð²_STEMI.pdf",
+   "size": 5660422,
+   "sha256": "8aa653c32d8adff05fffecdc105b64fa1de6e9c9759bb85ad8776bba4ae47241",
+   "duplicate_of": "1M3tBxfZtJ132oC8L3bQKMus6My3MnRTF"
+  },
+  {
+   "id": "1FQAh3ju6-iPhrZGZZq2cN_wASE5Fwz7_",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ­Ð¡.pdf",
+   "size": 3836785,
+   "sha256": "31edab25e0fd1e3eddde31a8b217c4f7eef49c6c94f2c318a12a2ea50adcbbf7",
+   "duplicate_of": "1rAXOOQ_vhNZ8p4Pu1okmLkWjq-33oHue"
+  },
+  {
+   "id": "1H-kT9iIzYz33c4gJEUd6O8R-ZaRh89-v",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ¸Ð°Ð³Ð½Ð¾ÑÑÐ¸ÐºÐ°_ÑÐµÐ´ÐºÐ¸Ñ_Ð±Ð¾Ð»ÐµÐ·Ð½ÐµÐ¹_Ð²_Ð¿ÑÐ°ÐºÑÐ¸ÐºÐµ_ÐºÐ°ÑÐ´Ð¸Ð¾Ð»Ð¾Ð³Ð°.pdf",
+   "size": 1985054,
+   "sha256": "b6503bd525cf3e2ffb54d85bc8f3b46735d684dd06c3eceeec11d044551af0c8",
+   "duplicate_of": "1Y9DiV0ox63ggOPyB5eJqgUEjdxD9v56X"
+  },
+  {
+   "id": "1H83wJsE4Njv2Ha3FKFsSj9DXlPmpatfr",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð¡ÐÐÐ.pptx",
+   "size": 1895368,
+   "sha256": "6a24e764665389517a535d2f3b3098932d4dd3e6ed57f517abc6e67981aff940",
+   "duplicate_of": "15nLbCEmJZWVeyZNTxc2sLgPpNttR5dK7"
+  },
+  {
+   "id": "1Hh06w0yabsH7L0ScCtlnhmAYqR6M5aAV",
+   "source": "owner_links_2026-11-08",
+   "title": "Osobennosti_nagruzochnykh_testov_chast_1.ppt",
+   "size": 1931264,
+   "sha256": "013cae96a07b99cfa0ca147d693eca8f6c5dc4e9ba6bc43b3b8621a64b395924",
+   "duplicate_of": "1nng21l2fSDlcXOz5AAOfjU6Y2MwMOdn3"
+  },
+  {
+   "id": "1HobsM-PRpRbPi8vC2V1vy0-oqKz_1Ix",
+   "source": "owner_links_2026-11-08",
+   "status": "error",
+   "error": "HTTPError: HTTP Error 404: Not Found"
+  },
+  {
+   "id": "1JiEwxN-GtvtgZ6GcA8IPsyYLH-8r152q",
+   "source": "owner_links_2026-11-08",
+   "title": "EKG_algoritmy.ppt",
+   "size": 47962624,
+   "sha256": "a62a6a71e73fe04a0abe08a01fbf20447e95fa65993a2de5689bf35f9f05428c",
+   "duplicate_of": "1iPB1B8U1ueju0hPbJxQwXCvDcNwBNkMW"
+  },
+  {
+   "id": "1KZN4CjRt2zcU_7g8mGRvcgiT-FsMnEQ",
+   "source": "owner_links_2026-11-08",
+   "status": "error",
+   "error": "HTTPError: HTTP Error 404: Not Found"
+  },
+  {
+   "id": "1Ky7IaQ1jqQ2ym0s1cvTI2LEHv_ndx1mP",
+   "source": "owner_links_2026-11-08",
+   "title": "ECG_Changes_In_Antiarrhythmic_Toxicity_&_Their_Management_On_A&E.pdf",
+   "size": 4775687,
+   "sha256": "ecd7ce7574ace77077dd0356f512f1a1c0c5689737bc4b5ba081747f8e367845",
+   "duplicate_of": "17L2Ihd8EndY7-pL8fp5SSSKwfpKBPDRe"
+  },
+  {
+   "id": "1LDd6L9D7IQ7EqTjX6kWa8XLu8rBsDX0C",
+   "source": "owner_links_2026-11-08",
+   "title": "Medicom-Atlas3.pdf",
+   "size": 77786667,
+   "sha256": "d4040064c975f54baf02567609204aebd3bc6a1a8c76de37c654d1a4336f1b99",
+   "duplicate_of": "1uJ6UDcwDaMh6fQphSK1-bScXftIkks8F"
+  },
+  {
+   "id": "1LaRmltOIqrsCmLXoYs66IsQe3TOHcg-j",
+   "source": "owner_links_2026-11-08",
+   "title": "Datasets_Medical_AI_v1.docx",
+   "size": 37876,
+   "sha256": "1d6a448bc77fec240c57d3121c890a074f88f9314ade59c271f400343df48496",
+   "duplicate_of": "1rt7bfFQkUcAhDErPFcJZUyryXLukOse5"
+  },
+  {
+   "id": "1NumS-V-DLQ-hjGII7hsv9bMUFMe0pGvC",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð¢_Ð·ÑÐ±ÐµÑ_Ð²_Ð½Ð¾ÑÐ¼Ðµ_Ð¸_Ð¿Ð°ÑÐ¾Ð»Ð¾Ð³Ð¸Ð¸_ÐÐ»ÐµÐºÑÐ°Ð½Ð´Ñ_Ð®Ð½Ð³_2021_.pdf",
+   "size": 29301236,
+   "sha256": "cb6d36c77573178e7fc04a6a0a0aae92b878797fdeba283184d6abe2a7ef6f68",
+   "duplicate_of": "1P0g0zhBLvt2-CBgDsdiuQwzNBuUsFFn8"
+  },
+  {
+   "id": "1O9d214fsHQaX3cZuWbUGKC6eOutvqm3-",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð­ÐÐ ÐÐ¾ÑÐ·ÑÐ½.ppt",
+   "size": 4620288,
+   "sha256": "ac7c3e800740b3f8a0fbaf42ae7a2bd903cc29422fff54eed0b69cf226759983",
+   "duplicate_of": "1yZFnPdNy5MJ-flRpz-0cUiOQULyztQay"
+  },
+  {
+   "id": "1PxLzYra83on31L-Lf9UwGmXS4r131UgC",
+   "source": "owner_links_2026-11-08",
+   "title": "KLINIChESKIJ_ANALIZ_REGULYaRNYKh_TAKhIKARDIJ_S_ShIROKIMI_KOMPLEKSAMI.pdf",
+   "size": 4804746,
+   "sha256": "1d020e2c31b992f6226b85438679be38ace57d7b557741adeda34e4119b7cbbe",
+   "duplicate_of": "1Rc9a0IInF-nzUw7TUYs5RZUI-BRrmEvW"
+  },
+  {
+   "id": "1QH7NcFv4WCBxsbih5oW3iNlkQ1BQjQsk",
+   "source": "owner_links_2026-11-08",
+   "title": "BRUGADA_SYNDROME_FROM_PRIMARY_ELECTRIC_HEART_DISEA.pdf",
+   "size": 432569,
+   "sha256": "6236c46fd36738254cb020ed1f5913d25a03f865b8d1b39cb2b6c363b7cf2c07",
+   "duplicate_of": "1bpWt5PhpzWgWKJNqTEVgD8unReL5GY0a"
+  },
+  {
+   "id": "1QubqElhjbe1TOoea23I6-Zxpq5Ytkezn",
+   "source": "owner_links_2026-11-08",
+   "title": "Maps ECG v1 .pdf",
+   "size": 3441808,
+   "sha256": "0b3b2a9ddb14dadb31e523f65a6f1f603eab131db0ec9aa70e32d3eb9a0ff0a1",
+   "duplicate_of": "1yIjJIogzSoSdKfOlGLqzw657tphQva5U"
+  },
+  {
+   "id": "1RU5dqwsDHTkFYWskoZIbo7M1mZJix1So",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÑÐ»Ð¾Ð¶Ð½ÐµÐ½Ð¸Ñ_ÑÐ»ÐµÐºÑÑÐ¾ÐºÐ°ÑÐ´Ð¸Ð¾ÑÑÐ¸Ð¼ÑÐ»ÑÑÐ¸Ð¸.pdf",
+   "size": 1948883,
+   "sha256": "3f57300cff466c1fb2741ebf55a24ecac082152c3198d88a7bdf5997fb7b7394",
+   "duplicate_of": "1Pd0bc5sxWe0sPTMYW4N3d_ZpIWYIZC_6"
+  },
+  {
+   "id": "1RUJLatgYQ9JwpkGoGdp2iFeirG2PkzGF",
+   "source": "owner_links_2026-11-08",
+   "title": "doc-197670244_624509078.pdf",
+   "size": 1074854,
+   "sha256": "781019997df12a5795094515087e7cb72c46d4b9b68802778d447158e30101ba",
+   "duplicate_of": "150IFMbufQ8jlb9Xu0jlYo2GdETQ_UAOf"
+  },
+  {
+   "id": "1RVsQ6uvpGcXbbpd4KRRsNhJdIctds6ed",
+   "source": "owner_links_2026-11-08",
+   "title": "Algoritmy_EKG_diagnostiki_Polyakova_Arabidze_2020.pdf",
+   "size": 3715304,
+   "sha256": "4b2cf0d2475017907fbddd4e3a07d0f2fa5a070a131e98b3d4dc1aea0e34d5ae",
+   "duplicate_of": "11tSR8YSMF8JsTBcocV-gc9pLcKMu6V9n"
+  },
+  {
+   "id": "1S0QvCuX2bDur8WI123SYJcMZyEMtZgXW",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐµÐ±Ð¸Ð½Ð°Ñ ÐÑÐ½Ð¾Ð²Ñ Ð­ÐÐ¡ ÑÐ°ÑÑÑ 1.pdf",
+   "size": 5093307,
+   "sha256": "32f26819cb90bacdcf10cb937ca91e9f60c67d1347f2d0a403eefbf47f6d146f",
+   "duplicate_of": "14aT4aXldIWn8VF75DKozGALY93Zf2NST"
+  },
+  {
+   "id": "1SN29jvavCIVzU2kECO-o83rkJP0FraG2",
+   "source": "owner_links_2026-11-08",
+   "title": "Medicom-Atlas2.pdf",
+   "size": 17638503,
+   "sha256": "4c03dbcb31ea44a1957174bd0670079bf01a9638516b9db28a81c5c9af915f91",
+   "duplicate_of": "175y0-TEuN-cvfmtveqqhO5CRhLvJQbJl"
+  },
+  {
+   "id": "1T3Ncrcl2-LlcfGarHlQaV--ZnYQbOBqu",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÑÐ¸ÑÐ¼Ð¸Ð¸ Ð¸ Ð±Ð»Ð¾ÐºÐ°Ð´Ñ.pdf",
+   "size": 49235921,
+   "sha256": "0828073b8b72a12ac30b520d9355a7033e0154982c3c146f4b71f9c2407033f4",
+   "duplicate_of": "17zYHFxbgvBOpXV3VItL9H7z48T0oNU0V"
+  },
+  {
+   "id": "1UisYjzv7L6oSQf_ZW16uRtFroUFNjwkO",
+   "source": "owner_links_2026-11-08",
+   "title": "New Document(48) 04-Mar-2023 18-20-42(1).pdf",
+   "size": 17747125,
+   "sha256": "8fca43db315e44d0dbd3396d2cc54aefb204375f58afc0c538453b093d04014c",
+   "duplicate_of": "1nsO9ekC_frj4Bi5268R_AJpBiL4VQXKF"
+  },
+  {
+   "id": "1UuJDmu6FJHEqAtY1b4DdLPSubwV95EcN",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð¿ÑÐ¸Ð¾Ð±ÑÐµÑÐµÐ½Ð½ÑÐ¹.pdf",
+   "size": 2779900,
+   "sha256": "3b7b753b1d20b7f2fcc7d29c888d6a0afca7b21e8b11c09aeed9790f38f1ff13",
+   "duplicate_of": "1tMtrtAJz9NQLaliTMukeOQl5BQ45LAyZ"
+  },
+  {
+   "id": "1VX5zmWdj2WlcgpCr9uYlC7EExZbTDfx7",
+   "source": "owner_links_2026-11-08",
+   "title": "ÑÐ°ÐºÐ¾ÑÑÐ±Ð¾.pdf",
+   "size": 434403,
+   "sha256": "678895c563a8b18bbbca18b65a1c1e60ec49d0cf22f51fcbc8358cdaa95fa1e5",
+   "duplicate_of": "1mXzdoADGW86ZnNIHdn2ePDGVkh-2p3KQ"
+  },
+  {
+   "id": "1W4EYEJjH6-RJ9KKGWrF0czi4tg2kp_rA",
+   "source": "owner_links_2026-11-08",
+   "title": "0lL7LYnMUb8.jpg",
+   "size": 315174,
+   "sha256": "fdcb7521bcf84d06800dc17bf7ca844f4a9a95d0e34f9ead5b9b145cec7705a2",
+   "duplicate_of": "1v31le7vOvVAvD7FeZfU5Ii9hs2H0AGj8"
+  },
+  {
+   "id": "1Wvw_caTrtu5QZ9igzUL8-lcdT_zaNnRG",
+   "source": "owner_links_2026-11-08",
+   "title": "2_5314508355006371399.pdf",
+   "size": 2022798,
+   "sha256": "8c69a157acb3c1d8e048b71e9f2fd0c2fc5174737c8dd7fe94bd7e9c36dce1a0",
+   "duplicate_of": "1Ssh70nG_1U0JJ9OY7C1_cYnvteIARYiW"
+  },
+  {
+   "id": "1X3S7QHb6l6SqWf-kSk-4bB5TSDdSe3l-",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐµÐ±Ð¸Ð½Ð°Ñ ÐÑÐ½Ð¾Ð²Ñ Ð­ÐÐ¡ ÑÐ°ÑÑÑ 2.pdf",
+   "size": 5847762,
+   "sha256": "e11cd49e44184319701c3c55858c8737843ad519e1ebc07d641f3c3eea5125d4",
+   "duplicate_of": "1-pdFdfDlBhcsj0RgunedS-tfp4y0cJCe"
+  },
+  {
+   "id": "1XqzJTETOisc4wkNX48iph1Ds_3wT-yee",
+   "source": "owner_links_2026-11-08",
+   "title": "Atlas_EKG_150_klinicheskikh_situatsiy_Dzhon_Khempton.pdf",
+   "size": 49358922,
+   "sha256": "f592b4321f5b268757687584c7fc336d13e6f22f1584ca08ddf3861eb0adc4d0",
+   "duplicate_of": "1Ih771uVc6CE1Okewc-PHtMJNm2BUcvi1"
+  },
+  {
+   "id": "1Y9o6A916JoSQCEJDRc06jXhBo4uk1jC8",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð¤ÑÐ½ÐºÑ_Ð½Ð°Ð³ÑÑÐ·Ð¾ÑÐ½ÑÐµ_Ð¿ÑÐ¾Ð±Ñ_Ð²_ÐºÐ°ÑÐ´_2021.pdf",
+   "size": 1213099,
+   "sha256": "7904bae0b7ff0af03a439276532d46874c42425f2c9d9a576534e83d997e3359",
+   "duplicate_of": "1NQ2j3ApJf5_sd3AFIhWYmI_S4SvQrO01"
+  },
+  {
+   "id": "1YUof_Yp4QVavItBj8SbfaWKMD2smnLmt",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ¿ÑÐ¸Ð¼Ð°Ð¹Ð·ÐµÑ. ÐÐ¾Ð´ÑÐ»ÑÑÐ¸Ñ Ð¡Ð .pptx",
+   "size": 6213272,
+   "sha256": "0e1d3486856da9a3e243c9eff1a6198f389e5ad9545a2d9bf1af9bcb6e5af259",
+   "duplicate_of": "1OZaqJHHdZAw19ys6zQK5_FC1U-bj_fH-"
+  },
+  {
+   "id": "1YxrqKI9nBhksmjorkAMlHOfwtiXHGy1M",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐÐ ÐÐÐÐÐÐÐ ÐÐÐÐÐÐ¦ÐÐ¯ (1).docx",
+   "size": 256761,
+   "sha256": "d3fc4644118a1e199494b76291eeee1d6803051c524682abac009df1fa7ef35d",
+   "duplicate_of": "17hsJsz_70W-gyLjYkQJnNLjhcZDL41Wf"
+  },
+  {
+   "id": "1Z6Q9Q5JLRYkDB_N7_7ceZdlYepsfeQ-r",
+   "source": "owner_links_2026-11-08",
+   "title": "ECG dr. Allam.pdf",
+   "size": 35528035,
+   "sha256": "d950e6a56a2aaf36c1d076207e591e20b4d8f13b386633364ea75906cf2ef115",
+   "duplicate_of": "1towzg1n_hhd9E8C5xvxiSkntfDyz47AM"
+  },
+  {
+   "id": "1ZcFKewjNhpmvVvc0pHl5C4Ey6vgiUzQL",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÑÐ½Ð¾Ð²Ñ_Ð½Ð¾ÑÐ¼Ð°Ð»ÑÐ½Ð¾Ð¹_ÑÐ»ÐµÐºÑÑÐ¾ÑÐ¸Ð·Ð¸Ð¾Ð»Ð¾Ð³Ð¸Ð¸_ÑÐµÑÐ´ÑÐ°.pdf",
+   "size": 4276792,
+   "sha256": "c97e39d0224bded2e25477ac2f93e9d2294e1d4947de8aa105737fdfd72df25b",
+   "duplicate_of": "1lpDi3mra9Yvha1uhTCS93ZPj_kS_Kkrs"
+  },
+  {
+   "id": "1_MtoE01nzy1I3abspBB88EA3C-QMoyQ_",
+   "source": "owner_links_2026-11-08",
+   "title": "smad 1.pdf",
+   "size": 14509616,
+   "sha256": "cec0b76056d810485d9108898571d7ae91ae02995c1b2a9c8ee6cb45794a0273",
+   "duplicate_of": "18KTCzXFZ5d3Dmwbvbs1ZKG5G9ybZUxuT"
+  },
+  {
+   "id": "1b23dgGKMd72rM88y-Ne2MAbt7YgFLthy",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ»Ð³Ð¾ÑÐ¸ÑÐ¼Ñ Ð­ÐÐ-Ð´Ð¸Ð°Ð³Ð½Ð¾ÑÑÐ¸ÐºÐ¸.pdf",
+   "size": 373985,
+   "sha256": "c6758ec38c48378aca1efa414fb31dfe6664da80617170c844aefb3bf715fc47",
+   "duplicate_of": "163mEefHxRQXZ90HgCIuf2lzh2SuZIn4w"
+  },
+  {
+   "id": "1bFgsgHhDlj1K_-SVChgsIx853Hat_H7X",
+   "source": "owner_links_2026-11-08",
+   "title": "Manifest.pdf",
+   "size": 2714543,
+   "sha256": "a91851fcc8b8f1cf9c10cecedf8aeb647478a858fa97f32fdf018c24fdf5411d",
+   "duplicate_of": "18-cqCwm1E96EzILTJqsENfdxCGUieKos"
+  },
+  {
+   "id": "1by6XrVLUO_Yg6yPSz1ELa-ggeoV58iYE",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð¡ÐµÑÐ´ÐµÑÐ½Ð¾_Ð»ÐµÐ³Ð¾ÑÐ½ÑÐ¸_ÑÐµÑÑ_ÑÑÐ³Ð¾ÑÐ¿Ð¸ÑÐ¾Ð¼ÐµÑÑÐ¸Ñ_2015_09_1.pdf",
+   "size": 2465334,
+   "sha256": "0c87bd8e151b1baf6240858ccf59f314e3a124a685a07cb99206fa9d3fa37d36",
+   "duplicate_of": "1o2sMN3nubQEtnT1AqyJkBtezNRY9g_8G"
+  },
+  {
+   "id": "1c-fdNQEBRMWCck61M33A0gmcu9cQd_ax",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð Ð¸ÑÐ¼Ñ ÑÐµÑÐ´ÑÐ°.pdf",
+   "size": 940116,
+   "sha256": "72bdf528f868349e0b51ffabb8a35b1c6119cbb5d0f69a144ff009f4c60dee93",
+   "duplicate_of": "1lSdianobdJ48979IOLwj1pBrtZag6OYp"
+  },
+  {
+   "id": "1cjIt_l76q6Fxa_y6aGzGoOic0YgPVii9",
+   "source": "owner_links_2026-11-08",
+   "title": "19-10-2021_22-38-36.zip",
+   "size": 773217,
+   "sha256": "c6ff38a054daca2596326aafbc93ea483569ea7c578d25602012999d37f79bab",
+   "duplicate_of": "1TwQU9Dnrei6D7HdrGUbahBQfpL5MfZNi"
+  },
+  {
+   "id": "1crcMDLKhEw9MsPsf5UeJ9NW5zQ5_e5Bq",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐµÐ¾ÑÐ»Ð¾Ð¶Ð½Ð°Ñ_Ð¿Ð¾Ð¼Ð¾ÑÑ_Ð¿ÑÐ¸_ÑÐ°ÑÐ¸ÑÐ¸ÑÐ¼Ð¸ÑÑ.pdf",
+   "size": 7310829,
+   "sha256": "064c7b233eeab7a9a6b768ea2b6c965abc544ffbcb0c373f4081269222848c8b",
+   "duplicate_of": "1frxhnyYA7G1EWZF0SlJkKuiCL-l1Fj1E"
+  },
+  {
+   "id": "1dq46WO_M-YUJhXeOw_TQY-8WACapUFnC",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð­ÐÐ Ð Ð¾Ð´Ð¸Ð¾Ð½Ð¾Ð².pdf",
+   "size": 3216112,
+   "sha256": "c1ab02dd790a7e14c0c30a3bce3a1b660115cbc85c1093a6dea033aceb45cec9",
+   "duplicate_of": "1lUjzUDK50zd1BYwNq3muNjbkqGeUwBa2"
+  },
+  {
+   "id": "1eX5Fxv4duFMskY7ZHpHLPEKP-7MZaaP1",
+   "source": "owner_links_2026-11-08",
+   "title": "Key ECG norms infographic PDF Final.pdf",
+   "size": 528701,
+   "sha256": "907f0b8fbd5159ee3d34aa0dcf147139cd703aa12538e7ca535f150ce788afe2",
+   "duplicate_of": "15Qmt5Xf1plLf1QHZFgtr9VG8KsLxqmj-"
+  },
+  {
+   "id": "1fHcohaw5IzDX16zdbGXoWgfqGu-vXcPQ",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ°Ð»ÑÐºÑÐ»ÑÑÐ¾Ñ_ÑÐ°ÑÑÐµÑÐ°_ÐºÐ¾ÑÑÐ¸Ð³Ð¸ÑÐ¾Ð²Ð°Ð½Ð½Ð¾Ð³Ð¾_Ð¸Ð½ÑÐµÑÐ²Ð°Ð»Ð°_QT.xlsx",
+   "size": 50575,
+   "sha256": "c2d55c307781470e8aa2f8be9cdce5451fb8f030d8837ad443d4f12f93036195",
+   "duplicate_of": "1KIMmm4MunfeTPO8nnn95jMC_PPXG6P2Y"
+  },
+  {
+   "id": "1fR1VFDNS_RxfTrRL1-KxSj-0A6fbBjl3",
+   "source": "owner_links_2026-11-08",
+   "title": "Pocket-guide-ECG-interpretation.pdf",
+   "size": 1775220,
+   "sha256": "6047c07ee12105523227c34561ec9aae213de8499f1065f6e0be411938fd8fe9",
+   "duplicate_of": "12jblHz7nzNPtPtLIUlNzu3G6TWAaemLN"
+  },
+  {
+   "id": "1faWb5XKWp-HjJjRZAHTVsYFXWsbGqeqz",
+   "source": "owner_links_2026-11-08",
+   "title": "agonal_rhythm_-_landai.pdf",
+   "size": 636139,
+   "sha256": "522481454dc24ee84ae31222722c5d285b30d39ee4bae238758dbd19f13b6ff7",
+   "duplicate_of": "1J_Y-MBfEJRflHkvhY8uAJE2kGqTbMr1I"
+  },
+  {
+   "id": "1gbCg-tAOT-B_OqODnfmbkCeKPB6B5OS3",
+   "source": "owner_links_2026-11-08",
+   "title": "ekg_lineiki.pdf",
+   "size": 575603,
+   "sha256": "cf804a43c2efbfd3adaa28be332746e5c65f4be0ceaf6391d112dae9ba734ee8",
+   "duplicate_of": "1vSc3Z5V-5C9YrfdMJ40vKcUU6OySW9vI"
+  },
+  {
+   "id": "1hjndZiaLKu2j7dyKkTGj6GITuXBI5GAt",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐÐÐ¢ÐÐÐÐ¯_Ð_ÐÐ ÐÐÐÐ¡ÐÐÐÐÐÐÐÐ_Ð¡ÐÐ ÐÐ¦Ð.doc",
+   "size": 12002304,
+   "sha256": "658075fd8ccb462662b4b95e02d49979a442197bc64b6793684aca121297cef6",
+   "duplicate_of": "1jyyd6RTj-9FTsVsmHDwGZdD2VA0_U0E0"
+  },
+  {
+   "id": "1hlq5L2A3MciSTexeuQKu1jP6_3nANHKP",
+   "source": "owner_links_2026-11-08",
+   "title": "Plan_Medical_AI_Ecosystem_v1.docx",
+   "size": 33169,
+   "sha256": "bef0394d636a14b0fba1aaac9a522ba32c6309c190c742a99f2d94379bb3b5a2",
+   "duplicate_of": "1ihxWMZe7o0GGaoJGb2GTLw3-elgZSY1N"
+  },
+  {
+   "id": "1iBpqbSNBkqTqI3ODFgRFO2BWa0N77tca",
+   "source": "owner_links_2026-11-08",
+   "title": "SLR_vrachi.pdf",
+   "size": 1607149,
+   "sha256": "3fa041331e66711dff4720557ed0f52427d75e7b90e456442ab3f9174d6a2017",
+   "duplicate_of": "1l1DcAVCHr8LbfIH2k7YAIl7bvylnRlBW"
+  },
+  {
+   "id": "1iOW3WVROQ6P-_C23eUv3IqLMl7u8dLPn",
+   "source": "owner_links_2026-11-08",
+   "title": "10.1038@s41569-019-0266-2.pdf",
+   "size": 3219688,
+   "sha256": "e2c021e9f91a788507f6e38295f4508909bbdbb4c933518df1118391a8c8e607",
+   "duplicate_of": "1cS985ztAsAayYRZkD4EeRTMjIoffPblV"
+  },
+  {
+   "id": "1m-8so4YIO2aPWlY2siLOx9hcQSvCyTrj",
+   "source": "owner_links_2026-11-08",
+   "title": "Tablitsa_tipichnykh_oshibok_nalozhenia_elektrodov_na_konechnosti.pdf",
+   "size": 256091,
+   "sha256": "2965584c4d23655f93cea1bd741bb20a32dc838f6fb75b75cb847670035dfb97",
+   "duplicate_of": "1ptrLjfe9Gmf3g_ZnTeNfwS0Z8wX1a-LQ"
+  },
+  {
+   "id": "1m5Z2ZRIqK4bO3htzHo1DyPJhksgptKU5",
+   "source": "owner_links_2026-11-08",
+   "title": "The+OMI+Manifesto.pdf",
+   "size": 1971816,
+   "sha256": "0f17bd7c21185dc8975941ef2a71e2b02be9f76a0b591c23d6832e2ba08c5467",
+   "duplicate_of": "11HKP28t3R786Omfc5qR4UfV7t4nAqMe8"
+  },
+  {
+   "id": "1mX0y6yENKhl8FFM9t-x5jId2xvwUFhx_",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð­ÐÐ Ð´Ð»Ñ Ð¼ÐµÐ´ÑÐµÑÑÐµÑ Ð¸ Ð½Ð°ÑÐ¸Ð½Ð°ÑÑÐ¸Ñ.pdf",
+   "size": 6431713,
+   "sha256": "9d5ed71a0a985efafcf9b474d85e4d11f3f0e2323ef377bcfb4c2de8972ae1ff",
+   "duplicate_of": "1sSPzHglQP8WV8lLnnobTmCntGlFN6m2d"
+  },
+  {
+   "id": "1mlLmMlk0XZNJHXx4K_qQkHddHMubCb6J",
+   "source": "owner_links_2026-11-08",
+   "title": "Brown-PCI-late-presenting-STEMI.pdf",
+   "size": 684496,
+   "sha256": "f214d026d6fd3c0787142aa3c0eea8b734d7fcbcb9166318fc696903b747d153",
+   "duplicate_of": "1iN6AnzxvKNfqaPg-IxPEJVvmAWe3kBSs"
+  },
+  {
+   "id": "1oeJkMUM2zZ_-ZyjnqKJ-Ip6eU7HfFVjJ",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð¤ÑÐ½ÐºÑÐ¸Ð¾Ð½Ð°Ð»ÑÐ½Ð°Ñ Ð´Ð¸Ð°Ð³Ð½Ð¾ÑÑÐ¸ÐºÐ°.pdf",
+   "size": 7621817,
+   "sha256": "73269cb19aa10c6df8f89fb23af7ca555d338fdbe69d4f116ebe13e797516acc",
+   "duplicate_of": "1ySHtmO8UMEPHdAcz9XSqUA4RvsEWZi5R"
+  },
+  {
+   "id": "1ohhW5UxjmbHD5JZz-9U9X40mKFrVmOck",
+   "source": "owner_links_2026-11-08",
+   "title": "Screenshot_1.png",
+   "size": 207494,
+   "sha256": "fe7b00fc487608afb4610781a6e89642b1d3a005dab07d6ba9de9532887b1f4b",
+   "duplicate_of": "1fszOuK4xa9a4Va1CYPagilTYDpYicXip"
+  },
+  {
+   "id": "1qLnW2AQmeQ9-p_IDpBf95pJW_A9N9VcO",
+   "source": "owner_links_2026-11-08",
+   "title": "NWP.pdf",
+   "size": 1423624,
+   "sha256": "524fb9cc312bf63dc2b72304698b2cbf5e3af1e8bf6440db8980341de8adf0d4",
+   "duplicate_of": "1azUSyyz9U1ur0jd2rL0WN72fVseUk80a"
+  },
+  {
+   "id": "1qQhAO-rSGnR3JbwdNWy1DZlirkSPmbVP",
+   "source": "owner_links_2026-11-08",
+   "title": "Rek_Holter_2013.pdf",
+   "size": 710240,
+   "sha256": "5f6d07a4b4e721150d327ef0326c0426aab72f70aca924d07d868aee3680557d",
+   "duplicate_of": "1IpdNqoQgl3Aa8JGSn2-0vzINkRvJgEHL"
+  },
+  {
+   "id": "1rIge4tzgI0CEU9hNKC6ZhyQZUhNMOrNj",
+   "source": "owner_links_2026-11-08",
+   "title": "Dr. Yung's T-wave.pdf",
+   "size": 2999349,
+   "sha256": "68a6129285a965abb6bed7fce86386899b4535863e5ee5c16a24043fafe92b8c",
+   "duplicate_of": "1gbHRDJhclNjGTg4XsA0iPF7Uq7F7lGF9"
+  },
+  {
+   "id": "1suXMPUnvfz0VWemOSD7yOjijXcbHcSNt",
+   "source": "owner_links_2026-11-08",
+   "title": "Medical_therapy_of_arrhythmias_associated_with_Wolff_Parkinson_White.pdf",
+   "size": 324667,
+   "sha256": "fc74885e9ad8c4e776b44f15415f01546e1cdf9178905c78f11379c017eb1759",
+   "duplicate_of": "15Du4ruFoEx-19g6FxA_h0uvNJikXHcNC"
+  },
+  {
+   "id": "1umw50Dh7muLUVmk4guxYRqCv5ZIC_G2k",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð¢Ð°ÑÐ¸Ð°ÑÐ¸ÑÐ¼Ð¸Ð¸ 2025.pdf",
+   "size": 2125656,
+   "sha256": "11627a89f27da1e460918f488333be62c6fec38a6ccf5fb7ae00427eab43ab05",
+   "duplicate_of": "1mkk77BPQ8enX3tu9JOC-pkigq21FqoxX"
+  },
+  {
+   "id": "1uqFMF9vst-wl2oFjS-0THHvFdicMck7n",
+   "source": "owner_links_2026-11-08",
+   "title": "EKGnadogositalnometape.pdf",
+   "size": 5886922,
+   "sha256": "fdb18d6c47b3ebabeeb44246356b3aa17856bbd75c8e2cbe829150439f22251d",
+   "duplicate_of": "1I165Fpw3bQNHoqkBk5iLW_CiUU3NeNMv"
+  },
+  {
+   "id": "1ur4VzwB6XdOoeJfHkhcslJfcqg4nQC0x",
+   "source": "owner_links_2026-11-08",
+   "title": "ÑÐºÐ³ Ð¿Ð¾ÑÐ°Ð¶ÐµÐ½Ð¸Ðµ ÑÑÐ²Ð¾Ð»Ð°.pdf",
+   "size": 1670660,
+   "sha256": "1a1bf66cfa1c064b56d72b87cdbe363a1d1b74df5afbb52f1af97a36de3e5c32",
+   "duplicate_of": "1wiFfYfUEDlMVj2U4pHdq-7TLVmf7Hhu5"
+  },
+  {
+   "id": "1urf_Rhb0kIGUoV2Sv6be9vwOWXhxVWeo",
+   "source": "owner_links_2026-11-08",
+   "title": "VENTRICULAR_TACHYCARDIAS_IN_THE_ABSENCE_OF_STRUCTURAL_HEART_DISEASE.pptx",
+   "size": 14534942,
+   "sha256": "46569a02519b30df643839bb1c5aebfbb38e06e3c7f4e1725fde5a179a3633d7",
+   "duplicate_of": "1JMWxFrqZV7RKM0fjpMB_Co-EAZ_8AG07"
+  },
+  {
+   "id": "1vAm3HGm8TMvvJv5LcxRnBrNuCZr1ya_G",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ°Ð½Ðº Ð­ÐÐ.pdf",
+   "size": 11278013,
+   "sha256": "e9693fd90de5966c75a933dacab0038c195ff48f8cd3516ab3ca8a60e2071dba",
+   "duplicate_of": "1Tgbljk_N84AKcrdkRojGkrDWMlFkzmuN"
+  },
+  {
+   "id": "1vYdWZK8zU4d7XjvdpEFn3uEa6gXo5XL6",
+   "source": "owner_links_2026-11-08",
+   "title": "Ð§ÐµÐº-Ð»Ð¸ÑÑ Ð¿Ð¾ Ð­ÐÐ.pdf",
+   "size": 927364,
+   "sha256": "a125b427da4062dd70c316030b9a6301ef02425e5beed67a42037b0b8b913067",
+   "duplicate_of": "1SISJn55bVy1nMUdPyR-kevgMKufSP-vJ"
+  },
+  {
+   "id": "1xI4QWjn7klpinMluY85O5cKb8eukakXt",
+   "source": "owner_links_2026-11-08",
+   "error": "OSError: [Errno 36] File name too long: '/home/user/Radiology/data/books/lib/.1xI4QWjn7klpinMluY85O5cKb8eukak",
+   "title": "правленнаяРасположение_электродов_и_отведений_Александр_Юнг.pdf",
+   "size": 21241599,
+   "sha256": "58ec255933c39b149e6e585e196afb8e8ae975ff861bea66361756d6b46bc5c4",
+   "duplicate_of": "1uQEoNC-2KcZQPAxB88iKGW7hIFGg7pNl"
+  },
+  {
+   "id": "1xfV-6qlZHxaZnrXc_W75W0GOTCvmA_Af",
+   "source": "owner_links_2026-11-08",
+   "title": "Kniga_Osnovnye_EKG-priznaki_narusheniy_ritma_serdtsa_2019.docx",
+   "size": 1214027,
+   "sha256": "6dc6d6f18a91e3ee0dd7f85a1163ec895b4097c0ec35bbabf1aa8b91189b800e",
+   "duplicate_of": "13kVctggJW_5A3dq30peavUqpdtlxNIdP"
+  },
+  {
+   "id": "1xrh8XSFSlHvpFfn439Qelolm_H3PGKEs",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ¸ÑÑÐµÑÐµÐ½ÑÐ¸Ð°Ð»ÑÐ½Ð°Ñ_Ð´Ð¸Ð°Ð³Ð½Ð¾ÑÑÐ¸ÐºÐ°_Ð´ÐµÑÐ¸ÑÐ¸ÑÐ°_Ð¿ÑÐ¸ÑÐ¾ÑÑÐ°_Ð·ÑÐ±ÑÐ°_R.pdf",
+   "size": 559065,
+   "sha256": "e557b2234cff7735671b489ca15f1e94f7a4bbd403678a210b45ec73851eaf8a",
+   "duplicate_of": "1cB14kp7WN1VyW111yTcMAP3cc0SMiv-t"
+  },
+  {
+   "id": "1yLkXYiWEgLIIpbuwPSm2eox0DiBrKX4q",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ½Ð°Ð»Ð¸Ð· Ð­ÐÐ ÐÐ¸ÑÐ¾Ð½ÑÐ¾Ð².pdf",
+   "size": 4173965,
+   "sha256": "623043abcb5d06e55c24aa328080107010fb34517d6543eff5cc80903fed5fa2",
+   "duplicate_of": "1H6P9f_PqAPk1oBinNo_DgIBgS-RNHGCr"
+  },
+  {
+   "id": "1yQTZmNyg8VnLOuG-vYDMmNLCxClrcBFE",
+   "source": "owner_links_2026-11-08",
+   "title": "Maps ECG v1 .png",
+   "size": 38414,
+   "sha256": "e6e30467615195a4b420f1b94660fdc62a6153bb507c1a21b20926d10a0310ab",
+   "duplicate_of": "10xXQfRpb8Yt73O4TleKJQ7qzEtz7qWM9"
+  },
+  {
+   "id": "1yxg6xx6cHpZJ2pTo3ZZ3GPNm0G9ZsaoQ",
+   "source": "owner_links_2026-11-08",
+   "title": "2_5440637401162581863.pdf",
+   "size": 2685921,
+   "sha256": "8b5d2096eac704b41958618103111fa626817759432401ca588c1ae1aff1d907",
+   "duplicate_of": "163g6Xd4km7UjI6f6QxB8GhDojb01r136"
+  },
+  {
+   "id": "1zSJp4O2mkhuHCPmFDmIrbddCUoDG7MlO",
+   "source": "owner_links_2026-11-08",
+   "title": "76.pdf",
+   "size": 2653084,
+   "sha256": "87c638e555e86a17c5a2432947c774eecda4daca9d6a78b58fadd2ff643c337e",
+   "duplicate_of": "1JUDjZCSvu30ihC_rH6WZc2ENMFNLclLX"
+  },
+  {
+   "id": "1zgIRap8trKUelmu-2zF7I7ufdEjwXU9I",
+   "source": "owner_links_2026-11-08",
+   "title": "ÐÐ¾ÑÐ¼Ñ Ð¥Ð.pdf",
+   "size": 563664,
+   "sha256": "2f2a61f10789c832f818d54287ce525cc7b236dde5332ee6f1e1cecd9c1eef15",
+   "duplicate_of": "1Ut7mLte1FjsG4KRPPHnwIAjeMVSGP45W"
+  },
+  {
+   "id": "1zuy-1jeGY7ySn8z2EZ5KvMjQcr5QQKUf",
+   "source": "owner_links_2026-11-08",
+   "title": "Drugs_To_Avoid_List_english.pdf",
+   "size": 169968,
+   "sha256": "2784272fb2ce703a2503eda0373e4e22006f9e0b88065aa78ef5a0bbac5daac5",
+   "duplicate_of": "1EQt3A1lD7ABOblhJD7fIdK64b067HbHq"
+  }
+ ]
+}

@@ -190,6 +190,20 @@ def scan_keeping_overlay(scan, image, hints=None):
 
 def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: float | None = None,
                    gain_mm_mv: float | None = None) -> SignalRepresentation:
+    """A small single picture is enlarged first (D219, ``image_prep``); then ``_digitize_photo``."""
+    if isinstance(path, list):
+        return _digitize_photo(path, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+    from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, prepared
+
+    with prepared(path) as p:
+        sig = _digitize_photo(p, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+        if str(p) != str(path):
+            sig.provenance.notes.append(ENLARGED_NOTE)
+        return sig
+
+
+def _digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: float | None = None,
+                    gain_mm_mv: float | None = None) -> SignalRepresentation:
     """The bot's photo reader (D139): the ECG scanner first — on its benchmark it reads paper
     pages at r 0.98 with no unflagged bad case, where the CardioLens readers have 23 % —
     then, when the scanner refuses the layout, the CardioLens readers (device screens,

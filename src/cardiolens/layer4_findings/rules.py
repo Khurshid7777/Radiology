@@ -567,6 +567,26 @@ def _qt_findings(iv, norms, is_pediatric, sig, fs: FindingSet) -> None:
         ))
 
 
+ANEURYSM_T_QRS_MAX = 0.36   # D221: OMI Manifest / Smith — T/QRS <= 0.36 in all of V1-V4: old LV aneurysm likely
+
+
+def _aneurysm_note(m: Measurements, elevated, fs: FindingSet) -> None:
+    """D221: a note on the STEMI alert when the anterior T waves are low against their QRS (old aneurysm);
+    the alert itself stays."""
+    f = fs.by_code("st_elevation")
+    ant = ("V1", "V2", "V3", "V4")
+    if f is None or len(set(elevated) & set(ant)) < 2:
+        return
+    ratios = [abs(t.qrs_ratio) for t in m.morphology.t_waves if t.lead in ant and t.qrs_ratio is not None]
+    if len(ratios) < 2 or max(ratios) > ANEURYSM_T_QRS_MAX:
+        return
+    f.label_ru += (f"; картина может соответствовать старой аневризме ЛЖ (T/QRS ≤ {ANEURYSM_T_QRS_MAX:g} в V1–V4) — "
+                   "сравните с прежней ЭКГ; при боли в груди — как острый инфаркт")
+    f.label_uz += (f"; eski chap qorincha anevrizmasiga mos kelishi mumkin (V1–V4 da T/QRS ≤ {ANEURYSM_T_QRS_MAX:g}) — "
+                   "oldingi EKG bilan solishtiring; ko'krak og'rig'ida — o'tkir infarkt kabi")
+    f.evidence.append(Evidence(feature="t_qrs_max_v1_v4", value=f"{max(ratios):.2f}"))
+
+
 def _territorial_st_elevation(elevated, depressed, elev, fs: FindingSet, proportional=()) -> None:
     """Focal (single-territory) ST elevation → STEMI with reciprocal check (§8.1)."""
     terr = _territory_of(set(elevated))
@@ -943,6 +963,37 @@ def _st_thresholds(norms, patient, lead: str) -> tuple[float | None, float | Non
     return elev, depr
 
 
+def paced_primary_elevation(m: Measurements, norms, patient=None) -> list[str]:
+    """Leads whose STEMI-grade elevation is primary on a paced QRS (D217, Sgarbossa-Smith): concordant
+    with the QRS, or discordant but at least ``proportional_discordant_ratio`` of the S depth."""
+    thr = norms.get("st_uv", {})
+    if not thr.get("elevation_significant"):
+        return []
+    plateau = float(thr.get("elevation_plateau_fraction", 0.8))
+    prop_ratio = float(thr.get("proportional_discordant_ratio", 0.25))
+    prop_min = float(thr.get("proportional_discordant_min_uv", thr["elevation_significant"]))
+    out = []
+    for st in m.morphology.st:
+        if st.lead == "aVR" or st.j_point_uv is None:
+            continue
+        elev, _ = _st_thresholds(norms, patient, st.lead)
+        j, j60 = st.j_point_uv, st.j60_uv
+        if elev is None or j < elev or (j60 is not None and j60 < plateau * elev):
+            continue
+        # The dominant deflection decides (D220): a paced QRS is often biphasic, R ~ S, and its net sign
+        # is chance. Concordant = clearly positive (R >= 2 S); proportional = S-dominant and J >= 25 % of S.
+        r, sd = st.r_height_uv, st.s_depth_uv
+        if r is not None and sd is not None:
+            concordant = r >= 2 * max(sd, 0.0) and r > 0
+            proportional = sd >= r and sd > 0 and j >= prop_min and j / sd >= prop_ratio
+        else:
+            concordant = st.qrs_net_uv is not None and st.qrs_net_uv > 0
+            proportional = bool(sd) and sd > 0 and j >= prop_min and j / sd >= prop_ratio
+        if concordant or proportional:
+            out.append(st.lead)
+    return out
+
+
 def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
     thr = norms.get("st_uv", {})
     if not (thr.get("elevation_significant") and thr.get("depression_significant")):
@@ -1057,6 +1108,7 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
         else:
             _territorial_st_elevation(elevated, depressed, thr.get("elevation_significant"), fs,
                                       proportional=sorted(set(proportional) & set(elevated)))
+            _aneurysm_note(m, elevated, fs)
     # Discordant depression under a block / LVH / pre-excitation is the expected
     # repolarisation of that QRS and goes to `secondary_st_t_change` (below), not
     # to the ischaemia code: with it inside, `st_depression` had 277 false calls on

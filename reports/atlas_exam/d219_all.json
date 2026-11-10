@@ -1,0 +1,72 @@
+{
+ "cases": 420,
+ "read": 4,
+ "read_rate": 0.01,
+ "diagnoses_found_of_read": "2/9",
+ "recall_of_read": 0.222,
+ "by_atlas": {
+  "allam": {
+   "cases": 62,
+   "read": 1,
+   "refused": 25,
+   "gated": 36,
+   "no_image": 0,
+   "diagnoses_found": "0/1",
+   "cases_all_found": "0/1"
+  },
+  "bank": {
+   "cases": 57,
+   "read": 0,
+   "refused": 15,
+   "gated": 42,
+   "no_image": 0,
+   "diagnoses_found": "0/0",
+   "cases_all_found": "0/0"
+  },
+  "ekgshki": {
+   "cases": 33,
+   "read": 0,
+   "refused": 32,
+   "gated": 1,
+   "no_image": 0,
+   "diagnoses_found": "0/0",
+   "cases_all_found": "0/0"
+  },
+  "hampton": {
+   "cases": 150,
+   "read": 1,
+   "refused": 14,
+   "gated": 135,
+   "no_image": 0,
+   "diagnoses_found": "0/2",
+   "cases_all_found": "0/1"
+  },
+  "medicom2": {
+   "cases": 92,
+   "read": 2,
+   "refused": 23,
+   "gated": 67,
+   "no_image": 0,
+   "diagnoses_found": "2/6",
+   "cases_all_found": "0/2"
+  },
+  "yung": {
+   "cases": 26,
+   "read": 0,
+   "refused": 8,
+   "gated": 18,
+   "no_image": 0,
+   "diagnoses_found": "0/0",
+   "cases_all_found": "0/0"
+  }
+ },
+ "by_code": {
+  "sinus_rhythm": "1/2",
+  "supraventricular_ectopy": "0/2",
+  "poor_quality_signal": "0/1",
+  "flat_t_waves": "0/1",
+  "atrial_fibrillation": "1/1",
+  "first_degree_av_block": "0/1",
+  "ventricular_ectopy": "0/1"
+ }
+}
