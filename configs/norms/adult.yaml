@@ -199,6 +199,10 @@ wpw:
   # least this (D65): without it the route fired on bundle branch blocks with a
   # PR of 100-118 ms (PTB-XL 28 true / 28 false; MIMIC 52 false).
   classic_delta_ms: 40
+  # D234: the delta wave reaching V1-V3 (median >= this) lifts the LBBB-width gate and allows a PR
+  # up to v1v3_pr_max on the delta route (tuned on PTB-XL: WPW +6, CLBBB 1 / 295; accepted on Chapman).
+  v1v3_delta_ms: 55
+  v1v3_pr_max: 180
 
 # Pathological Q waves on the median beat (UDMI; ported from claude/vibrant-curie-ro1zsz D36).
 q_wave:
