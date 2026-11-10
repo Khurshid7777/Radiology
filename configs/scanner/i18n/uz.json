@@ -190,5 +190,6 @@
   "report.hr": "YuQS {v} /daq",
   "report.ms": "{name} {v} ms",
   "report.axis": "o‘q {v}°",
-  "warning.GRID_IN_TRACE": "Suratdagi to‘r chiziqlari egri chiziq kabi to‘q (oq-qora skan): o‘qishdan oldin olib tashlandi, ular bilan egri chiziq bo‘laklari ham yo‘qolgan bo‘lishi mumkin — ustma-ustlikni tekshiring."
+  "warning.GRID_IN_TRACE": "Suratdagi to‘r chiziqlari egri chiziq kabi to‘q (oq-qora skan): o‘qishdan oldin olib tashlandi, ular bilan egri chiziq bo‘laklari ham yo‘qolgan bo‘lishi mumkin — ustma-ustlikni tekshiring.",
+  "warning.SEGMENTER_FALLBACK": "Surat foto uchun zaxira model bilan o‘qildi: asosiy model unda EKG qatorlarini topmadi. Aniqlik skandagidan past — egri chiziq ustma-ustligini tekshiring."
 }

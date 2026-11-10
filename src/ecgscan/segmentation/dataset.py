@@ -26,13 +26,29 @@ import numpy as np
 
 from ecgscan.bench.cases import bench_config
 from ecgscan.bench.degrade import DegradeSpec, degrade
-from ecgscan.bench.render import GRID_PALETTES, RenderSpec, render_page
+from ecgscan.bench.render import RenderSpec, render_page
 from ecgscan.bench.sources import pick_preset, synthetic_signal
 from ecgscan.config import load_yaml
 from ecgscan.layout import get_layout
 
 SEED_BASE = 900_000_000
 LAYOUTS = (("3x4+rhythm", 6), ("6x2", 2), ("12x1", 2))
+# R5, SD-105: pages from this index on look like phone photos — a dark, greyed grid, dim
+# tinted paper, a stronger curl. The pages before it are the M6 set, unchanged.
+PHOTO_START = 100_000
+PHOTO_GRIDS = ("dark_red", "dark_red", "brown", "black", "red", "gray")
+ORIGINAL_GRIDS = ("red", "pink", "orange", "green", "gray")
+
+
+def _camera_look(img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A phone's rendering of the page: white balance off (a warm or cold cast), colours
+    washed out, the paper well below white."""
+    x = img.astype(np.float32)
+    gray = x.mean(axis=2, keepdims=True)
+    x = gray + (x - gray) * float(rng.uniform(0.45, 1.0))            # desaturation
+    x *= np.array(rng.uniform(0.85, 1.08, 3), dtype=np.float32)       # cast, per channel (BGR)
+    x *= float(rng.uniform(0.72, 0.95))                               # dim paper
+    return np.clip(x, 0, 255).astype(np.uint8)
 
 
 def _pick(rng: np.random.Generator, options) -> object:
@@ -53,11 +69,12 @@ def sample_page(i: int, *, work_ppm: float | None = None) -> tuple[np.ndarray, n
     sig = synthetic_signal(pick_preset(src_cfg[group], rng), rng, seed % 100000)
     layout = get_layout(_pick(rng, LAYOUTS))
     ppm = float(rng.uniform(work_ppm * 0.85, work_ppm * 1.5))
+    photo = i >= PHOTO_START
     spec = RenderSpec(
         px_per_mm=ppm,
         speed_mm_s=float(rng.choice([25, 25, 50])),
         gain_mm_mv=float(rng.choice([5, 10, 10, 10, 20])),
-        grid=str(rng.choice(list(GRID_PALETTES))),
+        grid=str(rng.choice(list(PHOTO_GRIDS if photo else ORIGINAL_GRIDS))),
         trace_mm=float(rng.uniform(0.18, 0.5)),            # thin printers to thick pens
         trace_gray=int(rng.choice([15, 25, 40, 70, 110], p=[0.3, 0.3, 0.2, 0.12, 0.08])),   # incl. faded thermal
         grid_fade=float(rng.choice([0.0, 0.0, 0.3, 0.6])),
@@ -66,7 +83,7 @@ def sample_page(i: int, *, work_ppm: float | None = None) -> tuple[np.ndarray, n
         column_markers=bool(rng.random() < 0.3),
     )
     deg = DegradeSpec(
-        crumple=float(rng.choice([0.0, 0.0, 0.4, 1.0])),
+        crumple=float(rng.choice([0.4, 1.0, 1.0, 2.0] if photo else [0.0, 0.0, 0.4, 1.0])),
         creases=int(rng.choice([0, 0, 1, 2])),
         stains=int(rng.choice([0, 0, 1, 3])),
         glare=float(rng.choice([0.0, 0.0, 0.0, 0.6, 0.9])),
@@ -82,6 +99,8 @@ def sample_page(i: int, *, work_ppm: float | None = None) -> tuple[np.ndarray, n
     drawn, _ = render_page(sig.leads_mv, sig.fs, layout, pen)
     hidden, _ = render_page(sig.leads_mv, sig.fs, layout, replace(pen, trace_gray=255, text_gray=0))
     a, _ = degrade(shown, deg, seed=seed, px_per_mm=ppm)
+    if photo:
+        a = _camera_look(a, rng)
     geom = DegradeSpec(crumple=deg.crumple)                  # the same warp, nothing else
     d, _ = degrade(drawn, geom, seed=seed, px_per_mm=ppm)
     b, _ = degrade(hidden, geom, seed=seed, px_per_mm=ppm)
@@ -94,7 +113,7 @@ def sample_page(i: int, *, work_ppm: float | None = None) -> tuple[np.ndarray, n
     gb = cv2.cvtColor(b, cv2.COLOR_BGR2GRAY).astype(np.float32)
     # Covered by at least half of a pen pixel after resampling: the pen's own width.
     mask = ((gb - gd) > 0.5 * np.maximum(gb, 1.0)).astype(np.uint8)
-    meta = {"seed": seed, "layout": layout.name, "ppm": round(ppm, 3), "render": spec.to_dict(),
+    meta = {"seed": seed, "photo": photo, "layout": layout.name, "ppm": round(ppm, 3), "render": spec.to_dict(),
             "degrade": deg.to_dict(), "ink_share": round(float(mask.mean()), 5)}
     return a, mask, meta
 

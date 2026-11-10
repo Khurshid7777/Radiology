@@ -369,6 +369,29 @@ def header_ocr_fields(reading, device_models: list[str]) -> HeaderOcr:
 def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHints | None = None, fs_out: float = 500.0,
          debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None,
          config: dict | None = None) -> ScanResult:
+    """Digitise one photo/scan (``_scan_once``). R5, SD-105: a page the main segmenter leaves
+    unread for its layout (on a phone photo it takes the grid for trace) is read once more with
+    the photo segmenter (``segmentation.fallback``); that reading is never "ok" by itself and
+    carries SEGMENTER_FALLBACK. A page read the first time is never touched."""
+    cfg = config or pipeline_config()
+    res = _scan_once(image, hints=hints, fs_out=fs_out, debug=debug, artifacts_dir=artifacts_dir, config=cfg)
+    fb = (cfg.get("segmentation") or {}).get("fallback") or {}
+    if (res.status != "rejected" or not fb.get("enabled") or isinstance(image, (list, tuple))
+            or not set(res.reject_reasons) or not set(res.reject_reasons) <= set(fb.get("on_reasons", []))):
+        return res
+    seg = {**cfg["segmentation"], "kind": "onnx", "onnx_model": fb["onnx_model"],
+           "onnx": {**(cfg["segmentation"].get("onnx") or {}), "sha256": fb.get("sha256")}}
+    again = _scan_once(image, hints=hints, fs_out=fs_out, debug=debug, artifacts_dir=artifacts_dir,
+                       config={**cfg, "segmentation": seg})
+    if again.status == "rejected":
+        return res
+    return again.model_copy(update={"status": "needs_confirmation",
+                                    "warnings": sorted({*again.warnings, "SEGMENTER_FALLBACK"})})
+
+
+def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHints | None = None,
+               fs_out: float = 500.0, debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None,
+               config: dict | None = None) -> ScanResult:
     """Digitise one photo/scan. ``artifacts_dir``: write rectified / mask / overlay images there.
 
     A list: one page photographed in parts on a capture board (SD-066); the parts are

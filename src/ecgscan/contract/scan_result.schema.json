@@ -962,7 +962,8 @@
         "LOW_RESOLUTION_COARSE",
         "PAGES_STITCHED",
         "SEAM_UNCERTAIN",
-        "GRID_IN_TRACE"
+        "GRID_IN_TRACE",
+        "SEGMENTER_FALLBACK"
       ]
     },
     "capture": {

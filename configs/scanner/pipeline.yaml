@@ -95,6 +95,11 @@ segmentation:
     min_v_mm: 8                  # a vertical one this tall (pulse boxes kept)
     tile_mm: 20                  # SD-104: the lattice's phase found per tile this size, not per page (scale/tilt drift); null: per page
   kind: onnx                     # onnx (M6, SD-053: wins on the benchmark) | classic; no model -> error, never a silent fallback
+  fallback:                      # SD-105: a page the main segmenter leaves unread for its layout is read once more with this one
+    enabled: true
+    onnx_model: models/segmenter_photo/trace_unet.onnx   # trained with photo-like pages too; worse on scans, so never the main model
+    sha256: 70a1632faa01a3b4ca833206d5e29280c5b4a9d693126f71ea2b002291b919db   # = models/segmenter_photo/model_card.json
+    on_reasons: [LAYOUT_UNKNOWN, PAGE_INCOMPLETE, GRID_NOT_FOUND]   # only these refusals; never "ok", always SEGMENTER_FALLBACK
   onnx_model: models/segmenter/trace_unet.onnx   # M6 (SD-052); sha256 below must match models/segmenter/model_card.json
   onnx:
     sha256: 607cb279e8445456b91ad3fcbcc60f063b94cb880617cdb21dc1785aef7c078f   # = models/segmenter/model_card.json
