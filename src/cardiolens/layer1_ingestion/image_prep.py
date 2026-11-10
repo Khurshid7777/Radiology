@@ -16,7 +16,8 @@ from pathlib import Path
 
 # Chosen on the D219 bench (even half; accepted on the odd half): x2 Lanczos, no smoothing, for pictures
 # whose long side is under 2 000 px. "enabled": False restores the earlier behaviour exactly.
-PREP = {"enabled": True, "max_long_px": 2000, "factor": 2.0, "method": "lanczos", "blur": 0.0}
+PREP = {"enabled": True, "max_long_px": 2000, "factor": 2.0, "method": "lanczos", "blur": 0.0,
+        "deblock": "none"}   # D228: "none" | "median3" | "bilateral" — JPEG cleanup before enlarging
 # Provenance note on a record read from an enlarged picture: its QT is approximate (10-70 ms on the bench).
 ENLARGED_NOTE = "picture enlarged before reading (D219): intervals approximate"
 # Above the QTc limit by less than this, a long QT from an enlarged picture is not a critical alert.
@@ -45,7 +46,17 @@ def prepared(path: str | Path, prep: dict | None = None):
         return
     method = {"lanczos": Image.LANCZOS, "bicubic": Image.BICUBIC}.get(str(p["method"]), Image.LANCZOS)
     f = float(p["factor"])
-    big = im.convert("RGB").resize((round(im.width * f), round(im.height * f)), method)
+    src = im.convert("RGB")
+    deblock = str(p.get("deblock") or "none")
+    if deblock == "median3":
+        src = src.filter(ImageFilter.MedianFilter(3))
+    elif deblock == "bilateral":
+        import cv2
+        import numpy as np
+
+        arr = cv2.bilateralFilter(np.asarray(src)[:, :, ::-1].copy(), 5, 40, 3)
+        src = Image.fromarray(arr[:, :, ::-1].copy())
+    big = src.resize((round(im.width * f), round(im.height * f)), method)
     if float(p.get("blur") or 0) > 0:
         big = big.filter(ImageFilter.GaussianBlur(float(p["blur"])))
     with tempfile.TemporaryDirectory() as td:
