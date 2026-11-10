@@ -339,3 +339,37 @@ def global_intervals(signal: np.ndarray, rpeaks, fs: float) -> tuple[float | Non
     if pr is not None and not 60.0 <= pr <= 600.0:
         pr = None
     return pr, qt
+
+
+RSR_PRIME_MIN_UV = 100.0       # D229: r' above the baseline ...
+RSR_PRIME_S_FRACTION = 0.2     # ... and at least this fraction of the S depth (chosen on PTB-XL, even ecg_id)
+RSR_S_MIN_UV = 100.0
+
+
+def global_rsr_prime(signal: np.ndarray, rpeaks, fs: float, lead_names: list[str],
+                     leads: tuple[str, ...] = ("V1", "V2")) -> str | None:
+    """The first of ``leads`` whose median QRS is r-S-r' (D229): an initial r, an S below the PR baseline, then a
+    second positive wave after the S within the QRS (+ 20 ms) — the incomplete RBBB pattern."""
+    X, a = median_beats(signal, rpeaks, fs)
+    if X is None:
+        return None
+    f = global_fiducials(X, a, fs, None)
+    on, off = f["qrs_on"], f["qrs_off"]
+    if on is None or off is None or off <= on:
+        return None
+    for ld in leads:
+        if ld not in lead_names:
+            continue
+        x = X[lead_names.index(ld)]
+        base = float(np.median(x[max(0, on - int(0.03 * fs)):on])) if on > 0 else float(x[0])
+        q = x[on:off + int(0.02 * fs)] - base
+        if q.size < 5:
+            continue
+        s_i = int(np.argmin(q))
+        s = float(-q[s_i])
+        if s_i == 0 or s_i >= q.size - 1 or s < RSR_S_MIN_UV or float(q[:s_i].max()) <= 0:
+            continue
+        rp = float(q[s_i:].max())
+        if rp >= RSR_PRIME_MIN_UV and rp >= RSR_PRIME_S_FRACTION * s:
+            return ld
+    return None

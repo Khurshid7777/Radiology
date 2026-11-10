@@ -926,13 +926,14 @@ def _fascicular_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
             evidence=_ev(qrs_axis_deg=axis, qrs_ms=iv.qrs_ms, with_rbbb=rbbb), confidence=0.55,
         ))
     band = cfg.get("irbbb_qrs_ms")
-    if (band and not rbbb and band[0] <= iv.qrs_ms <= band[1] and m.qrs_v1_terminal_positive is True
-            and "wide_qrs_nonspecific" not in codes):
+    # D229: the r' after the S in V1/V2 on the median beat (was: a positive terminal QRS in V1 — 0.23 of IRBBB).
+    if (band and not rbbb and band[0] <= iv.qrs_ms <= band[1] and m.rsr_prime_lead is not None
+            and "wide_qrs_nonspecific" not in codes and not codes & {"lbbb", "wpw_preexcitation"}):
         fs.findings.append(Finding(
             code="incomplete_rbbb", group="interval",
-            label_ru=f"Неполная блокада правой ножки: rSr' в V1 при QRS {iv.qrs_ms} мс (часто вариант нормы)",
-            label_uz=f"O'ng oyoqcha to'liq bo'lmagan blokadasi (QRS {iv.qrs_ms} ms, V1 da rSr')",
-            evidence=_ev(qrs_ms=iv.qrs_ms, v1_terminal="positive"), confidence=0.6,
+            label_ru=f"Неполная блокада правой ножки: rSr' в {m.rsr_prime_lead} при QRS {iv.qrs_ms} мс (часто вариант нормы)",
+            label_uz=f"O'ng oyoqcha to'liq bo'lmagan blokadasi (QRS {iv.qrs_ms} ms, {m.rsr_prime_lead} da rSr')",
+            evidence=_ev(qrs_ms=iv.qrs_ms, rsr_prime_lead=m.rsr_prime_lead), confidence=0.6,
         ))
 
 
