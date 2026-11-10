@@ -21,6 +21,7 @@ from cardiolens.layer1_ingestion.strip import (
     GRID_IN_TRACE_NOTE,
     LEADS_INCONSISTENT_NOTE,
     SCALE_CONFLICT_NOTE,
+    SEGMENTER_FALLBACK_NOTE,
     digitize_auto_to_signal,
 )
 from cardiolens.layer6_interpret.stub import StubProvider
@@ -173,6 +174,12 @@ def grid_in_trace(result) -> bool:
     return result.status == "needs_confirmation" and "GRID_IN_TRACE" in set(result.warnings or [])
 
 
+def segmenter_fallback(result) -> bool:
+    """The scanner refused the page with its main segmenter and read it once more with the photo
+    segmenter (scanner R5, warning SEGMENTER_FALLBACK): never an "ok" read; gated like D188 (D231)."""
+    return result.status == "needs_confirmation" and "SEGMENTER_FALLBACK" in set(result.warnings or [])
+
+
 def scan_keeping_overlay(scan, image, hints=None):
     """``scan()`` with its confirmation overlay kept in memory (D163): the traces drawn over
     the rectified page, header and footer bands blanked (SD-050, D136), as JPEG bytes — or
@@ -244,7 +251,8 @@ def _digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: fl
             return sig
         unknown = scale_unknown(result)
         grid = grid_in_trace(result)
-        if not unknown and not grid and not leads_inconsistent(result):
+        fallback = segmenter_fallback(result)
+        if not unknown and not grid and not fallback and not leads_inconsistent(result):
             return sig
         # D144: read, but with no time or gain scale it trusts and its own rhythm row at
         # odds with the panels (on a strip turned by 2 deg: a rate of 55 read as 100.6). The
@@ -259,7 +267,7 @@ def _digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: fl
             except ValueError:
                 pass
         sig.provenance.notes.append(SCALE_CONFLICT_NOTE if unknown else GRID_IN_TRACE_NOTE if grid
-                                    else LEADS_INCONSISTENT_NOTE)
+                                    else SEGMENTER_FALLBACK_NOTE if fallback else LEADS_INCONSISTENT_NOTE)
         return sig
     final = [r for r in result.reject_reasons if r in SCANNER_FINAL_REFUSALS]
     if final or readers is None:
