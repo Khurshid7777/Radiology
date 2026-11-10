@@ -269,6 +269,10 @@ async def main() -> None:
             if message.photo:     # D209: the largest size Telegram kept, read in the coarse mode (D170)
                 await bot.download(message.photo[-1], destination=buf)
                 name = "photo.jpg"
+                # D228: say at once that this is a compressed copy and how to send the original
+                # (once per album: only with its first photo).
+                if cfg.mode == "analyze" and (not message.media_group_id or message.media_group_id not in albums):
+                    await message.answer(tr("compressed", lang))
             else:
                 await bot.download(doc, destination=buf)
                 name = doc.file_name or "ecg"

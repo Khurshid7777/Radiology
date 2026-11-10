@@ -170,3 +170,15 @@ def test_the_note_is_in_the_reply_and_never_reaches_the_narrative(api, tmp_path,
     assert seen["ctx"].clinical_note is None
     plain, _, _ = analyse(_cfg(), api, [("page.png", _page(tmp_path))], "ru", "54 м")
     assert "со слов врача" not in plain
+
+
+def test_a_compressed_photo_gets_the_send_as_file_hint_in_both_languages():
+    """D228: the hint names the clip and the File menu on Android and iPhone, in RU and UZ."""
+    from ecgscan_bot.texts import tr
+
+    for lang in ("ru", "uz"):
+        msg = tr("compressed", lang)
+        assert "📎" in msg and "Android" in msg and "iPhone" in msg
+    assert "Файл" in tr("compressed", "ru") and "Fayl" in tr("compressed", "uz")
+    src = (__import__("pathlib").Path(__file__).parents[1] / "src/ecgscan_bot/__main__.py").read_text()
+    assert 'tr("compressed", lang)' in src and "message.photo" in src

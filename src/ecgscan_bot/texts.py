@@ -41,6 +41,16 @@ _T = {
                  "или нажмите «Нет». Не пишите ФИО пациента."),
                  ("Tashxis yoki tavsif bormi (shifokor, apparat xulosasi, klinika)? Matn yozing yoki «Yo'q» "
                  "tugmasini bosing. Bemor F.I.Sh.ni yozmang.")),
+    "compressed": (("⚠️ Это сжатая копия: Telegram уменьшает фото, и мелкие зубцы теряются — заключение будет "
+                    "ориентировочным. Для точного анализа пришлите оригинал файлом:\n"
+                    "• Android: 📎 → «Файл» → «Галерея» → выберите снимок\n"
+                    "• iPhone: 📎 → «Файл» → «Выбрать фото или видео» → выберите снимок\n"
+                    "Сейчас разберу и эту копию."),
+                   ("⚠️ Bu siqilgan nusxa: Telegram suratni kichraytiradi, mayda tishchalar yo'qoladi — xulosa "
+                    "taxminiy bo'ladi. Aniq tahlil uchun asl nusxani fayl sifatida yuboring:\n"
+                    "• Android: 📎 → «Fayl» → «Galereya» → suratni tanlang\n"
+                    "• iPhone: 📎 → «Fayl» → «Rasm yoki video tanlash» → suratni tanlang\n"
+                    "Hozir bu nusxani ham tahlil qilaman.")),
     "btn_skip": ("Пропустить", "O'tkazib yuborish"),
     "btn_no": ("Нет", "Yo'q"),
     "analysing": ("Анализирую…", "Tahlil qilinmoqda…"),
