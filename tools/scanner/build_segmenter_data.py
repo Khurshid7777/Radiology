@@ -23,11 +23,12 @@ def main() -> None:
     ap.add_argument("--val", type=int, default=32, help="pages kept for validation (after the training pages)")
     ap.add_argument("--per-shard", type=int, default=16)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--first", type=int, default=0, help="first page index (R5: 100000 = photo-like pages, SD-105)")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     jobs = []
-    for split, first, n in (("train", 0, a.pages), ("val", a.pages, a.val)):
+    for split, first, n in (("train", a.first, a.pages), ("val", a.first + a.pages, a.val)):
         for s in range(first, first + n, a.per_shard):
             p = out / f"{split}_{s:05d}.npz"
             if not p.exists():

@@ -29,6 +29,11 @@ GRID_PALETTES = {
     "orange": ((190, 215, 250), (120, 175, 240)),
     "green": ((205, 235, 205), (150, 205, 150)),
     "gray": ((220, 220, 220), (175, 175, 175)),
+    # R5, SD-105: as a phone sees them — a red grid gone dark and grey (ecgdig v6: grid ~(119, 125, 160)
+    # BGR on paper ~(197, 203, 220)), a brown one, a black one (a b/w copy).
+    "dark_red": ((160, 160, 205), (110, 115, 170)),
+    "brown": ((155, 170, 190), (95, 115, 145)),
+    "black": ((150, 150, 150), (60, 60, 60)),
 }
 PAPER_BGR = (247, 249, 250)
 
