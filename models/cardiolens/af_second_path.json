@@ -90,8 +90,8 @@
   0.12908613781004125
  ],
  "intercept": -1.6036005613835491,
- "threshold": 0.4,
- "threshold_chosen_on": "PTB-XL bench, even ecg_id half (dev); reported on the odd half",
+ "threshold": 0.5,
+ "threshold_chosen_on": "0.4 on the PTB-XL bench even half (D205); raised to 0.5 by the owner (D245)",
  "trained_on": "Chapman/Ningbo adults, 4854 records (1520 AF), tools/af_train/dump.py chapman",
  "cv_auc_chapman": 0.944,
  "auc_ptbxl": 0.959,
