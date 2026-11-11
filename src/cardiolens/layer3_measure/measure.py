@@ -589,41 +589,6 @@ def _page_beats(sig: SignalRepresentation, windows: dict, rhythm_row: np.ndarray
     return pos[order], np.asarray(kept_heights)[order]
 
 
-
-# D242: the global P onset (tuned on all PTB-XL vs GE 12SL; accepted on Chapman, D242).
-PR_MULTILEAD_LEADS = ("II", "I", "aVF", "V1", "V2", "III")
-PR_AGREE_MS = 30.0     # another lead's P onset within this after the candidate confirms it ...
-PR_AGREE_LEADS = 2     # ... and this many confirming leads are needed
-
-
-def _pr_multilead(sig: SignalRepresentation, qrs_on: np.ndarray, t_off: np.ndarray | None,
-                  fs: float) -> float | None:
-    """Median PR (ms) from the per-beat earliest refined P onset confirmed by PR_AGREE_LEADS more leads
-    within PR_AGREE_MS; None when fewer than half of the beats have one."""
-    onsets = []
-    for ln in PR_MULTILEAD_LEADS:
-        if ln not in sig.lead_names:
-            continue
-        x = sig.signal[sig.lead_names.index(ln)].astype(np.float64)
-        r_ref = float(np.percentile(np.abs(x - np.median(x)), 99)) or 1.0
-        onsets.append(refine_p_onsets(x, qrs_on, t_off, fs, max(P_ONSET_MIN_UV, P_ONSET_MIN_FRACTION * r_ref)))
-    if len(onsets) <= PR_AGREE_LEADS:
-        return None
-    p = np.array(onsets)
-    tol = PR_AGREE_MS / 1000.0 * fs
-    prl = []
-    for i in range(len(qrs_on)):
-        if not np.isfinite(qrs_on[i]):
-            continue
-        col = np.sort(p[:, i][np.isfinite(p[:, i])])
-        for k in range(col.size - PR_AGREE_LEADS):
-            if col[k + PR_AGREE_LEADS] - col[k] <= tol:
-                prl.append(qrs_on[i] - col[k])
-                break
-    if not prl or len(prl) < 0.5 * len(qrs_on):
-        return None
-    return _median_ms(prl, fs)
-
 def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = None, *,
             qrs_hump_fraction: float | None = None,
             amplitude_sig: SignalRepresentation | None = None) -> Measurements:
@@ -846,13 +811,6 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                        if p_on is not None else [])
             if pr_list:
                 m.notes.append("PR from dwt P onsets (refined P on <50% of beats)")
-        pr_ms_value = _median_ms(pr_list, fs)
-        # D242: the PR value from the earliest P onset that two more leads confirm (within
-        # PR_AGREE_MS), as an analyser takes the global P onset; the rhythm-lead statistics above
-        # (P ratio, PR spread) are unchanged.
-        pr_multi = _pr_multilead(sig, qrs_on, t_off, fs)
-        if pr_multi is not None:
-            pr_ms_value = pr_multi
         # D236: the width comes from the envelope beats alone when there are any; dwt bounds only when
         # the envelope found no beat (mixing them pulled a BBB median down to the dwt width).
         qrs_list = [w_off[i] - w_on[i] for i in range(n_beats) if env_found[i] and w_off[i] > w_on[i]]
@@ -878,7 +836,7 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
             if qt_ms is not None:
                 m.notes.append("QT from dwt T offset (tangent method found no usable lead)")
         m.intervals = Intervals(
-            pr_ms=pr_ms_value,
+            pr_ms=_median_ms(pr_list, fs),
             qrs_ms=_median_ms(qrs_list, fs),
             qt_ms=qt_ms, qt_lead=qt_lead, qt_source=qt_source,
         )
