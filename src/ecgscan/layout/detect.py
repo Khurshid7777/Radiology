@@ -191,7 +191,7 @@ def _by_repeats(names: list[str], ink: np.ndarray, base: list[int], px_per_mm: f
 def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
                   pulse_bottoms: list[int] | None = None, stroke_min_height_mm: float = 3.0,
                   stroke_bridge_mm: float = 0.0, exclude_boxes: list | None = None,
-                  min_gap_frac: float | None = None) -> LayoutGuess:
+                  min_gap_frac: float | None = None, min_gap_max_rows: int = 5) -> LayoutGuess:
     # A pulse bottom near a found row is that row's pulse, even when the printer floats it a
     # few mm off the baseline (a real strip: 4.1 mm below row II, read as a 4th row and a
     # 3x4+rhythm page, SD-059): no two rows are closer than the smallest registry pitch.
@@ -199,7 +199,10 @@ def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
     base = merge_baselines(row_baselines(ink, px_per_mm, min_height_mm=stroke_min_height_mm, bridge_mm=stroke_bridge_mm,
                                          exclude_boxes=exclude_boxes),
                            pulse_bottoms or [], px_per_mm, tol_mm=max(4.0, near_mm))
-    if min_gap_frac:
+    if min_gap_frac and len(base) <= min_gap_max_rows:
+        # One spurious row among a few real ones (a deep complex, a label line). Many "rows" are
+        # the grid's lines in the mask (a phone photo): thinned, they passed for a 6x2 page and
+        # the photo segmenter, which reads such pages, was never asked (ecgdig 1184-v4).
         base = drop_crowded_rows(ink, base, px_per_mm, min_gap_frac)
     n = len(base)
     pitch = float(np.median(np.diff(base))) / px_per_mm if n > 1 else None
