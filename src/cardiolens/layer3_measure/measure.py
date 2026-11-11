@@ -768,17 +768,17 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                                                  if paced_wide else {}))
         if paced_wide:
             m.notes.append("paced QRS: envelope search widened (D220)")
-        else:
-            # D236: a wide QRS (bundle branch block) often has no quiet envelope within +-150 ms of R,
-            # so the beat came back empty and its dwt bounds (which cut a BBB at 60-100 ms) stood in.
-            # Retry only those beats with a wider search before any dwt fallback.
-            lost = ~(np.isfinite(qrs_on) & np.isfinite(qrs_off))
-            if lost.any():
-                on2, off2 = qrs_bounds_envelope(sig.signal, rpeaks, fs, hump_fraction=qrs_hump_fraction,
-                                                search_ms=QRS_RETRY_SEARCH_MS)
-                qrs_on = np.where(lost, on2, qrs_on)
-                qrs_off = np.where(lost, off2, qrs_off)
-        env_found = np.isfinite(qrs_on) & np.isfinite(qrs_off)
+        # D236: a wide QRS (bundle branch block) often has no quiet envelope within +-150 ms of R, so the
+        # beat came back empty and its dwt bounds (which cut a BBB at 60-100 ms) stood in. Those beats are
+        # retried with a wider search -- for the QRS width only (D238): the PR / QT marks keep the bounds
+        # below, since a retried onset moved them on digitised pages (scanner standard_m3: 3 silent errors).
+        w_on, w_off = qrs_on.copy(), qrs_off.copy()
+        lost = ~(np.isfinite(qrs_on) & np.isfinite(qrs_off))
+        if not paced_wide and lost.any():
+            on2, off2 = qrs_bounds_envelope(sig.signal, rpeaks, fs, hump_fraction=qrs_hump_fraction,
+                                            search_ms=QRS_RETRY_SEARCH_MS)
+            w_on, w_off = np.where(lost, on2, w_on), np.where(lost, off2, w_off)
+        env_found = np.isfinite(w_on) & np.isfinite(w_off)
         p_on = p_off = None
         waves = _delineate(cleaned, rpeaks, fs)
         if waves is not None:
@@ -813,11 +813,10 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                 m.notes.append("PR from dwt P onsets (refined P on <50% of beats)")
         # D236: the width comes from the envelope beats alone when there are any; dwt bounds only when
         # the envelope found no beat (mixing them pulled a BBB median down to the dwt width).
-        use = [i for i in range(n_beats) if env_found[i] and qrs_off[i] > qrs_on[i]]
-        if not use:
-            use = [i for i in range(n_beats) if np.isfinite(qrs_on[i]) and np.isfinite(qrs_off[i])
-                   and qrs_off[i] > qrs_on[i]]
-        qrs_list = [qrs_off[i] - qrs_on[i] for i in use]
+        qrs_list = [w_off[i] - w_on[i] for i in range(n_beats) if env_found[i] and w_off[i] > w_on[i]]
+        if not qrs_list:
+            qrs_list = [qrs_off[i] - qrs_on[i] for i in range(n_beats) if np.isfinite(qrs_on[i])
+                        and np.isfinite(qrs_off[i]) and qrs_off[i] > qrs_on[i]]
         # QT: tangent-method T offset per lead, measured in the lead with the longest
         # QT (guideline practice); the single-lead dwt offset is only a fallback.
         qt_tan, qt_lead, t_off_tan = qt_multilead(
