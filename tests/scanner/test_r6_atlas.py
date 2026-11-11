@@ -35,7 +35,7 @@ def test_crowded_rows_lose_the_weaker_and_even_rows_stay():
     ink = np.zeros((1600, 400), bool)
     for y in (370, 890, 1420):                   # three real rows, 52 mm apart
         ink[y - 3:y + 3, :] = True
-    ink[1250:1253, 150:170] = True              # a deep S wave's tip 17 mm off: little ink
-    assert drop_crowded_rows(ink, [370, 890, 1250, 1420], ppm, 0.4) == [370, 890, 1420]
+    ink[1300:1303, 150:170] = True              # a deep S wave's tip 12 mm off: little ink
+    assert drop_crowded_rows(ink, [370, 890, 1300, 1420], ppm, 0.3) == [370, 890, 1420]
     even = [300, 620, 940, 1260]
-    assert drop_crowded_rows(ink, even, ppm, 0.4) == even
+    assert drop_crowded_rows(ink, even, ppm, 0.3) == even
