@@ -25,6 +25,7 @@ coarse:
 
 geometry:
   working_px_per_mm: 10.0        # the photo is resampled to this before rectification (speed; 5 ms/px at 25 mm/s... 2.5 at 50)
+  check_line_period: true       # SD-106: a scale the grid lines' own period (1 or 5 mm) contradicts -> the tiled estimate, if the lines agree with it
   max_upscale: 1.45              # 8..10 px/mm photos are brought up to 10: the M2 (legacy) trace reader
                                  # rounds px/mm to an integer (a 9.3 page would be timed 3 % wrong); M3 lifts this
   fit_px_per_mm: null            # fit the perspective homography at the working scale (6 px/mm was 2x faster but lost the traces: photo r 0.94 -> 0.30)
@@ -47,6 +48,7 @@ calibration:
     retry_close_px: 7            # ... with vertical gaps up to this closed (a thin, slightly slanted real pulse, SD-059)
     top_search_mm: 1.5           # SD-086: on the dark-ink retry the edges' tops may differ this much (an edge broken under the top's corner)
     extend_max_gap_mm: 4.0       # D180: a found pulse is extended down while both edges go on, gaps up to this bridged
+    edge_frac: 0.15              # SD-106: a pulse farther than this share of the ink's width from both ends is a complex, not a pulse; null: off
   ocr:
     enabled: true
     # S3 (SD-090): RapidOCR's detector with the Cyrillic PP-OCRv5 recogniser (Cyrillic incl. Uzbek,
@@ -82,6 +84,7 @@ layout:
   pitch_tolerance: 0.1           # measured baseline pitch within this fraction of a registry pitch matches it
   stroke_min_height_mm: 2.0      # a trace row needs a complex this tall somewhere (a paper edge is <1 mm in every column); 3 lost lead III of a real strip (SD-059)
   stroke_bridge_mm: 1.0          # trace pieces the mask split are joined across gaps this long when judging a row (SD-059)
+  min_row_gap_frac: 0.4          # SD-106: of two "rows" closer than this share of the widest row gap, the one with less ink goes (a deep complex, a label line); null: off
 
 segmentation:
   max_redness: 60                # SD-101: mask pixels with R - max(G, B) above this are red grid, not the (black) trace; null: off

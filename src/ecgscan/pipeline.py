@@ -48,6 +48,7 @@ from ecgscan.geometry.grid import (
     estimate_coarse_grid,
     estimate_grid,
     estimate_grid_tiled,
+    scale_matches_lines,
 )
 from ecgscan.geometry.rectify import Rectified, rectify, tile_residual
 from ecgscan.io import ImageRefused, _mime, flat_field, load_image, paper_level
@@ -366,6 +367,18 @@ def header_ocr_fields(reading, device_models: list[str]) -> HeaderOcr:
         device_text_conclusion=(f.conclusion or None) and f.conclusion[:500], phi_lines_dropped=f.phi_lines_dropped)
 
 
+
+def pulses_at_row_edges(ink: np.ndarray, pulses: list, edge_frac: float) -> list:
+    """R6, SD-106: a calibration pulse stands at a row's start or end, never mid-row. A "pulse"
+    farther than ``edge_frac`` of the ink's width from both ends is a complex with a flat top
+    (atlas Hampton: an aVR complex taken for the pulse moved the rows' start, PAGE_INCOMPLETE)."""
+    cols = np.flatnonzero(ink.any(axis=0))
+    if cols.size < 2:
+        return pulses
+    lo, hi = float(np.percentile(cols, 1)), float(np.percentile(cols, 99))
+    reach = edge_frac * max(1.0, hi - lo)
+    return [p for p in pulses if p.x_left - lo <= reach or hi - p.x_right <= reach]
+
 def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHints | None = None, fs_out: float = 500.0,
          debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None,
          config: dict | None = None) -> ScanResult:
@@ -522,6 +535,15 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
             if plain.confidence > raw.confidence:
                 raw = plain
         h_img, w_img = work.shape[:2]
+        if (g_cfg.get("check_line_period") and raw.px_per_mm and raw.confidence >= q_cfg["min_grid_confidence"]
+                and scale_matches_lines(work, raw.px_per_mm) is False):
+            # R6, SD-106: a confident scale the lines' own period contradicts (2-4x off on atlas
+            # pages): the tiled estimate is taken when the lines agree with it, else the page is
+            # read as before.
+            tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
+            if (tiled is not None and tiled.px_per_mm and tiled.confidence >= q_cfg["min_grid_confidence"]
+                    and scale_matches_lines(work, tiled.px_per_mm)):
+                raw = tiled
         if raw.confidence < q_cfg["min_grid_confidence"] and max(h_img, w_img) > g_cfg.get("tile_aspect", 2.0) * min(h_img, w_img):
             # A long strip: perspective smears the whole-frame comb; read it piece by piece (SD-059).
             tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
@@ -603,6 +625,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         # D180: a pulse found as its top piece (edges broken further down) is extended while
         # both edges continue; the gain from a 5-mm piece of a 20-mm pulse was 4x off.
         pulses = extend_pulses(ink, pulses, ppm, max_gap_mm=float(p_cfg["extend_max_gap_mm"]))
+    if p_cfg.get("edge_frac") and pulses:
+        pulses = pulses_at_row_edges(ink, pulses, float(p_cfg["edge_frac"]))
     dbg.pulses = pulses
     t = tick("segment+pulse", t)
 
@@ -612,7 +636,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
     m2 = int(round(2.0 * ppm))       # a pulse's feet: about 1 mm on each side
     pulse_boxes = [(p.x_left - m2, p.top - m2, p.x_right + m2, p.bottom + m2) for p in pulses]
     guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses],
-                          stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
+                          stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes,
+                          min_gap_frac=cfg["layout"].get("min_row_gap_frac"))
     gl_cfg = (cfg.get("segmentation") or {}).get("drop_grid_lines") or {}
     if guess.name is None and not hints.layout and gl_cfg.get("enabled") and grid_in_mask(ink, ppm):
         # SD-099: a black grid (b/w scan) is in the mask as dark as the trace and its lines pass
@@ -624,7 +649,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         if dropped:
             again = detect_layout(clean, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"],
                                   pulse_bottoms=[p.bottom for p in pulses], stroke_min_height_mm=stroke_h,
-                                  stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
+                                  stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes,
+                                  min_gap_frac=cfg["layout"].get("min_row_gap_frac"))
             if again.name is not None:
                 ink, guess = clean, again
                 mask = TraceMask(ink=ink, darkness=mask.darkness, method=mask.method + "+nogrid")

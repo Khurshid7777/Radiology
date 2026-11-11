@@ -1,0 +1,21 @@
+# Standard 12-lead page without a rhythm strip: three rows x four 2.5-s columns (R6, SD-106).
+# Common in printed atlases and on machines set to "no rhythm lead" (atlas Hampton: 150 pages,
+# baselines 52-54 mm apart). Column c covers [c * panel_s, (c + 1) * panel_s) of one 10-s record.
+# Told apart from "3x4 strip" (a 16-s three-channel roll, 22-mm pitch) by the row pitch.
+name: "3x4"
+registry_version: "1"
+confidence: medium        # measured on atlas pages; refine with machines that print it
+panel_s: 2.5
+rows:
+  - [I, aVR, V1, V4]
+  - [II, aVL, V2, V5]
+  - [III, aVF, V3, V6]
+rhythm: []
+row_pitch_mm: 50.0        # baseline-to-baseline distance (atlas Hampton 52-54 mm)
+header_mm: 20.0
+margin_mm: 8.0
+pulse:
+  present: true
+  width_s: 0.2
+  area_mm: 8.0            # left of the traces
+label_offset_mm: [2.0, 4.0]

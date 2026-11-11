@@ -467,3 +467,33 @@ def estimate_grid_tiled(img: np.ndarray, *, tiles: int = 3, **kw) -> GridEstimat
 
     return GridEstimate(med("px_per_mm_x"), med("px_per_mm_y"), med("score_x"), med("score_y"), found[0].channel,
                         round(med("confidence"), 3))
+
+
+def dominant_line_period(img: np.ndarray, *, min_px: float = 4.0) -> float | None:
+    """The strongest period of the grid lines across x (R6, SD-106), in px: on the channel where
+    the lines stand out most. Normally the 5-mm lines (or the 1-mm ones when no line is bolder)."""
+    best, period = 0.0, None
+    for ch in _channels(img).values():
+        prof = ch.mean(axis=0).astype(np.float64)
+        prof -= prof.mean()
+        if prof.size < 8 * min_px:
+            continue
+        spec = np.abs(np.fft.rfft(prof))
+        freqs = np.fft.rfftfreq(prof.size)
+        ok = (freqs > 0) & (freqs <= 1.0 / min_px) & (freqs >= 4.0 / prof.size)
+        if not ok.any():
+            continue
+        k = int(np.argmax(np.where(ok, spec, 0.0)))
+        if spec[k] > best:
+            best, period = float(spec[k]), float(1.0 / freqs[k])
+    return period
+
+
+def scale_matches_lines(img: np.ndarray, px_per_mm: float, *, rel_tol: float = 0.06) -> bool | None:
+    """Whether the grid scale agrees with the lines' own period: 1 mm or 5 mm (R6, SD-106). A
+    scale off by 2-4x read a clean atlas page (Hampton) as one row. None: no period found."""
+    p = dominant_line_period(img)
+    if p is None or not px_per_mm:
+        return None
+    return any(abs(p / (m * px_per_mm) - 1.0) <= rel_tol for m in (1.0, 5.0))
+
