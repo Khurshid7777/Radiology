@@ -31,6 +31,21 @@ CRITICAL_CODES = {
 }
 
 
+LONG_QT_CRITICAL_MS = 500.0   # D241: QTc (as the long-QT rule judged it) that raises the critical alert
+
+
+def _evidence_float(f, feature: str) -> float | None:
+    if f is None:
+        return None
+    for e in f.evidence:
+        if e.feature == feature:
+            try:
+                return float(e.value)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 @dataclass
 class CriticalAlert:
     code: str
@@ -66,8 +81,17 @@ def scan_critical(findings: FindingSet, m: Measurements) -> SafetyResult:
 
     # Finding-derived critical codes.
     for code, (ru, uz) in CRITICAL_CODES.items():
-        if code in findings.codes():
-            add(code, ru, uz, reason=f"finding '{code}' present")
+        if code not in findings.codes():
+            continue
+        if code == "long_qt":
+            # D241 (owner, 11.11): the alert from QTc >= 500 ms (AHA/ACCF 2010, ESC 2022: the high-risk
+            # threshold for torsades); 450/460-499 stays a non-critical finding in the report.
+            qtc = _evidence_float(findings.by_code(code), "qtc_ms")
+            if qtc is not None and qtc < LONG_QT_CRITICAL_MS:
+                continue
+            add(code, ru, uz, reason=f"finding '{code}' present, QTc {qtc} ms >= {LONG_QT_CRITICAL_MS:g}")
+            continue
+        add(code, ru, uz, reason=f"finding '{code}' present")
 
     # Measurement-derived critical patterns (may exist without a Layer-4 finding).
     hr = m.heart_rate_bpm
