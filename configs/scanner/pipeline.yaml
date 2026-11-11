@@ -48,7 +48,7 @@ calibration:
     retry_close_px: 7            # ... with vertical gaps up to this closed (a thin, slightly slanted real pulse, SD-059)
     top_search_mm: 1.5           # SD-086: on the dark-ink retry the edges' tops may differ this much (an edge broken under the top's corner)
     extend_max_gap_mm: 4.0       # D180: a found pulse is extended down while both edges go on, gaps up to this bridged
-    edge_frac: 0.15              # SD-106: a pulse farther than this share of the ink's width from both ends is a complex, not a pulse; null: off
+    edge_frac: null             # SD-106: a pulse farther than this share of its row's ink width from both ends is a complex; off: on photos it let a wrong 12x1/6x2 read pass (ecgdig 1489-v6), atlas Hampton 127 vs 126 read without it
   ocr:
     enabled: true
     # S3 (SD-090): RapidOCR's detector with the Cyrillic PP-OCRv5 recogniser (Cyrillic incl. Uzbek,
