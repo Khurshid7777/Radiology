@@ -11,7 +11,8 @@ rows:
   - [II, aVL, V2, V5]
   - [III, aVF, V3, V6]
 rhythm: []
-row_pitch_mm: 50.0        # baseline-to-baseline distance (atlas Hampton 52-54 mm)
+row_pitch_mm: 50.0        # baseline-to-baseline distance (atlas Hampton 44-57 mm)
+row_pitch_tol: 0.3        # 35-65 mm: printers spread the three rows over the page; "3x4 strip" is 20-24
 header_mm: 20.0
 margin_mm: 8.0
 pulse:

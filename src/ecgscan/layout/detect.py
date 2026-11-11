@@ -209,7 +209,8 @@ def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
             continue    # several pulses at different heights: not a single strip
         if spec.n_trace_rows == n:
             by_count.append(spec.name)
-        if pitch is not None and abs(pitch - spec.row_pitch_mm) <= pitch_tol * spec.row_pitch_mm:
+        tol = pitch_tol if spec.row_pitch_tol is None else spec.row_pitch_tol
+        if pitch is not None and abs(pitch - spec.row_pitch_mm) <= tol * spec.row_pitch_mm:
             by_pitch.append(spec.name)
     if len(by_count) > 1:
         # Same row count (6x2 / 3x4+3rhythm): the rhythm strips' repeats decide (S2).

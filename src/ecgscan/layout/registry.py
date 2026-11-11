@@ -41,6 +41,9 @@ class LayoutSpec:
     # first column, and naming its groups by position would mislabel every lead (SD-059).
     start_pulse_required: bool = False
     aliases: tuple[str, ...] = ()       # other names a client may send (TZ 18.5 template names)
+    # Row-pitch tolerance of this layout (fraction), when its printers vary more than the common
+    # one (R6, SD-106: a 3x4 page without a rhythm strip, 44-57 mm on atlas Hampton).
+    row_pitch_tol: float | None = None
 
     def column_offset_mm(self, c: int, speed_mm_s: float) -> float:
         """Where column ``c`` starts, in mm from the first column's start."""
@@ -88,6 +91,7 @@ def _from_dict(d: dict) -> LayoutSpec:
         registry_version=str(d.get("registry_version", "1")), confidence=str(d.get("confidence", "medium")),
         panel_gap_mm=float(d.get("panel_gap_mm", 0.0)), start_pulse_required=bool(d.get("start_pulse_required", False)),
         aliases=tuple(d.get("aliases") or ()),
+        row_pitch_tol=None if d.get("row_pitch_tol") is None else float(d["row_pitch_tol"]),
     )
 
 
