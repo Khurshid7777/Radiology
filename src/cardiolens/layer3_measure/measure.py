@@ -814,6 +814,9 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
         # D236: the width comes from the envelope beats alone when there are any; dwt bounds only when
         # the envelope found no beat (mixing them pulled a BBB median down to the dwt width).
         qrs_list = [w_off[i] - w_on[i] for i in range(n_beats) if env_found[i] and w_off[i] > w_on[i]]
+        # D239: the width rests on retried beats (their bounds are not the ones PR / QT / ST use).
+        retried = [i for i in range(n_beats) if env_found[i] and lost[i]]
+        m.qrs_width_from_retry = bool(qrs_list) and len(retried) > 0.5 * len(qrs_list)
         if not qrs_list:
             qrs_list = [qrs_off[i] - qrs_on[i] for i in range(n_beats) if np.isfinite(qrs_on[i])
                         and np.isfinite(qrs_off[i]) and qrs_off[i] > qrs_on[i]]

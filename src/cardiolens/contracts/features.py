@@ -121,6 +121,7 @@ class Measurements(BaseModel):
     pr_std_ms: float | None = None            # beat-to-beat PR variability (AV dissociation gate)
     qrs_v1_terminal_positive: bool | None = None  # terminal forces in V1 (R' -> RBBB)
     rsr_prime_lead: str | None = None  # D229: lead (V1/V2) with an r' after the S on the median beat
+    qrs_width_from_retry: bool = False  # D239: the QRS width needed the wider search; ST bounds are short
     qrs_v6_terminal_positive: bool | None = None  # terminal forces in V6 (broad R -> LBBB)
     qrs_amplitude_limb_uv: float | None = None    # median limb-lead QRS peak-to-peak
     atrial_rate_bpm: float | None = None          # P/flutter-wave rate (TZ §7.1)
