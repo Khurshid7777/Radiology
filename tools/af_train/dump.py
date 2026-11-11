@@ -45,6 +45,12 @@ AT_CODES = {"713422000": "AT", "427084000": "ST", "426761007": "SVT", "233896004
 AT_PER_CLASS = {"AT": 400, "ST": 400, "SVT": 300, "AVNRT": 50, "AVRT": 50, "AFL": 200}
 
 
+# D234: pre-excitation and the bundle branch blocks it is confused with.
+WPW_CODES = {"74390002": "WPW", "164909002": "LBBB", "733534002": "CLBBB", "59118001": "RBBB",
+             "713427006": "CRBBB", "426783006": "SR"}
+WPW_PER_CLASS = {"WPW": 300, "LBBB": 300, "CLBBB": 300, "RBBB": 200, "CRBBB": 200, "SR": 300}
+
+
 def chapman_list(seed: int = 0, require_signal: bool = True, codes: dict | None = None,
                  per_class: dict | None = None) -> list[tuple[str, list[str], float | None]]:
     seen: dict[str, tuple[str, list[str], float | None]] = {}
@@ -109,16 +115,17 @@ def run(items, out: Path, shard: str, keep_meas: bool = False) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("which", choices=["chapman", "chapman-avb", "chapman-esc", "chapman-at", "ptbxl"])
+    ap.add_argument("which", choices=["chapman", "chapman-avb", "chapman-esc", "chapman-at", "chapman-wpw", "ptbxl"])
     ap.add_argument("--data", type=Path, default=Path("data/ptbxl_rhythm"))
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--shard", default="0/1")
     a = ap.parse_args()
-    if a.which in ("chapman", "chapman-avb", "chapman-esc", "chapman-at"):
+    if a.which in ("chapman", "chapman-avb", "chapman-esc", "chapman-at", "chapman-wpw"):
         # The same selection as extract.py; a record read from the zip lives in the extra folder.
         kw = ({"codes": AVB_CODES, "per_class": AVB_PER_CLASS} if a.which == "chapman-avb" else
               {"codes": ESC_CODES, "per_class": ESC_PER_CLASS} if a.which == "chapman-esc" else
-              {"codes": AT_CODES, "per_class": AT_PER_CLASS} if a.which == "chapman-at" else {})
+              {"codes": AT_CODES, "per_class": AT_PER_CLASS} if a.which == "chapman-at" else
+              {"codes": WPW_CODES, "per_class": WPW_PER_CLASS} if a.which == "chapman-wpw" else {})
         items = []
         for path, labels, age in chapman_list(require_signal=False, **kw):
             if not Path(path).with_suffix(".mat").exists():
@@ -128,7 +135,7 @@ def main() -> None:
         man = json.loads((a.data / "manifest.json").read_text())["records"]
         items = [(str(a.data / r["filename_hr"]), r["labels"],
                   float(r["age"]) if r.get("age") not in (None, "") else None) for r in man]
-    run(items, a.out, a.shard, keep_meas=a.which in ("chapman-avb", "chapman-esc", "chapman-at"))
+    run(items, a.out, a.shard, keep_meas=a.which in ("chapman-avb", "chapman-esc", "chapman-at", "chapman-wpw"))
 
 
 if __name__ == "__main__":

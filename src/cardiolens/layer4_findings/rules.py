@@ -10,6 +10,7 @@ this layer cannot support are simply not emitted (TZ §0, no fabrication).
 
 from __future__ import annotations
 
+import statistics
 from typing import Any
 
 from cardiolens.contracts.features import Measurements
@@ -445,6 +446,13 @@ def _near_150(hr) -> bool:
     return hr is not None and SVT_FLUTTER_BAND_BPM[0] <= hr <= SVT_FLUTTER_BAND_BPM[1]
 
 
+def _v13_delta(m) -> float | None:
+    """Median delta-wave length (ms) over V1-V3 (D234), None without any."""
+    by = getattr(m.morphology, "delta_ms_by_lead", None) or {}
+    vals = [float(by[ln]) for ln in ("V1", "V2", "V3") if by.get(ln) is not None]
+    return float(statistics.median(vals)) if vals else None
+
+
 _WCT_EXCLUDES = ("wpw_preexcitation", "first_degree_av_block", "pathological_q_waves")
 
 
@@ -774,8 +782,16 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
     lbbb_width = ivn.get("qrs_lbbb_definite")
     block_like = (bool(lbbb_width) and bool(pr_lo) and iv.pr_ms is not None
                   and iv.pr_ms >= pr_lo and iv.qrs_ms >= float(lbbb_width))
+    # ... unless the slurred start reaches V1-V3 too (D234): LBBB starts fast there (QS / rS; PTB-XL
+    # CLBBB median 22 ms, p90 < 33), pre-excitation slurs every lead (WPW read as LBBB: median 66 ms).
+    # Such a record also gets a longer PR allowance (some had PR 146-180 ms).
+    pr_max = wpw.get("pr_max", 140)
+    v13 = wpw.get("v1v3_delta_ms")
+    if v13 is not None and (_v13_delta(m) or 0.0) >= float(v13):
+        block_like = False
+        pr_max = wpw.get("v1v3_pr_max", pr_max)
     by_delta = (delta is not None and wpw.get("delta_ms") is not None and delta >= wpw["delta_ms"]
-                and iv.pr_ms is not None and iv.pr_ms <= wpw.get("pr_max", 140)
+                and iv.pr_ms is not None and iv.pr_ms <= pr_max
                 and iv.qrs_ms >= wpw.get("qrs_min", 90)
                 and not (wide and m.qrs_v1_terminal_positive is True)
                 and not block_like)
