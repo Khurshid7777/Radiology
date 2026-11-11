@@ -84,7 +84,7 @@ layout:
   pitch_tolerance: 0.1           # measured baseline pitch within this fraction of a registry pitch matches it
   stroke_min_height_mm: 2.0      # a trace row needs a complex this tall somewhere (a paper edge is <1 mm in every column); 3 lost lead III of a real strip (SD-059)
   stroke_bridge_mm: 1.0          # trace pieces the mask split are joined across gaps this long when judging a row (SD-059)
-  min_row_gap_frac: 0.3          # SD-106: of two "rows" closer than this share of the widest row gap, the one with less ink goes (a deep complex, a label line); null: off
+  min_row_gap_frac: null         # SD-106: of two "rows" closer than this share of the widest row gap, the one with less ink goes; off: atlases 104 = 104 of 334 with or without, ecgdig 1246-v9 lost a real row
 
 segmentation:
   max_redness: 60                # SD-101: mask pixels with R - max(G, B) above this are red grid, not the (black) trace; null: off
