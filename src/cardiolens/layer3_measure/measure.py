@@ -191,6 +191,9 @@ RECOVER_MAX_FLOOR = 0.25      # no recovery when the envelope between beats is t
 PACED_QRS_COUPLING_MIN = 0.5   # D220: spikes locked to the QRS on half of the beats ...
 PACED_QRS_SEARCH_MS = 250.0    # ... widen the QRS-bounds search (a paced QRS is ~190-200 ms)
 PACED_QRS_MAX_MS = 260.0
+# D236: the wider envelope search for beats the +-150 ms window left without QRS bounds (PTB-XL even
+# half vs GE 12SL: complete BBB measured <= 110 ms 20 -> 8 of 329, MAE 8.36 -> 7.76 ms, NORM unchanged).
+QRS_RETRY_SEARCH_MS = 200.0
 PACED_R_MAX_OFFSET_S = 0.010   # a detection this close to a pacing spike sits on the spike
 PACED_QRS_WINDOW_S = (0.08, 0.30)   # an atrially paced QRS follows its spike after the AV delay
 PACED_QUIET_S = (0.02, 0.07)   # ... with a quiet envelope right after the spike (a ventricular
@@ -765,6 +768,17 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                                                  if paced_wide else {}))
         if paced_wide:
             m.notes.append("paced QRS: envelope search widened (D220)")
+        else:
+            # D236: a wide QRS (bundle branch block) often has no quiet envelope within +-150 ms of R,
+            # so the beat came back empty and its dwt bounds (which cut a BBB at 60-100 ms) stood in.
+            # Retry only those beats with a wider search before any dwt fallback.
+            lost = ~(np.isfinite(qrs_on) & np.isfinite(qrs_off))
+            if lost.any():
+                on2, off2 = qrs_bounds_envelope(sig.signal, rpeaks, fs, hump_fraction=qrs_hump_fraction,
+                                                search_ms=QRS_RETRY_SEARCH_MS)
+                qrs_on = np.where(lost, on2, qrs_on)
+                qrs_off = np.where(lost, off2, qrs_off)
+        env_found = np.isfinite(qrs_on) & np.isfinite(qrs_off)
         p_on = p_off = None
         waves = _delineate(cleaned, rpeaks, fs)
         if waves is not None:
@@ -797,9 +811,13 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                        if p_on is not None else [])
             if pr_list:
                 m.notes.append("PR from dwt P onsets (refined P on <50% of beats)")
-        qrs_list = [qrs_off[i] - qrs_on[i] for i in range(n_beats)
-                    if np.isfinite(qrs_on[i]) and np.isfinite(qrs_off[i])
-                    and qrs_off[i] > qrs_on[i]]
+        # D236: the width comes from the envelope beats alone when there are any; dwt bounds only when
+        # the envelope found no beat (mixing them pulled a BBB median down to the dwt width).
+        use = [i for i in range(n_beats) if env_found[i] and qrs_off[i] > qrs_on[i]]
+        if not use:
+            use = [i for i in range(n_beats) if np.isfinite(qrs_on[i]) and np.isfinite(qrs_off[i])
+                   and qrs_off[i] > qrs_on[i]]
+        qrs_list = [qrs_off[i] - qrs_on[i] for i in use]
         # QT: tangent-method T offset per lead, measured in the lead with the longest
         # QT (guideline practice); the single-lead dwt offset is only a fallback.
         qt_tan, qt_lead, t_off_tan = qt_multilead(
