@@ -44,6 +44,12 @@ class LayoutSpec:
     # Row-pitch tolerance of this layout (fraction), when its printers vary more than the common
     # one (R6, SD-106: a 3x4 page without a rhythm strip, 44-57 mm on atlas Hampton).
     row_pitch_tol: float | None = None
+    # A page without a rhythm strip: no long trace may lie a row pitch below its last row. A
+    # 3x4 + rhythm page whose strip the mask lost is not it (R6, SD-106, ecgdig 1208-v4).
+    clear_below: bool = False
+    # Rows evenly spaced: the widest gap at most this times the narrowest (None: any). A 3x4 page
+    # prints evenly; leftover grid lines on a b/w scan leave rows 72 and 33 mm apart (ecgdig 1462-v9).
+    max_gap_ratio: float | None = None
 
     def column_offset_mm(self, c: int, speed_mm_s: float) -> float:
         """Where column ``c`` starts, in mm from the first column's start."""
@@ -92,6 +98,8 @@ def _from_dict(d: dict) -> LayoutSpec:
         panel_gap_mm=float(d.get("panel_gap_mm", 0.0)), start_pulse_required=bool(d.get("start_pulse_required", False)),
         aliases=tuple(d.get("aliases") or ()),
         row_pitch_tol=None if d.get("row_pitch_tol") is None else float(d["row_pitch_tol"]),
+        clear_below=bool(d.get("clear_below", False)),
+        max_gap_ratio=None if d.get("max_gap_ratio") is None else float(d["max_gap_ratio"]),
     )
 
 

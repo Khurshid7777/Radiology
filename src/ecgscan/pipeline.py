@@ -370,14 +370,23 @@ def header_ocr_fields(reading, device_models: list[str]) -> HeaderOcr:
 
 def pulses_at_row_edges(ink: np.ndarray, pulses: list, edge_frac: float) -> list:
     """R6, SD-106: a calibration pulse stands at a row's start or end, never mid-row. A "pulse"
-    farther than ``edge_frac`` of the ink's width from both ends is a complex with a flat top
-    (atlas Hampton: an aVR complex taken for the pulse moved the rows' start, PAGE_INCOMPLETE)."""
-    cols = np.flatnonzero(ink.any(axis=0))
-    if cols.size < 2:
-        return pulses
-    lo, hi = float(np.percentile(cols, 1)), float(np.percentile(cols, 99))
-    reach = edge_frac * max(1.0, hi - lo)
-    return [p for p in pulses if p.x_left - lo <= reach or hi - p.x_right <= reach]
+    farther than ``edge_frac`` of its own row's ink width from both ends is a complex with a flat
+    top (atlas Hampton: an aVR complex taken for the pulse moved the rows' start, PAGE_INCOMPLETE).
+    The row, not the page: a screen's bezel or a desk edge widens the page's ink and real pulses
+    at a row's start fell "mid-page" (ecgdig 1375-v5)."""
+    out = []
+    for p in pulses:
+        half = max(1, (int(p.bottom) - int(p.top)) // 2)
+        band = ink[max(0, int(p.top) - half):int(p.bottom) + half]
+        cols = np.flatnonzero(band.sum(axis=0) > 0)
+        if cols.size < 2:
+            out.append(p)
+            continue
+        lo, hi = float(np.percentile(cols, 5)), float(np.percentile(cols, 95))
+        reach = edge_frac * max(1.0, hi - lo)
+        if p.x_left - lo <= reach or hi - p.x_right <= reach:
+            out.append(p)
+    return out
 
 def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHints | None = None, fs_out: float = 500.0,
          debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None,
