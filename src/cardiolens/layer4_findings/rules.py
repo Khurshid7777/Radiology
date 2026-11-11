@@ -250,11 +250,8 @@ def detect_findings(
     _, pr_hi = _interval_norms(norms, sig.patient).get("pr", [None, None])
     # A PR interval needs P waves: organised P (AF gate) or a refined P onset on
     # most beats; and it is meaningless in atrial fibrillation.
-    # D243: a rhythm already named sinus has its P waves (Chapman: 9 of 137 missed 1AVB were sinus with PR > 210
-    # but P found before < 50 % of beats).
     p_present = (m.p_wave_ratio is None or m.p_wave_ratio >= 0.5
-                 or (m.p_onset_ratio or 0.0) >= 0.5
-                 or bool(fs.codes() & {"sinus_rhythm", "sinus_bradycardia", "sinus_tachycardia"}))
+                 or (m.p_onset_ratio or 0.0) >= 0.5)
     in_af = "atrial_fibrillation" in fs.codes()
     if (iv.pr_ms is not None and pr_hi and iv.pr_ms > pr_hi and p_present
             and not in_af and m.av_dissociation is not True):
