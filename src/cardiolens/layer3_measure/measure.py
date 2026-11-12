@@ -820,9 +820,11 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
         # beat came back empty and its dwt bounds (which cut a BBB at 60-100 ms) stood in. Those beats are
         # retried with a wider search -- for the QRS width only (D238): the PR / QT marks keep the bounds
         # below, since a retried onset moved them on digitised pages (scanner standard_m3: 3 silent errors).
+        digitised = bool(getattr(sig.provenance, "digitized", False)) or sig.source in ("image", "telegram-photo")
         w_on, w_off = qrs_on.copy(), qrs_off.copy()
         lost = ~(np.isfinite(qrs_on) & np.isfinite(qrs_off))
-        if not paced_wide and lost.any():
+        # D256: not on digitised pages — on noisy photo traces the wider search overshoots (ecgdig: 90 -> 154 ms).
+        if not paced_wide and lost.any() and not digitised:
             on2, off2 = qrs_bounds_envelope(sig.signal, rpeaks, fs, hump_fraction=qrs_hump_fraction,
                                             search_ms=QRS_RETRY_SEARCH_MS)
             w_on, w_off = np.where(lost, on2, w_on), np.where(lost, off2, w_off)
@@ -864,10 +866,11 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
         m.pr_multilead_ms = _pr_multilead(sig, qrs_on, t_off, fs)
         # D236: the width comes from the envelope beats alone when there are any; dwt bounds only when
         # the envelope found no beat (mixing them pulled a BBB median down to the dwt width).
-        qrs_list = [w_off[i] - w_on[i] for i in range(n_beats) if env_found[i] and w_off[i] > w_on[i]]
+        qrs_list = ([w_off[i] - w_on[i] for i in range(n_beats) if env_found[i] and w_off[i] > w_on[i]]
+                    if not digitised else [])   # D256: digitised pages keep the pre-D236 width
         # D239: the width rests on retried beats (their bounds are not the ones PR / QT / ST use).
         retried = [i for i in range(n_beats) if env_found[i] and lost[i]]
-        m.qrs_width_from_retry = bool(qrs_list) and len(retried) > 0.5 * len(qrs_list)
+        m.qrs_width_from_retry = bool(qrs_list) and not digitised and len(retried) > 0.5 * len(qrs_list)
         if not qrs_list:
             qrs_list = [qrs_off[i] - qrs_on[i] for i in range(n_beats) if np.isfinite(qrs_on[i])
                         and np.isfinite(qrs_off[i]) and qrs_off[i] > qrs_on[i]]
