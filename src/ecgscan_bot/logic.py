@@ -21,8 +21,22 @@ API_KEY_ENV = "ECGSCAN_BOT_API_KEY"
 API_URL_ENV = "ECGSCAN_BOT_API_URL"
 MODE_ENV = "ECGSCAN_BOT_MODE"
 PUBLIC_URL_ENV = "ECGSCAN_BOT_PUBLIC_URL"   # the site, for links sent to colleagues (D208)
+GROUPS_ENV = "ECGSCAN_BOT_GROUPS"           # SD-107: chat ids of the groups the bot reads (also switched on by a button)
+GROUP_RECIPIENTS_ENV = "ECGSCAN_BOT_GROUP_RECIPIENTS"   # who gets the group's results in private; default: every administrator
+GROUP_CHAT_TYPES = ("group", "supergroup")
 IMAGE_MIME = ("image/jpeg", "image/png", "image/tiff")                     # what /scans takes
 ANALYZE_MIME = IMAGE_MIME + ("image/heic", "image/heif", "application/pdf")  # /api/analyze reads these too (D158)
+
+
+def _ids(text: str) -> set[int]:
+    """Comma-separated Telegram ids (a group's id is negative)."""
+    out = set()
+    for x in text.replace(" ", "").split(","):
+        try:
+            out.add(int(x))
+        except ValueError:
+            continue
+    return out
 
 
 @dataclass
@@ -36,16 +50,26 @@ class BotConfig:
     allowed: set[int] = field(default_factory=set)
     api_key: str | None = None
     mode: str = "analyze"
+    groups: set[int] = field(default_factory=set)
+    group_recipients: set[int] = field(default_factory=set)
+    group_notify_refusals: bool = True
+    group_max_per_hour: int = 60
 
     @classmethod
     def load(cls) -> BotConfig:
         c = load_yaml("bot")
-        allowed = {int(x) for x in os.environ.get(ALLOWED_ENV, "").replace(" ", "").split(",") if x}
+        g = c.get("group") or {}
+        allowed = _ids(os.environ.get(ALLOWED_ENV, ""))
         return cls(api_url=os.environ.get(API_URL_ENV, c["api_url"]).rstrip("/"), max_mb=float(c["max_mb"]),
                    poll_interval_s=float(c["poll_interval_s"]), poll_timeout_s=float(c["poll_timeout_s"]),
                    send_overlay=bool(c["send_overlay"]), public_url=load_yaml("service").get("public_url"),
                    allowed=allowed, api_key=os.environ.get(API_KEY_ENV),
-                   mode=os.environ.get(MODE_ENV, c.get("mode", "analyze")))
+                   mode=os.environ.get(MODE_ENV, c.get("mode", "analyze")),
+                   groups=_ids(os.environ.get(GROUPS_ENV, "")),
+                   # Results of a group go to administrators only: an id outside the whitelist is dropped.
+                   group_recipients=(_ids(os.environ.get(GROUP_RECIPIENTS_ENV, "")) & allowed) or allowed,
+                   group_notify_refusals=bool(g.get("notify_refusals", True)),
+                   group_max_per_hour=int(g.get("max_per_hour", 60)))
 
 
 # The photo's caption names the patient: "54 м", "ж 7", "erkak 63" (D161).
@@ -129,6 +153,48 @@ def allowed(cfg: BotConfig, user_id: int | None, chat_type: str | None = "privat
 
 def is_admin(cfg: BotConfig, user_id: int | None) -> bool:
     return user_id is not None and user_id in cfg.allowed
+
+
+def watched_group(cfg: BotConfig, chat_id: int | None, chat_type: str | None, store=None) -> bool:
+    """SD-107: a group whose ECG photos the bot reads — named in the environment, or switched on by
+    an administrator's button. The bot never writes there: the result goes to administrators in private."""
+    if chat_id is None or chat_type not in GROUP_CHAT_TYPES:
+        return False
+    return chat_id in cfg.groups or (store is not None and store.group_on(chat_id))
+
+
+def message_link(chat_id: int, message_id: int | None, username: str | None = None) -> str | None:
+    """A link to the group's message, for the administrator to find the photo: public groups by
+    name, private supergroups by ``t.me/c``; a basic group has no message links."""
+    if message_id is None:
+        return None
+    if username:
+        return f"https://t.me/{username}/{message_id}"
+    s = str(chat_id)
+    return f"https://t.me/c/{s[4:]}/{message_id}" if s.startswith("-100") else None
+
+
+def group_head(title: str | None, link_: str | None, lang: str) -> str:
+    from ecgscan_bot.texts import tr
+
+    head = tr("group_head", lang, title=(title or "—")[:80])
+    return f"{head}\n{link_}" if link_ else head
+
+
+class HourlyLimit:
+    """At most ``n`` analyses an hour per group: a flood in a chat must not queue hours of work."""
+
+    def __init__(self, n: int):
+        self.n = n
+        self._at: dict[int, list[float]] = {}
+
+    def allow(self, key: int, now: float) -> bool:
+        at = [x for x in self._at.get(key, []) if now - x < 3600.0]
+        ok = len(at) < self.n
+        if ok:
+            at.append(now)
+        self._at[key] = at
+        return ok
 
 
 # Symptoms in a caption (D208 -> D195 codes): words a doctor or a patient writes.

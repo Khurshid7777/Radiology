@@ -55,6 +55,24 @@ _T = {
     "btn_no": ("Нет", "Yo'q"),
     "analysing": ("Анализирую…", "Tahlil qilinmoqda…"),
     "pending_expired": ("Вопросы устарели — пришлите ЭКГ ещё раз.", "Savollar eskirdi — EKGni qayta yuboring."),
+    "group_added": (("Бот добавлен в группу «{title}». Читать из неё фото ЭКГ и присылать разбор "
+                     "администраторам в личный чат? В самой группе бот ничего не пишет.\n\n"
+                     "Чтобы бот видел фото, сделайте его администратором группы или отключите Privacy mode "
+                     "в @BotFather (/setprivacy → Disable) и добавьте бота заново."),
+                    ("Bot «{title}» guruhiga qo'shildi. Undagi EKG suratlarini o'qib, tahlilni administratorlarga "
+                     "shaxsiy chatga yuboraymi? Guruhning o'zida bot hech narsa yozmaydi.\n\n"
+                     "Bot suratlarni ko'rishi uchun uni guruh administratori qiling yoki @BotFather'da Privacy "
+                     "mode'ni o'chiring (/setprivacy → Disable) va botni qayta qo'shing.")),
+    "btn_group_on": ("Читать фото", "Suratlarni o'qish"),
+    "btn_group_off": ("Не читать", "O'qimaslik"),
+    "group_on": ("Группа «{title}»: чтение включено. Разбор каждой ЭКГ придёт сюда, в личный чат.",
+                 "«{title}» guruhi: o'qish yoqildi. Har bir EKG tahlili shu yerga, shaxsiy chatga keladi."),
+    "group_off": ("Группа «{title}»: чтение выключено.", "«{title}» guruhi: o'qish o'chirildi."),
+    "groups_none": ("Групп пока нет. Добавьте бота в группу — сюда придёт сообщение с кнопкой.",
+                    "Guruhlar yo'q. Botni guruhga qo'shing — bu yerga tugmali xabar keladi."),
+    "groups_list": ("Группы (нажмите, чтобы включить или выключить чтение):",
+                    "Guruhlar (o'qishni yoqish yoki o'chirish uchun bosing):"),
+    "group_head": ("📥 Из группы «{title}»", "📥 «{title}» guruhidan"),
     "expired": ("Этот ответ устарел — пришлите ЭКГ ещё раз.", "Bu javob eskirgan — EKGni qayta yuboring."),
 }
 

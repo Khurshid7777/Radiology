@@ -1,7 +1,8 @@
 """Who may use the bot (D208): administrators from the environment, others by an invite code.
 
 The store is one JSON file on the app's volume. It keeps the Telegram id, the code a user joined with,
-the time and the chosen reply language — no names, no messages, no ECG data.
+the time and the chosen reply language — no names, no messages, no ECG data. SD-107: also the groups
+an administrator switched on for reading (chat id, title, who and when).
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ class AccessStore:
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path or os.environ.get(STORE_ENV, DEFAULT_STORE))
         self._lock = threading.Lock()
-        self._data = {"codes": {}, "users": {}}
+        self._data = {"codes": {}, "users": {}, "groups": {}}
         if self.path.exists():
             try:
                 self._data = json.loads(self.path.read_text(encoding="utf-8"))
@@ -31,6 +32,7 @@ class AccessStore:
                 pass
         self._data.setdefault("codes", {})
         self._data.setdefault("users", {})
+        self._data.setdefault("groups", {})
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -97,3 +99,21 @@ class AccessStore:
         with self._lock:
             self._data["users"].setdefault(str(user_id), {})["lang"] = lang
             self._save()
+
+    # --- groups (SD-107) ---
+    def set_group(self, chat_id: int, title: str | None, on: bool, by: int | None = None) -> None:
+        with self._lock:
+            g = self._data["groups"].setdefault(str(chat_id), {})
+            g.update(on=bool(on), at=int(time.time()))
+            if title:
+                g["title"] = title[:80]
+            if by is not None:
+                g["by"] = by
+            self._save()
+
+    def group_on(self, chat_id: int | None) -> bool:
+        g = self._data["groups"].get(str(chat_id)) if chat_id is not None else None
+        return bool(g and g.get("on"))
+
+    def groups(self) -> list[dict]:
+        return [{"chat_id": int(k), **v} for k, v in sorted(self._data["groups"].items())]
