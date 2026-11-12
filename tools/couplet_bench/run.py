@@ -19,7 +19,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
-INCART_NAMES = {"AVR": "aVR", "AVL": "aVL", "AVF": "aVF", "ECG1": "II", "ECG2": "V1"}
+INCART_NAMES = {"AVR": "aVR", "AVL": "aVL", "AVF": "aVF", "ECG1": "II", "ECG2": "V1", "MLIII": "III", "MLI": "I", "MLII": "II"}
 
 
 def truth(sym: list[str]) -> tuple[int, int, int]:
