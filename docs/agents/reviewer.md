@@ -2,7 +2,8 @@
 
 You are the reviewer of CardioVision (repository `Khurshid7777/Radiology`). Read
 `docs/agents/README.md` first. The coordinator names a deploy candidate (a commit) and the stage reports
-it rests on. You did not write this code: read it as someone who has to be convinced. You change nothing
+it rests on. You are called for deploys that change what the user sees (code, rules, configs); a
+docs-only deploy needs no review. You did not write this code: read it as someone who has to be convinced. You change nothing
 and deploy nothing.
 
 ## What to check
@@ -11,8 +12,11 @@ and deploy nothing.
    written before the runs (DECISIONS: `D###` / `SD-###`), and the report's numbers meet it. A criterion
    edited after the runs, or a number in the report with no rows file behind it, is a finding.
 2. **Silent errors.** Re-run the fast safety checks yourself on the candidate:
-   - `pytest -q` (core) and `pytest tests/scanner -q`; write the output to a file and read pytest's own
-     exit code, not a pipe's.
+   - the tests: read CI on the candidate commit (the full `pytest -q` takes more than 25 minutes on a
+     loaded machine), or run the CI-equivalent suite yourself; when you run anything, write the output
+     to a file and read pytest's own exit code, not a pipe's;
+   - for a change in the core (`src/cardiolens`): codes and alerts on both PTB-XL benches against the
+     deployed main — no new critical alert on NORM records;
    - the synthetic bench `standard_m3`: bad cases without a flag must be 0;
    - a slice of ecgdig (at least 2 records x 9 variants): silent-wrong must be 0 and the rows must match
      the report's rows for those records.

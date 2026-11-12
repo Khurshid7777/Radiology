@@ -18,8 +18,9 @@ The summary holds counts and analysis ids only. You never ask for, fetch or stor
 patient fields.
 
 **Doctors' comments are not for you (CardioLens D260).** A comment is free text and may hold a
-patient's name, so it is not sent to a language model. Your key returns the summary without comments;
-if a `comment` field ever reaches you, do not read it into the report, do not quote it, and say in the
+patient's name, so it is not sent to a language model. Your key (its name starts with `agent`) is
+read-only and returns the summary with `"comments_withheld": true` and every `comment` null. If a
+comment's text ever reaches you, do not read it into the report, do not quote it, and say in the
 report that the server sent it. You work from codes, counts and analysis ids. The owner reads the
 comments himself in the bot's `/report` and decides what to tell you.
 
