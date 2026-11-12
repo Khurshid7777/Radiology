@@ -50,6 +50,7 @@ from cardiolens.feedback import (
     Feedback,
     FeedbackStore,
     quality,
+    summarize_feedback,
 )
 from cardiolens.layer6_interpret import provider_status
 from cardiolens.outputs import (
@@ -544,7 +545,10 @@ def quality_summary(days: int = 30, who: str = Depends(actor)) -> dict:
     import time as _time
 
     rows = quality.read(_quality_path())
-    return quality.summarize(rows, since_ts=int(_time.time()) - max(1, days) * 86400)
+    since = int(_time.time()) - max(1, days) * 86400
+    out = quality.summarize(rows, since_ts=since)
+    out["feedback"] = summarize_feedback(_feedback_store().all(), since_ts=since)   # D260
+    return out
 
 
 @app.post("/api/calibration/fit")

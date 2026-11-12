@@ -5,9 +5,10 @@ from cardiolens.feedback.store import (
     Feedback,
     FeedbackStore,
     FindingFeedback,
+    summarize_feedback,
 )
 
-__all__ = ["Feedback", "FeedbackStore", "FindingFeedback", "quality"]
+__all__ = ["Feedback", "FeedbackStore", "FindingFeedback", "quality", "summarize_feedback"]
 
 # Default location for the feedback log (overridable via env in the API).
 DEFAULT_FEEDBACK_PATH = "data/feedback/feedback.jsonl"
