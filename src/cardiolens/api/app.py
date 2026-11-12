@@ -539,6 +539,9 @@ def submit_feedback(analysis_id: str, fb: Feedback, who: str = Depends(actor)) -
             "n_findings": len(fb.findings)}
 
 
+AGENT_KEY_PREFIX = "agent"   # D260: API key names for agent sessions (e.g. "agents") start with this
+
+
 @app.get("/api/quality/summary")
 def quality_summary(days: int = 30, who: str = Depends(actor)) -> dict:
     """D190: aggregates of the real-use quality log (counts and errors only)."""
@@ -547,7 +550,14 @@ def quality_summary(days: int = 30, who: str = Depends(actor)) -> dict:
     rows = quality.read(_quality_path())
     since = int(_time.time()) - max(1, days) * 86400
     out = quality.summarize(rows, since_ts=since)
-    out["feedback"] = summarize_feedback(_feedback_store().all(), since_ts=since)   # D260
+    fb = summarize_feedback(_feedback_store().all(), since_ts=since)   # D260
+    if who.startswith(AGENT_KEY_PREFIX):
+        # D260: a doctor's comment is free text and may name the patient; agents (LLM sessions)
+        # get the counts and analysis ids only.
+        for d in fb["disagreed"]:
+            d["comment"] = None
+        fb["comments_withheld"] = True
+    out["feedback"] = fb
     return out
 
 
