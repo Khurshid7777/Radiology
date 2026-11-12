@@ -10,3 +10,7 @@
 
 Licensed data (Chapman, PTB-XL) stay in `data/` (git-ignored); items lists are built from `tools/af_train/dump.py`.
 Results and the next step: DECISIONS.md, D249.
+- `pchain_v4.py` — v3 + both P polarities, threshold 2 × diastolic SD, band 1–25 Hz, one P per diastole.
+- `ludb_bench.py` — P peaks vs LUDB annotations (lead II): recall / precision by threshold, polarity rule and band
+  (even / odd ids). Data: `data/ludb/` (PhysioNet LUDB 1.0.1, ODC-By, git-ignored; download with the
+  SHA256SUMS.txt file list, checksums verified).
