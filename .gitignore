@@ -31,6 +31,7 @@ data/ptbxl_rhythm/
 data/cpsc2018-toddlers/
 data/ptbxl-toddlers/
 data/ludb/
+data/svdb/
 data/mimic-iv-ecg/
 data/georgia/
 # Telegram collector: photos, signals, session file, dataset (never committed)

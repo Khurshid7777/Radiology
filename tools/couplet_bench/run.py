@@ -19,7 +19,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
-INCART_NAMES = {"AVR": "aVR", "AVL": "aVL", "AVF": "aVF"}
+INCART_NAMES = {"AVR": "aVR", "AVL": "aVL", "AVF": "aVF", "ECG1": "II", "ECG2": "V1"}
 
 
 def truth(sym: list[str]) -> tuple[int, int, int]:
@@ -62,9 +62,10 @@ def main() -> None:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--per-record", type=int, default=6)
     ap.add_argument("--shard", default="0/1")
+    ap.add_argument("--dbs", nargs="+", default=["data/mitdb", "data/incartdb"])
     a = ap.parse_args()
     k, nsh = (int(v) for v in a.shard.split("/"))
-    paths = sorted(str(p)[:-4] for d in ("data/mitdb", "data/incartdb") for p in (ROOT / d).glob("*.hea"))
+    paths = sorted(str(p)[:-4] for d in a.dbs for p in (ROOT / d).glob("*.hea"))
     rows = []
     for path in paths[k::nsh]:
         try:
@@ -93,10 +94,11 @@ def main() -> None:
                              "pvc_idx": [int(i) for i in pvc],
                              "couplets": [int(i) for i in detect_ventricular_couplets(
                                  res.signal, m.r_peaks_samples or [], res.signal.sampling_rate_hz)],
-                             "grid": {f"{c}/{pr}/{po}": len(detect_ventricular_couplets(
+                             "grid": {f"{c}/{pr}/{po}/{rc}": len(detect_ventricular_couplets(
                                  res.signal, m.r_peaks_samples or [], res.signal.sampling_rate_hz,
-                                 corr_max=c, pre_max=pr, post_min=po))
-                                 for c in (0.8, 0.85, 0.9) for pr in (1.0, 1.1) for po in (0.0, 0.9, 1.0)},
+                                 corr_max=c, pre_max=pr, post_min=po, recover=rc))
+                                 for c in (0.8, 0.85, 0.9) for pr in (1.0, 1.1) for po in (0.0, 0.9, 1.0)
+                                 for rc in (False, True)},
                              "codes": sorted(res.findings.codes()),
                              "alerts": [x.code for x in res.safety.alerts]})
             except Exception as ex:
