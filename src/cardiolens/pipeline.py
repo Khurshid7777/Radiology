@@ -293,6 +293,7 @@ def run_pipeline(
                       Evidence(feature="pause_ratio", value=str(m.pause_ratio))],
             confidence=0.8, critical=m.max_rr_ms >= pc.critical_ms))
         audit.append(f"[L4] pause: max_rr={m.max_rr_ms} ms ratio={m.pause_ratio}")
+    _withhold_rhythm_without_strip(sig, findings, audit)
     # Signal-organization gate (§5) — after all finding emission. If the QRS complexes
     # are not self-consistent, R-peaks (hence HR, intervals, rhythm) are unreliable:
     # withhold the findings and report poor quality; mode B escalates.
@@ -712,6 +713,33 @@ def coarse_st_thresholds(st: dict, margin: float = COARSE_ST_MARGIN_UV) -> dict:
     out.pop("depression_minor", None)
     out.setdefault("any_elevation_uv", out.get("elevation_significant"))
     return out
+RHYTHM_MIN_S = 5.0        # D259: the scanner's validate.rhythm_min_s — no lead this long, no rhythm strip
+# D259: findings that rest on RR irregularity; on a page of 2.5-s columns the RR series is
+# stitched across column edges and its irregularity is the digitisation's, not the heart's.
+_IRREGULARITY_CODES = ("atrial_fibrillation", "possible_atrial_fibrillation", "atrial_flutter",
+                       "irregular_rhythm", "sinus_arrhythmia", "sinus_pause", "supraventricular_ectopy",
+                       "atrial_bigeminy", "atrial_trigeminy", "ventricular_ectopy", "ventricular_bigeminy",
+                       "ventricular_trigeminy", "ventricular_couplets")
+
+
+def _withhold_rhythm_without_strip(sig: SignalRepresentation, findings: FindingSet, audit: list[str]) -> None:
+    """D259: a digitised page with no lead >= RHYTHM_MIN_S (a plain 3x4 with no rhythm strip)
+    names no rhythm from RR irregularity. Rate, VT / VF, AV block, pacing and morphology stay;
+    a critical pause (the alert) stays."""
+    windows = getattr(sig.provenance, "lead_windows", None)
+    if not windows:
+        return
+    longest = max(b - a for a, b in windows.values())
+    if longest >= RHYTHM_MIN_S:
+        return
+    dropped = [f.code for f in findings.findings if f.code in _IRREGULARITY_CODES and not f.critical]
+    if dropped:
+        findings.findings = [f for f in findings.findings
+                             if f.code not in _IRREGULARITY_CODES or f.critical]
+        audit.append(f"[L4] no lead >= {RHYTHM_MIN_S:.0f} s on the page (longest {longest:.1f} s): "
+                     f"rhythm irregularity not assessed, withheld {dropped} (D259)")
+
+
 SHORT_WINDOW_S = 4.0     # D122: below this, one visible QRS bounds the rate instead of measuring it
 SHORT_WINDOW_EDGE_S = 0.5
 _FILE_SOURCES = {"csv", "edf"}
