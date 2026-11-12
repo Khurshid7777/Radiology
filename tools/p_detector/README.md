@@ -14,3 +14,5 @@ Results and the next step: DECISIONS.md, D249.
 - `ludb_bench.py` — P peaks vs LUDB annotations (lead II): recall / precision by threshold, polarity rule and band
   (even / odd ids). Data: `data/ludb/` (PhysioNet LUDB 1.0.1, ODC-By, git-ignored; download with the
   SHA256SUMS.txt file list, checksums verified).
+- `pchain_v5.py` — v4 + non-locked P on the template-subtracted residual (blocked P on T, dissociated P).
+- `ludb_bench_v5.py` — v4 vs v5 on LUDB (LUDB's five 3rd-degree AV block records are all paced, without P marks).
