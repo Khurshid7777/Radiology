@@ -19,24 +19,36 @@ import os
 from ecgscan.i18n import t
 from ecgscan_bot.access import AccessStore
 from ecgscan_bot.logic import (
+    GROUP_CHAT_TYPES,
     AnalyzeApi,
     BotConfig,
+    HourlyLimit,
     PaperScale,
     ScanApi,
     allowed,
     analyse,
     apply_choice,
+    clean_comment,
+    feedback_buttons,
     first_question,
+    group_head,
     handle_file,
     intake,
     is_admin,
     lang_of,
+    message_link,
+    next_weekly,
+    parse_caption,
+    parse_feedback,
     parse_scale,
+    parse_symptoms,
     patient_answer,
     render,
+    report_text,
     scale_buttons,
     symptom_buttons,
     toggle_symptom,
+    watched_group,
 )
 from ecgscan_bot.texts import tr
 
@@ -48,29 +60,40 @@ log = logging.getLogger("ecgscan_bot")
 
 
 async def main() -> None:
-    from aiogram import Bot, Dispatcher, F
-    from aiogram.enums import ChatAction
-    from aiogram.filters import Command, CommandObject, CommandStart
-    from aiogram.types import (
-        BufferedInputFile,
-        CallbackQuery,
-        InlineKeyboardButton,
-        InlineKeyboardMarkup,
-        Message,
-    )
+    from aiogram import Bot
 
     cfg = BotConfig.load()
     token = os.environ.get(TOKEN_ENV)
     if not token or not cfg.api_key or not cfg.allowed:
         raise SystemExit(f"set {TOKEN_ENV}, ECGSCAN_BOT_API_KEY and ECGSCAN_BOT_ALLOWED")
-    bot, dp = Bot(token), Dispatcher()
-    store = AccessStore()      # D208: invite codes and who joined with them
-    pending: dict[int, dict] = {}   # D209: chat -> the files waiting for the answers to the questions
+    bot = Bot(token)
     api = AnalyzeApi(cfg) if cfg.mode == "analyze" else ScanApi(cfg)
     log.info("bot mode %s, api %s, %d allowed users", cfg.mode, cfg.api_url, len(cfg.allowed))
+    await build(cfg, bot, api, AccessStore()).start_polling(bot)
+
+
+def build(cfg: BotConfig, bot, api, store: AccessStore):
+    """The dispatcher with every handler; the bot, the API client and the access store are given
+    (the tests pass a bot that talks to no one)."""
+    from aiogram import Dispatcher, F
+    from aiogram.enums import ChatAction
+    from aiogram.filters import Command, CommandObject, CommandStart
+    from aiogram.types import (
+        BufferedInputFile,
+        CallbackQuery,
+        ChatMemberUpdated,
+        InlineKeyboardButton,
+        InlineKeyboardMarkup,
+        Message,
+    )
+
+    dp = Dispatcher()
+    pending: dict[int, dict] = {}   # D209: chat -> the files waiting for the answers to the questions
     albums: dict[str, dict] = {}     # media_group_id -> {"files", "captions", "message", "lang", "task"}
+    group_limit = HourlyLimit(cfg.group_max_per_hour)
     # The last records' files, in memory only, for re-running with another speed / gain.
     recent: dict[str, dict] = {}     # token -> {"files", "caption", "scale", "lang", "chat", "at"}
+    wrong: dict[int, dict] = {}      # SD-108: chat -> {"aid", "at"}: "wrong" was pressed, the next text says why
 
     def keep(rec: dict) -> str:
         now = asyncio.get_running_loop().time()
@@ -83,9 +106,14 @@ async def main() -> None:
         return token
 
     def actions(token: str, rec: dict, lang: str) -> InlineKeyboardMarkup:
-        """Under a reply: speed / gain (D180), then symptoms, a link for a colleague, the language (D208)."""
-        rows = [[InlineKeyboardButton(text=label, callback_data=f"re:{token}:{choice}") for label, choice in row]
-                for row in scale_buttons(rec["scale"], lang)]
+        """Under a reply: the doctor's verdict (SD-108), speed / gain (D180), then symptoms, a link for
+        a colleague, the language (D208)."""
+        rows = []
+        if rec.get("aid") and cfg.mode == "analyze":
+            rows.append([InlineKeyboardButton(text=label, callback_data=data)
+                         for label, data in feedback_buttons(rec["aid"], lang, bool(rec.get("group")))])
+        rows += [[InlineKeyboardButton(text=label, callback_data=f"re:{token}:{choice}") for label, choice in row]
+                 for row in scale_buttons(rec["scale"], lang)]
         rows.append([InlineKeyboardButton(text=tr("btn_symptoms", lang), callback_data=f"sy:{token}"),
                      InlineKeyboardButton(text=tr("btn_share", lang), callback_data=f"sh:{token}")])
         rows.append([InlineKeyboardButton(text=tr("btn_lang", lang), callback_data=f"lg:{token}")])
@@ -118,6 +146,33 @@ async def main() -> None:
                 await bot.send_chat_action(chat_id, ChatAction.UPLOAD_DOCUMENT)
                 await asyncio.sleep(4)
 
+    async def send_result(chat_id: int, text: str, aid: str | None, body: dict | None,
+                          files: list[tuple[str, bytes]], caption: str | None, lang: str, scale: PaperScale,
+                          symptoms: list[str] | None, onset: str | None, note: str | None,
+                          head: str | None = None, overlay: bytes | None = None, pdf: bytes | None = None) -> None:
+        """The reply to one chat: the conclusion, what was read drawn over the page (D163 — the doctor
+        checks that the coloured lines lie on the curves before trusting it), the PDF, the buttons.
+        ``head`` names the group a photo came from (SD-107)."""
+        await bot.send_message(chat_id, f"{head}\n\n{text}" if head else text)
+        if not aid:
+            return
+        if overlay is None:
+            overlay = await asyncio.to_thread(api.overlay, aid)
+        if overlay:
+            await bot.send_photo(chat_id, BufferedInputFile(overlay, "overlay.jpg"),
+                                 caption=t("app.overlay_hint", lang))
+        if pdf is None:
+            pdf = await asyncio.to_thread(api.pdf, aid)
+        if pdf:
+            await bot.send_document(chat_id, BufferedInputFile(pdf, f"cardiovision_{aid}.pdf"))
+        sym, ons = (symptoms, onset) if symptoms is not None else parse_symptoms(caption)
+        rec = {"files": files, "caption": caption, "scale": scale, "lang": lang, "chat": chat_id,
+               "aid": aid, "body": body, "symptoms": list(sym), "onset": ons, "note": note,
+               "patient_given": parse_caption(caption).given, "group": head is not None}
+        token = keep(rec)
+        await bot.send_message(chat_id, t("bot.recalc", lang) + "\n" + tr("actions", lang),
+                               reply_markup=actions(token, rec, lang))
+
     async def answer_analysis(message: Message, files: list[tuple[str, bytes]], caption: str | None,
                               lang: str, scale: PaperScale | None = None, symptoms: list[str] | None = None,
                               onset: str | None = None, note: str | None = None) -> None:
@@ -127,28 +182,62 @@ async def main() -> None:
             text, aid, body = await asyncio.to_thread(analyse, cfg, api, files, lang, caption, scale,
                                                       symptoms, onset, note)
             log.info("analysis %s answered (%d file(s))", aid, len(files))
-            await message.answer(text)
-            if aid:
-                # What was read, drawn over the page (D163): the doctor checks that the
-                # coloured lines lie on the curves before trusting the conclusion.
-                overlay = await asyncio.to_thread(api.overlay, aid)
-                if overlay:
-                    await message.answer_photo(BufferedInputFile(overlay, "overlay.jpg"),
-                                               caption=t("app.overlay_hint", lang))
-                pdf = await asyncio.to_thread(api.pdf, aid)
-                if pdf:
-                    await message.answer_document(BufferedInputFile(pdf, f"cardiovision_{aid}.pdf"))
-                from ecgscan_bot.logic import parse_caption, parse_symptoms
-
-                sym, ons = (symptoms, onset) if symptoms is not None else parse_symptoms(caption)
-                rec = {"files": files, "caption": caption, "scale": scale, "lang": lang, "chat": message.chat.id,
-                       "aid": aid, "body": body, "symptoms": list(sym), "onset": ons, "note": note,
-                       "patient_given": parse_caption(caption).given}
-                token = keep(rec)
-                await message.answer(t("bot.recalc", lang) + "\n" + tr("actions", lang),
-                                     reply_markup=actions(token, rec, lang))
+            await send_result(message.chat.id, text, aid, body, files, caption, lang, scale, symptoms, onset, note)
         finally:
             busy.cancel()
+
+    # --- SD-107: ECG photos posted in a group -> the result to administrators in private ---
+    async def to_admins(send) -> None:
+        """``send(user_id, lang)`` for every recipient; one who never started the bot is skipped."""
+        for uid in sorted(cfg.group_recipients):
+            try:
+                await send(uid, store.lang(uid) or "ru")
+            except Exception:
+                log.warning("group result not delivered to one recipient (did they start the bot?)")
+
+    async def group_analyse(chat, message_id: int | None, files: list[tuple[str, bytes]],
+                            caption: str | None) -> None:
+        if not group_limit.allow(chat.id, asyncio.get_running_loop().time()):
+            log.warning("group %s: over %d analyses an hour, a photo skipped", chat.id, cfg.group_max_per_hour)
+            return
+        scale = parse_scale(caption)
+        text, aid, body = await asyncio.to_thread(analyse, cfg, api, files, "ru", caption, scale)
+        log.info("group %s: analysis %s (%d file(s))", chat.id, aid, len(files))
+        if aid is None and not cfg.group_notify_refusals:
+            return
+        overlay = await asyncio.to_thread(api.overlay, aid) if aid else None
+        pdf = await asyncio.to_thread(api.pdf, aid) if aid else None
+        url = message_link(chat.id, message_id, getattr(chat, "username", None))
+        given = parse_caption(caption).given
+
+        async def send(uid: int, lang: str) -> None:
+            mine = render(body, lang, scale, given) if body else text
+            await send_result(uid, mine, aid, body, files, caption, lang, scale, None, None, None,
+                              head=group_head(chat.title, url, lang), overlay=overlay, pdf=pdf)
+
+        await to_admins(send)
+
+    async def flush_group_album(key: str) -> None:
+        await asyncio.sleep(ALBUM_WAIT_S)
+        album = albums.pop(key, None)
+        if album:
+            caption = " ".join(c for c in album["captions"] if c) or None
+            await group_analyse(album["message"].chat, album["message"].message_id, album["files"], caption)
+
+    def group_card(chat_id: int, title: str | None, lang: str) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=tr("btn_group_on", lang), callback_data=f"gr:{chat_id}:on"),
+            InlineKeyboardButton(text=tr("btn_group_off", lang), callback_data=f"gr:{chat_id}:off")]])
+
+    async def offer_group(chat) -> None:
+        """Tell the administrators, in private, that the bot is in a group, with the switch."""
+        store.set_group(chat.id, chat.title, store.group_on(chat.id))
+
+        async def send(uid: int, lang: str) -> None:
+            await bot.send_message(uid, tr("group_added", lang, title=(chat.title or "—")[:80]),
+                                   reply_markup=group_card(chat.id, chat.title, lang))
+
+        await to_admins(send)
 
     async def flush_album(group_id: str) -> None:
         await asyncio.sleep(ALBUM_WAIT_S)
@@ -201,6 +290,140 @@ async def main() -> None:
             await message.answer(tr("code_ok", lang) + "\n\n" + t("bot.welcome", lang))
         else:
             await message.answer(tr("code_bad", lang))
+
+    in_group = F.chat.type.in_(set(GROUP_CHAT_TYPES))
+
+    @dp.my_chat_member()
+    async def membership(event: ChatMemberUpdated) -> None:
+        if event.chat.type not in GROUP_CHAT_TYPES:
+            return
+        status = event.new_chat_member.status
+        if status in ("member", "administrator") and event.old_chat_member.status in ("left", "kicked"):
+            log.info("added to group %s", event.chat.id)
+            await offer_group(event.chat)
+        elif status in ("left", "kicked"):
+            log.info("removed from group %s", event.chat.id)
+            store.set_group(event.chat.id, event.chat.title, False)
+
+    @dp.message(in_group, Command("watch"))
+    async def watch(message: Message) -> None:
+        # An administrator asks in the group; the answer (the switch) goes to private chats only.
+        if message.from_user and is_admin(cfg, message.from_user.id):
+            await offer_group(message.chat)
+
+    @dp.message(in_group, F.photo | F.document)
+    async def group_upload(message: Message) -> None:
+        chat = message.chat
+        if cfg.mode != "analyze" or not watched_group(cfg, chat.id, chat.type, store):
+            return
+        try:
+            doc = message.document
+            if intake(cfg, kind="photo" if message.photo else "document", mime=doc.mime_type if doc else None,
+                      size=doc.file_size if doc else None, lang="ru"):
+                return                      # not an image, too large: nothing is said in a group
+            buf = io.BytesIO()
+            if message.photo:
+                await bot.download(message.photo[-1], destination=buf)
+                name = "photo.jpg"
+            else:
+                await bot.download(doc, destination=buf)
+                name = doc.file_name or "ecg"
+            if message.media_group_id:
+                key = f"g:{chat.id}:{message.media_group_id}"
+                album = albums.setdefault(key, {"files": [], "captions": [], "message": message, "task": None})
+                album["files"].append((name, buf.getvalue()))
+                album["captions"].append(message.caption)
+                if album["task"]:
+                    album["task"].cancel()
+                album["task"] = asyncio.create_task(flush_group_album(key))
+                return
+            await group_analyse(chat, message.message_id, [(name, buf.getvalue())], message.caption)
+        except Exception:
+            log.exception("group upload failed")
+
+    @dp.message(in_group)
+    async def group_silence(message: Message) -> None:
+        """Everything else in a group: the bot never writes there (D136, SD-107)."""
+
+    @dp.callback_query(F.data.startswith("gr:"))
+    async def group_switch(query: CallbackQuery) -> None:
+        await query.answer()
+        user, msg = query.from_user, query.message
+        if msg is None or msg.chat.type != "private" or not is_admin(cfg, user.id):
+            return
+        _, chat_id, choice = (query.data or "").split(":", 2)
+        known = {g["chat_id"]: g for g in store.groups()}
+        if not chat_id.lstrip("-").isdigit() or int(chat_id) not in known:
+            return
+        on = choice == "on"
+        store.set_group(int(chat_id), None, on, by=user.id)
+        log.info("group %s reading %s", chat_id, "on" if on else "off")
+        await msg.answer(tr("group_on" if on else "group_off", user_lang(user),
+                            title=known[int(chat_id)].get("title") or chat_id))
+
+    @dp.message(Command("groups"))
+    async def groups(message: Message) -> None:
+        user = message.from_user
+        lang = user_lang(user) if user else "ru"
+        if not (user and is_admin(cfg, user.id) and message.chat.type == "private"):
+            await message.answer(tr("admin_only", lang))
+            return
+        rows = store.groups()
+        if not rows:
+            await message.answer(tr("groups_none", lang))
+            return
+        kb = [[InlineKeyboardButton(text=f"{'✓' if g.get('on') else '✗'} {g.get('title') or g['chat_id']}",
+                                    callback_data=f"gr:{g['chat_id']}:{'off' if g.get('on') else 'on'}")]
+              for g in rows]
+        await message.answer(tr("groups_list", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+
+    @dp.message(Command("admins"))
+    async def admins(message: Message) -> None:
+        user = message.from_user
+        lang = user_lang(user) if user else "ru"
+        if not (user and is_admin(cfg, user.id) and message.chat.type == "private"):
+            await message.answer(tr("admin_only", lang))
+            return
+        await message.answer(tr("admins", lang, ids=", ".join(str(i) for i in sorted(cfg.allowed)),
+                                group_ids=", ".join(str(i) for i in sorted(cfg.group_recipients))))
+
+    async def send_report(chat_id: int, lang: str, days: int) -> None:
+        summary = await asyncio.to_thread(api.quality, days) if cfg.mode == "analyze" else None
+        await bot.send_message(chat_id, report_text(summary, days, lang) if summary is not None
+                               else tr("rep_fail", lang))
+
+    @dp.message(Command("report"))
+    async def report(message: Message, command: CommandObject) -> None:
+        user = message.from_user
+        lang = user_lang(user) if user else "ru"
+        if not (user and is_admin(cfg, user.id) and message.chat.type == "private"):
+            await message.answer(tr("admin_only", lang))
+            return
+        arg = (command.args or "").strip()
+        days = min(365, max(1, int(arg))) if arg.isdigit() else cfg.report_days
+        await send_report(message.chat.id, lang, days)
+
+    async def weekly_reports() -> None:
+        """SD-109: once a week the summary goes to the administrators by itself."""
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        try:
+            tz = ZoneInfo(cfg.report_tz)
+        except Exception:        # an image without the time-zone database: Tashkent is UTC+5 all year
+            tz = dt.timezone(dt.timedelta(hours=5))
+        while True:
+            now = dt.datetime.now(tz)
+            await asyncio.sleep((next_weekly(now, cfg.report_weekday, cfg.report_hour) - now).total_seconds())
+            log.info("weekly report")
+            for uid in sorted(cfg.allowed):
+                with contextlib.suppress(Exception):
+                    await send_report(uid, store.lang(uid) or "ru", cfg.report_days)
+
+    @dp.startup()
+    async def on_startup() -> None:
+        if cfg.report_weekly and cfg.mode == "analyze":
+            dp["weekly_reports"] = asyncio.create_task(weekly_reports())
 
     @dp.message(CommandStart())
     async def start(message: Message, command: CommandObject) -> None:
@@ -389,6 +612,31 @@ async def main() -> None:
         await query.message.answer(render(rec["body"], rec["lang"], rec["scale"], rec["patient_given"]),
                                    reply_markup=actions(token, rec, rec["lang"]))
 
+    @dp.callback_query(F.data.startswith("fb:"))
+    async def verdict_button(query: CallbackQuery) -> None:
+        """SD-108: the doctor says whether the conclusion is right; the answer goes to the server's
+        feedback log (no photo, no patient field: the analysis id, the verdict, who reviewed)."""
+        await query.answer()
+        user, msg = query.from_user, query.message
+        if msg is None or not allowed(cfg, user.id, msg.chat.type, store):
+            return
+        parsed = parse_feedback(query.data)
+        if parsed is None or cfg.mode != "analyze":
+            return
+        aid, agree, source = parsed
+        lang = user_lang(user)
+        done = await asyncio.to_thread(api.feedback, aid, agree, f"tg:{user.id}", None, source)
+        log.info("feedback on %s: %s (%s)", aid, "right" if agree else "wrong", "recorded" if done else "not recorded")
+        if not done:
+            await msg.answer(tr("fb_gone", lang))
+            return
+        if agree:
+            wrong.pop(msg.chat.id, None)
+            await msg.answer(tr("fb_ok", lang))
+        else:
+            wrong[msg.chat.id] = {"aid": aid, "source": source, "at": asyncio.get_running_loop().time()}
+            await msg.answer(tr("fb_no", lang))
+
     @dp.callback_query(F.data.startswith("q:"))
     async def question_button(query: CallbackQuery) -> None:
         await query.answer()
@@ -414,6 +662,15 @@ async def main() -> None:
             await message.answer(not_allowed(message))
             return
         p = live_pending(message.chat.id)
+        w = wrong.get(message.chat.id)
+        if p is None and w and asyncio.get_running_loop().time() - w["at"] <= RECALC_KEEP_S:
+            # SD-108: what the doctor wrote after "wrong" — the real diagnosis, in the feedback log.
+            wrong.pop(message.chat.id, None)
+            note = clean_comment(message.text)
+            done = note and await asyncio.to_thread(api.feedback, w["aid"], False, f"tg:{message.from_user.id}", note,
+                                                   w.get("source"))
+            await message.answer(tr("fb_comment" if done else "fb_gone", lang))
+            return
         if p is None:
             await message.answer(t("bot.welcome", lang))
             return
@@ -433,7 +690,7 @@ async def main() -> None:
         lang = guard(message)
         await message.answer(t("bot.welcome", lang) if lang else not_allowed(message))
 
-    await dp.start_polling(bot)
+    return dp
 
 
 if __name__ == "__main__":

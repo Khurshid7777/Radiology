@@ -132,21 +132,36 @@ void main() {
     expect(find.text('Лист 1'), findsOneWidget);
     expect(find.text('Лист 2'), findsOneWidget);
     // The screen's file work (the sealed sheets on disk) runs in real time: the taps too.
-    Future<void> tapReal(Finder f) async {
-      await tester.runAsync(() async {
-        await tester.tap(f);
-        await Future<void>.delayed(const Duration(milliseconds: 150));
-      });
-      await tester.pump();
+    // A fixed pause lost the race on a slow CI runner (the send button still disabled):
+    // wait in real time until the screen shows the result, up to 5 s.
+    Future<void> settleReal(bool Function() done) async {
+      for (var i = 0; i < 100 && !done(); i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+        await tester.pump();
+      }
     }
 
-    await tapReal(find.byKey(const Key('remove_0')));
+    Future<void> tapReal(Finder f, bool Function() done) async {
+      await tester.runAsync(() async {
+        await tester.tap(f);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+      await settleReal(done);
+    }
+
+    bool sendEnabled() =>
+        tester.widget<ButtonStyleButton>(find.byKey(const Key('send_study'))).onPressed != null;
+
+    await tapReal(find.byKey(const Key('remove_0')),
+        () => app.queue.draft!.partIds.length == 1 && find.text('Лист 2').evaluate().isEmpty);
     expect(find.text('Лист 2'), findsNothing);
     expect(app.queue.draft!.partIds, hasLength(1));
     await tester.tap(find.text('50 мм/с'));
     await tester.pump();
-    expect(tester.widget<ButtonStyleButton>(find.byKey(const Key('send_study'))).onPressed, isNotNull);
-    await tapReal(find.byKey(const Key('send_study')));
+    await settleReal(sendEnabled);
+    expect(sendEnabled(), isTrue);
+    await tapReal(find.byKey(const Key('send_study')), () => app.queue.draft == null);
     expect(app.queue.draft, isNull);
     expect(app.queue.items.single.hints.paperSpeedMmS, 50);
     expect(app.queue.items.single.hints.pages, isFalse);       // one sheet left: not a multi-page study

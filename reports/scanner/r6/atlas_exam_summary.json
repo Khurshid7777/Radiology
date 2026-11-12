@@ -1,0 +1,63 @@
+{
+ "cases": 420,
+ "read": 6,
+ "refused": 145,
+ "gated": 269,
+ "by_atlas": {
+  "allam": {
+   "cases": 62,
+   "read": 1,
+   "refused": 24,
+   "gated": 37,
+   "no_image": 0,
+   "diagnoses_found": "0/1",
+   "cases_all_found": "0/1"
+  },
+  "bank": {
+   "cases": 57,
+   "read": 0,
+   "refused": 14,
+   "gated": 43,
+   "no_image": 0,
+   "diagnoses_found": "0/0",
+   "cases_all_found": "0/0"
+  },
+  "ekgshki": {
+   "cases": 33,
+   "read": 0,
+   "refused": 32,
+   "gated": 1,
+   "no_image": 0,
+   "diagnoses_found": "0/0",
+   "cases_all_found": "0/0"
+  },
+  "hampton": {
+   "cases": 150,
+   "read": 4,
+   "refused": 6,
+   "gated": 140,
+   "no_image": 0,
+   "diagnoses_found": "3/10",
+   "cases_all_found": "0/4"
+  },
+  "medicom2": {
+   "cases": 92,
+   "read": 1,
+   "refused": 61,
+   "gated": 30,
+   "no_image": 0,
+   "diagnoses_found": "1/4",
+   "cases_all_found": "0/1"
+  },
+  "yung": {
+   "cases": 26,
+   "read": 0,
+   "refused": 8,
+   "gated": 18,
+   "no_image": 0,
+   "diagnoses_found": "0/0",
+   "cases_all_found": "0/0"
+  }
+ },
+ "note": "hampton: final tree (db0706d); other atlases: scanner 7f61a8b with the core before D256/D259/D261"
+}

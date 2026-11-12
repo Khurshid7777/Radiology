@@ -25,6 +25,7 @@ coarse:
 
 geometry:
   working_px_per_mm: 10.0        # the photo is resampled to this before rectification (speed; 5 ms/px at 25 mm/s... 2.5 at 50)
+  check_line_period: true       # SD-106: a scale the grid lines' own period (1 or 5 mm) contradicts -> the tiled estimate, if the lines agree with it
   max_upscale: 1.45              # 8..10 px/mm photos are brought up to 10: the M2 (legacy) trace reader
                                  # rounds px/mm to an integer (a 9.3 page would be timed 3 % wrong); M3 lifts this
   fit_px_per_mm: null            # fit the perspective homography at the working scale (6 px/mm was 2x faster but lost the traces: photo r 0.94 -> 0.30)
@@ -47,6 +48,7 @@ calibration:
     retry_close_px: 7            # ... with vertical gaps up to this closed (a thin, slightly slanted real pulse, SD-059)
     top_search_mm: 1.5           # SD-086: on the dark-ink retry the edges' tops may differ this much (an edge broken under the top's corner)
     extend_max_gap_mm: 4.0       # D180: a found pulse is extended down while both edges go on, gaps up to this bridged
+    edge_frac: null             # SD-106: a pulse farther than this share of its row's ink width from both ends is a complex; off: on photos it let a wrong 12x1/6x2 read pass (ecgdig 1489-v6), atlas Hampton 127 vs 126 read without it
   ocr:
     enabled: true
     # S3 (SD-090): RapidOCR's detector with the Cyrillic PP-OCRv5 recogniser (Cyrillic incl. Uzbek,
@@ -82,6 +84,7 @@ layout:
   pitch_tolerance: 0.1           # measured baseline pitch within this fraction of a registry pitch matches it
   stroke_min_height_mm: 2.0      # a trace row needs a complex this tall somewhere (a paper edge is <1 mm in every column); 3 lost lead III of a real strip (SD-059)
   stroke_bridge_mm: 1.0          # trace pieces the mask split are joined across gaps this long when judging a row (SD-059)
+  min_row_gap_frac: null         # SD-106: of two "rows" closer than this share of the widest row gap, the one with less ink goes; off: atlases 104 = 104 of 334 with or without, ecgdig 1246-v9 lost a real row
 
 segmentation:
   max_redness: 60                # SD-101: mask pixels with R - max(G, B) above this are red grid, not the (black) trace; null: off
@@ -150,6 +153,8 @@ validate:
   min_median_coverage: 0.5       # below -> rejected TRACE_BROKEN
   min_page_extent: 0.8           # SD-067: ...unless the ink spans less than this of the layout width -> PAGE_INCOMPLETE (a piece of a page)
   lead_min_coverage: 0.8         # any lead with less coverage -> LEAD_INCOMPLETE (needs confirmation)
+  rhythm_min_s: 5.0              # SD-106: no lead on the page this long (no rhythm strip, 2.5-s or 4-s columns) -> RHYTHM_STRIP_ABSENT, never ok:
+                                 # atlas 3x4 pages gave atrial fibrillation on sinus rhythm from 2-4 beats a lead; null = off
   limb_warn: 0.7                 # PROVISIONAL: limb-lead consistency below -> LIMB_LEADS_INCONSISTENT (clean pages 0.83-0.86, I<->II swap 0.61)
   beat_check: true               # CardioLens beats vs page columns (D130) disagree -> BEATS_INCONSISTENT (needs confirmation)
   qrs_hump_scale: 0.667          # QRS also measured with the R' hump threshold x this (SD-057); null = off

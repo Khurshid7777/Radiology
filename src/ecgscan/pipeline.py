@@ -48,6 +48,7 @@ from ecgscan.geometry.grid import (
     estimate_coarse_grid,
     estimate_grid,
     estimate_grid_tiled,
+    scale_matches_lines,
 )
 from ecgscan.geometry.rectify import Rectified, rectify, tile_residual
 from ecgscan.io import ImageRefused, _mime, flat_field, load_image, paper_level
@@ -366,6 +367,35 @@ def header_ocr_fields(reading, device_models: list[str]) -> HeaderOcr:
         device_text_conclusion=(f.conclusion or None) and f.conclusion[:500], phi_lines_dropped=f.phi_lines_dropped)
 
 
+
+def rhythm_strip_absent(spec, min_s: float | None) -> bool:
+    """SD-106: the page has no lead as long as ``min_s`` (a rhythm strip spans the record; a
+    panel only its column). None or 0: the check is off."""
+    if not min_s:
+        return False
+    return (spec.record_s if spec.rhythm else spec.panel_s) < min_s
+
+
+def pulses_at_row_edges(ink: np.ndarray, pulses: list, edge_frac: float) -> list:
+    """R6, SD-106: a calibration pulse stands at a row's start or end, never mid-row. A "pulse"
+    farther than ``edge_frac`` of its own row's ink width from both ends is a complex with a flat
+    top (atlas Hampton: an aVR complex taken for the pulse moved the rows' start, PAGE_INCOMPLETE).
+    The row, not the page: a screen's bezel or a desk edge widens the page's ink and real pulses
+    at a row's start fell "mid-page" (ecgdig 1375-v5)."""
+    out = []
+    for p in pulses:
+        half = max(1, (int(p.bottom) - int(p.top)) // 2)
+        band = ink[max(0, int(p.top) - half):int(p.bottom) + half]
+        cols = np.flatnonzero(band.sum(axis=0) > 0)
+        if cols.size < 2:
+            out.append(p)
+            continue
+        lo, hi = float(np.percentile(cols, 5)), float(np.percentile(cols, 95))
+        reach = edge_frac * max(1.0, hi - lo)
+        if p.x_left - lo <= reach or hi - p.x_right <= reach:
+            out.append(p)
+    return out
+
 def scan(image: str | Path | bytes | list[str | Path | bytes], *, hints: ScanHints | None = None, fs_out: float = 500.0,
          debug: ScanDebug | None = None, artifacts_dir: str | Path | None = None,
          config: dict | None = None) -> ScanResult:
@@ -522,6 +552,15 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
             if plain.confidence > raw.confidence:
                 raw = plain
         h_img, w_img = work.shape[:2]
+        if (g_cfg.get("check_line_period") and raw.px_per_mm and raw.confidence >= q_cfg["min_grid_confidence"]
+                and scale_matches_lines(work, raw.px_per_mm) is False):
+            # R6, SD-106: a confident scale the lines' own period contradicts (2-4x off on atlas
+            # pages): the tiled estimate is taken when the lines agree with it, else the page is
+            # read as before.
+            tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
+            if (tiled is not None and tiled.px_per_mm and tiled.confidence >= q_cfg["min_grid_confidence"]
+                    and scale_matches_lines(work, tiled.px_per_mm)):
+                raw = tiled
         if raw.confidence < q_cfg["min_grid_confidence"] and max(h_img, w_img) > g_cfg.get("tile_aspect", 2.0) * min(h_img, w_img):
             # A long strip: perspective smears the whole-frame comb; read it piece by piece (SD-059).
             tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
@@ -603,6 +642,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         # D180: a pulse found as its top piece (edges broken further down) is extended while
         # both edges continue; the gain from a 5-mm piece of a 20-mm pulse was 4x off.
         pulses = extend_pulses(ink, pulses, ppm, max_gap_mm=float(p_cfg["extend_max_gap_mm"]))
+    if p_cfg.get("edge_frac") and pulses:
+        pulses = pulses_at_row_edges(ink, pulses, float(p_cfg["edge_frac"]))
     dbg.pulses = pulses
     t = tick("segment+pulse", t)
 
@@ -612,7 +653,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
     m2 = int(round(2.0 * ppm))       # a pulse's feet: about 1 mm on each side
     pulse_boxes = [(p.x_left - m2, p.top - m2, p.x_right + m2, p.bottom + m2) for p in pulses]
     guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses],
-                          stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
+                          stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes,
+                          min_gap_frac=cfg["layout"].get("min_row_gap_frac"))
     gl_cfg = (cfg.get("segmentation") or {}).get("drop_grid_lines") or {}
     if guess.name is None and not hints.layout and gl_cfg.get("enabled") and grid_in_mask(ink, ppm):
         # SD-099: a black grid (b/w scan) is in the mask as dark as the trace and its lines pass
@@ -624,7 +666,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         if dropped:
             again = detect_layout(clean, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"],
                                   pulse_bottoms=[p.bottom for p in pulses], stroke_min_height_mm=stroke_h,
-                                  stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes)
+                                  stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes,
+                                  min_gap_frac=cfg["layout"].get("min_row_gap_frac"))
             if again.name is not None:
                 ink, guess = clean, again
                 mask = TraceMask(ink=ink, darkness=mask.darkness, method=mask.method + "+nogrid")
@@ -778,6 +821,10 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         warnings.append("LEAD_OVERLAP")
     if min(cover) < val.get("lead_min_coverage", 0.8) and not hints.piece:
         warnings.append("LEAD_INCOMPLETE")          # a lead is largely missing (glare, stain): the doctor looks
+    if rhythm_strip_absent(spec, val.get("rhythm_min_s")) and not hints.piece:
+        # SD-106: no lead long enough to judge the rhythm (a 3x4 page without a rhythm strip: 2-4
+        # beats a lead). Atlas pages so read gave atrial fibrillation on sinus rhythm: the doctor looks.
+        warnings.append("RHYTHM_STRIP_ABSENT")
     lead_q = float(np.median([r.quality for r in readings]))
     cons_f = 1.0 if cons.score is None else float(np.clip(0.5 + cons.score, 0.0, 1.0))
     overall = lead_q * cons_f * raw.confidence ** 0.5 * (decision.calibration.confidence if decision.established else 0.5)
@@ -789,6 +836,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
                and "FADED_PAPER" not in warnings
                # SD-099: grid lines taken out of the mask may have taken trace pieces with them.
                and "GRID_IN_TRACE" not in warnings
+               # SD-106: no lead long enough for the rhythm: never "ok" by itself.
+               and "RHYTHM_STRIP_ABSENT" not in warnings
                # D170: a coarse read is never "ok" by itself: the doctor confirms.
                and "LOW_RESOLUTION_COARSE" not in warnings)
     status = "ok" if trusted else "needs_confirmation"

@@ -44,6 +44,45 @@ class LayoutGuess:
     repeats_open: bool = False      # 6x2 / 3x4+3rhythm left open by the repeats: only the doctor settles it
 
 
+def _trace_below(ink: np.ndarray, base: list[int], px_per_mm: float, min_height_mm: float, bridge_mm: float,
+                 exclude_boxes: list | None, min_cover: float = 0.4) -> bool:
+    """A long trace a row pitch below the last row (a rhythm strip the row search missed)."""
+    from ecgscan.layout.rows import long_stroke_mask
+
+    gaps = np.diff(sorted(base))
+    pitch = float(np.median(gaps))
+    last = max(base)
+    y0, y1 = int(last + 0.5 * pitch), int(min(ink.shape[0], last + 1.5 * pitch))
+    if y1 - y0 < 2:
+        return False
+    strokes = long_stroke_mask(ink, px_per_mm, min_height_mm=min_height_mm, bridge_mm=bridge_mm,
+                               exclude_boxes=exclude_boxes)
+    cols = strokes[y0:y1].any(axis=0)
+    span = np.flatnonzero(strokes[min(base):last + 1].any(axis=0))
+    width = float(span[-1] - span[0]) if span.size > 1 else float(ink.shape[1])
+    return float(cols.sum()) >= min_cover * max(1.0, width)
+
+
+def drop_crowded_rows(ink: np.ndarray, base: list[int], px_per_mm: float, frac: float) -> list[int]:
+    """R6, SD-106: of two "rows" closer than ``frac`` of the widest gap between rows, the one with
+    less ink goes. A deep complex or a label line (atlas Hampton: a V2 S wave 15-20 mm below its
+    row on a 53-mm pitch) read as a row of its own turned a 3-row 3x4 page into 3x4 + rhythm.
+    The widest gap, not the median: the spurious row itself pulls the median down. A real page's
+    rows are evenly spaced and lose nothing."""
+    base = sorted(base)
+    half = max(1, int(round(1.5 * px_per_mm)))
+    while len(base) >= 3:
+        gaps = np.diff(base)
+        pitch = float(np.max(gaps))
+        k = int(np.argmin(gaps))
+        if gaps[k] >= frac * pitch:
+            break
+        a, b = base[k], base[k + 1]
+        ink_at = [int(ink[max(0, y - half):y + half].sum()) for y in (a, b)]
+        base.pop(k if ink_at[0] < ink_at[1] else k + 1)
+    return base
+
+
 def merge_baselines(projection: list[int], pulse_bottoms: list[int], px_per_mm: float,
                     tol_mm: float = 4.0) -> list[int]:
     """Projection peaks plus calibration-pulse bottoms (a pulse stands on its row's baseline).
@@ -170,7 +209,8 @@ def _by_repeats(names: list[str], ink: np.ndarray, base: list[int], px_per_mm: f
 
 def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
                   pulse_bottoms: list[int] | None = None, stroke_min_height_mm: float = 3.0,
-                  stroke_bridge_mm: float = 0.0, exclude_boxes: list | None = None) -> LayoutGuess:
+                  stroke_bridge_mm: float = 0.0, exclude_boxes: list | None = None,
+                  min_gap_frac: float | None = None, min_gap_max_rows: int = 5) -> LayoutGuess:
     # A pulse bottom near a found row is that row's pulse, even when the printer floats it a
     # few mm off the baseline (a real strip: 4.1 mm below row II, read as a 4th row and a
     # 3x4+rhythm page, SD-059): no two rows are closer than the smallest registry pitch.
@@ -178,15 +218,31 @@ def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
     base = merge_baselines(row_baselines(ink, px_per_mm, min_height_mm=stroke_min_height_mm, bridge_mm=stroke_bridge_mm,
                                          exclude_boxes=exclude_boxes),
                            pulse_bottoms or [], px_per_mm, tol_mm=max(4.0, near_mm))
+    if min_gap_frac and len(base) <= min_gap_max_rows:
+        # One spurious row among a few real ones (a deep complex, a label line). Many "rows" are
+        # the grid's lines in the mask (a phone photo): thinned, they passed for a 6x2 page and
+        # the photo segmenter, which reads such pages, was never asked (ecgdig 1184-v4).
+        base = drop_crowded_rows(ink, base, px_per_mm, min_gap_frac)
     n = len(base)
     pitch = float(np.median(np.diff(base))) / px_per_mm if n > 1 else None
     by_count, by_pitch = [], []
+    trace_below = None
     for spec in available_layouts().values():
+        if spec.max_gap_ratio and n > 2:
+            gaps = np.diff(sorted(base))
+            if gaps.max() > spec.max_gap_ratio * max(1, gaps.min()):
+                continue
+        if spec.clear_below and spec.n_trace_rows == n and n > 1:
+            if trace_below is None:
+                trace_below = _trace_below(ink, base, px_per_mm, stroke_min_height_mm, stroke_bridge_mm, exclude_boxes)
+            if trace_below:
+                continue
         if spec.n_trace_rows == 1 and pulse_bottoms and len({int(y // (8 * px_per_mm)) for y in pulse_bottoms}) > 1:
             continue    # several pulses at different heights: not a single strip
         if spec.n_trace_rows == n:
             by_count.append(spec.name)
-        if pitch is not None and abs(pitch - spec.row_pitch_mm) <= pitch_tol * spec.row_pitch_mm:
+        tol = pitch_tol if spec.row_pitch_tol is None else spec.row_pitch_tol
+        if pitch is not None and abs(pitch - spec.row_pitch_mm) <= tol * spec.row_pitch_mm:
             by_pitch.append(spec.name)
     if len(by_count) > 1:
         # Same row count (6x2 / 3x4+3rhythm): the rhythm strips' repeats decide (S2).

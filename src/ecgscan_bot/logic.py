@@ -21,8 +21,22 @@ API_KEY_ENV = "ECGSCAN_BOT_API_KEY"
 API_URL_ENV = "ECGSCAN_BOT_API_URL"
 MODE_ENV = "ECGSCAN_BOT_MODE"
 PUBLIC_URL_ENV = "ECGSCAN_BOT_PUBLIC_URL"   # the site, for links sent to colleagues (D208)
+GROUPS_ENV = "ECGSCAN_BOT_GROUPS"           # SD-107: chat ids of the groups the bot reads (also switched on by a button)
+GROUP_RECIPIENTS_ENV = "ECGSCAN_BOT_GROUP_RECIPIENTS"   # who gets the group's results in private; default: every administrator
+GROUP_CHAT_TYPES = ("group", "supergroup")
 IMAGE_MIME = ("image/jpeg", "image/png", "image/tiff")                     # what /scans takes
 ANALYZE_MIME = IMAGE_MIME + ("image/heic", "image/heif", "application/pdf")  # /api/analyze reads these too (D158)
+
+
+def _ids(text: str) -> set[int]:
+    """Comma-separated Telegram ids (a group's id is negative)."""
+    out = set()
+    for x in text.replace(" ", "").split(","):
+        try:
+            out.add(int(x))
+        except ValueError:
+            continue
+    return out
 
 
 @dataclass
@@ -36,16 +50,35 @@ class BotConfig:
     allowed: set[int] = field(default_factory=set)
     api_key: str | None = None
     mode: str = "analyze"
+    groups: set[int] = field(default_factory=set)
+    group_recipients: set[int] = field(default_factory=set)
+    group_notify_refusals: bool = True
+    group_max_per_hour: int = 60
+    report_weekly: bool = True
+    report_weekday: int = 0
+    report_hour: int = 9
+    report_tz: str = "Asia/Tashkent"
+    report_days: int = 7
 
     @classmethod
     def load(cls) -> BotConfig:
         c = load_yaml("bot")
-        allowed = {int(x) for x in os.environ.get(ALLOWED_ENV, "").replace(" ", "").split(",") if x}
+        g = c.get("group") or {}
+        rep = c.get("report") or {}
+        allowed = _ids(os.environ.get(ALLOWED_ENV, ""))
         return cls(api_url=os.environ.get(API_URL_ENV, c["api_url"]).rstrip("/"), max_mb=float(c["max_mb"]),
                    poll_interval_s=float(c["poll_interval_s"]), poll_timeout_s=float(c["poll_timeout_s"]),
                    send_overlay=bool(c["send_overlay"]), public_url=load_yaml("service").get("public_url"),
                    allowed=allowed, api_key=os.environ.get(API_KEY_ENV),
-                   mode=os.environ.get(MODE_ENV, c.get("mode", "analyze")))
+                   mode=os.environ.get(MODE_ENV, c.get("mode", "analyze")),
+                   groups=_ids(os.environ.get(GROUPS_ENV, "")),
+                   # Results of a group go to administrators only: an id outside the whitelist is dropped.
+                   group_recipients=(_ids(os.environ.get(GROUP_RECIPIENTS_ENV, "")) & allowed) or allowed,
+                   group_notify_refusals=bool(g.get("notify_refusals", True)),
+                   group_max_per_hour=int(g.get("max_per_hour", 60)),
+                   report_weekly=bool(rep.get("weekly", True)), report_weekday=int(rep.get("weekday", 0)),
+                   report_hour=int(rep.get("hour", 9)), report_tz=str(rep.get("tz", "Asia/Tashkent")),
+                   report_days=int(rep.get("days", 7)))
 
 
 # The photo's caption names the patient: "54 м", "ж 7", "erkak 63" (D161).
@@ -129,6 +162,129 @@ def allowed(cfg: BotConfig, user_id: int | None, chat_type: str | None = "privat
 
 def is_admin(cfg: BotConfig, user_id: int | None) -> bool:
     return user_id is not None and user_id in cfg.allowed
+
+
+def watched_group(cfg: BotConfig, chat_id: int | None, chat_type: str | None, store=None) -> bool:
+    """SD-107: a group whose ECG photos the bot reads — named in the environment, or switched on by
+    an administrator's button. The bot never writes there: the result goes to administrators in private."""
+    if chat_id is None or chat_type not in GROUP_CHAT_TYPES:
+        return False
+    return chat_id in cfg.groups or (store is not None and store.group_on(chat_id))
+
+
+def message_link(chat_id: int, message_id: int | None, username: str | None = None) -> str | None:
+    """A link to the group's message, for the administrator to find the photo: public groups by
+    name, private supergroups by ``t.me/c``; a basic group has no message links."""
+    if message_id is None:
+        return None
+    if username:
+        return f"https://t.me/{username}/{message_id}"
+    s = str(chat_id)
+    return f"https://t.me/c/{s[4:]}/{message_id}" if s.startswith("-100") else None
+
+
+def group_head(title: str | None, link_: str | None, lang: str) -> str:
+    from ecgscan_bot.texts import tr
+
+    head = tr("group_head", lang, title=(title or "—")[:80])
+    return f"{head}\n{link_}" if link_ else head
+
+
+COMMENT_MAX = 300
+
+
+def clean_comment(text: str | None) -> str | None:
+    """What a doctor wrote after "wrong": one line, printable, at most ``COMMENT_MAX`` characters."""
+    line = " ".join("".join(ch if ch.isprintable() else " " for ch in (text or "")).split())
+    return line[:COMMENT_MAX] or None
+
+
+def feedback_buttons(aid: str, lang: str, group: bool = False) -> list[tuple[str, str]]:
+    """(label, callback data): the verdict buttons carry the analysis id, so they work for as long as
+    the server keeps the analysis — the reply's other buttons live 15 minutes. ``group``: the photo
+    came from a group (SD-107), kept as the feedback's source."""
+    from ecgscan_bot.texts import tr
+
+    tail = ":g" if group else ""
+    return [(tr("btn_fb_ok", lang), f"fb:ok:{aid}{tail}"), (tr("btn_fb_no", lang), f"fb:no:{aid}{tail}")]
+
+
+def parse_feedback(data: str | None) -> tuple[str, bool, str] | None:
+    """``fb:<ok|no>:<analysis id>[:g]`` -> (analysis id, agree, source); None for anything else."""
+    parts = (data or "").split(":")
+    if len(parts) not in (3, 4) or parts[0] != "fb" or parts[1] not in ("ok", "no") or not parts[2].isalnum():
+        return None
+    if len(parts) == 4 and parts[3] != "g":
+        return None
+    return parts[2], parts[1] == "ok", "bot-group" if len(parts) == 4 else "bot"
+
+
+def report_text(summary: dict, days: int, lang: str) -> str:
+    """SD-109: the weekly report an administrator reads in the bot — how many ECGs came, how many were
+    read, gated or refused and why, where the recorder's printed values disagree with ours, and what
+    the doctors said. Counts only."""
+    from ecgscan_bot.texts import DEVICE_NAMES, GATE_NAMES, REFUSAL_NAMES, tr
+
+    i = 1 if lang == "uz" else 0
+
+    def name(table: dict, key: str) -> str:
+        return table[key][i] if key in table else key
+
+    total = int(summary.get("analyses") or 0)
+    lines = [tr("rep_head", lang, days=days, n=total)]
+    if not total:
+        return lines[0] + "\n" + tr("rep_empty", lang)
+    routes = summary.get("routes") or {}
+    read = sum(int(r.get("read", 0)) for r in routes.values())
+    gated = sum(int(r.get("gated", 0)) for r in routes.values())
+    refused = summary.get("refused") or {}
+    n_ref = sum(int(v) for v in refused.values())
+    lines.append(tr("rep_counts", lang, clean=read - gated, gated=gated, refused=n_ref))
+    if refused:
+        lines.append(tr("rep_refused", lang) + " " + ", ".join(
+            f"{name(REFUSAL_NAMES, k)} — {v}" for k, v in sorted(refused.items(), key=lambda kv: -kv[1])))
+    gates = summary.get("gates") or {}
+    if gates:
+        lines.append(tr("rep_gates", lang) + " " + ", ".join(
+            f"{name(GATE_NAMES, k)} — {v}" for k, v in sorted(gates.items(), key=lambda kv: -kv[1])))
+    for key, d in (summary.get("device") or {}).items():
+        if d.get("n"):
+            lines.append(tr("rep_device", lang, what=name(DEVICE_NAMES, key), n=d["n"], agree=d.get("agree", 0),
+                            silent=d.get("shown_mismatch", 0)))
+    fb = summary.get("feedback") or {}       # the server's block (CardioLens D260): n, agree, disagree, disagreed
+    if fb.get("n"):
+        lines.append(tr("rep_feedback", lang, n=fb["n"], agree=fb.get("agree", 0),
+                        disagree=fb.get("disagree", 0)))
+        for row in (fb.get("disagreed") or [])[:10]:
+            if row.get("comment"):
+                lines.append(f"  • {row.get('analysis_id', '?')}: {row['comment']}")
+    else:
+        lines.append(tr("rep_no_feedback", lang))
+    return "\n".join(lines)
+
+
+def next_weekly(now, weekday: int, hour: int):
+    """The next ``weekday`` (0 = Monday) at ``hour``:00 strictly after ``now`` (an aware datetime)."""
+    import datetime as dt
+
+    at = now.replace(hour=hour, minute=0, second=0, microsecond=0) + dt.timedelta(days=(weekday - now.weekday()) % 7)
+    return at if at > now else at + dt.timedelta(days=7)
+
+
+class HourlyLimit:
+    """At most ``n`` analyses an hour per group: a flood in a chat must not queue hours of work."""
+
+    def __init__(self, n: int):
+        self.n = n
+        self._at: dict[int, list[float]] = {}
+
+    def allow(self, key: int, now: float) -> bool:
+        at = [x for x in self._at.get(key, []) if now - x < 3600.0]
+        ok = len(at) < self.n
+        if ok:
+            at.append(now)
+        self._at[key] = at
+        return ok
 
 
 # Symptoms in a caption (D208 -> D195 codes): words a doctor or a patient writes.
@@ -295,6 +451,29 @@ class AnalyzeApi:
         url = r.json().get("url")
         base = os.environ.get(PUBLIC_URL_ENV) or self.cfg.public_url
         return f"{base.rstrip('/')}{url}" if base and url and url.startswith("/") else url
+
+    def feedback(self, analysis_id: str, agree: bool, reviewer: str, comment: str | None = None,
+                 source: str | None = None) -> bool:
+        """SD-108: the doctor's verdict on a conclusion, into the server's feedback log (TZ §13).
+        False: the analysis is no longer kept, or the server said no."""
+        body = {"analysis_id": analysis_id, "reviewer": reviewer, "overall_agreement": bool(agree), "findings": []}
+        if comment:
+            body["comment"] = comment
+        if source:
+            body["source"] = source
+        try:
+            r = self.http.post(f"/api/analysis/{analysis_id}/feedback", json=body, headers=self.headers)
+        except Exception:
+            return False
+        return r.status_code == 200
+
+    def quality(self, days: int = 7) -> dict | None:
+        """SD-109: the server's real-use summary for the last ``days`` (counts only, no patient data)."""
+        try:
+            r = self.http.get("/api/quality/summary", params={"days": int(days)}, headers=self.headers)
+        except Exception:
+            return None
+        return r.json() if r.status_code == 200 else None
 
     def overlay(self, analysis_id: str) -> bytes | None:
         """The scanner's confirmation overlay of the photo (D163): the traces it read, drawn

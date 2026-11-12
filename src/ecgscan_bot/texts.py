@@ -55,6 +55,49 @@ _T = {
     "btn_no": ("Нет", "Yo'q"),
     "analysing": ("Анализирую…", "Tahlil qilinmoqda…"),
     "pending_expired": ("Вопросы устарели — пришлите ЭКГ ещё раз.", "Savollar eskirdi — EKGni qayta yuboring."),
+    "group_added": (("Бот добавлен в группу «{title}». Читать из неё фото ЭКГ и присылать разбор "
+                     "администраторам в личный чат? В самой группе бот ничего не пишет.\n\n"
+                     "Чтобы бот видел фото, сделайте его администратором группы или отключите Privacy mode "
+                     "в @BotFather (/setprivacy → Disable) и добавьте бота заново."),
+                    ("Bot «{title}» guruhiga qo'shildi. Undagi EKG suratlarini o'qib, tahlilni administratorlarga "
+                     "shaxsiy chatga yuboraymi? Guruhning o'zida bot hech narsa yozmaydi.\n\n"
+                     "Bot suratlarni ko'rishi uchun uni guruh administratori qiling yoki @BotFather'da Privacy "
+                     "mode'ni o'chiring (/setprivacy → Disable) va botni qayta qo'shing.")),
+    "btn_group_on": ("Читать фото", "Suratlarni o'qish"),
+    "btn_group_off": ("Не читать", "O'qimaslik"),
+    "group_on": ("Группа «{title}»: чтение включено. Разбор каждой ЭКГ придёт сюда, в личный чат.",
+                 "«{title}» guruhi: o'qish yoqildi. Har bir EKG tahlili shu yerga, shaxsiy chatga keladi."),
+    "group_off": ("Группа «{title}»: чтение выключено.", "«{title}» guruhi: o'qish o'chirildi."),
+    "groups_none": ("Групп пока нет. Добавьте бота в группу — сюда придёт сообщение с кнопкой.",
+                    "Guruhlar yo'q. Botni guruhga qo'shing — bu yerga tugmali xabar keladi."),
+    "groups_list": ("Группы (нажмите, чтобы включить или выключить чтение):",
+                    "Guruhlar (o'qishni yoqish yoki o'chirish uchun bosing):"),
+    "admins": ("Администраторы бота (Telegram id): {ids}\nРазборы из групп получают: {group_ids}",
+               "Bot administratorlari (Telegram id): {ids}\nGuruh tahlillarini oladi: {group_ids}"),
+    "btn_fb_ok": ("✅ Заключение верно", "✅ Xulosa to'g'ri"),
+    "btn_fb_no": ("❌ Неверно", "❌ Noto'g'ri"),
+    "fb_ok": ("Записано: заключение верно. Спасибо!", "Yozildi: xulosa to'g'ri. Rahmat!"),
+    "fb_no": (("Записано: заключение неверно. Что на самом деле? Напишите одним сообщением — диагноз "
+               "или что не так (без ФИО пациента). Можно не отвечать."),
+              ("Yozildi: xulosa noto'g'ri. Aslida nima? Bitta xabar bilan yozing — tashxis yoki nima "
+               "noto'g'ri (bemor F.I.Sh.siz). Javob bermasangiz ham bo'ladi.")),
+    "fb_comment": ("Записано, спасибо. Это попадёт в разбор ошибок.", "Yozildi, rahmat. Bu xatolar tahliliga kiradi."),
+    "fb_gone": ("Оценку записать не удалось: анализ уже не хранится на сервере.",
+                "Bahoni yozib bo'lmadi: tahlil serverda saqlanmayapti."),
+    "rep_head": ("📊 CardioVision за {days} дн.: анализов — {n}", "📊 CardioVision {days} kun: tahlillar — {n}"),
+    "rep_empty": ("За этот период ЭКГ не присылали.", "Bu davrda EKG yuborilmagan."),
+    "rep_counts": ("Прочитано без пометки — {clean}, под пометкой «проверьте» — {gated}, не принято — {refused}.",
+                   "Belgisiz o'qildi — {clean}, «tekshiring» belgisi bilan — {gated}, qabul qilinmadi — {refused}."),
+    "rep_refused": ("Причины отказа:", "Rad etish sabablari:"),
+    "rep_gates": ("Пометки:", "Belgilar:"),
+    "rep_device": ("{what}: сверено с распечаткой аппарата {n}, совпало {agree}, показано с расхождением {silent}.",
+                   "{what}: apparat chop etgani bilan solishtirildi {n}, mos {agree}, farq bilan ko'rsatildi {silent}."),
+    "rep_feedback": ("Оценки врачей: {n}; верно — {agree}, неверно — {disagree}.",
+                     "Shifokor baholari: {n}; to'g'ri — {agree}, noto'g'ri — {disagree}."),
+    "rep_no_feedback": ("Оценок врачей за период нет — нажимайте «верно / неверно» под разбором.",
+                        "Bu davrda shifokor baholari yo'q — tahlil ostida «to'g'ri / noto'g'ri»ni bosing."),
+    "rep_fail": ("Сводку получить не удалось — сервер недоступен.", "Hisobotni olib bo'lmadi — server mavjud emas."),
+    "group_head": ("📥 Из группы «{title}»", "📥 «{title}» guruhidan"),
     "expired": ("Этот ответ устарел — пришлите ЭКГ ещё раз.", "Bu javob eskirgan — EKGni qayta yuboring."),
 }
 
@@ -62,6 +105,18 @@ SYMPTOM_BTN = {"chest_pain": ("Боль в груди", "Ko'krakda og'riq"), "dy
                "syncope": ("Обморок", "Hushdan ketish"), "palpitations": ("Сердцебиение", "Yurak urishi")}
 ONSET_BTN = {"lt12h": ("< 12 ч", "< 12 soat"), "12to48h": ("12–48 ч", "12–48 soat"),
              "gt48h": ("> 48 ч", "> 48 soat"), "unknown": ("не знаю", "noma'lum")}
+
+
+# SD-109: the report's names for the server's codes (RU, UZ); an unknown code is shown as it is.
+REFUSAL_NAMES = {"low_resolution": ("мелкий снимок", "kichik surat"), "portrait": ("снимок на боку", "surat yonboshlagan"),
+                 "strip_piece": ("кусок ленты", "lenta bo'lagi"), "too_large": ("слишком большой файл", "fayl juda katta"),
+                 "no_ecg": ("ЭКГ не найдена", "EKG topilmadi"), "format": ("формат файла", "fayl formati"),
+                 "other": ("другое", "boshqa")}
+GATE_NAMES = {"photo_unreliable": ("чтение ненадёжно", "o'qish ishonchsiz"), "photo_coarse": ("грубый снимок", "qo'pol surat"),
+              "no_ecg_signal": ("нет сигнала", "signal yo'q"), "amplitude_implausible": ("неправдоподобная амплитуда", "amplituda shubhali"),
+              "poor_quality_signal": ("плохое качество", "sifat past"),
+              "screen_photo_limited": ("фото экрана", "ekran surati")}
+DEVICE_NAMES = {"hr_bpm": ("ЧСС", "YUCH"), "pr_ms": ("PR", "PR"), "qrs_ms": ("QRS", "QRS"), "qt_ms": ("QT", "QT")}
 
 
 def tr(key: str, lang: str, **kw) -> str:
