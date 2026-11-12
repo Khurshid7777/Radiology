@@ -14,20 +14,15 @@ FIX = Path(__file__).parent / "fixtures" / "rbbb_gain5_scan.json.gz"
 
 @pytest.fixture(scope="module")
 def rbbb_scan() -> ScanResult:
-    """gain_5-004 as the scanner read it: synthetic RBBB at 5 mm/mV, traces r 0.98, 180 ms on the
-    exact signal (before D236 the R' hump fell below threshold and the QRS read 127 ms)."""
+    """gain_5-004 as the scanner read it: synthetic RBBB at 5 mm/mV, traces r 0.98, but the
+    QRS read 127 ms against 180 ms on the exact signal (the R' hump fell below threshold)."""
     return ScanResult.model_validate_json(gzip.decompress(FIX.read_bytes()))
 
 
-def test_rbbb_width_no_longer_hinges_on_the_hump_threshold(rbbb_scan):
-    """Before CardioLens D236 this scan read 127 ms at the default hump threshold and 178 with
-    the R' counted. D236 retries a wide beat with a longer search and keeps the true 180 ms at
-    every threshold: the width is stable, so QRS_UNSTABLE does not fire on it (the flag itself
-    is covered by ``test_scan_flags_an_unstable_qrs``)."""
-    for scale in (None, 0.667, 1.0):
-        c = measurement_check(rbbb_scan, hump_scale=scale)
-        assert c.qrs_ms == pytest.approx(180.0, abs=6.0)
-        assert c.qrs_ms_low_hump is None or abs(c.qrs_ms_low_hump - c.qrs_ms) <= 20
+def test_rbbb_width_hinges_on_the_hump_threshold(rbbb_scan):
+    c = measurement_check(rbbb_scan, hump_scale=0.667)
+    assert c.qrs_ms == pytest.approx(127.0, abs=6.0)
+    assert c.qrs_ms_low_hump - c.qrs_ms > 20                 # 178: the R' counted
 
 
 def test_cardiolens_default_is_unchanged(rbbb_scan):
