@@ -313,6 +313,85 @@ def detect_pvc_beats(sig, rpeaks, fs: float) -> list[int]:
 
 
 
+
+# Ventricular couplets (D253): two consecutive beats shaped unlike the dominant beat, the first premature, the
+# pause after the second; the single-PVC rule cannot see the first one (no compensatory pause after it).
+# Thresholds picked on MIT-BIH + INCART (D254: 0.65 of couplet windows, false 4.9 %), accepted on SVDB (0.69, false
+# 3.6 %). The pause after the second beat is not required (post_min 0) and the envelope recovery is off by default.
+COUPLET_CORR_MAX = 0.85     # both beats unlike the dominant beat (mean over II, V1, V5); D253 even-half pick
+COUPLET_PRE_MAX = 1.00      # first beat: preceding RR <= this x reference RR
+COUPLET_POST_MIN = 0.0      # after the second beat: RR >= this x median RR (0 = not required, D254)
+
+
+def detect_ventricular_couplets(sig, rpeaks, fs: float, *, corr_max: float = COUPLET_CORR_MAX,
+                                pre_max: float = COUPLET_PRE_MAX, post_min: float = COUPLET_POST_MIN,
+                                recover: bool = False) -> list[int]:
+    """Sample position (R) of the first beat of each couplet (a pair not inside a run of >= 3 unlike-shaped
+    beats); with ``recover`` the search also uses envelope peaks the beat detector left out (D254)."""
+    rp0 = np.asarray(rpeaks, dtype=int)
+    if rp0.size < 6:
+        return []
+    rr0 = np.diff(rp0).astype(float)
+    med = float(np.median(rr0)) or 1.0
+    ref = float(np.percentile(rr0, _RUN_TEMPLATE_RR_PCT)) or med
+    # D254: complexes the global recovery (D75) leaves out because an inserted ectopic beat makes the rhythm
+    # less regular are added here, for the couplet search only (the record's beats and rate are unchanged).
+    rp = _with_missed_complexes(sig, rp0, fs) if recover else rp0
+    leads = [n for n in _PVC_LEADS if n in sig.lead_names] or list(sig.lead_names[:3])
+    half = int(_PVC_HALF_S * fs)
+    n_samples = sig.signal.shape[1]
+    ok = [i for i, r in enumerate(rp) if r - half >= 0 and r + half < n_samples]
+    if len(ok) < 5:
+        return []
+    segs = {n: np.stack([sig.lead(n)[rp[i] - half:rp[i] + half].astype(float) for i in ok]) for n in leads}
+    rr = np.diff(rp).astype(float)
+    normal = [k for k, i in enumerate(ok) if i >= 1 and rr[i - 1] >= 0.92 * ref]
+    pick = normal if len(normal) >= 3 else list(range(len(ok)))
+    tmpl = {n: np.median(segs[n][pick], axis=0) for n in leads}
+    corr = np.ones(len(rp))
+    for k, i in enumerate(ok):
+        corr[i] = np.mean([np.corrcoef(segs[n][k], tmpl[n])[0, 1] for n in leads])
+    unlike = corr <= corr_max
+    out = []
+    for i in range(1, len(rp) - 2):
+        if not (unlike[i] and unlike[i + 1]) or unlike[i - 1] or unlike[i + 2]:
+            continue
+        if rr[i - 1] / ref <= pre_max and rr[i + 1] / med >= post_min:
+            out.append(int(rp[i]))
+    return out
+
+
+COUPLET_RECOVER_FRACTION = 0.5   # D254: an added complex reaches half the accepted beats' envelope level ...
+COUPLET_RECOVER_GAP_S = 0.25     # ... and lies this far from every accepted beat
+
+
+def _with_missed_complexes(sig, rp: np.ndarray, fs: float) -> np.ndarray:
+    from scipy.signal import find_peaks
+
+    from cardiolens.layer3_measure.delineation import spatial_velocity
+
+    env = spatial_velocity(sig.signal, fs)
+    w = int(0.15 * fs)
+    ref = float(np.median([env[max(0, int(r) - w):int(r) + w].max() for r in rp]))
+    if ref <= 0:
+        return rp
+    cand, _ = find_peaks(env, height=COUPLET_RECOVER_FRACTION * ref, distance=max(1, int(COUPLET_RECOVER_GAP_S * fs)))
+    new = [int(c) for c in cand if np.min(np.abs(rp - c)) > COUPLET_RECOVER_GAP_S * fs]
+    return np.unique(np.concatenate([rp, np.asarray(new, dtype=int)])) if new else rp
+
+
+def couplet_finding(couplets: list[int]):
+    """ventricular_couplets (D254): non-critical, 'show a physician'."""
+    from cardiolens.contracts.findings import Evidence, Finding
+
+    n = len(couplets)
+    return Finding(
+        code="ventricular_couplets", group="rhythm",
+        label_ru=f"Парные желудочковые экстрасистолы (куплеты): {n} — предвестник ЖТ, покажите врачу",
+        label_uz=f"Juft qorincha ekstrasistolalari (kupletlar): {n} — JT xabarchisi, shifokorga ko'rsating",
+        evidence=[Evidence(feature="couplets", value=str(n))], confidence=0.65)
+
+
 # Supraventricular (atrial / junctional) premature beats (D204; AHA/ACCF/HRS 2009 statement list,
 # ESC 2019 SVT): early, but shaped like the dominant beat — the impulse reaches the ventricles over
 # the normal pathway. Prematurity is judged against the strip's reference RR (upper quartile, as for

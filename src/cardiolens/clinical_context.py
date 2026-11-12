@@ -28,13 +28,14 @@ ISCHEMIA_ORDER = ("st_elevation", "st_depression", "st_elevation_any", "patholog
 # Findings that can explain a faint by an arrhythmia.
 SYNCOPE_RHYTHM = frozenset({"long_qt", "short_qt", "complete_av_block", "sinus_bradycardia",
                             "wpw_preexcitation", "brugada_pattern", "wide_complex_tachycardia",
-                            "supraventricular_tachycardia", "lbbb", "rbbb"})
-SYNCOPE_ORDER = ("complete_av_block", "wide_complex_tachycardia", "long_qt", "brugada_pattern",
-                 "wpw_preexcitation", "short_qt", "supraventricular_tachycardia", "sinus_bradycardia", "lbbb",
+                            "wide_qrs_tachycardia", "supraventricular_tachycardia", "lbbb", "rbbb"})
+SYNCOPE_ORDER = ("complete_av_block", "wide_complex_tachycardia", "wide_qrs_tachycardia", "long_qt",
+                 "brugada_pattern", "wpw_preexcitation", "short_qt", "supraventricular_tachycardia", "sinus_bradycardia", "lbbb",
                  "rbbb")
 # An arrhythmia on the record answers palpitations itself.
 ARRHYTHMIA = frozenset({"atrial_fibrillation", "atrial_flutter", "supraventricular_tachycardia",
-                        "wide_complex_tachycardia", "irregular_rhythm", "ventricular_ectopy",
+                        "wide_complex_tachycardia", "wide_qrs_tachycardia", "irregular_rhythm",
+                        "ventricular_ectopy",
                         "wpw_preexcitation"})
 UNREADABLE = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_implausible"})
 # Symptoms that send mode B to a doctor whatever the record shows.

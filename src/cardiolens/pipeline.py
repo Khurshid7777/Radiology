@@ -267,7 +267,7 @@ def run_pipeline(
         # A ventricular-paced QRS is wide; measured under 100 ms its end was not found and the "J point"
         # lies inside the QRS (PTB-XL PACE: QRS 54-64 ms, "elevation" 1-1.3 mV) — ST is not assessable.
         ventricular = single or ml_coupling >= cfg.pacing.multilead_coupling_min
-        qrs_unreliable = ventricular and (m.intervals.qrs_ms or 0) < 100
+        qrs_unreliable = ventricular and ((m.intervals.qrs_ms or 0) < 100 or m.qrs_width_from_retry)
         stemi = findings.by_code("st_elevation")
         if stemi is not None and (qrs_unreliable or not paced_primary_elevation(m, norms, sig.patient)):
             findings.findings = [f for f in findings.findings if f.code != "st_elevation"]
@@ -821,7 +821,8 @@ _PACED_EXCLUDES = ("lbbb", "rbbb", "wide_qrs_nonspecific", "lvh", "lvh_probable"
                    "atrial_fibrillation", "left_anterior_fascicular_block",
                    "left_posterior_fascicular_block", "incomplete_rbbb", "supraventricular_ectopy",
                    "atrial_bigeminy", "atrial_trigeminy", "sinus_arrhythmia", "possible_atrial_fibrillation",
-                   "wpw_preexcitation")   # D234: a paced QRS slurs every lead like a delta wave
+                   "wpw_preexcitation",   # D234: a paced QRS slurs every lead like a delta wave
+                   "wide_qrs_tachycardia")   # D252: a paced QRS is wide by design
 
 
 @functools.lru_cache(maxsize=2)
