@@ -181,6 +181,35 @@ def group_head(title: str | None, link_: str | None, lang: str) -> str:
     return f"{head}\n{link_}" if link_ else head
 
 
+COMMENT_MAX = 300
+
+
+def clean_comment(text: str | None) -> str | None:
+    """What a doctor wrote after "wrong": one line, printable, at most ``COMMENT_MAX`` characters."""
+    line = " ".join("".join(ch if ch.isprintable() else " " for ch in (text or "")).split())
+    return line[:COMMENT_MAX] or None
+
+
+def feedback_buttons(aid: str, lang: str, group: bool = False) -> list[tuple[str, str]]:
+    """(label, callback data): the verdict buttons carry the analysis id, so they work for as long as
+    the server keeps the analysis — the reply's other buttons live 15 minutes. ``group``: the photo
+    came from a group (SD-107), kept as the feedback's source."""
+    from ecgscan_bot.texts import tr
+
+    tail = ":g" if group else ""
+    return [(tr("btn_fb_ok", lang), f"fb:ok:{aid}{tail}"), (tr("btn_fb_no", lang), f"fb:no:{aid}{tail}")]
+
+
+def parse_feedback(data: str | None) -> tuple[str, bool, str] | None:
+    """``fb:<ok|no>:<analysis id>[:g]`` -> (analysis id, agree, source); None for anything else."""
+    parts = (data or "").split(":")
+    if len(parts) not in (3, 4) or parts[0] != "fb" or parts[1] not in ("ok", "no") or not parts[2].isalnum():
+        return None
+    if len(parts) == 4 and parts[3] != "g":
+        return None
+    return parts[2], parts[1] == "ok", "bot-group" if len(parts) == 4 else "bot"
+
+
 class HourlyLimit:
     """At most ``n`` analyses an hour per group: a flood in a chat must not queue hours of work."""
 
@@ -361,6 +390,21 @@ class AnalyzeApi:
         url = r.json().get("url")
         base = os.environ.get(PUBLIC_URL_ENV) or self.cfg.public_url
         return f"{base.rstrip('/')}{url}" if base and url and url.startswith("/") else url
+
+    def feedback(self, analysis_id: str, agree: bool, reviewer: str, comment: str | None = None,
+                 source: str | None = None) -> bool:
+        """SD-108: the doctor's verdict on a conclusion, into the server's feedback log (TZ §13).
+        False: the analysis is no longer kept, or the server said no."""
+        body = {"analysis_id": analysis_id, "reviewer": reviewer, "overall_agreement": bool(agree), "findings": []}
+        if comment:
+            body["comment"] = comment
+        if source:
+            body["source"] = source
+        try:
+            r = self.http.post(f"/api/analysis/{analysis_id}/feedback", json=body, headers=self.headers)
+        except Exception:
+            return False
+        return r.status_code == 200
 
     def overlay(self, analysis_id: str) -> bytes | None:
         """The scanner's confirmation overlay of the photo (D163): the traces it read, drawn

@@ -74,6 +74,16 @@ _T = {
                     "Guruhlar (o'qishni yoqish yoki o'chirish uchun bosing):"),
     "admins": ("Администраторы бота (Telegram id): {ids}\nРазборы из групп получают: {group_ids}",
                "Bot administratorlari (Telegram id): {ids}\nGuruh tahlillarini oladi: {group_ids}"),
+    "btn_fb_ok": ("✅ Заключение верно", "✅ Xulosa to'g'ri"),
+    "btn_fb_no": ("❌ Неверно", "❌ Noto'g'ri"),
+    "fb_ok": ("Записано: заключение верно. Спасибо!", "Yozildi: xulosa to'g'ri. Rahmat!"),
+    "fb_no": (("Записано: заключение неверно. Что на самом деле? Напишите одним сообщением — диагноз "
+               "или что не так (без ФИО пациента). Можно не отвечать."),
+              ("Yozildi: xulosa noto'g'ri. Aslida nima? Bitta xabar bilan yozing — tashxis yoki nima "
+               "noto'g'ri (bemor F.I.Sh.siz). Javob bermasangiz ham bo'ladi.")),
+    "fb_comment": ("Записано, спасибо. Это попадёт в разбор ошибок.", "Yozildi, rahmat. Bu xatolar tahliliga kiradi."),
+    "fb_gone": ("Оценку записать не удалось: анализ уже не хранится на сервере.",
+                "Bahoni yozib bo'lmadi: tahlil serverda saqlanmayapti."),
     "group_head": ("📥 Из группы «{title}»", "📥 «{title}» guruhidan"),
     "expired": ("Этот ответ устарел — пришлите ЭКГ ещё раз.", "Bu javob eskirgan — EKGni qayta yuboring."),
 }

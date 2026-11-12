@@ -28,6 +28,8 @@ from ecgscan_bot.logic import (
     allowed,
     analyse,
     apply_choice,
+    clean_comment,
+    feedback_buttons,
     first_question,
     group_head,
     handle_file,
@@ -36,6 +38,7 @@ from ecgscan_bot.logic import (
     lang_of,
     message_link,
     parse_caption,
+    parse_feedback,
     parse_scale,
     parse_symptoms,
     patient_answer,
@@ -88,6 +91,7 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
     group_limit = HourlyLimit(cfg.group_max_per_hour)
     # The last records' files, in memory only, for re-running with another speed / gain.
     recent: dict[str, dict] = {}     # token -> {"files", "caption", "scale", "lang", "chat", "at"}
+    wrong: dict[int, dict] = {}      # SD-108: chat -> {"aid", "at"}: "wrong" was pressed, the next text says why
 
     def keep(rec: dict) -> str:
         now = asyncio.get_running_loop().time()
@@ -100,9 +104,14 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
         return token
 
     def actions(token: str, rec: dict, lang: str) -> InlineKeyboardMarkup:
-        """Under a reply: speed / gain (D180), then symptoms, a link for a colleague, the language (D208)."""
-        rows = [[InlineKeyboardButton(text=label, callback_data=f"re:{token}:{choice}") for label, choice in row]
-                for row in scale_buttons(rec["scale"], lang)]
+        """Under a reply: the doctor's verdict (SD-108), speed / gain (D180), then symptoms, a link for
+        a colleague, the language (D208)."""
+        rows = []
+        if rec.get("aid") and cfg.mode == "analyze":
+            rows.append([InlineKeyboardButton(text=label, callback_data=data)
+                         for label, data in feedback_buttons(rec["aid"], lang, bool(rec.get("group")))])
+        rows += [[InlineKeyboardButton(text=label, callback_data=f"re:{token}:{choice}") for label, choice in row]
+                 for row in scale_buttons(rec["scale"], lang)]
         rows.append([InlineKeyboardButton(text=tr("btn_symptoms", lang), callback_data=f"sy:{token}"),
                      InlineKeyboardButton(text=tr("btn_share", lang), callback_data=f"sh:{token}")])
         rows.append([InlineKeyboardButton(text=tr("btn_lang", lang), callback_data=f"lg:{token}")])
@@ -157,7 +166,7 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
         sym, ons = (symptoms, onset) if symptoms is not None else parse_symptoms(caption)
         rec = {"files": files, "caption": caption, "scale": scale, "lang": lang, "chat": chat_id,
                "aid": aid, "body": body, "symptoms": list(sym), "onset": ons, "note": note,
-               "patient_given": parse_caption(caption).given}
+               "patient_given": parse_caption(caption).given, "group": head is not None}
         token = keep(rec)
         await bot.send_message(chat_id, t("bot.recalc", lang) + "\n" + tr("actions", lang),
                                reply_markup=actions(token, rec, lang))
@@ -563,6 +572,31 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
         await query.message.answer(render(rec["body"], rec["lang"], rec["scale"], rec["patient_given"]),
                                    reply_markup=actions(token, rec, rec["lang"]))
 
+    @dp.callback_query(F.data.startswith("fb:"))
+    async def verdict_button(query: CallbackQuery) -> None:
+        """SD-108: the doctor says whether the conclusion is right; the answer goes to the server's
+        feedback log (no photo, no patient field: the analysis id, the verdict, who reviewed)."""
+        await query.answer()
+        user, msg = query.from_user, query.message
+        if msg is None or not allowed(cfg, user.id, msg.chat.type, store):
+            return
+        parsed = parse_feedback(query.data)
+        if parsed is None or cfg.mode != "analyze":
+            return
+        aid, agree, source = parsed
+        lang = user_lang(user)
+        done = await asyncio.to_thread(api.feedback, aid, agree, f"tg:{user.id}", None, source)
+        log.info("feedback on %s: %s (%s)", aid, "right" if agree else "wrong", "recorded" if done else "not recorded")
+        if not done:
+            await msg.answer(tr("fb_gone", lang))
+            return
+        if agree:
+            wrong.pop(msg.chat.id, None)
+            await msg.answer(tr("fb_ok", lang))
+        else:
+            wrong[msg.chat.id] = {"aid": aid, "source": source, "at": asyncio.get_running_loop().time()}
+            await msg.answer(tr("fb_no", lang))
+
     @dp.callback_query(F.data.startswith("q:"))
     async def question_button(query: CallbackQuery) -> None:
         await query.answer()
@@ -588,6 +622,15 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
             await message.answer(not_allowed(message))
             return
         p = live_pending(message.chat.id)
+        w = wrong.get(message.chat.id)
+        if p is None and w and asyncio.get_running_loop().time() - w["at"] <= RECALC_KEEP_S:
+            # SD-108: what the doctor wrote after "wrong" — the real diagnosis, in the feedback log.
+            wrong.pop(message.chat.id, None)
+            note = clean_comment(message.text)
+            done = note and await asyncio.to_thread(api.feedback, w["aid"], False, f"tg:{message.from_user.id}", note,
+                                                   w.get("source"))
+            await message.answer(tr("fb_comment" if done else "fb_gone", lang))
+            return
         if p is None:
             await message.answer(t("bot.welcome", lang))
             return
