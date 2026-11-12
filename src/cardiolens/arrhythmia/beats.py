@@ -313,6 +313,48 @@ def detect_pvc_beats(sig, rpeaks, fs: float) -> list[int]:
 
 
 
+
+# Ventricular couplets (D253): two consecutive beats shaped unlike the dominant beat, the first premature, the
+# pause after the second; the single-PVC rule cannot see the first one (no compensatory pause after it).
+# Not wired into the pipeline yet: on the held-out half it found 0.56 of couplet windows (criterion 0.60) —
+# see DECISIONS D253 and tools/couplet_bench.
+COUPLET_CORR_MAX = 0.85     # both beats unlike the dominant beat (mean over II, V1, V5); D253 even-half pick
+COUPLET_PRE_MAX = 1.00      # first beat: preceding RR <= this x reference RR
+COUPLET_POST_MIN = 0.90     # after the second beat: RR >= this x median RR
+
+
+def detect_ventricular_couplets(sig, rpeaks, fs: float, *, corr_max: float = COUPLET_CORR_MAX,
+                                pre_max: float = COUPLET_PRE_MAX, post_min: float = COUPLET_POST_MIN) -> list[int]:
+    """Index of the first beat of each couplet (a pair not inside a run of >= 3 unlike-shaped beats)."""
+    rp = np.asarray(rpeaks, dtype=int)
+    if rp.size < 6:
+        return []
+    leads = [n for n in _PVC_LEADS if n in sig.lead_names] or list(sig.lead_names[:3])
+    half = int(_PVC_HALF_S * fs)
+    n_samples = sig.signal.shape[1]
+    ok = [i for i, r in enumerate(rp) if r - half >= 0 and r + half < n_samples]
+    if len(ok) < 5:
+        return []
+    segs = {n: np.stack([sig.lead(n)[rp[i] - half:rp[i] + half].astype(float) for i in ok]) for n in leads}
+    rr = np.diff(rp).astype(float)
+    med = float(np.median(rr)) or 1.0
+    ref = float(np.percentile(rr, _RUN_TEMPLATE_RR_PCT)) or med
+    normal = [k for k, i in enumerate(ok) if i >= 1 and rr[i - 1] >= 0.92 * ref]
+    pick = normal if len(normal) >= 3 else list(range(len(ok)))
+    tmpl = {n: np.median(segs[n][pick], axis=0) for n in leads}
+    corr = np.ones(len(rp))
+    for k, i in enumerate(ok):
+        corr[i] = np.mean([np.corrcoef(segs[n][k], tmpl[n])[0, 1] for n in leads])
+    unlike = corr <= corr_max
+    out = []
+    for i in range(1, len(rp) - 2):
+        if not (unlike[i] and unlike[i + 1]) or unlike[i - 1] or unlike[i + 2]:
+            continue
+        if rr[i - 1] / ref <= pre_max and rr[i + 1] / med >= post_min:
+            out.append(i)
+    return out
+
+
 # Supraventricular (atrial / junctional) premature beats (D204; AHA/ACCF/HRS 2009 statement list,
 # ESC 2019 SVT): early, but shaped like the dominant beat — the impulse reaches the ventricles over
 # the normal pathway. Prematurity is judged against the strip's reference RR (upper quartile, as for
