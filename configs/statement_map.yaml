@@ -35,6 +35,7 @@ ventricular_tachycardia:    {aha: rhythm, snomed: ["164895002"], scp: [], code15
 ventricular_fibrillation:   {aha: rhythm, snomed: ["164896001", "111288001"], scp: [], code15: []}
 wide_complex_tachycardia:   {aha: rhythm, snomed: [], scp: [], code15: []}
 wide_qrs_tachycardia:       {aha: rhythm, snomed: [], scp: [], code15: []}   # D252
+ventricular_couplets:       {aha: rhythm, snomed: [], scp: [], code15: []}   # D254 (finding defined, not wired yet)
 sinus_pause:                {aha: rhythm, snomed: [], scp: [], code15: []}
 irregular_rhythm:           {aha: rhythm, snomed: [], scp: [], code15: []}
 first_degree_av_block:      {aha: av_conduction, snomed: ["270492004"], scp: [1AVB, LPR], code15: ["1dAVb"]}   # LPR = prolonged PR, the same statement (D150)
