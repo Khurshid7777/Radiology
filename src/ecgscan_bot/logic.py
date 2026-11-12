@@ -251,9 +251,9 @@ def report_text(summary: dict, days: int, lang: str) -> str:
         if d.get("n"):
             lines.append(tr("rep_device", lang, what=name(DEVICE_NAMES, key), n=d["n"], agree=d.get("agree", 0),
                             silent=d.get("shown_mismatch", 0)))
-    fb = summary.get("feedback") or {}
-    if fb.get("verdicts"):
-        lines.append(tr("rep_feedback", lang, n=fb["verdicts"], agree=fb.get("agree", 0),
+    fb = summary.get("feedback") or {}       # the server's block (CardioLens D260): n, agree, disagree, disagreed
+    if fb.get("n"):
+        lines.append(tr("rep_feedback", lang, n=fb["n"], agree=fb.get("agree", 0),
                         disagree=fb.get("disagree", 0)))
         for row in (fb.get("disagreed") or [])[:10]:
             if row.get("comment"):

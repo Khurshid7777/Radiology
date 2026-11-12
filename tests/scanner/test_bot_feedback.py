@@ -99,14 +99,24 @@ def test_the_verdict_lands_in_the_servers_feedback_log(tmp_path, monkeypatch):
     rows = [json.loads(x) for x in log_path.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 1 and rows[0]["analysis_id"] == aid
     assert rows[0]["overall_agreement"] is False and rows[0]["reviewer"] == "tg:111"
+    assert rows[0]["comment"] == "Нижний ИМ" and rows[0]["source"] == "bot-group"      # CardioLens D260
+    # ... and the weekly report reads it back from the server's summary.
+    from ecgscan_bot.logic import report_text
+
+    monkeypatch.setenv("CARDIOLENS_QUALITY_PATH", str(tmp_path / "quality.jsonl"))
+    api.analyze([("page.png", png.read_bytes())])
+    text = report_text(api.quality(7), 7, "ru")
+    assert "Оценки врачей: 1" in text and "неверно — 1" in text and f"{aid}: Нижний ИМ" in text
 
 
 SUMMARY = {"analyses": 40, "refused": {"low_resolution": 6, "no_ecg": 2},
            "routes": {"scanner": {"read": 20, "gated": 12}, "readers": {"read": 10, "gated": 10}, "file": {"read": 2, "gated": 0}},
            "gates": {"photo_unreliable": 22, "poor_quality_signal": 3},
            "device": {"hr_bpm": {"n": 9, "agree": 8, "gated": 4, "shown_mismatch": 1, "median_abs_err": 2}},
-           "feedback": {"verdicts": 5, "agree": 3, "disagree": 2,
-                        "disagreed": [{"analysis_id": "ab12", "comment": "Нижний ИМ"}, {"analysis_id": "cd34", "comment": None}]}}
+           "feedback": {"n": 5, "agree": 3, "disagree": 2, "unrated": 0,
+                        "by_source": {"bot-group": {"n": 5, "agree": 3, "disagree": 2, "unrated": 0}},
+                        "disagreed": [{"analysis_id": "ab12", "source": "bot-group", "comment": "Нижний ИМ"},
+                                      {"analysis_id": "cd34", "source": "bot", "comment": None}]}}
 
 
 def test_the_weekly_report_says_what_came_and_what_went_wrong():
