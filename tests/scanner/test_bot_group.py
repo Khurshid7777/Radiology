@@ -8,14 +8,14 @@ import pytest
 
 pytest.importorskip("aiogram")
 
-from aiogram import Bot  # noqa: E402
-from aiogram.client.session.base import BaseSession  # noqa: E402
-from aiogram.methods import GetFile, SendDocument, SendMessage, SendPhoto  # noqa: E402
-from aiogram.types import Chat, File, Message, Update  # noqa: E402
+from aiogram import Bot
+from aiogram.client.session.base import BaseSession
+from aiogram.methods import GetFile, SendDocument, SendMessage, SendPhoto
+from aiogram.types import Chat, File, Message, Update
 
-from ecgscan_bot.__main__ import build  # noqa: E402
-from ecgscan_bot.access import AccessStore  # noqa: E402
-from ecgscan_bot.logic import (  # noqa: E402
+from ecgscan_bot.__main__ import build
+from ecgscan_bot.access import AccessStore
+from ecgscan_bot.logic import (
     AnalyzeRefused,
     BotConfig,
     HourlyLimit,

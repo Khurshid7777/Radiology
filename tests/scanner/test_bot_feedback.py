@@ -7,12 +7,12 @@ import pytest
 
 pytest.importorskip("aiogram")
 
-from aiogram.methods import SendMessage  # noqa: E402
-from aiogram.types import Update  # noqa: E402
-from test_bot_group import ADMINS, GROUP, NOW, FakeApi, cfg, chats, photo_update, run, text_update  # noqa: E402
+from aiogram.methods import SendMessage
+from aiogram.types import Update
+from test_bot_group import ADMINS, GROUP, NOW, FakeApi, cfg, chats, photo_update, run, text_update
 
-from ecgscan_bot.access import AccessStore  # noqa: E402
-from ecgscan_bot.logic import clean_comment, feedback_buttons, parse_feedback  # noqa: E402
+from ecgscan_bot.access import AccessStore
+from ecgscan_bot.logic import clean_comment, feedback_buttons, parse_feedback
 
 
 class Api(FakeApi):

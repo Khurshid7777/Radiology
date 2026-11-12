@@ -54,6 +54,7 @@ def test_no_rhythm_strip_means_no_rhythm_judgement():
 def test_rhythm_strip_absent_has_texts_and_is_a_contract_code():
     import json
     from pathlib import Path
+
     from ecgscan.contract.models import WARNING_CODES
     assert "RHYTHM_STRIP_ABSENT" in WARNING_CODES
     root = Path(__file__).resolve().parents[2] / "configs/scanner/i18n"
