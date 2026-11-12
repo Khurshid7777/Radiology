@@ -153,6 +153,8 @@ validate:
   min_median_coverage: 0.5       # below -> rejected TRACE_BROKEN
   min_page_extent: 0.8           # SD-067: ...unless the ink spans less than this of the layout width -> PAGE_INCOMPLETE (a piece of a page)
   lead_min_coverage: 0.8         # any lead with less coverage -> LEAD_INCOMPLETE (needs confirmation)
+  rhythm_min_s: 5.0              # SD-106: no lead on the page this long (no rhythm strip, 2.5-s or 4-s columns) -> RHYTHM_STRIP_ABSENT, never ok:
+                                 # atlas 3x4 pages gave atrial fibrillation on sinus rhythm from 2-4 beats a lead; null = off
   limb_warn: 0.7                 # PROVISIONAL: limb-lead consistency below -> LIMB_LEADS_INCONSISTENT (clean pages 0.83-0.86, I<->II swap 0.61)
   beat_check: true               # CardioLens beats vs page columns (D130) disagree -> BEATS_INCONSISTENT (needs confirmation)
   qrs_hump_scale: 0.667          # QRS also measured with the R' hump threshold x this (SD-057); null = off

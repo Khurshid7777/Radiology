@@ -7,7 +7,8 @@ import numpy as np
 
 from ecgscan.geometry.grid import scale_matches_lines
 from ecgscan.layout.detect import drop_crowded_rows
-from ecgscan.pipeline import pulses_at_row_edges
+from ecgscan.layout.registry import get_layout
+from ecgscan.pipeline import pulses_at_row_edges, rhythm_strip_absent
 
 
 def _pulse(x0, x1):
@@ -39,3 +40,22 @@ def test_crowded_rows_lose_the_weaker_and_even_rows_stay():
     assert drop_crowded_rows(ink, [370, 890, 1300, 1420], ppm, 0.3) == [370, 890, 1420]
     even = [300, 620, 940, 1260]
     assert drop_crowded_rows(ink, even, ppm, 0.3) == even
+
+
+def test_no_rhythm_strip_means_no_rhythm_judgement():
+    # SD-106: a 3x4 page with no strip has 2.5 s a lead (atlas: AF read on sinus rhythm).
+    assert rhythm_strip_absent(get_layout("3x4"), 5.0) is True
+    assert rhythm_strip_absent(get_layout("3x4 strip"), 5.0) is True
+    for name in ("3x4+rhythm", "3x4+3rhythm", "6x2", "12x1", "single"):
+        assert rhythm_strip_absent(get_layout(name), 5.0) is False, name
+    assert rhythm_strip_absent(get_layout("3x4"), None) is False
+
+
+def test_rhythm_strip_absent_has_texts_and_is_a_contract_code():
+    import json
+    from pathlib import Path
+    from ecgscan.contract.models import WARNING_CODES
+    assert "RHYTHM_STRIP_ABSENT" in WARNING_CODES
+    root = Path(__file__).resolve().parents[2] / "configs/scanner/i18n"
+    for lang in ("ru", "uz"):
+        assert json.loads((root / f"{lang}.json").read_text())["warning.RHYTHM_STRIP_ABSENT"]

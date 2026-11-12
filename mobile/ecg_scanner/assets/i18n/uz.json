@@ -191,5 +191,6 @@
   "report.ms": "{name} {v} ms",
   "report.axis": "o‘q {v}°",
   "warning.GRID_IN_TRACE": "Suratdagi to‘r chiziqlari egri chiziq kabi to‘q (oq-qora skan): o‘qishdan oldin olib tashlandi, ular bilan egri chiziq bo‘laklari ham yo‘qolgan bo‘lishi mumkin — ustma-ustlikni tekshiring.",
-  "warning.SEGMENTER_FALLBACK": "Surat foto uchun zaxira model bilan o‘qildi: asosiy model unda EKG qatorlarini topmadi. Aniqlik skandagidan past — egri chiziq ustma-ustligini tekshiring."
+  "warning.SEGMENTER_FALLBACK": "Surat foto uchun zaxira model bilan o‘qildi: asosiy model unda EKG qatorlarini topmadi. Aniqlik skandagidan past — egri chiziq ustma-ustligini tekshiring.",
+  "warning.RHYTHM_STRIP_ABSENT": "Varaqda uzun ritm yozuvi yo‘q: har bir tarmoq 2–4 kompleks. Bunday varaq bo‘yicha ritm (fibrillyatsiya, ekstrasistolalar, pauzalar) baholanmaydi — ritm lentasi bo‘yicha tekshiring."
 }

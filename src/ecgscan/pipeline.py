@@ -368,6 +368,14 @@ def header_ocr_fields(reading, device_models: list[str]) -> HeaderOcr:
 
 
 
+def rhythm_strip_absent(spec, min_s: float | None) -> bool:
+    """SD-106: the page has no lead as long as ``min_s`` (a rhythm strip spans the record; a
+    panel only its column). None or 0: the check is off."""
+    if not min_s:
+        return False
+    return (spec.record_s if spec.rhythm else spec.panel_s) < min_s
+
+
 def pulses_at_row_edges(ink: np.ndarray, pulses: list, edge_frac: float) -> list:
     """R6, SD-106: a calibration pulse stands at a row's start or end, never mid-row. A "pulse"
     farther than ``edge_frac`` of its own row's ink width from both ends is a complex with a flat
@@ -813,6 +821,10 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         warnings.append("LEAD_OVERLAP")
     if min(cover) < val.get("lead_min_coverage", 0.8) and not hints.piece:
         warnings.append("LEAD_INCOMPLETE")          # a lead is largely missing (glare, stain): the doctor looks
+    if rhythm_strip_absent(spec, val.get("rhythm_min_s")) and not hints.piece:
+        # SD-106: no lead long enough to judge the rhythm (a 3x4 page without a rhythm strip: 2-4
+        # beats a lead). Atlas pages so read gave atrial fibrillation on sinus rhythm: the doctor looks.
+        warnings.append("RHYTHM_STRIP_ABSENT")
     lead_q = float(np.median([r.quality for r in readings]))
     cons_f = 1.0 if cons.score is None else float(np.clip(0.5 + cons.score, 0.0, 1.0))
     overall = lead_q * cons_f * raw.confidence ** 0.5 * (decision.calibration.confidence if decision.established else 0.5)
@@ -824,6 +836,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
                and "FADED_PAPER" not in warnings
                # SD-099: grid lines taken out of the mask may have taken trace pieces with them.
                and "GRID_IN_TRACE" not in warnings
+               # SD-106: no lead long enough for the rhythm: never "ok" by itself.
+               and "RHYTHM_STRIP_ABSENT" not in warnings
                # D170: a coarse read is never "ok" by itself: the doctor confirms.
                and "LOW_RESOLUTION_COARSE" not in warnings)
     status = "ok" if trusted else "needs_confirmation"

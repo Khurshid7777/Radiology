@@ -963,7 +963,8 @@
         "PAGES_STITCHED",
         "SEAM_UNCERTAIN",
         "GRID_IN_TRACE",
-        "SEGMENTER_FALLBACK"
+        "SEGMENTER_FALLBACK",
+        "RHYTHM_STRIP_ABSENT"
       ]
     },
     "capture": {
