@@ -72,6 +72,8 @@ _T = {
                     "Guruhlar yo'q. Botni guruhga qo'shing — bu yerga tugmali xabar keladi."),
     "groups_list": ("Группы (нажмите, чтобы включить или выключить чтение):",
                     "Guruhlar (o'qishni yoqish yoki o'chirish uchun bosing):"),
+    "admins": ("Администраторы бота (Telegram id): {ids}\nРазборы из групп получают: {group_ids}",
+               "Bot administratorlari (Telegram id): {ids}\nGuruh tahlillarini oladi: {group_ids}"),
     "group_head": ("📥 Из группы «{title}»", "📥 «{title}» guruhidan"),
     "expired": ("Этот ответ устарел — пришлите ЭКГ ещё раз.", "Bu javob eskirgan — EKGni qayta yuboring."),
 }
