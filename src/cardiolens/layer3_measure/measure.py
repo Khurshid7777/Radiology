@@ -105,6 +105,20 @@ def _lacks_organised_p(p_wave_ratio: float | None, n_beats: int) -> bool:
     return (n_p + 1) / (n_beats + 1) < AV_DISSOCIATION_MIN_P_RATIO
 
 
+# D261: scanner warnings that mark a read the D236 retry overshoots on (noisy traces).
+_RETRY_BLOCKING_WARNINGS = ("SEGMENTER_FALLBACK", "GRID_IN_TRACE", "LOW_RESOLUTION_COARSE")
+
+
+def _clean_scanner_read(sig: SignalRepresentation) -> bool:
+    """A page read by the ECG scanner (adapter note ``ecgscan ...``) with none of the warnings
+    above (the adapter's ``warnings: A, B`` note)."""
+    notes = list(getattr(sig.provenance, "notes", None) or [])
+    if not notes or not notes[0].startswith("ecgscan"):
+        return False
+    warned = {w.strip() for n in notes if n.startswith("warnings:") for w in n[len("warnings:"):].split(",")}
+    return not warned & set(_RETRY_BLOCKING_WARNINGS)
+
+
 def _keep_steep_beats(sig: SignalRepresentation, rpeaks: np.ndarray, fs: float) -> np.ndarray:
     """Beats whose steepest slope over the leads with a signal (+-40 ms) reaches a QRS's."""
     windows = getattr(sig.provenance, "lead_windows", None)
@@ -821,6 +835,11 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
         # retried with a wider search -- for the QRS width only (D238): the PR / QT marks keep the bounds
         # below, since a retried onset moved them on digitised pages (scanner standard_m3: 3 silent errors).
         digitised = bool(getattr(sig.provenance, "digitized", False)) or sig.source in ("image", "telegram-photo")
+        # D261: a clean read of the ECG scanner keeps the D236 retry (a complete BBB on a clean scan read
+        # 72 for 203 ms without it); the CardioLens readers and the scanner's fallback / grid / coarse
+        # reads keep the pre-D236 width (D256).
+        if digitised and _clean_scanner_read(sig):
+            digitised = False
         w_on, w_off = qrs_on.copy(), qrs_off.copy()
         lost = ~(np.isfinite(qrs_on) & np.isfinite(qrs_off))
         # D256: not on digitised pages — on noisy photo traces the wider search overshoots (ecgdig: 90 -> 154 ms).
