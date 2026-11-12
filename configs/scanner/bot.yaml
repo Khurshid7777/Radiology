@@ -17,3 +17,10 @@ send_overlay: false                # send the trace overlay preview back (it sho
 group:                             # SD-107: ECG photos posted in a group -> the result to administrators in private
   notify_refusals: true            # a photo the analysis refused is reported too (one short message); false: only logged
   max_per_hour: 60                 # analyses per group an hour; more are skipped (logged)
+
+report:                            # SD-109: the real-use summary (counts only) to administrators in private; /report on demand
+  weekly: true
+  weekday: 0                       # 0 = Monday
+  hour: 9
+  tz: Asia/Tashkent
+  days: 7                          # the period a report covers

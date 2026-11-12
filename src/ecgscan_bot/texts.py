@@ -84,6 +84,19 @@ _T = {
     "fb_comment": ("Записано, спасибо. Это попадёт в разбор ошибок.", "Yozildi, rahmat. Bu xatolar tahliliga kiradi."),
     "fb_gone": ("Оценку записать не удалось: анализ уже не хранится на сервере.",
                 "Bahoni yozib bo'lmadi: tahlil serverda saqlanmayapti."),
+    "rep_head": ("📊 CardioVision за {days} дн.: анализов — {n}", "📊 CardioVision {days} kun: tahlillar — {n}"),
+    "rep_empty": ("За этот период ЭКГ не присылали.", "Bu davrda EKG yuborilmagan."),
+    "rep_counts": ("Прочитано без пометки — {clean}, под пометкой «проверьте» — {gated}, не принято — {refused}.",
+                   "Belgisiz o'qildi — {clean}, «tekshiring» belgisi bilan — {gated}, qabul qilinmadi — {refused}."),
+    "rep_refused": ("Причины отказа:", "Rad etish sabablari:"),
+    "rep_gates": ("Пометки:", "Belgilar:"),
+    "rep_device": ("{what}: сверено с распечаткой аппарата {n}, совпало {agree}, показано с расхождением {silent}.",
+                   "{what}: apparat chop etgani bilan solishtirildi {n}, mos {agree}, farq bilan ko'rsatildi {silent}."),
+    "rep_feedback": ("Оценки врачей: {n}; верно — {agree}, неверно — {disagree}.",
+                     "Shifokor baholari: {n}; to'g'ri — {agree}, noto'g'ri — {disagree}."),
+    "rep_no_feedback": ("Оценок врачей за период нет — нажимайте «верно / неверно» под разбором.",
+                        "Bu davrda shifokor baholari yo'q — tahlil ostida «to'g'ri / noto'g'ri»ni bosing."),
+    "rep_fail": ("Сводку получить не удалось — сервер недоступен.", "Hisobotni olib bo'lmadi — server mavjud emas."),
     "group_head": ("📥 Из группы «{title}»", "📥 «{title}» guruhidan"),
     "expired": ("Этот ответ устарел — пришлите ЭКГ ещё раз.", "Bu javob eskirgan — EKGni qayta yuboring."),
 }
@@ -92,6 +105,18 @@ SYMPTOM_BTN = {"chest_pain": ("Боль в груди", "Ko'krakda og'riq"), "dy
                "syncope": ("Обморок", "Hushdan ketish"), "palpitations": ("Сердцебиение", "Yurak urishi")}
 ONSET_BTN = {"lt12h": ("< 12 ч", "< 12 soat"), "12to48h": ("12–48 ч", "12–48 soat"),
              "gt48h": ("> 48 ч", "> 48 soat"), "unknown": ("не знаю", "noma'lum")}
+
+
+# SD-109: the report's names for the server's codes (RU, UZ); an unknown code is shown as it is.
+REFUSAL_NAMES = {"low_resolution": ("мелкий снимок", "kichik surat"), "portrait": ("снимок на боку", "surat yonboshlagan"),
+                 "strip_piece": ("кусок ленты", "lenta bo'lagi"), "too_large": ("слишком большой файл", "fayl juda katta"),
+                 "no_ecg": ("ЭКГ не найдена", "EKG topilmadi"), "format": ("формат файла", "fayl formati"),
+                 "other": ("другое", "boshqa")}
+GATE_NAMES = {"photo_unreliable": ("чтение ненадёжно", "o'qish ishonchsiz"), "photo_coarse": ("грубый снимок", "qo'pol surat"),
+              "no_ecg_signal": ("нет сигнала", "signal yo'q"), "amplitude_implausible": ("неправдоподобная амплитуда", "amplituda shubhali"),
+              "poor_quality_signal": ("плохое качество", "sifat past"),
+              "screen_photo_limited": ("фото экрана", "ekran surati")}
+DEVICE_NAMES = {"hr_bpm": ("ЧСС", "YUCH"), "pr_ms": ("PR", "PR"), "qrs_ms": ("QRS", "QRS"), "qt_ms": ("QT", "QT")}
 
 
 def tr(key: str, lang: str, **kw) -> str:

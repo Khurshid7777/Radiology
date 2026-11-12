@@ -99,3 +99,53 @@ def test_the_verdict_lands_in_the_servers_feedback_log(tmp_path, monkeypatch):
     rows = [json.loads(x) for x in log_path.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 1 and rows[0]["analysis_id"] == aid
     assert rows[0]["overall_agreement"] is False and rows[0]["reviewer"] == "tg:111"
+
+
+SUMMARY = {"analyses": 40, "refused": {"low_resolution": 6, "no_ecg": 2},
+           "routes": {"scanner": {"read": 20, "gated": 12}, "readers": {"read": 10, "gated": 10}, "file": {"read": 2, "gated": 0}},
+           "gates": {"photo_unreliable": 22, "poor_quality_signal": 3},
+           "device": {"hr_bpm": {"n": 9, "agree": 8, "gated": 4, "shown_mismatch": 1, "median_abs_err": 2}},
+           "feedback": {"verdicts": 5, "agree": 3, "disagree": 2,
+                        "disagreed": [{"analysis_id": "ab12", "comment": "Нижний ИМ"}, {"analysis_id": "cd34", "comment": None}]}}
+
+
+def test_the_weekly_report_says_what_came_and_what_went_wrong():
+    from ecgscan_bot.logic import report_text
+
+    ru = report_text(SUMMARY, 7, "ru")
+    assert "анализов — 40" in ru and "без пометки — 10" in ru and "«проверьте» — 22" in ru and "не принято — 8" in ru
+    assert "мелкий снимок — 6" in ru and "чтение ненадёжно — 22" in ru
+    assert "ЧСС: сверено с распечаткой аппарата 9, совпало 8, показано с расхождением 1" in ru
+    assert "верно — 3, неверно — 2" in ru and "ab12: Нижний ИМ" in ru and "cd34" not in ru
+    assert "tahlillar — 40" in report_text(SUMMARY, 7, "uz")
+    empty = report_text({"analyses": 0}, 7, "ru")
+    assert "не присылали" in empty
+    no_fb = report_text({**SUMMARY, "feedback": None}, 7, "ru")          # the server before the feedback block
+    assert "Оценок врачей за период нет" in no_fb
+
+
+def test_the_report_is_for_administrators_in_private(tmp_path):
+    class WithSummary(Api):
+        def quality(self, days=7):
+            self.days = days
+            return SUMMARY
+
+    api, store = WithSummary(), AccessStore(tmp_path / "a.json")
+    sent = run(cfg(), api, store, text_update(111, "private", 111, "/report 30"))
+    assert api.days == 30 and "за 30 дн." in sent[-1].text
+    sent = run(cfg(), api, store, text_update(999, "private", 999, "/report"))
+    assert "анализов" not in sent[-1].text
+    assert not chats(run(cfg(), api, store, text_update(GROUP, "supergroup", 111, "/report")))   # silent in a group
+
+
+def test_the_weekly_time():
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+
+    from ecgscan_bot.logic import next_weekly
+
+    tz = ZoneInfo("Asia/Tashkent")
+    thu = dt.datetime(2026, 11, 12, 15, 0, tzinfo=tz)
+    assert next_weekly(thu, 0, 9) == dt.datetime(2026, 11, 16, 9, 0, tzinfo=tz)
+    mon_early, mon_late = dt.datetime(2026, 11, 16, 8, 0, tzinfo=tz), dt.datetime(2026, 11, 16, 9, 0, tzinfo=tz)
+    assert next_weekly(mon_early, 0, 9) == mon_late and next_weekly(mon_late, 0, 9) == mon_late + dt.timedelta(days=7)

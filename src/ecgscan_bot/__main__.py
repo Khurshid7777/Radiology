@@ -37,12 +37,14 @@ from ecgscan_bot.logic import (
     is_admin,
     lang_of,
     message_link,
+    next_weekly,
     parse_caption,
     parse_feedback,
     parse_scale,
     parse_symptoms,
     patient_answer,
     render,
+    report_text,
     scale_buttons,
     symptom_buttons,
     toggle_symptom,
@@ -384,6 +386,44 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
             return
         await message.answer(tr("admins", lang, ids=", ".join(str(i) for i in sorted(cfg.allowed)),
                                 group_ids=", ".join(str(i) for i in sorted(cfg.group_recipients))))
+
+    async def send_report(chat_id: int, lang: str, days: int) -> None:
+        summary = await asyncio.to_thread(api.quality, days) if cfg.mode == "analyze" else None
+        await bot.send_message(chat_id, report_text(summary, days, lang) if summary is not None
+                               else tr("rep_fail", lang))
+
+    @dp.message(Command("report"))
+    async def report(message: Message, command: CommandObject) -> None:
+        user = message.from_user
+        lang = user_lang(user) if user else "ru"
+        if not (user and is_admin(cfg, user.id) and message.chat.type == "private"):
+            await message.answer(tr("admin_only", lang))
+            return
+        arg = (command.args or "").strip()
+        days = min(365, max(1, int(arg))) if arg.isdigit() else cfg.report_days
+        await send_report(message.chat.id, lang, days)
+
+    async def weekly_reports() -> None:
+        """SD-109: once a week the summary goes to the administrators by itself."""
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        try:
+            tz = ZoneInfo(cfg.report_tz)
+        except Exception:        # an image without the time-zone database: Tashkent is UTC+5 all year
+            tz = dt.timezone(dt.timedelta(hours=5))
+        while True:
+            now = dt.datetime.now(tz)
+            await asyncio.sleep((next_weekly(now, cfg.report_weekday, cfg.report_hour) - now).total_seconds())
+            log.info("weekly report")
+            for uid in sorted(cfg.allowed):
+                with contextlib.suppress(Exception):
+                    await send_report(uid, store.lang(uid) or "ru", cfg.report_days)
+
+    @dp.startup()
+    async def on_startup() -> None:
+        if cfg.report_weekly and cfg.mode == "analyze":
+            dp["weekly_reports"] = asyncio.create_task(weekly_reports())
 
     @dp.message(CommandStart())
     async def start(message: Message, command: CommandObject) -> None:

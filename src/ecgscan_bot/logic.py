@@ -54,11 +54,17 @@ class BotConfig:
     group_recipients: set[int] = field(default_factory=set)
     group_notify_refusals: bool = True
     group_max_per_hour: int = 60
+    report_weekly: bool = True
+    report_weekday: int = 0
+    report_hour: int = 9
+    report_tz: str = "Asia/Tashkent"
+    report_days: int = 7
 
     @classmethod
     def load(cls) -> BotConfig:
         c = load_yaml("bot")
         g = c.get("group") or {}
+        rep = c.get("report") or {}
         allowed = _ids(os.environ.get(ALLOWED_ENV, ""))
         return cls(api_url=os.environ.get(API_URL_ENV, c["api_url"]).rstrip("/"), max_mb=float(c["max_mb"]),
                    poll_interval_s=float(c["poll_interval_s"]), poll_timeout_s=float(c["poll_timeout_s"]),
@@ -69,7 +75,10 @@ class BotConfig:
                    # Results of a group go to administrators only: an id outside the whitelist is dropped.
                    group_recipients=(_ids(os.environ.get(GROUP_RECIPIENTS_ENV, "")) & allowed) or allowed,
                    group_notify_refusals=bool(g.get("notify_refusals", True)),
-                   group_max_per_hour=int(g.get("max_per_hour", 60)))
+                   group_max_per_hour=int(g.get("max_per_hour", 60)),
+                   report_weekly=bool(rep.get("weekly", True)), report_weekday=int(rep.get("weekday", 0)),
+                   report_hour=int(rep.get("hour", 9)), report_tz=str(rep.get("tz", "Asia/Tashkent")),
+                   report_days=int(rep.get("days", 7)))
 
 
 # The photo's caption names the patient: "54 м", "ж 7", "erkak 63" (D161).
@@ -208,6 +217,58 @@ def parse_feedback(data: str | None) -> tuple[str, bool, str] | None:
     if len(parts) == 4 and parts[3] != "g":
         return None
     return parts[2], parts[1] == "ok", "bot-group" if len(parts) == 4 else "bot"
+
+
+def report_text(summary: dict, days: int, lang: str) -> str:
+    """SD-109: the weekly report an administrator reads in the bot — how many ECGs came, how many were
+    read, gated or refused and why, where the recorder's printed values disagree with ours, and what
+    the doctors said. Counts only."""
+    from ecgscan_bot.texts import DEVICE_NAMES, GATE_NAMES, REFUSAL_NAMES, tr
+
+    i = 1 if lang == "uz" else 0
+
+    def name(table: dict, key: str) -> str:
+        return table[key][i] if key in table else key
+
+    total = int(summary.get("analyses") or 0)
+    lines = [tr("rep_head", lang, days=days, n=total)]
+    if not total:
+        return lines[0] + "\n" + tr("rep_empty", lang)
+    routes = summary.get("routes") or {}
+    read = sum(int(r.get("read", 0)) for r in routes.values())
+    gated = sum(int(r.get("gated", 0)) for r in routes.values())
+    refused = summary.get("refused") or {}
+    n_ref = sum(int(v) for v in refused.values())
+    lines.append(tr("rep_counts", lang, clean=read - gated, gated=gated, refused=n_ref))
+    if refused:
+        lines.append(tr("rep_refused", lang) + " " + ", ".join(
+            f"{name(REFUSAL_NAMES, k)} — {v}" for k, v in sorted(refused.items(), key=lambda kv: -kv[1])))
+    gates = summary.get("gates") or {}
+    if gates:
+        lines.append(tr("rep_gates", lang) + " " + ", ".join(
+            f"{name(GATE_NAMES, k)} — {v}" for k, v in sorted(gates.items(), key=lambda kv: -kv[1])))
+    for key, d in (summary.get("device") or {}).items():
+        if d.get("n"):
+            lines.append(tr("rep_device", lang, what=name(DEVICE_NAMES, key), n=d["n"], agree=d.get("agree", 0),
+                            silent=d.get("shown_mismatch", 0)))
+    fb = summary.get("feedback") or {}
+    if fb.get("verdicts"):
+        lines.append(tr("rep_feedback", lang, n=fb["verdicts"], agree=fb.get("agree", 0),
+                        disagree=fb.get("disagree", 0)))
+        for row in (fb.get("disagreed") or [])[:10]:
+            if row.get("comment"):
+                lines.append(f"  • {row.get('analysis_id', '?')}: {row['comment']}")
+    else:
+        lines.append(tr("rep_no_feedback", lang))
+    return "\n".join(lines)
+
+
+def next_weekly(now, weekday: int, hour: int):
+    """The next ``weekday`` (0 = Monday) at ``hour``:00 strictly after ``now`` (an aware datetime)."""
+    import datetime as dt
+
+    at = now.replace(hour=hour, minute=0, second=0, microsecond=0) + dt.timedelta(days=(weekday - now.weekday()) % 7)
+    return at if at > now else at + dt.timedelta(days=7)
 
 
 class HourlyLimit:
@@ -405,6 +466,14 @@ class AnalyzeApi:
         except Exception:
             return False
         return r.status_code == 200
+
+    def quality(self, days: int = 7) -> dict | None:
+        """SD-109: the server's real-use summary for the last ``days`` (counts only, no patient data)."""
+        try:
+            r = self.http.get("/api/quality/summary", params={"days": int(days)}, headers=self.headers)
+        except Exception:
+            return None
+        return r.json() if r.status_code == 200 else None
 
     def overlay(self, analysis_id: str) -> bytes | None:
         """The scanner's confirmation overlay of the photo (D163): the traces it read, drawn
