@@ -168,6 +168,19 @@ def detect_findings(
                     evidence=_ev(heart_rate_bpm=hr, svt_rate_min=svt_min,
                                  qrs_ms=qrs, regular="yes"), confidence=0.7,
                 ))
+            elif (not is_pediatric and qrs is not None and qrs >= block and not _conducted_p(m, norms)
+                    and not _p_in_diastole(sig, m)):
+                # D252 (owner, 12.11): a wide-QRS tachycardia below the critical rate with no sign of a
+                # sinus P (no conducted P, no P in most diastoles) is "urgent — show a physician, rule out
+                # VT", not sinus tachycardia; no red alert.
+                fs.findings.append(Finding(
+                    code="wide_qrs_tachycardia", group="rhythm",
+                    label_ru=f"Тахикардия с широкими QRS (ЧСС {hr}/мин, QRS {qrs} мс) — срочно покажите врачу: "
+                             f"исключите желудочковую тахикардию",
+                    label_uz=f"Keng QRS li taxikardiya (YUT {hr}/daq, QRS {qrs} ms) — zudlik bilan shifokorga "
+                             f"ko'rsating: qorincha taxikardiyasini istisno qiling",
+                    evidence=_ev(heart_rate_bpm=hr, qrs_ms=qrs, qrs_min=block, urgent="yes"), confidence=0.6,
+                ))
             else:
                 fs.findings.append(Finding(
                     code="sinus_tachycardia", group="rhythm",
@@ -482,6 +495,26 @@ def _hr_harmonic(m, rh: dict) -> bool:
 
 
 _SINUS_CODES = {"sinus_rhythm", "sinus_bradycardia", "sinus_tachycardia"}
+# D252: an identified non-sinus rhythm (AF, flutter, complete block) explains a wide-QRS tachycardia too.
+_REPLACED_BY_NON_SINUS = _SINUS_CODES | {"wide_qrs_tachycardia"}
+P_DIASTOLE_COVER_MIN = 0.80   # D252: P found in >= this share of diastoles (D249 v4 detector) = sinus mechanism
+
+
+def _conducted_p(m: Measurements, norms) -> bool:
+    """P before most beats with a stable PR (the AF rule's conducted-P gate, D31)."""
+    rh = norms.get("rhythm", {})
+    return ((m.p_onset_ratio or 0.0) >= 0.5 and m.pr_std_ms is not None
+            and m.pr_std_ms < rh.get("af_pr_std_max_ms", 40))
+
+
+def _p_in_diastole(sig: SignalRepresentation, m: Measurements) -> bool:
+    """A P wave in most diastoles (D249 v4 / D252): at a fast rate P often merges with T and the
+    conducted-P gate misses a sinus mechanism."""
+    from cardiolens.layer3_measure.p_chain import P_CHAIN_LEADS, p_chain
+
+    pc = p_chain({ln: sig.lead(ln) for ln in P_CHAIN_LEADS if ln in sig.lead_names}, m.r_peaks_samples or [],
+                 sig.sampling_rate_hz, m.intervals.qrs_ms, m.intervals.qt_ms)
+    return pc is not None and pc["cover"] >= P_DIASTOLE_COVER_MIN
 _NON_SINUS_CODES = {"atrial_fibrillation", "atrial_flutter", "complete_av_block"}
 
 
@@ -489,7 +522,7 @@ def _replace_sinus_codes_if_non_sinus(fs: FindingSet, hr, hr_range) -> None:
     codes = fs.codes()
     if not (codes & _NON_SINUS_CODES):
         return
-    fs.findings = [f for f in fs.findings if f.code not in _SINUS_CODES]
+    fs.findings = [f for f in fs.findings if f.code not in _REPLACED_BY_NON_SINUS]
     if hr is None or hr_range is None:
         return
     lo, hi = hr_range

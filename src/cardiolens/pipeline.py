@@ -821,7 +821,8 @@ _PACED_EXCLUDES = ("lbbb", "rbbb", "wide_qrs_nonspecific", "lvh", "lvh_probable"
                    "atrial_fibrillation", "left_anterior_fascicular_block",
                    "left_posterior_fascicular_block", "incomplete_rbbb", "supraventricular_ectopy",
                    "atrial_bigeminy", "atrial_trigeminy", "sinus_arrhythmia", "possible_atrial_fibrillation",
-                   "wpw_preexcitation")   # D234: a paced QRS slurs every lead like a delta wave
+                   "wpw_preexcitation",   # D234: a paced QRS slurs every lead like a delta wave
+                   "wide_qrs_tachycardia")   # D252: a paced QRS is wide by design
 
 
 @functools.lru_cache(maxsize=2)
