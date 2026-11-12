@@ -1,4 +1,11 @@
-import json,glob,numpy as np,re,sys,itertools
+import glob
+import itertools
+import json
+import re
+import sys
+
+import numpy as np
+
 SP=sys.argv[1]; par=int(sys.argv[2]) if len(sys.argv)>2 else None
 R=[json.load(open(p)) for p in glob.glob(SP+"/pc/*.json")]
 R=[r for r in R if "error" not in r]

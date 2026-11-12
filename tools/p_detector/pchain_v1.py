@@ -1,6 +1,7 @@
 """D249 prototype: the full P chain = conducted P (from the beat template) + non-conducted P (residual peaks)."""
 import numpy as np
 from scipy.signal import butter, filtfilt, find_peaks
+
 from cardiolens.layer3_measure.atrial import template_subtract
 
 LEADS = ("II", "III", "aVF", "V1")

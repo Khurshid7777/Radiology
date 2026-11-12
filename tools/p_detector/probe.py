@@ -1,9 +1,12 @@
 import sys, json, warnings; warnings.filterwarnings("ignore"); sys.path.insert(0, "src"); sys.path.insert(0, sys.argv[4])
 from pathlib import Path
+
 import numpy as np
+from pchain import p_chain
+
 from cardiolens.layer1_ingestion import load_wfdb
 from cardiolens.pipeline import run_pipeline
-from pchain import p_chain
+
 out = Path(sys.argv[1]); items = json.load(open(sys.argv[2])); k, n = map(int, sys.argv[3].split("/"))
 for it in items[k::n]:
     dest = out / (it["key"] + ".json")
