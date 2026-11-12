@@ -41,7 +41,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from starlette.background import BackgroundTask
 
 from cardiolens.api import service
-from cardiolens.api.guard import RequestGuard
+from cardiolens.api.guard import AGENT_KEY_PREFIX, RequestGuard
 from cardiolens.calibration import TemperatureScaler, expected_calibration_error
 from cardiolens.config import load_app_config
 from cardiolens.feedback import (
@@ -547,7 +547,14 @@ def quality_summary(days: int = 30, who: str = Depends(actor)) -> dict:
     rows = quality.read(_quality_path())
     since = int(_time.time()) - max(1, days) * 86400
     out = quality.summarize(rows, since_ts=since)
-    out["feedback"] = summarize_feedback(_feedback_store().all(), since_ts=since)   # D260
+    fb = summarize_feedback(_feedback_store().all(), since_ts=since)   # D260
+    if who.startswith(AGENT_KEY_PREFIX):
+        # D260: a doctor's comment is free text and may name the patient; agents (LLM sessions)
+        # get the counts and analysis ids only.
+        for d in fb["disagreed"]:
+            d["comment"] = None
+        fb["comments_withheld"] = True
+    out["feedback"] = fb
     return out
 
 

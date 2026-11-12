@@ -51,3 +51,26 @@ def test_api_keeps_comment_and_reports_it(tmp_path, monkeypatch):
     fb = client.get("/api/quality/summary?days=7").json()["feedback"]
     assert fb["disagree"] == 1 and fb["disagreed"][0]["comment"] == "на самом деле перикардит"
     assert "tg:5" not in json.dumps(fb)
+
+
+def test_agent_key_gets_no_comments(tmp_path, monkeypatch):
+    monkeypatch.setenv("ECGSCAN_API_KEYS", "tester:test-key,agents:agent-key")
+    monkeypatch.setenv("CARDIOLENS_FEEDBACK_PATH", str(tmp_path / "fb.jsonl"))
+    FeedbackStore.at(tmp_path / "fb.jsonl").append(
+        Feedback(analysis_id="x1", overall_agreement=False, comment="Иванов, ФП", source="bot"))
+    agent = TestClient(app, headers={"X-API-Key": "agent-key"})
+    fb = agent.get("/api/quality/summary?days=7").json()["feedback"]
+    assert fb["disagree"] == 1 and fb["comments_withheld"] is True
+    assert fb["disagreed"] == [{"analysis_id": "x1", "source": "bot", "comment": None}]
+    assert "Иванов" not in json.dumps(fb)
+
+
+def test_agent_key_is_read_only(monkeypatch):
+    monkeypatch.setenv("ECGSCAN_API_KEYS", "tester:test-key,agents:agent-key")
+    agent = TestClient(app, headers={"X-API-Key": "agent-key"})
+    assert agent.get("/api/quality/summary?days=7").status_code == 200
+    assert agent.get("/api/cases").status_code == 403
+    assert agent.get("/api/analysis/x/conclusion").status_code == 403
+    assert agent.get("/scans/x").status_code == 403
+    assert agent.post("/api/analyze", data={"case": "stemi", "mode": "A"}).status_code == 403
+    assert agent.post("/api/calibration/fit").status_code == 403
