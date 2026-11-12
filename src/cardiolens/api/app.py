@@ -41,7 +41,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from starlette.background import BackgroundTask
 
 from cardiolens.api import service
-from cardiolens.api.guard import RequestGuard
+from cardiolens.api.guard import AGENT_KEY_PREFIX, RequestGuard
 from cardiolens.calibration import TemperatureScaler, expected_calibration_error
 from cardiolens.config import load_app_config
 from cardiolens.feedback import (
@@ -537,9 +537,6 @@ def submit_feedback(analysis_id: str, fb: Feedback, who: str = Depends(actor)) -
     _feedback_store().append(fb)
     return {"status": "recorded", "analysis_id": analysis_id,
             "n_findings": len(fb.findings)}
-
-
-AGENT_KEY_PREFIX = "agent"   # D260: API key names for agent sessions (e.g. "agents") start with this
 
 
 @app.get("/api/quality/summary")

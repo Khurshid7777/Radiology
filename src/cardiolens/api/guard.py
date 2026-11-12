@@ -29,6 +29,10 @@ async def _send_json(send, status: int, detail: str) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+AGENT_KEY_PREFIX = "agent"                    # D260: API key names of agent sessions
+AGENT_PATHS = ("/api/quality/summary",)       # all such a key may read
+
+
 class RequestGuard:
     def __init__(self, app, *, max_body_bytes: int):
         self.app = app
@@ -46,6 +50,11 @@ class RequestGuard:
             if isinstance(status, int):
                 return await _send_json(send, status, "invalid or missing X-API-Key" if status == 401
                                         else "API keys are not configured")
+        # D260: an agent's key (name "agent...") reads the summary and nothing else, on any route.
+        if b"x-api-key" in headers and not (scope.get("method") == "GET" and scope["path"] in AGENT_PATHS):
+            name = key_name(headers[b"x-api-key"].decode("latin-1"))
+            if isinstance(name, str) and name.startswith(AGENT_KEY_PREFIX):
+                return await _send_json(send, 403, "this key may only read the quality summary")
         declared = headers.get(b"content-length")
         if declared is not None and declared.isdigit() and int(declared) > self.max_body_bytes:
             return await _send_json(send, 413, f"request body over {self.max_body_bytes} bytes")
