@@ -152,12 +152,8 @@ def run(a) -> None:
             try:
                 res = run_pipeline(load(path, s0, int(WIN_S * fs)), mode="A")
                 m = res.measurements
-                from cardiolens.arrhythmia.beats import abnormal_beat_share
-
                 row.update(codes=sorted(res.findings.codes()), alerts=[x.code for x in res.safety.alerts],
-                           hr=m.heart_rate_bpm, qrs=m.intervals.qrs_ms,
-                           abn=abnormal_beat_share(res.signal, m.r_peaks_samples or [],
-                                                   res.signal.sampling_rate_hz, m.r_peaks_recovered))
+                           hr=m.heart_rate_bpm, qrs=m.intervals.qrs_ms)
             except Exception as ex:
                 row["error"] = f"{type(ex).__name__}: {str(ex)[:80]}"
             rows.append(row)

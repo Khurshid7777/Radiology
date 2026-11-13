@@ -1,0 +1,237 @@
+diff --git a/src/cardiolens/arrhythmia/beats.py b/src/cardiolens/arrhythmia/beats.py
+index 586db54..32d7349 100644
+--- a/src/cardiolens/arrhythmia/beats.py
++++ b/src/cardiolens/arrhythmia/beats.py
+@@ -513,6 +513,10 @@ _RUN_RECOVERED_SHIFT_MS = 40.0
+ # shifted match is near-perfect: the same shape displaced, not a wide complex that
+ # partly lines up (a plain shift for every beat cost INCART VT 46 -> 42, D87).
+ _RUN_SHIFTED_RESCUE_MIN = 0.95
++# D264: a run at the strip's start or end (no beat before or after it): at least this many abnormal
++# beats, inner RR <= this share of the reference RR. 0 turns it off.
++_RUN_EDGE_MIN_BEATS = 4
++_RUN_EDGE_FASTER = 0.80
+ 
+ 
+ def _best_corr(x: np.ndarray, tmpl: np.ndarray, shift: int) -> float:
+@@ -526,23 +530,19 @@ def _best_corr(x: np.ndarray, tmpl: np.ndarray, shift: int) -> float:
+     return best
+ 
+ 
+-def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tuple[int, int, float]]:
+-    """Runs of >= 3 consecutive premature, abnormally shaped beats at >= 100/min.
+-
+-    Returns ``(first_beat, n_beats, rate_per_min)`` per run. The template is built
+-    from beats that are not premature, so a run that is a large share of the strip
+-    does not become the template itself; a run must be followed by a beat (a run
+-    cut by the strip end is indistinguishable from end-of-strip filter artefact).
+-    """
++def template_correlation(sig, rpeaks, fs: float, recovered=None):
++    """Per beat, the mean correlation (run leads) to the template of the not-premature beats; with the
++    strip's RR intervals and the reference RR. ``None`` when the strip is too short (D264: shared by
++    the run detector and the abnormal-beat share)."""
+     rp = np.asarray(rpeaks, dtype=int)
+     if rp.size < 6:
+-        return []
++        return None
+     leads = [n for n in _RUN_LEADS if n in sig.lead_names] or list(sig.lead_names[:3])
+     half = int(_PVC_HALF_S * fs)
+     n_samples = sig.signal.shape[1]
+     ok = [i for i, r in enumerate(rp) if r - half >= 0 and r + half < n_samples]
+     if len(ok) < 5:
+-        return []
++        return None
+     segs = {n: np.stack([sig.lead(n)[rp[i] - half:rp[i] + half].astype(float) for i in ok])
+             for n in leads}
+     rr = np.diff(rp).astype(float)
+@@ -563,6 +563,29 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
+                 for n in leads]))
+             if r in rec or shifted >= _RUN_SHIFTED_RESCUE_MIN:
+                 corr[i] = max(corr[i], shifted)
++    return rp, rr, med, corr
++
++
++def abnormal_beat_share(sig, rpeaks, fs: float, recovered=None) -> float | None:
++    """D264: share of beats shaped unlike the template (corr <= the run threshold)."""
++    out = template_correlation(sig, rpeaks, fs, recovered)
++    if out is None:
++        return None
++    return float(np.mean(out[3] <= _RUN_CORR_MAX))
++
++
++def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tuple[int, int, float]]:
++    """Runs of >= 3 consecutive premature, abnormally shaped beats at >= 100/min.
++
++    Returns ``(first_beat, n_beats, rate_per_min)`` per run. The template is built
++    from beats that are not premature, so a run that is a large share of the strip
++    does not become the template itself; a run must be followed by a beat (a run
++    cut by the strip end is indistinguishable from end-of-strip filter artefact).
++    """
++    out_tc = template_correlation(sig, rpeaks, fs, recovered)
++    if out_tc is None:
++        return []
++    rp, rr, med, corr = out_tc
+     abnormal = corr <= _RUN_CORR_MAX
+     out = []
+     j = 0
+@@ -583,6 +606,13 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
+                 and float(np.mean(inner_ms)) <= _RUN_MAX_RR_MS
+                 and (not _RUN_FASTER_THAN_REF or float(np.mean(rr[j:e - 1])) <= _RUN_FASTER_THAN_REF * med)):
+             out.append((j, e - j, round(60000.0 / float(np.mean(inner_ms)))))
++        elif (_RUN_EDGE_MIN_BEATS and e - j >= _RUN_EDGE_MIN_BEATS and (j < 2 or e >= len(rp))
++                and float(corr[j:e].min()) <= _RUN_CORR_CORE
++                and float(np.mean(inner_ms)) <= _RUN_MAX_RR_MS
++                and float(np.mean(rr[j:e - 1])) <= _RUN_EDGE_FASTER * med):
++            # D264: a run cut by the strip's start or end has no beat before / after it to judge its
++            # prematurity; it counts when it is longer and clearly faster than the rhythm instead.
++            out.append((j, e - j, round(60000.0 / float(np.mean(inner_ms)))))
+         j = e
+     return out
+ 
+diff --git a/src/cardiolens/layer4_findings/rules.py b/src/cardiolens/layer4_findings/rules.py
+index ea3d991..e5dfa56 100644
+--- a/src/cardiolens/layer4_findings/rules.py
++++ b/src/cardiolens/layer4_findings/rules.py
+@@ -115,6 +115,10 @@ def _hr_range(norms: dict[str, Any], patient) -> tuple[float, float] | None:
+     return None
+ 
+ 
++WCT_FROM_BBB_PATTERN = True   # D264
++_BBB_PATTERN_CODES = frozenset({"lbbb", "rbbb", "wide_qrs_nonspecific"})
++
++
+ def detect_findings(
+     sig: SignalRepresentation,
+     m: Measurements,
+@@ -437,6 +441,22 @@ def detect_findings(
+     if fs.by_code("lbbb") is None:
+         _brugada_pattern(m, fs)
+ 
++    # D264: a regular tachycardia >= the SVT rate whose complexes carry a bundle-branch-block pattern is a
++    # wide-complex tachycardia — VT until proven otherwise — even when the measured width falls short of
++    # the block threshold (INCART I42: VT 160-184/min, QRS 112-118 ms, read "SVT + LBBB").
++    svt = fs.by_code("supraventricular_tachycardia")
++    if WCT_FROM_BBB_PATTERN and svt is not None and fs.codes() & _BBB_PATTERN_CODES:
++        hr_now, qrs_now = m.heart_rate_bpm, m.intervals.qrs_ms
++        pattern = sorted(fs.codes() & _BBB_PATTERN_CODES)
++        fs.findings = [f for f in fs.findings if f.code != "supraventricular_tachycardia"]
++        fs.findings.append(Finding(
++            code="wide_complex_tachycardia", group="rhythm",
++            label_ru=f"Тахикардия с комплексами формы блокады ножки (ЧСС {hr_now}/мин, QRS {qrs_now} мс) — "
++                     f"исключить желудочковую тахикардию",
++            label_uz=f"Oyoqcha blokadasi shaklidagi komplekslar bilan taxikardiya (YUT {hr_now}/daq, QRS {qrs_now} ms) — "
++                     f"ventrikulyar taxikardiyani istisno qilish",
++            evidence=_ev(heart_rate_bpm=hr_now, qrs_ms=qrs_now, pattern=",".join(pattern)), confidence=0.6,
++        ))
+     # In a wide-complex tachycardia the "P" before each QRS and the initial QRS forces
+     # are not interpretable: a short "PR" is not pre-excitation and PR is not AV
+     # conduction (ported from claude/vibrant-curie-ro1zsz D37).
+diff --git a/src/cardiolens/pipeline.py b/src/cardiolens/pipeline.py
+index 79245ba..cdb1b64 100644
+--- a/src/cardiolens/pipeline.py
++++ b/src/cardiolens/pipeline.py
+@@ -13,6 +13,8 @@ import itertools
+ from dataclasses import dataclass, field
+ from pathlib import Path
+ 
++import numpy as np
++
+ from cardiolens.arrhythmia import (
+     SA_SURE_P_ONSET,
+     SA_SURE_PR_STD_MS,
+@@ -210,6 +212,7 @@ def run_pipeline(
+     if runs:
+         findings.findings.append(vt_run_finding(runs))
+         audit.append(f"[L4] ventricular run(s) (first beat, beats, rate): {runs}")
++        _withdraw_af_around_runs(m, runs, norms, findings, audit)
+     pvc_idx = detect_pvc_beats(sig, m.r_peaks_samples or [], sig.sampling_rate_hz)
+     if pvc_idx and not runs:
+         findings.findings.extend(pvc_findings(pvc_idx, len(m.r_peaks_samples)))
+@@ -238,6 +241,7 @@ def run_pipeline(
+                     findings.findings = [f for f in findings.findings if f.code != "irregular_rhythm"]
+                 audit.append("[L4] sinus arrhythmia")
+     _af_second_path(sig, m, findings, audit)
++    _withdraw_af_on_ectopic_shapes(sig, m, findings, audit)
+     # Paced rhythm (TZ §7.1): the spike must be time-locked to the QRS (an artifact
+     # spike lands at random), or seen by many leads at once and QRS-locked (D75).
+     r_times = [r / sig.sampling_rate_hz for r in (m.r_peaks_samples or [])]
+@@ -764,6 +768,66 @@ def _hf_amplitude_uv(sig: SignalRepresentation) -> float:
+ AF_PVC_RECHECK = True   # D106: accepted on the held-out check (fold 10 + Georgia g6-g11)
+ 
+ 
++AF_ECTOPIC_SHARE_MAX = 0.15   # D264: tuning (MIT-BIH + even INCART): true AF windows <= 0.08, VT windows named AF >= 0.15
++
++
++def _withdraw_af_on_ectopic_shapes(sig, m, findings: FindingSet, audit: list[str]) -> None:
++    """D264: when many beats are shaped unlike the dominant QRS (ventricular complexes, runs), the
++    RR irregularity is theirs and AF cannot be read from it; AF / possible AF is withdrawn and the
++    irregular rhythm says why."""
++    if not AF_ECTOPIC_SHARE_MAX or not findings.codes() & {"atrial_fibrillation", "possible_atrial_fibrillation"}:
++        return
++    from cardiolens.arrhythmia.beats import abnormal_beat_share
++
++    share = abnormal_beat_share(sig, m.r_peaks_samples or [], sig.sampling_rate_hz, m.r_peaks_recovered)
++    if share is None or share < AF_ECTOPIC_SHARE_MAX:
++        return
++    findings.findings = [f for f in findings.findings
++                         if f.code not in ("atrial_fibrillation", "possible_atrial_fibrillation")]
++    irr = findings.by_code("irregular_rhythm")
++    note_ru = f"; {share:.0%} комплексов другой формы — ФП по этой записи не оценивается"
++    note_uz = f"; komplekslarning {share:.0%} boshqa shaklda — bu yozuv bo'yicha BF baholanmaydi"
++    if irr is not None:
++        irr.label_ru, irr.label_uz = "Нерегулярный ритм" + note_ru, "Notekis ritm" + note_uz
++    else:
++        findings.findings.append(Finding(
++            code="irregular_rhythm", group="rhythm",
++            label_ru="Нерегулярный ритм" + note_ru, label_uz="Notekis ritm" + note_uz,
++            evidence=[Evidence(feature="abnormal_beat_share", value=f"{share:.2f}")], confidence=0.6))
++    audit.append(f"[L4] AF withdrawn: {share:.0%} of beats shaped unlike the template (D264)")
++
++
++AF_RUN_RECHECK = True   # D264
++
++
++def _withdraw_af_around_runs(m, runs, norms, findings: FindingSet, audit: list[str]) -> None:
++    """D264: a ventricular run makes the strip irregular by itself. Without the RR intervals that
++    touch a run a sinus rhythm is regular again and AF / irregular rhythm is withdrawn; a strip
++    still irregular outside the runs keeps them (AF with a VT run)."""
++    if not AF_RUN_RECHECK or not findings.codes() & {"atrial_fibrillation", "possible_atrial_fibrillation",
++                                                     "irregular_rhythm"}:
++        return
++    rp = np.asarray(m.r_peaks_samples or [], dtype=float)
++    if rp.size < 4:
++        return
++    rr = np.diff(rp)
++    touched = set()
++    for j, n, _ in runs:
++        touched.update(range(max(0, j - 1), min(rr.size, j + n)))
++    left = np.array([v for i, v in enumerate(rr) if i not in touched])
++    if left.size < AF_RUN_MIN_LEFT:
++        return
++    cv = float(np.std(left) / np.mean(left))
++    if cv <= norms.get("rhythm", {}).get("af_rr_cv_min", 0.10):
++        gone = [f.code for f in findings.findings
++                if f.code in ("atrial_fibrillation", "possible_atrial_fibrillation", "irregular_rhythm")]
++        findings.findings = [f for f in findings.findings if f.code not in gone]
++        audit.append(f"[L4] {gone} withdrawn: RR CV {cv:.3f} outside the ventricular run(s) (D264)")
++
++
++AF_RUN_MIN_LEFT = 3
++
++
+ def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
+     """RR coefficient of variation leaving out the intervals into and out of each PVC."""
+     import numpy as np
+diff --git a/src/cardiolens/validation/fetch_ptbxl.py b/src/cardiolens/validation/fetch_ptbxl.py
+index d212825..f7370fb 100644
+--- a/src/cardiolens/validation/fetch_ptbxl.py
++++ b/src/cardiolens/validation/fetch_ptbxl.py
+@@ -26,7 +26,8 @@ from pathlib import Path
+ 
+ from cardiolens.validation.fetch_physionet import UNLABELED, fetch_bytes, select_balanced
+ 
+-BASE_URL = "https://physionet.org/files/ptb-xl/1.0.3/"
++# physionet.org answers 302 to its S3 mirror; the keep-alive client does not follow redirects.
++BASE_URL = "https://physionet-open.s3.amazonaws.com/ptb-xl/1.0.3/"
+ LIKELIHOOD_MIN = 50.0   # scp likelihood accepted as a label (0 = not graded -> kept)
+ PEDIATRIC_AGE_MAX = 15.0
+ # Every record of these classes is taken (they are rare).

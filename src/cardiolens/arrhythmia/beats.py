@@ -513,10 +513,6 @@ _RUN_RECOVERED_SHIFT_MS = 40.0
 # shifted match is near-perfect: the same shape displaced, not a wide complex that
 # partly lines up (a plain shift for every beat cost INCART VT 46 -> 42, D87).
 _RUN_SHIFTED_RESCUE_MIN = 0.95
-# D264: a run at the strip's start or end (no beat before or after it): at least this many abnormal
-# beats, inner RR <= this share of the reference RR. 0 turns it off.
-_RUN_EDGE_MIN_BEATS = 4
-_RUN_EDGE_FASTER = 0.80
 
 
 def _best_corr(x: np.ndarray, tmpl: np.ndarray, shift: int) -> float:
@@ -530,19 +526,23 @@ def _best_corr(x: np.ndarray, tmpl: np.ndarray, shift: int) -> float:
     return best
 
 
-def template_correlation(sig, rpeaks, fs: float, recovered=None):
-    """Per beat, the mean correlation (run leads) to the template of the not-premature beats; with the
-    strip's RR intervals and the reference RR. ``None`` when the strip is too short (D264: shared by
-    the run detector and the abnormal-beat share)."""
+def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tuple[int, int, float]]:
+    """Runs of >= 3 consecutive premature, abnormally shaped beats at >= 100/min.
+
+    Returns ``(first_beat, n_beats, rate_per_min)`` per run. The template is built
+    from beats that are not premature, so a run that is a large share of the strip
+    does not become the template itself; a run must be followed by a beat (a run
+    cut by the strip end is indistinguishable from end-of-strip filter artefact).
+    """
     rp = np.asarray(rpeaks, dtype=int)
     if rp.size < 6:
-        return None
+        return []
     leads = [n for n in _RUN_LEADS if n in sig.lead_names] or list(sig.lead_names[:3])
     half = int(_PVC_HALF_S * fs)
     n_samples = sig.signal.shape[1]
     ok = [i for i, r in enumerate(rp) if r - half >= 0 and r + half < n_samples]
     if len(ok) < 5:
-        return None
+        return []
     segs = {n: np.stack([sig.lead(n)[rp[i] - half:rp[i] + half].astype(float) for i in ok])
             for n in leads}
     rr = np.diff(rp).astype(float)
@@ -563,29 +563,6 @@ def template_correlation(sig, rpeaks, fs: float, recovered=None):
                 for n in leads]))
             if r in rec or shifted >= _RUN_SHIFTED_RESCUE_MIN:
                 corr[i] = max(corr[i], shifted)
-    return rp, rr, med, corr
-
-
-def abnormal_beat_share(sig, rpeaks, fs: float, recovered=None) -> float | None:
-    """D264: share of beats shaped unlike the template (corr <= the run threshold)."""
-    out = template_correlation(sig, rpeaks, fs, recovered)
-    if out is None:
-        return None
-    return float(np.mean(out[3] <= _RUN_CORR_MAX))
-
-
-def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tuple[int, int, float]]:
-    """Runs of >= 3 consecutive premature, abnormally shaped beats at >= 100/min.
-
-    Returns ``(first_beat, n_beats, rate_per_min)`` per run. The template is built
-    from beats that are not premature, so a run that is a large share of the strip
-    does not become the template itself; a run must be followed by a beat (a run
-    cut by the strip end is indistinguishable from end-of-strip filter artefact).
-    """
-    out_tc = template_correlation(sig, rpeaks, fs, recovered)
-    if out_tc is None:
-        return []
-    rp, rr, med, corr = out_tc
     abnormal = corr <= _RUN_CORR_MAX
     out = []
     j = 0
@@ -605,13 +582,6 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
                      or float(np.mean(rr[j:e - 1])) <= _RUN_PRE_INNER * rr[j - 2])
                 and float(np.mean(inner_ms)) <= _RUN_MAX_RR_MS
                 and (not _RUN_FASTER_THAN_REF or float(np.mean(rr[j:e - 1])) <= _RUN_FASTER_THAN_REF * med)):
-            out.append((j, e - j, round(60000.0 / float(np.mean(inner_ms)))))
-        elif (_RUN_EDGE_MIN_BEATS and e - j >= _RUN_EDGE_MIN_BEATS and (j < 2 or e >= len(rp))
-                and float(corr[j:e].min()) <= _RUN_CORR_CORE
-                and float(np.mean(inner_ms)) <= _RUN_MAX_RR_MS
-                and float(np.mean(rr[j:e - 1])) <= _RUN_EDGE_FASTER * med):
-            # D264: a run cut by the strip's start or end has no beat before / after it to judge its
-            # prematurity; it counts when it is longer and clearly faster than the rhythm instead.
             out.append((j, e - j, round(60000.0 / float(np.mean(inner_ms)))))
         j = e
     return out

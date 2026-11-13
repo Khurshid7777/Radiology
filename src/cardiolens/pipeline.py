@@ -13,8 +13,6 @@ import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
-
 from cardiolens.arrhythmia import (
     SA_SURE_P_ONSET,
     SA_SURE_PR_STD_MS,
@@ -212,7 +210,6 @@ def run_pipeline(
     if runs:
         findings.findings.append(vt_run_finding(runs))
         audit.append(f"[L4] ventricular run(s) (first beat, beats, rate): {runs}")
-        _withdraw_af_around_runs(m, runs, norms, findings, audit)
     pvc_idx = detect_pvc_beats(sig, m.r_peaks_samples or [], sig.sampling_rate_hz)
     if pvc_idx and not runs:
         findings.findings.extend(pvc_findings(pvc_idx, len(m.r_peaks_samples)))
@@ -241,7 +238,6 @@ def run_pipeline(
                     findings.findings = [f for f in findings.findings if f.code != "irregular_rhythm"]
                 audit.append("[L4] sinus arrhythmia")
     _af_second_path(sig, m, findings, audit)
-    _withdraw_af_on_ectopic_shapes(sig, m, findings, audit)
     # Paced rhythm (TZ §7.1): the spike must be time-locked to the QRS (an artifact
     # spike lands at random), or seen by many leads at once and QRS-locked (D75).
     r_times = [r / sig.sampling_rate_hz for r in (m.r_peaks_samples or [])]
@@ -766,66 +762,6 @@ def _hf_amplitude_uv(sig: SignalRepresentation) -> float:
 
 
 AF_PVC_RECHECK = True   # D106: accepted on the held-out check (fold 10 + Georgia g6-g11)
-
-
-AF_ECTOPIC_SHARE_MAX = 0.15   # D264: tuning (MIT-BIH + even INCART): true AF windows <= 0.08, VT windows named AF >= 0.15
-
-
-def _withdraw_af_on_ectopic_shapes(sig, m, findings: FindingSet, audit: list[str]) -> None:
-    """D264: when many beats are shaped unlike the dominant QRS (ventricular complexes, runs), the
-    RR irregularity is theirs and AF cannot be read from it; AF / possible AF is withdrawn and the
-    irregular rhythm says why."""
-    if not AF_ECTOPIC_SHARE_MAX or not findings.codes() & {"atrial_fibrillation", "possible_atrial_fibrillation"}:
-        return
-    from cardiolens.arrhythmia.beats import abnormal_beat_share
-
-    share = abnormal_beat_share(sig, m.r_peaks_samples or [], sig.sampling_rate_hz, m.r_peaks_recovered)
-    if share is None or share < AF_ECTOPIC_SHARE_MAX:
-        return
-    findings.findings = [f for f in findings.findings
-                         if f.code not in ("atrial_fibrillation", "possible_atrial_fibrillation")]
-    irr = findings.by_code("irregular_rhythm")
-    note_ru = f"; {share:.0%} комплексов другой формы — ФП по этой записи не оценивается"
-    note_uz = f"; komplekslarning {share:.0%} boshqa shaklda — bu yozuv bo'yicha BF baholanmaydi"
-    if irr is not None:
-        irr.label_ru, irr.label_uz = "Нерегулярный ритм" + note_ru, "Notekis ritm" + note_uz
-    else:
-        findings.findings.append(Finding(
-            code="irregular_rhythm", group="rhythm",
-            label_ru="Нерегулярный ритм" + note_ru, label_uz="Notekis ritm" + note_uz,
-            evidence=[Evidence(feature="abnormal_beat_share", value=f"{share:.2f}")], confidence=0.6))
-    audit.append(f"[L4] AF withdrawn: {share:.0%} of beats shaped unlike the template (D264)")
-
-
-AF_RUN_RECHECK = True   # D264
-
-
-def _withdraw_af_around_runs(m, runs, norms, findings: FindingSet, audit: list[str]) -> None:
-    """D264: a ventricular run makes the strip irregular by itself. Without the RR intervals that
-    touch a run a sinus rhythm is regular again and AF / irregular rhythm is withdrawn; a strip
-    still irregular outside the runs keeps them (AF with a VT run)."""
-    if not AF_RUN_RECHECK or not findings.codes() & {"atrial_fibrillation", "possible_atrial_fibrillation",
-                                                     "irregular_rhythm"}:
-        return
-    rp = np.asarray(m.r_peaks_samples or [], dtype=float)
-    if rp.size < 4:
-        return
-    rr = np.diff(rp)
-    touched = set()
-    for j, n, _ in runs:
-        touched.update(range(max(0, j - 1), min(rr.size, j + n)))
-    left = np.array([v for i, v in enumerate(rr) if i not in touched])
-    if left.size < AF_RUN_MIN_LEFT:
-        return
-    cv = float(np.std(left) / np.mean(left))
-    if cv <= norms.get("rhythm", {}).get("af_rr_cv_min", 0.10):
-        gone = [f.code for f in findings.findings
-                if f.code in ("atrial_fibrillation", "possible_atrial_fibrillation", "irregular_rhythm")]
-        findings.findings = [f for f in findings.findings if f.code not in gone]
-        audit.append(f"[L4] {gone} withdrawn: RR CV {cv:.3f} outside the ventricular run(s) (D264)")
-
-
-AF_RUN_MIN_LEFT = 3
 
 
 def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
