@@ -25,6 +25,8 @@ HIDING = {"photo_unreliable", "no_ecg_signal", "amplitude_implausible"}   # no n
 
 def _pr(m) -> dict:
     return {"pr": m.intervals.pr_ms, "pr_multi": m.pr_multilead_ms, "pr_beats": m.pr_beats,
+            "pr_std": m.pr_std_ms, "p_ratio": m.p_onset_ratio,
+            "pr_dwt": any(n.startswith("PR from dwt") for n in m.notes),
             "hr": m.heart_rate_bpm, "qrs": m.intervals.qrs_ms}
 
 
