@@ -70,3 +70,5 @@ data/ptbxl_st/
 data/ptbxl_st/
 data/mitdb/
 data/incartdb/
+# D268: SVT bench (Chapman / Ningbo subset), downloaded by tools/svt_bench/fetch.py
+data/svt_bench/
