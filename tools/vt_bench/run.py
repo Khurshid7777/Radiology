@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "src"))
 DBS = {"mitdb": "data/mitdb", "vfdb": "data/vf_bench/vfdb", "incartdb": "data/incartdb", "svdb": "data/svdb"}
 NAMES = {"AVR": "aVR", "AVL": "aVL", "AVF": "aVF", "MLII": "II", "MLIII": "III", "MLI": "I"}
 VT_CODES = {"ventricular_tachycardia", "wide_complex_tachycardia", "wide_qrs_tachycardia", "ventricular_fibrillation"}
-CAP = {"vt_full": 10, "vt_run": 6, "control": 3}
+CAP = {"vt_full": 10, "vt_run": 6, "control": 3, "af": 3}
 WIN_S = 10.0
 BEATS = "NLRVFEjJAaSe/fQ"
 
@@ -69,6 +69,20 @@ def max_v_run(sym: list[str]) -> int:
     return best
 
 
+def longest_run(beats: list[tuple[int, str]], fs: float) -> tuple[int, float | None]:
+    """(beats, rate per min) of the longest V run (>= 3) in a window's labelled beats."""
+    best: tuple[int, float | None] = (0, None)
+    cur: list[int] = []
+    for s, y in [*beats, (0, "N")]:
+        if y == "V":
+            cur.append(s)
+            continue
+        if len(cur) >= 3 and len(cur) > best[0]:
+            best = (len(cur), 60.0 * fs / float(np.mean(np.diff(cur))))
+        cur = []
+    return best
+
+
 def windows(path: str):
     """(class, s0, truth) for one record, capped per class."""
     import wfdb
@@ -103,6 +117,8 @@ def windows(path: str):
         run = max_v_run(sym)
         if run >= 3 and rh != {"VT"}:
             kind = "vt_run"
+        elif "V" not in sym and rh == {"AFIB"} and len(sym) >= 5:
+            kind = "af"
         elif "V" not in sym and not rh & {"VT", "VFL", "VF", "IVR", "NOD"} and len(sym) >= 5:
             kind = "control"
         else:
@@ -110,7 +126,9 @@ def windows(path: str):
         if cnt[kind] >= CAP[kind]:
             continue
         cnt[kind] += 1
-        out.append((kind, s0, {"v": sym.count("V"), "n": len(sym), "run": run, "rhythm": sorted(rh)}))
+        _, rate = longest_run([(s, y) for s, y in beats if s0 <= s < s0 + w], fs)
+        out.append((kind, s0, {"v": sym.count("V"), "n": len(sym), "run": run, "run_rate": rate,
+                               "rhythm": sorted(rh)}))
     return out, fs
 
 
@@ -129,6 +147,8 @@ def run(a) -> None:
             continue
         for kind, s0, tr in wins:
             row = {"db": db, "rec": Path(path).name, "s0": s0, "kind": kind, **tr}
+            if a.split and split(row) != a.split:
+                continue
             try:
                 res = run_pipeline(load(path, s0, int(WIN_S * fs)), mode="A")
                 m = res.measurements
@@ -139,6 +159,35 @@ def run(a) -> None:
             rows.append(row)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(rows))
+
+
+def split(r: dict) -> str:
+    """D264: tuning = MIT-BIH and even INCART; acceptance = odd INCART and SVDB; VFDB is check-only."""
+    if r["db"] == "mitdb" or (r["db"] == "incartdb" and int(r["rec"][1:]) % 2 == 0):
+        return "tune"
+    return "accept" if r["db"] in ("incartdb", "svdb") else "check"
+
+
+def nsvt(r: dict) -> bool:
+    return r["kind"] == "vt_run" and r.get("run", 0) >= 4 and (r.get("run_rate") or 0) >= 100
+
+
+def score_d264(rows: list[dict]) -> None:
+    af = {"atrial_fibrillation", "possible_atrial_fibrillation"}
+    crit = {"ventricular_tachycardia", "wide_complex_tachycardia", "ventricular_fibrillation"}
+    for sp in ("tune", "accept", "check"):
+        for name, sel in (("NSVT>=4", nsvt), ("run3", lambda r: r["kind"] == "vt_run" and r.get("run") == 3),
+                          ("vt_full", lambda r: r["kind"] == "vt_full"), ("af", lambda r: r["kind"] == "af"),
+                          ("control", lambda r: r["kind"] == "control")):
+            rs = [r for r in rows if split(r) == sp and sel(r) and "codes" in r]
+            if not rs:
+                continue
+            vt = sum(bool(set(r["codes"]) & VT_CODES) for r in rs)
+            af_only = sum(bool(set(r["codes"]) & af) and not set(r["codes"]) & VT_CODES for r in rs)
+            afany = sum(bool(set(r["codes"]) & af) for r in rs)
+            al = sum(bool(set(r["alerts"]) & crit) for r in rs)
+            print(f"{sp:6s} {name:8s} n={len(rs):4d} VT-family {vt:4d} ({vt / len(rs):.2f})  "
+                  f"AF-without-VT {af_only:4d} ({af_only / len(rs):.2f})  AF {afany:4d} ({afany / len(rs):.2f})  alerts {al}")
 
 
 def score(files: list[Path]) -> None:
@@ -161,6 +210,8 @@ def score(files: list[Path]) -> None:
                    for c in r["codes"])
     print("vt_full missed — what was named instead:", miss.most_common(12))
     print("errors:", sum("error" in r for r in rows))
+    print("--- D264 splits ---")
+    score_d264(rows)
 
 
 def main() -> None:
@@ -170,6 +221,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--shard", default="0/1")
+    ap.add_argument("--split", default="", help="tune / accept / check: only that part (D264)")
     run(ap.parse_args())
 
 
