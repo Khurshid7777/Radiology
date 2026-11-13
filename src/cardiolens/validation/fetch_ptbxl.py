@@ -26,7 +26,8 @@ from pathlib import Path
 
 from cardiolens.validation.fetch_physionet import UNLABELED, fetch_bytes, select_balanced
 
-BASE_URL = "https://physionet.org/files/ptb-xl/1.0.3/"
+# physionet.org answers 302 to its S3 mirror; the keep-alive client does not follow redirects.
+BASE_URL = "https://physionet-open.s3.amazonaws.com/ptb-xl/1.0.3/"
 LIKELIHOOD_MIN = 50.0   # scp likelihood accepted as a label (0 = not graded -> kept)
 PEDIATRIC_AGE_MAX = 15.0
 # Every record of these classes is taken (they are rare).

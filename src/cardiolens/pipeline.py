@@ -576,6 +576,7 @@ def run_pipeline(
     # alerts (recall first, TZ §10) and says so (scanner branch D97, now D135).
     hard_gate = no_ecg or bad_photo or bad_units
     _approximate_long_qt(sig, findings, audit)
+    _pr_unstable(sig, findings, audit)
     safety = scan_critical(findings, Measurements() if hard_gate else m)
     if not quality_ok and not hard_gate:
         for a in safety.alerts:
@@ -783,6 +784,28 @@ def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
 # AF second path (D205): names that contradict a possible AF and are taken back when it is raised.
 _AF_CONTRADICTED = {"sinus_rhythm", "supraventricular_ectopy", "atrial_bigeminy", "atrial_trigeminy",
                     "sinus_arrhythmia"}
+
+
+_PR_CODES = ("first_degree_av_block", "pr_borderline")
+
+
+def _pr_unstable(sig, findings: FindingSet, audit: list[str]) -> None:
+    """D263: the ECG scanner flags a read whose PR rests on fallback P onsets (PR_UNSTABLE, R7): the
+    findings that rest on PR are withheld and PR is said to be approximate."""
+    notes = list(getattr(sig.provenance, "notes", None) or [])
+    warned = {w.strip() for n in notes if n.startswith("warnings:") for w in n[len("warnings:"):].split(",")}
+    if "PR_UNSTABLE" not in warned:
+        return
+    dropped = [f.code for f in findings.findings if f.code in _PR_CODES]
+    findings.findings = [f for f in findings.findings if f.code not in _PR_CODES]
+    findings.findings.append(Finding(
+        code="pr_approximate", group="quality",
+        label_ru="PR ориентировочно: начало зубца P на снимке определено неуверенно — АВ-проведение по этой записи "
+                 "не оценивается",
+        label_uz="PR taxminiy: suratda P tishining boshlanishi ishonchsiz aniqlangan — bu yozuv bo'yicha AV o'tkazuvchanlik "
+                 "baholanmaydi",
+        confidence=0.9))
+    audit.append(f"[L4] PR_UNSTABLE from the scanner: withheld {dropped} (D263)")
 
 
 def _approximate_long_qt(sig, findings: FindingSet, audit: list[str]) -> None:

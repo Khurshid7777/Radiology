@@ -115,6 +115,10 @@ def _hr_range(norms: dict[str, Any], patient) -> tuple[float, float] | None:
     return None
 
 
+WCT_FROM_BBB_PATTERN = True   # D265
+_BBB_PATTERN_CODES = frozenset({"lbbb", "rbbb", "wide_qrs_nonspecific"})
+
+
 def detect_findings(
     sig: SignalRepresentation,
     m: Measurements,
@@ -437,6 +441,22 @@ def detect_findings(
     if fs.by_code("lbbb") is None:
         _brugada_pattern(m, fs)
 
+    # D265: a regular tachycardia >= the SVT rate whose complexes carry a bundle-branch-block pattern is a
+    # wide-complex tachycardia — VT until proven otherwise — even when the measured width falls short of
+    # the block threshold (INCART I42: VT 160-184/min, QRS 112-118 ms, read "SVT + LBBB").
+    svt = fs.by_code("supraventricular_tachycardia")
+    if WCT_FROM_BBB_PATTERN and svt is not None and fs.codes() & _BBB_PATTERN_CODES:
+        hr_now, qrs_now = m.heart_rate_bpm, m.intervals.qrs_ms
+        pattern = sorted(fs.codes() & _BBB_PATTERN_CODES)
+        fs.findings = [f for f in fs.findings if f.code != "supraventricular_tachycardia"]
+        fs.findings.append(Finding(
+            code="wide_complex_tachycardia", group="rhythm",
+            label_ru=f"Тахикардия с комплексами формы блокады ножки (ЧСС {hr_now}/мин, QRS {qrs_now} мс) — "
+                     f"исключить желудочковую тахикардию",
+            label_uz=f"Oyoqcha blokadasi shaklidagi komplekslar bilan taxikardiya (YUT {hr_now}/daq, "
+                     f"QRS {qrs_now} ms) — ventrikulyar taxikardiyani istisno qilish",
+            evidence=_ev(heart_rate_bpm=hr_now, qrs_ms=qrs_now, pattern=",".join(pattern)), confidence=0.6,
+        ))
     # In a wide-complex tachycardia the "P" before each QRS and the initial QRS forces
     # are not interpretable: a short "PR" is not pre-excitation and PR is not AV
     # conduction (ported from claude/vibrant-curie-ro1zsz D37).
