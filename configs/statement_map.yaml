@@ -86,5 +86,6 @@ amplitude_implausible:      {aha: technical, snomed: [], scp: [], code15: []}
 screen_photo_limited:       {aha: technical, snomed: [], scp: [], code15: []}
 device_mismatch:            {aha: technical, snomed: [], scp: [], code15: []}
 photo_coarse:               {aha: technical, snomed: [], scp: [], code15: []}
+pr_approximate:             {aha: technical, snomed: [], scp: [], code15: []}   # D263
 rate_unmeasurable_short:    {aha: technical, snomed: [], scp: [], code15: []}
 poor_quality_signal:        {aha: technical, snomed: [], scp: [], code15: []}
