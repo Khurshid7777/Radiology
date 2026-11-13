@@ -115,15 +115,6 @@ def _hr_range(norms: dict[str, Any], patient) -> tuple[float, float] | None:
     return None
 
 
-NON_SINUS_P_SVT = True   # D270
-
-
-def _non_sinus_p_kind(sig: SignalRepresentation, m: Measurements) -> str | None:
-    from cardiolens.layer3_measure.p_morph import non_sinus_p, p_morphology
-
-    return non_sinus_p(p_morphology(sig.signal, list(sig.lead_names), m.r_peaks_samples or [], sig.sampling_rate_hz))
-
-
 WCT_FROM_BBB_PATTERN = True   # D265
 _BBB_PATTERN_CODES = frozenset({"lbbb", "rbbb", "wide_qrs_nonspecific"})
 
@@ -193,20 +184,6 @@ def detect_findings(
                     label_uz=f"Keng QRS li taxikardiya (YUT {hr}/daq, QRS {qrs} ms) — zudlik bilan shifokorga "
                              f"ko'rsating: qorincha taxikardiyasini istisno qiling",
                     evidence=_ev(heart_rate_bpm=hr, qrs_ms=qrs, qrs_min=block, urgent="yes"), confidence=0.6,
-                ))
-            elif (NON_SINUS_P_SVT and not is_pediatric and qrs is not None and qrs < block
-                    and (kind := _non_sinus_p_kind(sig, m)) is not None):
-                # D270: a tachycardia under the SVT rate whose P is not sinus-shaped (inverted in II, or an odd
-                # axis with an upright aVR P) is an SVT or an atrial tachycardia, not sinus tachycardia.
-                why_ru = "инвертирован во II" if kind == "inverted_II" else "необычная ось"
-                why_uz = "II da manfiy" if kind == "inverted_II" else "g'ayrioddiy o'q"
-                fs.findings.append(Finding(
-                    code="supraventricular_tachycardia", group="rhythm",
-                    label_ru=f"Регулярная тахикардия с несинусовым зубцом P ({why_ru}, ЧСС {hr}/мин) — вероятна НЖТ "
-                             f"или предсердная тахикардия, проверьте по записи",
-                    label_uz=f"Sinusdan tashqari P tishli taxikardiya ({why_uz}, YUT {hr}/daq) — ehtimol SVT yoki "
-                             f"bo'lmacha taxikardiyasi, yozuv bo'yicha tekshiring",
-                    evidence=_ev(heart_rate_bpm=hr, p_shape=kind), confidence=0.6,
                 ))
             else:
                 fs.findings.append(Finding(
@@ -464,10 +441,6 @@ def detect_findings(
     if fs.by_code("lbbb") is None:
         _brugada_pattern(m, fs)
 
-    # D270: the P-shape SVT is a reading of a regular rhythm; where AF / flutter is named it stands down.
-    if fs.codes() & {"atrial_fibrillation", "possible_atrial_fibrillation", "atrial_flutter"}:
-        fs.findings = [f for f in fs.findings if not (f.code == "supraventricular_tachycardia"
-                                                      and any(e.feature == "p_shape" for e in f.evidence))]
     # D265: a regular tachycardia >= the SVT rate whose complexes carry a bundle-branch-block pattern is a
     # wide-complex tachycardia — VT until proven otherwise — even when the measured width falls short of
     # the block threshold (INCART I42: VT 160-184/min, QRS 112-118 ms, read "SVT + LBBB").
