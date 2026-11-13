@@ -57,7 +57,7 @@ def run(a) -> None:
                 notes = sig.provenance.notes or []
                 scan = next((x for x in notes if x.startswith("ecgscan")), "")
                 row.update(read=True, **_pr(res.measurements),
-                           gates=sorted(res.findings.codes() & HIDING),
+                           gates=sorted(res.findings.codes() & HIDING), codes=sorted(res.findings.codes()),
                            route="scanner" if scan else "readers",
                            status=scan.split("status=")[1].split()[0] if "status=" in scan else None,
                            warnings=next((x[10:] for x in notes if x.startswith("warnings: ")), ""))
