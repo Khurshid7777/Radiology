@@ -159,6 +159,8 @@ validate:
   beat_check: true               # CardioLens beats vs page columns (D130) disagree -> BEATS_INCONSISTENT (needs confirmation)
   qrs_hump_scale: 0.667          # QRS also measured with the R' hump threshold x this (SD-057); null = off
   qrs_unstable_ms: 20            # ... and a width that moves more than this -> QRS_UNSTABLE (needs confirmation)
+  pr_min_onset_ratio: 0.5        # SD-110: PR measured with the P onset refined on fewer beats than this share (CardioLens falls back
+                                 # to wavelet onsets) -> PR_UNSTABLE (needs confirmation); null = off
   ok_min_overall: 0.6            # overall quality below -> needs_confirmation
 
 artifacts:

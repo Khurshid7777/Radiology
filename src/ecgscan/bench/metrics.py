@@ -208,6 +208,7 @@ def score_case(case: Case, digitizer: str, run, reference: dict, cfg: dict) -> C
             cm.interval_err_ms[k] = None
         else:
             cm.interval_err_ms[k] = round(abs(got - ref), 1)
-    core = [cm.interval_err_ms.get(k) for k in ("rr_ms", "qrs_ms", "qt_ms") if k in cm.interval_err_ms]
+    core = [cm.interval_err_ms.get(k) for k in acc.get("bad_intervals", ("rr_ms", "qrs_ms", "qt_ms"))
+            if k in cm.interval_err_ms]
     cm.bad = any(v is None or v > acc["bad_interval_ms"] for v in core) if core else True
     return cm
