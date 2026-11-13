@@ -72,3 +72,5 @@ data/mitdb/
 data/incartdb/
 # D268: SVT bench (Chapman / Ningbo subset), downloaded by tools/svt_bench/fetch.py
 data/svt_bench/
+# D271: fresh PTB-XL acceptance records (tools/p_morph/fetch_fresh.py)
+data/ptbxl_fresh/
