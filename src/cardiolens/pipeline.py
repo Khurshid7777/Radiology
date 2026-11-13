@@ -238,6 +238,7 @@ def run_pipeline(
                     findings.findings = [f for f in findings.findings if f.code != "irregular_rhythm"]
                 audit.append("[L4] sinus arrhythmia")
     _af_second_path(sig, m, findings, audit)
+    _withdraw_af_on_p_chain(sig, m, findings, audit)
     # Paced rhythm (TZ §7.1): the spike must be time-locked to the QRS (an artifact
     # spike lands at random), or seen by many leads at once and QRS-locked (D75).
     r_times = [r / sig.sampling_rate_hz for r in (m.r_peaks_samples or [])]
@@ -762,6 +763,36 @@ def _hf_amplitude_uv(sig: SignalRepresentation) -> float:
 
 
 AF_PVC_RECHECK = True   # D106: accepted on the held-out check (fold 10 + Georgia g6-g11)
+
+
+AF_P_CHAIN_COVER = 0.80     # D267 (chosen on even PTB-XL ids, D266)
+AF_P_CHAIN_REGULAR = 0.90
+
+
+def _withdraw_af_on_p_chain(sig, m, findings: FindingSet, audit: list[str]) -> None:
+    """D267: a regular chain of P waves in most diastoles is not atrial fibrillation; AF / possible AF is
+    withdrawn and the irregular rhythm says so."""
+    if not AF_P_CHAIN_COVER or not findings.codes() & {"atrial_fibrillation", "possible_atrial_fibrillation"}:
+        return
+    from cardiolens.layer3_measure.p_chain import P_CHAIN_LEADS, p_chain
+
+    pc = p_chain({ln: sig.lead(ln) for ln in P_CHAIN_LEADS if ln in sig.lead_names}, m.r_peaks_samples or [],
+                 sig.sampling_rate_hz, m.intervals.qrs_ms, m.intervals.qt_ms)
+    if pc is None or pc["cover"] < AF_P_CHAIN_COVER or pc["regular"] < AF_P_CHAIN_REGULAR:
+        return
+    findings.findings = [f for f in findings.findings
+                         if f.code not in ("atrial_fibrillation", "possible_atrial_fibrillation")]
+    ru = "Нерегулярный ритм; зубцы P прослеживаются регулярно — ФП не подтверждается, проверьте по записи"
+    uz = "Notekis ritm; P tishlari muntazam kuzatiladi — BF tasdiqlanmaydi, yozuv bo'yicha tekshiring"
+    irr = findings.by_code("irregular_rhythm")
+    if irr is not None:
+        irr.label_ru, irr.label_uz = ru, uz
+    else:
+        findings.findings.append(Finding(
+            code="irregular_rhythm", group="rhythm", label_ru=ru, label_uz=uz,
+            evidence=[Evidence(feature="p_chain_cover", value=f"{pc['cover']:.2f}"),
+                      Evidence(feature="p_chain_regular", value=f"{pc['regular']:.2f}")], confidence=0.6))
+    audit.append(f"[L4] AF withdrawn: P chain in {pc['lead']} cover {pc['cover']:.2f} regular {pc['regular']:.2f} (D267)")
 
 
 def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
