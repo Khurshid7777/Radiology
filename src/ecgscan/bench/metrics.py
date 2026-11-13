@@ -58,6 +58,12 @@ class CaseMetrics:
     gain_rel_err: float | None = None
     px_per_mm_rel_err: float | None = None
     bad: bool | None = None      # any RR/QRS/QT error above the bad-interval threshold (or unmeasured)
+    pr_ms: float | None = None           # R7 (SD-110): the PR measured on the output (single-lead onset) ...
+    pr_multi_ms: float | None = None     # ... and by the multi-lead onset (CardioLens D250): the stability pair
+    pr_std_ms: float | None = None       # beat-to-beat spread of that PR
+    p_onset_ratio: float | None = None   # share of beats with a refined P onset
+    pr_beats: int | None = None          # beats behind the PR
+    pr_dwt: bool | None = None           # the PR fell back to the wavelet P onsets (refined P on < 50 % of beats)
 
 
 def _centre(x: np.ndarray) -> np.ndarray:
@@ -128,7 +134,9 @@ def clinical_measurements(result: ScanResult) -> dict[str, float | None]:
     m = measure(sig)
     hr = m.heart_rate_bpm
     return {"heart_rate_bpm": hr, "rr_ms": 60000.0 / hr if hr else None, "qrs_ms": m.intervals.qrs_ms,
-            "qt_ms": m.intervals.qt_ms, "pr_ms": m.intervals.pr_ms}
+            "qt_ms": m.intervals.qt_ms, "pr_ms": m.intervals.pr_ms, "pr_multi_ms": m.pr_multilead_ms,
+            "pr_std_ms": m.pr_std_ms, "p_onset_ratio": m.p_onset_ratio, "pr_beats": m.pr_beats,
+            "pr_dwt": any(n.startswith("PR from dwt") for n in m.notes)}
 
 
 def _pick_output(result: ScanResult, lead: str, kind: str) -> Trace | None:
@@ -188,6 +196,9 @@ def score_case(case: Case, digitizer: str, run, reference: dict, cfg: dict) -> C
     except Exception as exc:  # a broken signal may break the delineator: counts as unmeasured
         dig = {k: None for k in reference}
         cm.error = f"measure: {type(exc).__name__}: {exc}"[:200]
+    cm.pr_ms, cm.pr_multi_ms = dig.get("pr_ms"), dig.get("pr_multi_ms")
+    cm.pr_std_ms, cm.p_onset_ratio = dig.get("pr_std_ms"), dig.get("p_onset_ratio")
+    cm.pr_beats, cm.pr_dwt = dig.get("pr_beats"), dig.get("pr_dwt")
     for k in INTERVALS:
         ref, got = reference.get(k), dig.get(k)
         if ref is None:
@@ -197,6 +208,7 @@ def score_case(case: Case, digitizer: str, run, reference: dict, cfg: dict) -> C
             cm.interval_err_ms[k] = None
         else:
             cm.interval_err_ms[k] = round(abs(got - ref), 1)
-    core = [cm.interval_err_ms.get(k) for k in ("rr_ms", "qrs_ms", "qt_ms") if k in cm.interval_err_ms]
+    core = [cm.interval_err_ms.get(k) for k in acc.get("bad_intervals", ("rr_ms", "qrs_ms", "qt_ms"))
+            if k in cm.interval_err_ms]
     cm.bad = any(v is None or v > acc["bad_interval_ms"] for v in core) if core else True
     return cm

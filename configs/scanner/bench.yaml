@@ -91,6 +91,7 @@ acceptance:
   r_amp_err_mv_median: 0.1
   time_s_max: 10
   bad_interval_ms: 20           # a case is "bad" when any interval error exceeds this ...
+  bad_intervals: [rr_ms, qrs_ms, qt_ms, pr_ms]   # ... among these (PR since SD-110), or one is unmeasured where the truth has it
   unflagged_bad_max: 0.0        # ... and the share of bad cases returned as "ok" must tend to 0
 
 metrics:

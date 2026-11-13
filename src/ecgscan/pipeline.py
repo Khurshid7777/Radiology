@@ -60,7 +60,13 @@ from ecgscan.layout.registry import layout_name as registry_name
 from ecgscan.layout.rows import long_stroke_mask
 from ecgscan.segmentation import TraceMask, make_segmenter
 from ecgscan.segmentation.grid_lines import drop_grid_lines, drop_labels, drop_red
-from ecgscan.validate import limb_consistency, measurement_check, rhythm_check, rhythm_inconsistent
+from ecgscan.validate import (
+    limb_consistency,
+    measurement_check,
+    pr_unstable,
+    rhythm_check,
+    rhythm_inconsistent,
+)
 from ecgscan.vectorize import read_panels
 
 
@@ -846,7 +852,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
                  overall=overall, ppm=raw_ppm, contrast=contrast)
     res.quality.limb_lead_consistency = cons.score
     hump_scale = val.get("qrs_hump_scale")
-    if status == "ok" and (val.get("beat_check", True) or hump_scale):
+    pr_ratio = val.get("pr_min_onset_ratio")
+    if status == "ok" and (val.get("beat_check", True) or hump_scale or pr_ratio is not None):
         check = measurement_check(res, hump_scale=hump_scale)
         if val.get("beat_check", True) and check.beats_agree is False:
             # Accurate traces can still give a wrong rhythm downstream (CardioLens D130): the
@@ -857,6 +864,10 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
                 and abs(check.qrs_ms_low_hump - check.qrs_ms) > val.get("qrs_unstable_ms", 20.0)):
             # The QRS end hinges on a small terminal R' (SD-057): exact traces, unstable width.
             res.warnings = sorted({*res.warnings, "QRS_UNSTABLE"})
+            res.status = "needs_confirmation"
+        if pr_unstable(check, pr_ratio):
+            # SD-110: the PR rests on fallback P onsets: RR, QRS and QT right, PR off by 40-60 ms.
+            res.warnings = sorted({*res.warnings, "PR_UNSTABLE"})
             res.status = "needs_confirmation"
     t = tick("validate", t)
     if artifacts_dir is not None:

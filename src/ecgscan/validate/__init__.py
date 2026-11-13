@@ -145,6 +145,8 @@ class MeasurementCheck:
     beats_agree: bool | None = None          # its final beats match the page columns'
     qrs_ms: float | None = None              # its QRS width
     qrs_ms_low_hump: float | None = None     # the same with the R' hump threshold lowered
+    pr_ms: float | None = None               # its PR interval ...
+    p_onset_ratio: float | None = None       # ... and the share of beats whose P onset it refined (SD-110)
 
 
 def measurement_check(result, *, hump_scale: float | None = None) -> MeasurementCheck:
@@ -171,11 +173,21 @@ def measurement_check(result, *, hump_scale: float | None = None) -> Measurement
                          target_sampling_rate_hz=pp.target_sampling_rate_hz)
         m = measure(sig)
         out.beats_agree, out.qrs_ms = m.page_beat_agreement, m.intervals.qrs_ms
+        out.pr_ms, out.p_onset_ratio = m.intervals.pr_ms, m.p_onset_ratio
         if hump_scale is not None and out.qrs_ms is not None:
             out.qrs_ms_low_hump = measure(sig, qrs_hump_fraction=QRS_HUMP_FRACTION * hump_scale).intervals.qrs_ms
     except ValueError:
         pass
     return out
+
+
+def pr_unstable(check: MeasurementCheck, min_onset_ratio: float | None) -> bool:
+    """PR_UNSTABLE (SD-110): CardioLens gives a PR, but it refined the P onset on fewer than
+    ``min_onset_ratio`` of the beats, so the PR rests on its fallback (wavelet) onsets. On digitised
+    pages that is where a PR off by 40-60 ms came out as ``ok`` with RR, QRS and QT all right."""
+    if min_onset_ratio is None or check.pr_ms is None:
+        return False
+    return (check.p_onset_ratio or 0.0) < min_onset_ratio
 
 
 def beats_agree(result) -> bool | None:
