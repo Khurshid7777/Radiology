@@ -530,23 +530,19 @@ def _best_corr(x: np.ndarray, tmpl: np.ndarray, shift: int) -> float:
     return best
 
 
-def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tuple[int, int, float]]:
-    """Runs of >= 3 consecutive premature, abnormally shaped beats at >= 100/min.
-
-    Returns ``(first_beat, n_beats, rate_per_min)`` per run. The template is built
-    from beats that are not premature, so a run that is a large share of the strip
-    does not become the template itself; a run must be followed by a beat (a run
-    cut by the strip end is indistinguishable from end-of-strip filter artefact).
-    """
+def template_correlation(sig, rpeaks, fs: float, recovered=None):
+    """Per beat, the mean correlation (run leads) to the template of the not-premature beats; with the
+    strip's RR intervals and the reference RR. ``None`` when the strip is too short (D264: shared by
+    the run detector and the abnormal-beat share)."""
     rp = np.asarray(rpeaks, dtype=int)
     if rp.size < 6:
-        return []
+        return None
     leads = [n for n in _RUN_LEADS if n in sig.lead_names] or list(sig.lead_names[:3])
     half = int(_PVC_HALF_S * fs)
     n_samples = sig.signal.shape[1]
     ok = [i for i, r in enumerate(rp) if r - half >= 0 and r + half < n_samples]
     if len(ok) < 5:
-        return []
+        return None
     segs = {n: np.stack([sig.lead(n)[rp[i] - half:rp[i] + half].astype(float) for i in ok])
             for n in leads}
     rr = np.diff(rp).astype(float)
@@ -567,6 +563,29 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
                 for n in leads]))
             if r in rec or shifted >= _RUN_SHIFTED_RESCUE_MIN:
                 corr[i] = max(corr[i], shifted)
+    return rp, rr, med, corr
+
+
+def abnormal_beat_share(sig, rpeaks, fs: float, recovered=None) -> float | None:
+    """D264: share of beats shaped unlike the template (corr <= the run threshold)."""
+    out = template_correlation(sig, rpeaks, fs, recovered)
+    if out is None:
+        return None
+    return float(np.mean(out[3] <= _RUN_CORR_MAX))
+
+
+def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tuple[int, int, float]]:
+    """Runs of >= 3 consecutive premature, abnormally shaped beats at >= 100/min.
+
+    Returns ``(first_beat, n_beats, rate_per_min)`` per run. The template is built
+    from beats that are not premature, so a run that is a large share of the strip
+    does not become the template itself; a run must be followed by a beat (a run
+    cut by the strip end is indistinguishable from end-of-strip filter artefact).
+    """
+    out_tc = template_correlation(sig, rpeaks, fs, recovered)
+    if out_tc is None:
+        return []
+    rp, rr, med, corr = out_tc
     abnormal = corr <= _RUN_CORR_MAX
     out = []
     j = 0
