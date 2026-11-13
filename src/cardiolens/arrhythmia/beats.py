@@ -513,6 +513,10 @@ _RUN_RECOVERED_SHIFT_MS = 40.0
 # shifted match is near-perfect: the same shape displaced, not a wide complex that
 # partly lines up (a plain shift for every beat cost INCART VT 46 -> 42, D87).
 _RUN_SHIFTED_RESCUE_MIN = 0.95
+# D265 (tuned in D264 on MIT-BIH + even INCART): a run at the strip's start or end (no beat before or
+# after it): at least this many abnormal beats, inner RR <= this share of the reference RR. 0 turns it off.
+_RUN_EDGE_MIN_BEATS = 4
+_RUN_EDGE_FASTER = 0.80
 
 
 def _best_corr(x: np.ndarray, tmpl: np.ndarray, shift: int) -> float:
@@ -582,6 +586,13 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
                      or float(np.mean(rr[j:e - 1])) <= _RUN_PRE_INNER * rr[j - 2])
                 and float(np.mean(inner_ms)) <= _RUN_MAX_RR_MS
                 and (not _RUN_FASTER_THAN_REF or float(np.mean(rr[j:e - 1])) <= _RUN_FASTER_THAN_REF * med)):
+            out.append((j, e - j, round(60000.0 / float(np.mean(inner_ms)))))
+        elif (_RUN_EDGE_MIN_BEATS and e - j >= _RUN_EDGE_MIN_BEATS and (j < 2 or e >= len(rp))
+                and float(corr[j:e].min()) <= _RUN_CORR_CORE
+                and float(np.mean(inner_ms)) <= _RUN_MAX_RR_MS
+                and float(np.mean(rr[j:e - 1])) <= _RUN_EDGE_FASTER * med):
+            # D265: a run cut by the strip's start or end has no beat before / after it to judge its
+            # prematurity; it counts when it is longer and clearly faster than the rhythm instead.
             out.append((j, e - j, round(60000.0 / float(np.mean(inner_ms)))))
         j = e
     return out

@@ -83,8 +83,9 @@ def longest_run(beats: list[tuple[int, str]], fs: float) -> tuple[int, float | N
     return best
 
 
-def windows(path: str):
-    """(class, s0, truth) for one record, capped per class."""
+def windows(path: str, fresh: bool = False):
+    """(class, s0, truth) for one record, capped per class; ``fresh``: the next windows after the first
+    ``CAP`` of each class (D265: windows no earlier run saw)."""
     import wfdb
 
     ann = wfdb.rdann(path, "atr")
@@ -104,12 +105,14 @@ def windows(path: str):
         if r != "VT":
             continue
         for s0 in range(a, b - w + 1, w):
-            if cnt["vt_full"] >= CAP["vt_full"]:
+            if cnt["vt_full"] >= CAP["vt_full"] * (2 if fresh else 1):
                 break
             sym = [y for s, y in beats if s0 <= s < s0 + w]
             v = [s for s, y in beats if s0 <= s < s0 + w and y == "V"]
             hr = 60.0 * fs / float(np.median(np.diff(v))) if len(v) >= 3 else None
             cnt["vt_full"] += 1
+            if fresh and cnt["vt_full"] <= CAP["vt_full"]:
+                continue
             out.append(("vt_full", s0, {"v": sym.count("V"), "n": len(sym), "run": max_v_run(sym), "vt_hr": hr}))
     for s0 in range(int(fs), n_all - w, w):
         sym = [y for s, y in beats if s0 <= s < s0 + w]
@@ -123,9 +126,11 @@ def windows(path: str):
             kind = "control"
         else:
             continue
-        if cnt[kind] >= CAP[kind]:
+        if cnt[kind] >= CAP[kind] * (2 if fresh else 1):
             continue
         cnt[kind] += 1
+        if fresh and cnt[kind] <= CAP[kind]:
+            continue
         _, rate = longest_run([(s, y) for s, y in beats if s0 <= s < s0 + w], fs)
         out.append((kind, s0, {"v": sym.count("V"), "n": len(sym), "run": run, "run_rate": rate,
                                "rhythm": sorted(rh)}))
@@ -141,7 +146,7 @@ def run(a) -> None:
     rows = []
     for db, path in paths[k::nsh]:
         try:
-            wins, fs = windows(path)
+            wins, fs = windows(path, a.fresh)
         except Exception as ex:
             print(f"skip {path}: {ex}", file=sys.stderr)
             continue
@@ -221,6 +226,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--shard", default="0/1")
+    ap.add_argument("--fresh", action="store_true", help="D265: the windows after the first CAP per class")
     ap.add_argument("--split", default="", help="tune / accept / check: only that part (D264)")
     run(ap.parse_args())
 
