@@ -58,6 +58,8 @@ class CaseMetrics:
     gain_rel_err: float | None = None
     px_per_mm_rel_err: float | None = None
     bad: bool | None = None      # any RR/QRS/QT error above the bad-interval threshold (or unmeasured)
+    pr_ms: float | None = None           # R7 (SD-110): the PR measured on the output (single-lead onset) ...
+    pr_multi_ms: float | None = None     # ... and by the multi-lead onset (CardioLens D250): the stability pair
 
 
 def _centre(x: np.ndarray) -> np.ndarray:
@@ -128,7 +130,7 @@ def clinical_measurements(result: ScanResult) -> dict[str, float | None]:
     m = measure(sig)
     hr = m.heart_rate_bpm
     return {"heart_rate_bpm": hr, "rr_ms": 60000.0 / hr if hr else None, "qrs_ms": m.intervals.qrs_ms,
-            "qt_ms": m.intervals.qt_ms, "pr_ms": m.intervals.pr_ms}
+            "qt_ms": m.intervals.qt_ms, "pr_ms": m.intervals.pr_ms, "pr_multi_ms": m.pr_multilead_ms}
 
 
 def _pick_output(result: ScanResult, lead: str, kind: str) -> Trace | None:
@@ -188,6 +190,7 @@ def score_case(case: Case, digitizer: str, run, reference: dict, cfg: dict) -> C
     except Exception as exc:  # a broken signal may break the delineator: counts as unmeasured
         dig = {k: None for k in reference}
         cm.error = f"measure: {type(exc).__name__}: {exc}"[:200]
+    cm.pr_ms, cm.pr_multi_ms = dig.get("pr_ms"), dig.get("pr_multi_ms")
     for k in INTERVALS:
         ref, got = reference.get(k), dig.get(k)
         if ref is None:
