@@ -157,8 +157,14 @@ def run(a) -> None:
             try:
                 res = run_pipeline(load(path, s0, int(WIN_S * fs)), mode="A")
                 m = res.measurements
+                from cardiolens.layer3_measure.p_chain import P_CHAIN_LEADS, p_chain
+
+                s = res.signal
                 row.update(codes=sorted(res.findings.codes()), alerts=[x.code for x in res.safety.alerts],
-                           hr=m.heart_rate_bpm, qrs=m.intervals.qrs_ms)
+                           hr=m.heart_rate_bpm, qrs=m.intervals.qrs_ms,
+                           pc=p_chain({ln: s.lead(ln) for ln in P_CHAIN_LEADS if ln in s.lead_names},
+                                      m.r_peaks_samples or [], s.sampling_rate_hz, m.intervals.qrs_ms,
+                                      m.intervals.qt_ms))
             except Exception as ex:
                 row["error"] = f"{type(ex).__name__}: {str(ex)[:80]}"
             rows.append(row)
