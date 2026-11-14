@@ -203,7 +203,14 @@ def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: flo
     from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, prepared
 
     with prepared(path) as p:
-        sig = _digitize_photo(p, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+        try:
+            sig = _digitize_photo(p, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+        except ValueError:
+            if str(p) == str(path):
+                raise
+            # D275: the enlarged copy was refused (a fine grid can be lost by the enlargement, owner's Medius
+            # photo: GRID_NOT_FOUND); the picture as it is is read once more and its answer is the one shown.
+            return _digitize_photo(path, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
         if str(p) != str(path):
             sig.provenance.notes.append(ENLARGED_NOTE)
         return sig
