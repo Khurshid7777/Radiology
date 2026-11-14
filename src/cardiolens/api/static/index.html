@@ -1535,6 +1535,7 @@ $('consent_ok').addEventListener('click', () => {
   if (!$('consent_chk').checked) return;
   try { localStorage.setItem(TERMS_KEY, 'yes'); } catch (e) {}
   $('consent').hidden = true; document.querySelector('.wrap').inert = false;
+  document.dispatchEvent(new Event('cardiovision-consent'));
 });
 showConsent();
 // D272: light by default, dark by the button.
@@ -1551,7 +1552,8 @@ applyLang();
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
-loadCases();
+// D272: even the list of demo cases waits for the consent.
+if (termsAccepted()) loadCases(); else document.addEventListener('cardiovision-consent', loadCases, { once: true });
 loadHealth();
 </script>
 </body>
