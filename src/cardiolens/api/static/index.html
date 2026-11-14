@@ -20,11 +20,22 @@
     --grid-1: color-mix(in srgb, var(--steel-300) 22%, transparent);
     --grid-5: color-mix(in srgb, var(--steel-300) 40%, transparent);
   }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#0a172b; --card:#13233b; --ink:#e7eef4; --muted:#a0bdcf;
+  /* D272: light by default; dark only when the user picks it (the theme button), not by the device setting. */
+  :root[data-theme="dark"] { --bg:#0a172b; --card:#13233b; --ink:#e7eef4; --muted:#a0bdcf;
       --line:#26395a; --brand:#a0bdcf; --brand2:#8cc3ef; --on-brand:#0a172b; --focus:#8cc3ef;
       --ok:#7bc67e; --ok-ink:#7bc67e; --warn:#f0b257; --crit:#ff8a95; }
-  }
+  /* D272: the consent gate — nothing on the page works until the terms are accepted. */
+  #consent { position:fixed; inset:0; z-index:1000; background:color-mix(in srgb, var(--navy-900) 82%, transparent);
+    display:flex; align-items:center; justify-content:center; padding:16px; }
+  #consent[hidden] { display:none; }
+  #consent .box { background:var(--card); color:var(--ink); border-radius:12px; max-width:640px; width:100%;
+    max-height:90vh; overflow:auto; padding:22px; border:1px solid var(--line); }
+  #consent h2 { margin:0 0 10px; font-size:19px; }
+  #consent li { margin:6px 0; }
+  #consent label { display:flex; gap:10px; align-items:flex-start; margin:14px 0; font-weight:600; }
+  #consent input[type=checkbox] { width:22px; height:22px; flex:none; margin-top:2px; }
+  .legal { color:var(--muted); font-size:12px; padding:14px 16px 22px; max-width:1100px; margin:0 auto; }
+  .legal b { color:var(--ink); }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important;
       transition-duration: 1ms !important; scroll-behavior: auto !important; }
@@ -257,9 +268,25 @@
   <svg class="pulse" viewBox="0 0 96 24" aria-hidden="true" focusable="false"><path d="M0 14 H30 L34 14 L37 5 L41 21 L45 9 L48 14 H96"/></svg>
   <h1>CardioVision</h1>
   <span class="sub">заключение по фото ЭКГ · поддержка решений врача</span>
-  <span class="llm" id="llm" title="Кто пишет текст заключения (/health)">Текст заключения: …</span>
-  <span class="langsw"><button type="button" id="lang_ru">RU</button><button type="button" id="lang_uz">UZ</button></span>
+  <span class="langsw" style="margin-left:auto"><button type="button" id="theme_btn" aria-label="Светлая / тёмная тема">Тема</button><button type="button" id="lang_ru">RU</button><button type="button" id="lang_uz">UZ</button></span>
 </header>
+
+<div id="consent" role="dialog" aria-modal="true" aria-labelledby="consent_h">
+  <div class="box">
+    <h2 id="consent_h">Условия использования CardioVision</h2>
+    <div>Перед началом работы прочитайте и подтвердите:</div>
+    <ul>
+      <li>CardioVision — вспомогательный инструмент поддержки решений врача. Результат — это не медицинское заключение и не диагноз.</li>
+      <li>Система может ошибаться: пропустить находку или показать ложную. Каждый результат врач обязан проверить по исходной записи ЭКГ.</li>
+      <li>Решения о диагнозе, лечении и тактике принимает только врач. Ответственность за эти решения несёт врач и медицинская организация.</li>
+      <li>Нельзя принимать клинические решения только на основании результата CardioVision. При угрозе жизни действуйте по клиническим протоколам, не дожидаясь разбора.</li>
+      <li>Сервис предназначен для медицинских работников. Он не предназначен для самодиагностики пациентами.</li>
+      <li>Не загружайте данные, по которым можно установить личность пациента (ФИО, номер карты).</li>
+    </ul>
+    <label><input type="checkbox" id="consent_chk"><span>Я медицинский работник, прочитал(а) условия и принимаю их</span></label>
+    <button type="button" id="consent_ok" disabled>Принимаю</button>
+  </div>
+</div>
 
 <div class="wrap">
   <ol id="stepper" aria-label="Шаги">
@@ -494,6 +521,8 @@
     <button type="button" id="camdone">Готово</button>
   </div>
 </div>
+<div class="legal"><b>Не является медицинским заключением.</b> CardioVision — инструмент поддержки решений врача; результат может быть ошибочным и требует проверки по записи ЭКГ. Окончательное решение принимает врач.</div>
+
 <script>
 // D200: the page in Uzbek (Latin). Russian phrase -> Uzbek; a phrase missing here stays Russian.
 // A draft translation: to be read by a native speaker before wide use.
@@ -522,7 +551,19 @@ const UZ = {
   'Служебное': 'Xizmat uchun', 'Когда начались симптомы': 'Belgilar qachon boshlangan',
   'заключение по фото ЭКГ · поддержка решений врача': 'EKG surati bo\'yicha xulosa · shifokor qarorini qo\'llab-quvvatlash',
   'Кто пишет текст заключения (/health)': 'Xulosa matnini kim yozadi (/health)',
-  'Текст заключения: …': 'Xulosa matni: …',
+  'Условия использования CardioVision': 'CardioVision dan foydalanish shartlari',
+  'Перед началом работы прочитайте и подтвердите:': 'Ishni boshlashdan oldin o\'qing va tasdiqlang:',
+  'CardioVision — вспомогательный инструмент поддержки решений врача. Результат — это не медицинское заключение и не диагноз.': 'CardioVision — shifokor qarorlarini qo\'llab-quvvatlovchi yordamchi vosita. Natija tibbiy xulosa ham, tashxis ham emas.',
+  'Система может ошибаться: пропустить находку или показать ложную. Каждый результат врач обязан проверить по исходной записи ЭКГ.': 'Tizim xato qilishi mumkin: topilmani o\'tkazib yuborishi yoki noto\'g\'ri ko\'rsatishi mumkin. Har bir natijani shifokor asl EKG yozuvi bo\'yicha tekshirishi shart.',
+  'Решения о диагнозе, лечении и тактике принимает только врач. Ответственность за эти решения несёт врач и медицинская организация.': 'Tashxis, davolash va taktika bo\'yicha qarorlarni faqat shifokor qabul qiladi. Bu qarorlar uchun javobgarlik shifokor va tibbiy muassasa zimmasida.',
+  'Нельзя принимать клинические решения только на основании результата CardioVision. При угрозе жизни действуйте по клиническим протоколам, не дожидаясь разбора.': 'Faqat CardioVision natijasi asosida klinik qaror qabul qilish mumkin emas. Hayotga xavf bo\'lsa, tahlilni kutmasdan klinik protokollar bo\'yicha harakat qiling.',
+  'Сервис предназначен для медицинских работников. Он не предназначен для самодиагностики пациентами.': 'Xizmat tibbiyot xodimlari uchun mo\'ljallangan. U bemorlarning o\'z-o\'ziga tashxis qo\'yishi uchun emas.',
+  'Не загружайте данные, по которым можно установить личность пациента (ФИО, номер карты).': 'Bemor shaxsini aniqlash mumkin bo\'lgan ma\'lumotlarni (F.I.Sh., karta raqami) yuklamang.',
+  'Я медицинский работник, прочитал(а) условия и принимаю их': 'Men tibbiyot xodimiman, shartlarni o\'qidim va qabul qilaman',
+  'Принимаю': 'Qabul qilaman',
+  'Тема': 'Mavzu',
+  'Не является медицинским заключением.': 'Tibbiy xulosa emas.',
+  'CardioVision — инструмент поддержки решений врача; результат может быть ошибочным и требует проверки по записи ЭКГ. Окончательное решение принимает врач.': 'CardioVision — shifokor qarorlarini qo\'llab-quvvatlash vositasi; natija xato bo\'lishi mumkin va EKG yozuvi bo\'yicha tekshirishni talab qiladi. Yakuniy qarorni shifokor qabul qiladi.',
   'Снимок или файл ЭКГ': 'EKG surati yoki fayli',
   'Нажмите, чтобы выбрать фото': 'Suratni tanlash uchun bosing',
   'с телефона или компьютера — или перетащите сюда': 'telefon yoki kompyuterdan — yoki shu yerga torting',
@@ -668,6 +709,8 @@ function keyStatus() {
   if (!has) $('svc').open = true;
 }
 function authed(url, opts = {}) {
+  // D272: no request leaves the page before the terms are accepted.
+  if (typeof termsAccepted === 'function' && !termsAccepted()) { showConsent(); return Promise.reject(new Error('terms not accepted')); }
   return fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-API-Key': $('apikey').value.trim() } });
 }
 async function blobUrl(url) {
@@ -949,23 +992,7 @@ async function loadCases() {
   } catch (e) {}
 }
 
-const PROVIDER_RU = { local: 'локальная модель', claude: 'Claude', stub: 'офлайн-шаблон' };
-const PROVIDER_UZ = { local: 'mahalliy model', claude: 'Claude', stub: 'oflayn shablon' };
-function providerLabel(name, model) {
-  return (L(PROVIDER_RU[name], PROVIDER_UZ[name]) || name) + (model ? ' · ' + model : '');
-}
-async function loadHealth() {
-  try {
-    const r = await fetch('/health'); const d = await r.json(); const l = d.llm || {};
-    const el = $('llm'); el.className = 'llm ' + (l.active || 'stub');
-    const ml = d.ml || {};
-    el.textContent = L('Текст заключения: ', 'Xulosa matni: ') + providerLabel(l.active, l.model) +
-      L(' · анализ: ', ' · tahlil: ') + (ml.model === 'loaded' ? L('правила + обученная модель', 'qoidalar + o\'qitilgan model')
-                                                            : L('правила (модель не загружена)', 'qoidalar (model yuklanmagan)'));
-    el.title = L('Анализ ЭКГ делает CardioVision; эта модель только пишет текст по его находкам',
-                 'EKG tahlilini CardioVision bajaradi; bu model faqat uning topilmalari bo\'yicha matn yozadi');
-  } catch (e) { $('llm').textContent = L('Текст заключения: ?', 'Xulosa matni: ?'); }
-}
+async function loadHealth() { /* D272: the model badge is gone from the page; /health stays for monitoring. */ }
 
 // What the page says while the server works (D210 P2). The server reports no stages, so none are
 // invented: one sentence, the elapsed seconds, and after 10 s that it takes longer than usual. The
@@ -1100,8 +1127,7 @@ function render(d, redraw = false) {
   $('cl_uz').setAttribute('aria-pressed', String(concLang === 'uz'));
   $('concl_uz').textContent = L(d.conclusion_uz, d.conclusion_ru);
   const it = d.interpretation;
-  $('narr_src').textContent = L('Текст: ', 'Matn: ') + providerLabel(it.provider, it.provider_model) +
-    L(' · каждое утверждение проверено по находкам', ' · har bir da\'vo topilmalar bo\'yicha tekshirilgan');
+  $('narr_src').textContent = L('Каждое утверждение текста проверено по находкам', 'Matndagi har bir da\'vo topilmalar bo\'yicha tekshirilgan');
   // A photo the scanner read (D163): the traces it read, drawn over the page.
   $('overlay_box').classList.toggle('hidden', !d.overlay_available);
   $('overlay').removeAttribute('src');
@@ -1473,6 +1499,29 @@ function setLang(l) {
   $('keyhint').textContent = t(hasKey ? 'Ключ сохранён в этом браузере.' : 'Без ключа клиники анализ не запустится.');
   if (lastData) render(lastData, true);
 }
+// D272: the consent gate. The acceptance is kept in this browser with the terms' version; a new version asks again.
+const TERMS_KEY = 'cardiovision_terms_v1';
+function termsAccepted() { try { return localStorage.getItem(TERMS_KEY) === 'yes'; } catch (e) { return false; } }
+function showConsent() {
+  const ok = termsAccepted();
+  $('consent').hidden = ok;
+  document.querySelector('.wrap').inert = !ok;
+}
+$('consent_chk').addEventListener('change', () => { $('consent_ok').disabled = !$('consent_chk').checked; });
+$('consent_ok').addEventListener('click', () => {
+  if (!$('consent_chk').checked) return;
+  try { localStorage.setItem(TERMS_KEY, 'yes'); } catch (e) {}
+  $('consent').hidden = true; document.querySelector('.wrap').inert = false;
+});
+showConsent();
+// D272: light by default, dark by the button.
+function setTheme(th) {
+  if (th === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  try { localStorage.setItem('cardiovision_theme_v1', th); } catch (e) {}
+}
+try { if (localStorage.getItem('cardiovision_theme_v1') === 'dark') setTheme('dark'); } catch (e) {}
+$('theme_btn').addEventListener('click', () => setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
 $('lang_ru').addEventListener('click', () => setLang('ru'));
 $('lang_uz').addEventListener('click', () => setLang('uz'));
 applyLang();
