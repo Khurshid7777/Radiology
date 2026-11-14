@@ -99,9 +99,10 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_BOT_ALLOWED: ${{ secrets.TELEGRAM_BOT_ALLOWED }}
+          AGENTS_API_KEY: ${{ secrets.AGENTS_API_KEY }}
         run: |
-          printf 'ANTHROPIC_API_KEY=%s\nTELEGRAM_BOT_TOKEN=%s\nTELEGRAM_BOT_ALLOWED=%s\n' \
-            "$ANTHROPIC_API_KEY" "$TELEGRAM_BOT_TOKEN" "$TELEGRAM_BOT_ALLOWED" \
+          printf 'ANTHROPIC_API_KEY=%s\nTELEGRAM_BOT_TOKEN=%s\nTELEGRAM_BOT_ALLOWED=%s\nAGENTS_API_KEY=%s\n' \
+            "$ANTHROPIC_API_KEY" "$TELEGRAM_BOT_TOKEN" "$TELEGRAM_BOT_ALLOWED" "$AGENTS_API_KEY" \
             | ssh server "cd $APP_DIR && $SUDO bash deploy/server_env.sh $DOMAIN"
           # The bot runs only when its token is set (compose profile "bot", D161).
           if [ "${{ secrets.TELEGRAM_BOT_TOKEN != '' }}" = "true" ]; then echo "PROFILES=--profile bot" >> "$GITHUB_ENV"; else echo "PROFILES=" >> "$GITHUB_ENV"; fi
