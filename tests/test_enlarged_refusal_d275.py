@@ -18,10 +18,25 @@ class _Prep:
         return False
 
 
-def _patch(monkeypatch, enlarged, reader):
+class _Reduced:
+    def __init__(self, small):
+        self.small = small
+
+    def __call__(self, src):
+        return self
+
+    def __enter__(self):
+        return self.small
+
+    def __exit__(self, *a):
+        return False
+
+
+def _patch(monkeypatch, enlarged, reader, small=None):
     import cardiolens.layer1_ingestion.image_prep as IP
 
     monkeypatch.setattr(IP, "prepared", _Prep("orig.png", enlarged))
+    monkeypatch.setattr(IP, "reduced", _Reduced(small))
     monkeypatch.setattr(A, "_digitize_photo", reader)
 
 
@@ -58,3 +73,26 @@ def test_not_enlarged_picture_is_read_once(monkeypatch):
     with pytest.raises(ValueError):
         A.digitize_photo("orig.png")
     assert calls == ["orig.png"]
+
+
+def test_large_refused_picture_is_read_from_a_reduced_copy(monkeypatch):
+    """A small photo stretched to 3000 x 4000: refused as it is, read from the reduced copy."""
+    calls = []
+
+    def reader(path, **kw):
+        calls.append(path)
+        if path == "reduced.png":
+            return "READ-REDUCED"
+        raise ValueError("grid not found")
+
+    _patch(monkeypatch, False, reader, small="reduced.png")
+    assert A.digitize_photo("orig.png") == "READ-REDUCED" and calls == ["orig.png", "reduced.png"]
+
+
+def test_all_refused_shows_the_last_refusal(monkeypatch):
+    def reader(path, **kw):
+        raise ValueError({"ENLARGED.png": "enlarged", "orig.png": "original", "reduced.png": "reduced"}[path] + " refused")
+
+    _patch(monkeypatch, True, reader, small="reduced.png")
+    with pytest.raises(ValueError, match="reduced refused"):
+        A.digitize_photo("orig.png")

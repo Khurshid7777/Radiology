@@ -200,17 +200,26 @@ def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: flo
     """A small single picture is enlarged first (D219, ``image_prep``); then ``_digitize_photo``."""
     if isinstance(path, list):
         return _digitize_photo(path, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
-    from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, prepared
+    from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, prepared, reduced
 
+    kw = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv}
     with prepared(path) as p:
         try:
-            sig = _digitize_photo(p, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+            sig = _digitize_photo(p, **kw)
         except ValueError:
-            if str(p) == str(path):
-                raise
-            # D275: the enlarged copy was refused (a fine grid can be lost by the enlargement, owner's Medius
-            # photo: GRID_NOT_FOUND); the picture as it is is read once more and its answer is the one shown.
-            return _digitize_photo(path, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+            # D275: a refusal is not final. The enlarged copy lost a fine grid (owner's Medius photo,
+            # GRID_NOT_FOUND): the picture is read as it is; a large picture refused as it is (a small photo
+            # stretched in an editor to 3000 x 4000) is read once more from a reduced copy. The last
+            # refusal is the one shown.
+            if str(p) != str(path):
+                try:
+                    return _digitize_photo(path, **kw)
+                except ValueError as again:
+                    refusal = again
+            with reduced(path) as small:
+                if small is None:
+                    raise refusal
+                return _digitize_photo(small, **kw)
         if str(p) != str(path):
             sig.provenance.notes.append(ENLARGED_NOTE)
         return sig

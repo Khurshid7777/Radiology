@@ -52,3 +52,31 @@ def prepared(path: str | Path, prep: dict | None = None):
         out = Path(td) / (Path(path).stem + "_prep.png")
         big.save(out)
         yield out
+
+
+REDUCED_LONG_PX = 1280        # D275: the size of a messenger copy, which the scanner's coarse mode reads
+REDUCE_FROM_PX = 1500         # only a picture longer than this is reduced
+
+
+@contextmanager
+def reduced(path: str | Path):
+    """D275: a reduced temporary copy (long side 1280 px) of a large picture, or None. A small photo stretched in an
+    editor to 3000 x 4000 carries no more detail, and its fine grid is blurred: the scanner's coarse mode (only for
+    images up to 2000 px) reads the reduced copy where it refuses the stretched one."""
+    from PIL import Image
+
+    try:
+        im = Image.open(path)
+        im.load()
+    except Exception:
+        yield None
+        return
+    if max(im.size) <= REDUCE_FROM_PX:
+        yield None
+        return
+    k = REDUCED_LONG_PX / max(im.size)
+    small = im.convert("RGB").resize((round(im.width * k), round(im.height * k)), Image.LANCZOS)
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td) / (Path(path).stem + "_reduced.png")
+        small.save(out)
+        yield out
