@@ -106,6 +106,18 @@ def index() -> str:
     return (_STATIC / "index.html").read_text(encoding="utf-8")
 
 
+_FONTS = {p.name for p in (_STATIC / "fonts").glob("*.woff2")}
+
+
+@app.get("/fonts/{name}")
+def font(name: str) -> FileResponse:
+    """D273: the brand fonts (Manrope, Sora; OFL-1.1) served from this server — no third-party request."""
+    if name not in _FONTS:
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(_STATIC / "fonts" / name, media_type="font/woff2",
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
 @app.get("/health")
 def health() -> dict:
     """Liveness plus the Layer-6 narrative source the next analysis will use (TZ §12) and

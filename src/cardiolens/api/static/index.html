@@ -5,25 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CardioVision — заключение по ЭКГ</title>
 <meta name="description" content="CardioVision: заключение по фото или файлу ЭКГ — поддержка решений врача, не заменяет врача.">
-<meta name="theme-color" content="#0a172b">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a172b'/%3E%3Cpath d='M3 18h8l2-7 3 13 3-9 2 3h8' fill='none' stroke='%23a0bdcf' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#070D1A">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23070D1A'/%3E%3Cpath d='M21.5 11.2a7 7 0 1 0 0 9.6' fill='none' stroke='%23FB7185' stroke-width='4.6' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
   /* D210 (UI P1): the brief's two-colour base — navy #0a172b and steel #a0bdcf; red only for what is
      critical; green / orange / red of the read traces are drawn by the server and not restyled here. */
+  /* D273: Vision AI brand book v1.0 — Deep Navy #070D1A, Signal Cyan #22D3EE, Prism Violet #8B5CF6, Mist #E6EDF7;
+     CardioVision module colour: Cardio Rose #FB7185 / #E11D48. Text: Manrope; Latin logotype: Sora. */
+  @font-face { font-family:"Manrope"; font-weight:200 800; font-display:swap;
+    src:url("/fonts/manrope-cyrillic-wght-normal.woff2") format("woff2"); unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116; }
+  @font-face { font-family:"Manrope"; font-weight:200 800; font-display:swap;
+    src:url("/fonts/manrope-latin-wght-normal.woff2") format("woff2"); }
+  @font-face { font-family:"Sora"; font-weight:300; font-display:swap; src:url("/fonts/sora-latin-300-normal.woff2") format("woff2"); }
+  @font-face { font-family:"Sora"; font-weight:500; font-display:swap; src:url("/fonts/sora-latin-500-normal.woff2") format("woff2"); }
   :root {
-    --navy-900: #0a172b; --navy-700: #1c2e4a; --navy-500: #3d5675; --steel-300: #a0bdcf;
-    --steel-100: #dce6ee; --steel-050: #f1f5f8;
-    --bg: var(--steel-050); --card: #ffffff; --ink: var(--navy-900); --muted: #4a5d74;
-    --line: var(--steel-100); --brand: var(--navy-900); --brand2: #1d5f99; --on-brand: #ffffff;
-    --ok: #2e7d32; --ok-ink: #256b29; --warn: #8a5a00; --crit: #b00020; --focus: #1d5f99;
+    --deep-navy:#070D1A; --cyan:#22D3EE; --violet:#8B5CF6; --mist:#E6EDF7; --rose:#FB7185; --rose-2:#E11D48;
+    /* earlier names kept for the rules below, now on brand values */
+    --navy-900: var(--deep-navy); --navy-700: #111a2e; --navy-500: #5b46c9; --steel-300: #b9c6dc;
+    --steel-100: #dbe3f0; --steel-050: #f4f6fb;
+    --bg: var(--steel-050); --card: #ffffff; --ink: var(--deep-navy); --muted: #4b5873;
+    --line: var(--steel-100); --brand: var(--deep-navy); --brand2: #6d3fe0; --on-brand: #ffffff;
+    --ok: #2e7d32; --ok-ink: #256b29; --warn: #8a5a00; --crit: #be123c; --focus: #6d3fe0;
     --dur-fast: 150ms; --dur-base: 250ms; --dur-slow: 400ms; --ease: cubic-bezier(.2,.7,.2,1);
     --grid-1: color-mix(in srgb, var(--steel-300) 22%, transparent);
     --grid-5: color-mix(in srgb, var(--steel-300) 40%, transparent);
   }
   /* D272: light by default; dark only when the user picks it (the theme button), not by the device setting. */
-  :root[data-theme="dark"] { --bg:#0a172b; --card:#13233b; --ink:#e7eef4; --muted:#a0bdcf;
-      --line:#26395a; --brand:#a0bdcf; --brand2:#8cc3ef; --on-brand:#0a172b; --focus:#8cc3ef;
-      --ok:#7bc67e; --ok-ink:#7bc67e; --warn:#f0b257; --crit:#ff8a95; }
+  :root[data-theme="dark"] { --bg:#070D1A; --card:#0c1426; --ink:#E6EDF7; --muted:#93a0b8;
+      --line:#1c2740; --brand:#22D3EE; --brand2:#22D3EE; --on-brand:#070D1A; --focus:#22D3EE;
+      --navy-500:#8B5CF6; --steel-300:#33415c; --steel-100:#1c2740;
+      --ok:#7bc67e; --ok-ink:#7bc67e; --warn:#f0b257; --crit:#FB7185; }
   /* D272: the consent gate — nothing on the page works until the terms are accepted. */
   #consent { position:fixed; inset:0; z-index:1000; background:color-mix(in srgb, var(--navy-900) 82%, transparent);
     display:flex; align-items:center; justify-content:center; padding:16px; }
@@ -44,11 +55,14 @@
   :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
   html { -webkit-text-size-adjust: 100%; }
   .num, table td, #meas { font-variant-numeric: tabular-nums; }
-  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  body { margin:0; font-family: Manrope, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
     background: var(--bg); color: var(--ink); line-height: 1.45; }
   header { background: var(--card); border-bottom: 1px solid var(--line);
     padding: 14px 16px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
-  header h1 { margin:0; font-size: 20px; }
+  header h1 { margin:0; font-size: 18px; font-family: Sora, Manrope, sans-serif; font-weight:300; letter-spacing:.22em; text-transform:uppercase; }
+  header h1 b { font-weight:500; }
+  header .mark { width:54px; height:28px; flex:none; align-self:center; }
+  button, input, select, textarea { font-family: inherit; }
   header .sub { color: var(--muted); font-size: 13px; }
   header .llm { margin-left:auto; font-size:12px; padding:3px 10px; border-radius:999px;
     border:1px solid var(--line); color:var(--muted); max-width:100%; overflow-wrap:anywhere; }
@@ -265,8 +279,17 @@
 </head>
 <body data-step="1">
 <header>
-  <svg class="pulse" viewBox="0 0 96 24" aria-hidden="true" focusable="false"><path d="M0 14 H30 L34 14 L37 5 L41 21 L45 9 L48 14 H96"/></svg>
-  <h1>CardioVision</h1>
+  <svg class="mark" viewBox="0 0 108 56" role="img" aria-label="CardioVision">
+    <defs>
+      <linearGradient id="lg_c" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FB7185"/><stop offset="1" stop-color="#E11D48"/></linearGradient>
+      <linearGradient id="lg_d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#CFFAFE"/><stop offset=".45" stop-color="#22D3EE"/><stop offset="1" stop-color="#0EA5C4"/></linearGradient>
+      <linearGradient id="lg_a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EDE9FE"/><stop offset=".45" stop-color="#A78BFA"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
+    </defs>
+    <path d="M39 15.5a17 17 0 1 0 0 25" fill="none" stroke="url(#lg_c)" stroke-width="11" stroke-linecap="round"/>
+    <path d="M64 12 L80 44" fill="none" stroke="url(#lg_d)" stroke-width="11" stroke-linecap="round"/>
+    <path d="M96 12 L80 44" fill="none" stroke="url(#lg_a)" stroke-width="11" stroke-linecap="round" opacity=".92"/>
+  </svg>
+  <h1>Cardio<b>Vision</b></h1>
   <span class="sub">заключение по фото ЭКГ · поддержка решений врача</span>
   <span class="langsw" style="margin-left:auto"><button type="button" id="theme_btn" aria-label="Светлая / тёмная тема">Тема</button><button type="button" id="lang_ru">RU</button><button type="button" id="lang_uz">UZ</button></span>
 </header>
@@ -1238,7 +1261,7 @@ function showCursor(x, y) {
   if (!V.data) return;
   const a = viewerAt(x, y); V.cursor = { x: a.x, y };
   const H = 25 * V.px * V.rows.length;
-  $('ecgcur').innerHTML = `<line x1="${a.x}" x2="${a.x}" y1="0" y2="${H}" stroke="#1d5f99" stroke-width="1"/>`;
+  $('ecgcur').innerHTML = `<line x1="${a.x}" x2="${a.x}" y1="0" y2="${H}" stroke="#8B5CF6" stroke-width="1"/>`;
   // The ruler's result stays; the crosshair's reading goes after it.
   const cur = `${a.row.name}: t = ${Math.round((a.row.t0 + a.t) * 1000)} ${L('мс', 'ms')}, ${a.mv.toFixed(2)} ${L('мВ', 'mV')}`;
   $('ecgread').textContent = V.ruler ? `${V.ruler} · ${cur}` : cur;

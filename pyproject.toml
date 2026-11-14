@@ -44,6 +44,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 ecgscan = ["contract/*.json"]
+cardiolens = ["api/static/*.html", "api/static/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
