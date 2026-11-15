@@ -28,6 +28,6 @@ mkdir -p "$OUT"; chmod 755 "$OUT"
   echo "## disk"; df -h / | tail -1
   echo "## certificate"
   dom=$(sed -n 's/^DOMAIN=//p' "$APP_DIR/deploy/.env" 2>/dev/null)
-  [ -n "$dom" ] && echo | openssl s_client -servername "$dom" -connect "$dom:443" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null
+  [ -n "$dom" ] && echo | timeout 15 openssl s_client -servername "$dom" -connect "$dom:443" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null
 } > "$OUT/report.tmp" 2>&1
 chmod 644 "$OUT/report.tmp"; mv "$OUT/report.tmp" "$OUT/report.txt"

@@ -517,9 +517,10 @@ def run_pipeline(
         findings.findings = [Finding(
             code="no_ecg_signal", group="quality",
             # D192: on a photo the electrodes are not the problem; the advice is about the shot.
+            # D278: on a recording, the patient comes first (fine VF / asystole read as "no signal").
             label_ru=NO_TRACE_ON_PHOTO_RU if sig.provenance.digitized else
                      ("ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении). Если пациент без сознания — "
-                      "сразу проверьте пульс: возможны асистолия или мелковолновая ФЖ (D278); если в сознании — "
+                      "сразу проверьте пульс: возможны асистолия или мелковолновая ФЖ; если в сознании — "
                       "проверьте электроды")
                      + (_UNITS_HINT_RU if sig.source in _FILE_SOURCES else ""),
             label_uz=NO_TRACE_ON_PHOTO_UZ if sig.provenance.digitized else
