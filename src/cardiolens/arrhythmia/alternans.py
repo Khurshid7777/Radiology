@@ -4,7 +4,7 @@ Total electrical alternans with sinus tachycardia is a sign of a large pericardi
 pericardial guidelines; Surawicz & Knilans ch. 13). Per lead, the QRS peak-to-peak of each beat (R +- 60 ms, 1-40 Hz)
 is taken; the lead alternates when, over at least 8 beats, successive amplitude changes flip sign in at least 80 % of
 pairs and the median change is at least 10 % of the median amplitude (and at least 100 µV). Alternans is called when
-at least two leads alternate and the RR intervals do not alternate (that would be bigeminy, not alternans).
+at least three leads alternate and the RR intervals do not alternate (that would be bigeminy, not alternans).
 Thresholds: DECISIONS D282 (synthetic + false alarms on PTB-XL).
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ ALT_MIN_BEATS = 8
 ALT_FLIP_MIN = 0.80
 ALT_REL_MIN = 0.10
 ALT_ABS_MIN_UV = 100.0
-ALT_LEADS_MIN = 2
+ALT_LEADS_MIN = 3          # D282: 2 gave 0.6 % on the PTB-XL rhythm bench, 3 gives 0.33 %
 ALT_RR_FLIP_MAX = 0.60      # RR alternating in more pairs -> bigeminy-like, not alternans
 ALT_RR_REL_MIN = 0.05
 
