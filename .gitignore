@@ -74,3 +74,4 @@ data/incartdb/
 data/svt_bench/
 # D271: fresh PTB-XL acceptance records (tools/p_morph/fetch_fresh.py)
 data/ptbxl_fresh/
+data/ptbxl_fresh2/

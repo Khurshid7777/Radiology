@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 BASE = "https://physionet-open.s3.amazonaws.com/ptb-xl/1.0.3/"
-CLASSES = ("STACH", "NORM", "1AVB", "AFIB", "SARRH", "PAC")
+CLASSES = ("STACH", "NORM", "1AVB", "AFIB", "SARRH", "PAC", "SVTAC", "PSVT")
 
 
 def get(url: str) -> bytes:
@@ -44,8 +44,10 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=271)
     a = ap.parse_args()
     used = set()
-    for d in ("ptbxl", "ptbxl_rhythm"):
-        used |= {r["ecg_id"] for r in json.loads((ROOT / "data" / d / "manifest.json").read_text())["records"]}
+    for d in ("ptbxl", "ptbxl_rhythm", "ptbxl_fresh"):       # D276: the D271 "fresh" set is spent too
+        mf = ROOT / "data" / d / "manifest.json"
+        if mf.exists() and mf.parent.resolve() != a.out.resolve():
+            used |= {r["ecg_id"] for r in json.loads(mf.read_text())["records"]}
     rows = list(csv.DictReader((ROOT / "data/ptbxl/ptbxl_database.csv").open(newline="", encoding="utf-8")))
     rng = random.Random(a.seed)
     chosen: dict[int, dict] = {}
