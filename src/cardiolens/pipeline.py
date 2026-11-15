@@ -24,6 +24,10 @@ from cardiolens.arrhythmia import (
     sinus_arrhythmia_finding,
     vt_run_finding,
 )
+from cardiolens.arrhythmia.descriptive import (
+    alternans_finding,
+    ectopic_atrial_finding,
+)
 from cardiolens.arrhythmia.vf import detect_vf
 from cardiolens.calibration import TemperatureScaler
 from cardiolens.clinical_context import ESCALATING, Advice, advise
@@ -297,6 +301,14 @@ def run_pipeline(
     # Signal-organization gate (§5) — after all finding emission. If the QRS complexes
     # are not self-consistent, R-peaks (hence HR, intervals, rhythm) are unreliable:
     # withhold the findings and report poor quality; mode B escalates.
+    # D282-D284: descriptive wave-5 findings, recordings only (a photo's beat amplitudes and P are the digitiser's).
+    if not sig.provenance.digitized:
+        _codes = findings.codes()
+        # short_pr_finding (D283) is not wired: not accepted (NORM 3.7 % on fresh PTB-XL, half right on LUDB).
+        for _f in (alternans_finding(sig, m, _codes), ectopic_atrial_finding(sig, m, _codes)):
+            if _f is not None:
+                findings.findings.append(_f)
+                audit.append(f"[L4] {_f.code} (D282-D284)")
     tc = m.qrs_template_consistency
     pc = m.qrs_partner_consistency
     # Too few complexes to judge (fewer than 3 away from the edges) is not "consistent":
