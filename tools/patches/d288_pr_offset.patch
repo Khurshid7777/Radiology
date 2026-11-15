@@ -1,0 +1,24 @@
+diff --git a/src/cardiolens/layer3_measure/measure.py b/src/cardiolens/layer3_measure/measure.py
+index c0f6c68..b8aa247 100644
+--- a/src/cardiolens/layer3_measure/measure.py
++++ b/src/cardiolens/layer3_measure/measure.py
+@@ -946,6 +946,11 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
+                             not P_MB_CONSENSUS or abs(mb_pr - m.intervals.pr_ms) <= 20.0):
+                         m.intervals.pr_ms = mb_pr
+             m.p_wave_amplitude_uv = _p_amplitude(sig, p_on, p_off)
++        # D288: the amplitude-refined P onset lands late — PR 7 ms short against LUDB (II, 176 sinus records), so
++        # half the first-degree AV blocks fell under 200 ms. A recording only: a photo's PR has its own error.
++        from_photo = bool(getattr(sig.provenance, "digitized", False)) or sig.source in ("image", "telegram-photo")
++        if m.intervals.pr_ms is not None and not from_photo:
++            m.intervals.pr_ms = round(m.intervals.pr_ms + PR_ONSET_OFFSET_MS, 1)
+ 
+         # ST measured off the envelope QRS offsets (J points), PR-segment baseline.
+         _measure_st(sig, rpeaks, qrs_on, qrs_off, m)
+@@ -1070,6 +1075,7 @@ def _qrs_net_deflection(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray
+     return float(np.median(vals)) if vals else None
+ 
+ 
++PR_ONSET_OFFSET_MS = 7.0   # D288: chosen on even LUDB ids (bias -7.4 -> -0.4 ms, MAE 10.8 -> 8.0)
+ P_MEDIAN_BEAT = True       # D111: accepted on the held-out check (fold 10)
+ P_MB_FRACTION = 0.20       # P bounds: 20 % of the P peak above the window's 10th percentile
+ P_MB_CONSENSUS = 1         # use the median-beat value only near the per-beat one (D111)
