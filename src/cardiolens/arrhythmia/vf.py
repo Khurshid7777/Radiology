@@ -73,3 +73,12 @@ def detect_vf(signal: np.ndarray, fs: float) -> tuple[bool, list[dict | None]]:
         return False, mts
     hits = sum(lead_is_vf(m) for m in usable)
     return bool(hits >= 1 and hits / len(usable) >= VF_LEAD_SHARE_MIN), mts
+
+
+VF_SOFT_SHARE_MIN = 0.5    # D281: same per-lead criteria, half the leads, only over AF / quality-gated windows
+
+
+def vf_soft_share(mts: list[dict | None]) -> float:
+    """Share of usable leads that meet the per-lead VF criteria (0 when none is usable)."""
+    usable = [m for m in mts if m is not None]
+    return sum(lead_is_vf(m) for m in usable) / len(usable) if usable else 0.0

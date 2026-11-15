@@ -28,7 +28,7 @@ from cardiolens.arrhythmia.descriptive import (
     alternans_finding,
     ectopic_atrial_finding,
 )
-from cardiolens.arrhythmia.vf import detect_vf
+from cardiolens.arrhythmia.vf import VF_SOFT_SHARE_MIN, detect_vf, vf_soft_share
 from cardiolens.calibration import TemperatureScaler
 from cardiolens.clinical_context import ESCALATING, Advice, advise
 from cardiolens.config import (
@@ -134,8 +134,10 @@ def run_pipeline(
     # Ventricular fibrillation / flutter (D204): read off the raw signal, before any QRS search —
     # VF has no QRS, and the R-peak path called it "no ECG signal" or nothing. Not on a photo: a
     # digitised trace's own noise is not a rhythm, and photos stay under their gates (D178).
-    vf_on = (not sig.provenance.digitized) and detect_vf(sig.signal.astype("float64"),
-                                                         sig.sampling_rate_hz)[0]
+    vf_on, vf_mts = (False, [])
+    if not sig.provenance.digitized:
+        vf_on, vf_mts = detect_vf(sig.signal.astype("float64"), sig.sampling_rate_hz)
+    vf_soft = (not sig.provenance.digitized) and not vf_on and vf_soft_share(vf_mts) >= VF_SOFT_SHARE_MIN
     spike_times = pacing_spike_times(sig) if pacing_ratio >= cfg.pacing.spike_ratio_min else []
     ml_spike_times = pacing_multilead_spike_times(sig, cfg.pacing.multilead_k,
                                                   cfg.pacing.multilead_min_leads)
@@ -532,6 +534,18 @@ def run_pipeline(
             confidence=0.95)]
         quality_ok = False
         audit.append("[L2] no ECG signal (8-40 Hz below threshold in every lead) — all findings and alerts withheld")
+    # D281: the strict detector missed it, but half the leads show VF and the window was read as AF / flutter or
+    # closed by a quality gate — the alert, not AF and not "no signal" (D277: 59 + 55 + 21 VT / VF windows).
+    if vf_soft and findings.codes() & _VF_SOFT_GATES:
+        findings.findings.insert(0, Finding(
+            code="ventricular_fibrillation", group="rhythm",
+            label_ru="Возможна фибрилляция желудочков / полиморфная ЖТ: хаотичные волны в части отведений — немедленно "
+                     "оцените пациента (сознание, пульс); если это не артефакт — реанимация и дефибрилляция",
+            label_uz="Qorinchalar fibrillyatsiyasi / polimorf QT bo'lishi mumkin: ayrim tarmoqlarda xaotik to'lqinlar — "
+                     "bemorni zudlik bilan baholang (hush, puls); artefakt bo'lmasa — reanimatsiya va defibrillyatsiya",
+            evidence=[Evidence(feature="vf_detector", value=f"soft: {vf_soft_share(vf_mts):.2f} of leads")],
+            confidence=0.5, critical=True))
+        audit.append("[L4] possible VF / polymorphic VT: soft VF tier over an AF / quality-gated window (D281)")
     if vf_on:
         findings.findings.insert(0, Finding(
             code="ventricular_fibrillation", group="rhythm",
@@ -758,6 +772,8 @@ def _withhold_rhythm_without_strip(sig: SignalRepresentation, findings: FindingS
                      f"rhythm irregularity not assessed, withheld {dropped} (D259)")
 
 
+_VF_SOFT_GATES = frozenset({"atrial_fibrillation", "possible_atrial_fibrillation", "atrial_flutter",
+                            "poor_quality_signal", "no_ecg_signal"})   # D281
 SHORT_WINDOW_S = 4.0     # D122: below this, one visible QRS bounds the rate instead of measuring it
 SHORT_WINDOW_EDGE_S = 0.5
 _FILE_SOURCES = {"csv", "edf"}
