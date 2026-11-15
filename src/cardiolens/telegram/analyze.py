@@ -66,6 +66,11 @@ def is_ecg_photo(path: str | Path, min_pitch_px: float = 3.0) -> tuple[bool, flo
     return bool(ok), None if pitch is None else float(pitch)
 
 
+class ScannerRefusal(ValueError):
+    """D275: the ECG scanner refused the picture itself (low resolution, glare, blur, ...): the answer is to retake
+    it, not to read it again from another copy of the same pixels."""
+
+
 # Scanner refusals about the picture itself (D139): the CardioLens readers would read the
 # same picture worse, so the refusal stands. Refusals about the layout (a screen, a report
 # sheet, part of a strip: GRID_NOT_FOUND, LAYOUT_UNKNOWN, PAGE_INCOMPLETE, SCREEN_PHOTO, ...)
@@ -206,19 +211,24 @@ def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: flo
     with prepared(path) as p:
         try:
             sig = _digitize_photo(p, **kw)
-        except ValueError:
-            # D275: a refusal is not final. The enlarged copy lost a fine grid (owner's Medius photo,
-            # GRID_NOT_FOUND): the picture is read as it is; a large picture refused as it is (a small photo
-            # stretched in an editor to 3000 x 4000) is read once more from a reduced copy. The last
-            # refusal is the one shown.
+        except ValueError as first:
+            # D275: a refusal of the enlarged copy is not final (the enlargement can lose a fine grid: owner's
+            # Medius photo, GRID_NOT_FOUND): the picture is read as it is. A refusal that is not the scanner's own
+            # verdict on the picture (a grid or layout it could not find: a small photo stretched in an editor to
+            # 3000 x 4000) is tried once more from a reduced copy, which the scanner's coarse mode can read. The
+            # scanner's own refusals (low resolution, glare, blur) stay: retake the photo. The last refusal is
+            # the one shown.
+            last = first
             if str(p) != str(path):
                 try:
                     return _digitize_photo(path, **kw)
                 except ValueError as again:
-                    refusal = again
+                    last = again
+            if isinstance(last, ScannerRefusal):
+                raise last
             with reduced(path) as small:
                 if small is None:
-                    raise refusal
+                    raise last
                 return _digitize_photo(small, **kw)
         if str(p) != str(path):
             sig.provenance.notes.append(ENLARGED_NOTE)
@@ -287,7 +297,8 @@ def _digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: fl
         return sig
     final = [r for r in result.reject_reasons if r in SCANNER_FINAL_REFUSALS]
     if final or readers is None:
-        raise ValueError("; ".join(scanner_text(f"reject.{r}") for r in (final or result.reject_reasons)))
+        text = "; ".join(scanner_text(f"reject.{r}") for r in (final or result.reject_reasons))
+        raise (ScannerRefusal(text) if final else ValueError(text))
     return readers()
 
 

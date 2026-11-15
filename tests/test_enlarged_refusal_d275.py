@@ -96,3 +96,30 @@ def test_all_refused_shows_the_last_refusal(monkeypatch):
     _patch(monkeypatch, True, reader, small="reduced.png")
     with pytest.raises(ValueError, match="reduced refused"):
         A.digitize_photo("orig.png")
+
+
+def test_scanner_own_refusal_is_final_no_reduced_copy(monkeypatch):
+    """A camera-sized photo with a coarse grid keeps the scanner's refusal (D170): no reduced copy is tried."""
+    calls = []
+
+    def reader(path, **kw):
+        calls.append(path)
+        raise A.ScannerRefusal("низкое разрешение")
+
+    _patch(monkeypatch, False, reader, small="reduced.png")
+    with pytest.raises(A.ScannerRefusal):
+        A.digitize_photo("orig.png")
+    assert calls == ["orig.png"]
+
+
+def test_enlarged_scanner_refusal_still_reads_the_original_once(monkeypatch):
+    calls = []
+
+    def reader(path, **kw):
+        calls.append(path)
+        if path == "ENLARGED.png":
+            raise A.ScannerRefusal("blur after the enlargement")
+        return "READ-ORIGINAL"
+
+    _patch(monkeypatch, True, reader, small="reduced.png")
+    assert A.digitize_photo("orig.png") == "READ-ORIGINAL" and calls == ["ENLARGED.png", "orig.png"]
