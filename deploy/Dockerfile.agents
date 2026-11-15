@@ -1,0 +1,19 @@
+# The agents container (D279): the agents bot and Claude Code (headless, the owner's subscription), isolated from
+# the site. It has its own clone of the repository in /work and no access to the site's data volume, deploy/.env
+# or the Docker socket. The bot runs as root inside; every Claude run is the unprivileged user "agent".
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates libgl1 libglib2.0-0 \
+        tzdata nodejs npm \
+    && npm install -g @anthropic-ai/claude-code \
+    && rm -rf /var/lib/apt/lists/* /root/.npm \
+    && useradd -m -s /bin/bash agent
+
+WORKDIR /app
+# The project's dependencies, so the developer agent can run the test suite in its clone.
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN pip install --upgrade pip && pip install -e ".[dev,digitize,scanner,llm,dicom,bot,agents]"
+
+CMD ["python", "-m", "cardiovision_agents"]

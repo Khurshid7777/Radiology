@@ -47,6 +47,34 @@ services:
     volumes:
       - appdata:/data
 
+  # The agents (D279): started only with the "agents" profile, i.e. when deploy/.env holds the agents bot token.
+  # Isolated on purpose: no appdata volume (photos, analyses), no deploy/.env, no Docker socket. The host's daily
+  # read-only security check (deploy/security_check.sh) is mounted read-only.
+  agents:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.agents
+    profiles: ["agents"]
+    restart: unless-stopped
+    depends_on:
+      - cardiolens
+    environment:
+      AGENTS_TG_TOKEN: ${AGENTS_TG_TOKEN:-}      # required by the bot; ":-" so compose never fails the site without it
+      AGENTS_OWNER_ID: ${AGENTS_OWNER_ID:-}
+      AGENTS_GH_TOKEN: ${AGENTS_GH_TOKEN:-}
+      AGENTS_SUMMARY_KEY: ${AGENTS_SUMMARY_KEY:-}
+      AGENTS_SITE_URL: http://cardiolens:8000
+      AGENTS_STATE: /state/agents.json
+      AGENTS_WORKDIR: /work/repo
+      AGENTS_SECURITY_REPORT: /security/report.txt
+    volumes:
+      - agents_state:/state
+      - agents_home:/home/agent
+      - agents_work:/work
+      - /var/lib/cardiovision-security:/security:ro
+    mem_limit: 4g
+    cpus: 2
+
   caddy:
     image: caddy:2.8.4
     restart: unless-stopped
@@ -65,5 +93,8 @@ services:
 
 volumes:
   appdata:
+  agents_state:
+  agents_home:
+  agents_work:
   caddy_data:
   caddy_config:

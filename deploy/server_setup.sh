@@ -13,3 +13,9 @@ systemctl enable --now docker >/dev/null 2>&1 || true
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
   ufw allow OpenSSH >/dev/null; ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null; ufw allow 443/udp >/dev/null
 fi
+# D279: the daily read-only security check for the security agent (07:50 Tashkent = 02:50 UTC), and one run now.
+APP_DIR_SETUP=$(cd "$(dirname "$0")/.." && pwd)
+printf 'SHELL=/bin/bash\n50 2 * * * root bash %s/deploy/security_check.sh %s\n' "$APP_DIR_SETUP" "$APP_DIR_SETUP" \
+  > /etc/cron.d/cardiovision-security
+chmod 644 /etc/cron.d/cardiovision-security
+bash "$APP_DIR_SETUP/deploy/security_check.sh" "$APP_DIR_SETUP" || true

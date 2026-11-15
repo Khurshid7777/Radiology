@@ -100,12 +100,20 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_BOT_ALLOWED: ${{ secrets.TELEGRAM_BOT_ALLOWED }}
           AGENTS_API_KEY: ${{ secrets.AGENTS_API_KEY }}
+          AGENTS_TG_TOKEN: ${{ secrets.AGENTS_TG_TOKEN }}
+          AGENTS_OWNER_ID: ${{ secrets.AGENTS_OWNER_ID }}
+          AGENTS_GH_TOKEN: ${{ secrets.AGENTS_GH_TOKEN }}
         run: |
-          printf 'ANTHROPIC_API_KEY=%s\nTELEGRAM_BOT_TOKEN=%s\nTELEGRAM_BOT_ALLOWED=%s\nAGENTS_API_KEY=%s\n' \
+          printf 'ANTHROPIC_API_KEY=%s\nTELEGRAM_BOT_TOKEN=%s\nTELEGRAM_BOT_ALLOWED=%s\nAGENTS_API_KEY=%s\nAGENTS_TG_TOKEN=%s\nAGENTS_OWNER_ID=%s\nAGENTS_GH_TOKEN=%s\n' \
             "$ANTHROPIC_API_KEY" "$TELEGRAM_BOT_TOKEN" "$TELEGRAM_BOT_ALLOWED" "$AGENTS_API_KEY" \
+            "$AGENTS_TG_TOKEN" "$AGENTS_OWNER_ID" "$AGENTS_GH_TOKEN" \
             | ssh server "cd $APP_DIR && $SUDO bash deploy/server_env.sh $DOMAIN"
           # The bot runs only when its token is set (compose profile "bot", D161).
-          if [ "${{ secrets.TELEGRAM_BOT_TOKEN != '' }}" = "true" ]; then echo "PROFILES=--profile bot" >> "$GITHUB_ENV"; else echo "PROFILES=" >> "$GITHUB_ENV"; fi
+          PROFILES=""
+          if [ "${{ secrets.TELEGRAM_BOT_TOKEN != '' }}" = "true" ]; then PROFILES="--profile bot"; fi
+          # D279: the agents run only when their bot token and the owner's Telegram id are set.
+          if [ "${{ secrets.AGENTS_TG_TOKEN != '' && secrets.AGENTS_OWNER_ID != '' }}" = "true" ]; then PROFILES="$PROFILES --profile agents"; fi
+          echo "PROFILES=$PROFILES" >> "$GITHUB_ENV"
 
       - name: Build and start
         run: |
