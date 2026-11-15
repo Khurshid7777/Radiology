@@ -76,3 +76,18 @@ def test_no_signal_in_a_digital_record_still_points_at_the_electrodes(monkeypatc
     monkeypatch.setattr(pl, "_hf_amplitude_uv", lambda sig: 0.0)
     f = pl.run_pipeline(generate_synthetic_ecg(heart_rate_bpm=72), mode="A").findings.by_code("no_ecg_signal")
     assert "электроды" in f.label_ru and "elektrodlarni" in f.label_uz
+
+
+def test_no_signal_in_a_digital_record_asks_to_check_the_patient_first(monkeypatch):
+    # D278: fine VF / asystole can read as "no signal" (D277: 14 VFDB VF windows); the pulse comes before the electrodes.
+    monkeypatch.setattr(pl, "_hf_amplitude_uv", lambda sig: 0.0)
+    f = pl.run_pipeline(generate_synthetic_ecg(heart_rate_bpm=72), mode="A").findings.by_code("no_ecg_signal")
+    assert "без сознания" in f.label_ru and "пульс" in f.label_ru and "ФЖ" in f.label_ru
+    assert f.label_ru.index("пульс") < f.label_ru.index("электроды")
+    assert "hushsiz" in f.label_uz and "puls" in f.label_uz
+
+
+def test_no_trace_on_a_photo_does_not_talk_about_the_pulse(monkeypatch):
+    monkeypatch.setattr(pl, "_hf_amplitude_uv", lambda sig: 0.0)
+    f = pl.run_pipeline(_photo(), mode="A").findings.by_code("no_ecg_signal")
+    assert "пульс" not in f.label_ru

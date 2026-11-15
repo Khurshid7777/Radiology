@@ -506,10 +506,14 @@ def run_pipeline(
             code="no_ecg_signal", group="quality",
             # D192: on a photo the electrodes are not the problem; the advice is about the shot.
             label_ru=NO_TRACE_ON_PHOTO_RU if sig.provenance.digitized else
-                     "ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении) — проверьте электроды"
+                     ("ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении). Если пациент без сознания — "
+                      "сразу проверьте пульс: возможны асистолия или мелковолновая ФЖ (D278); если в сознании — "
+                      "проверьте электроды")
                      + (_UNITS_HINT_RU if sig.source in _FILE_SOURCES else ""),
             label_uz=NO_TRACE_ON_PHOTO_UZ if sig.provenance.digitized else
-                     "EKG signali aniqlanmadi (hech bir tarmoqda QRS yo'q) — elektrodlarni tekshiring"
+                     ("EKG signali aniqlanmadi (hech bir tarmoqda QRS yo'q). Bemor hushsiz bo'lsa — darhol pulsni "
+                      "tekshiring: asistoliya yoki mayda to'lqinli qorinchalar fibrillyatsiyasi bo'lishi mumkin; "
+                      "hushida bo'lsa — elektrodlarni tekshiring")
                      + (_UNITS_HINT_UZ if sig.source in _FILE_SOURCES else ""),
             evidence=[Evidence(feature="hf_peak_to_peak_uv", value=f"{hf_uv:.0f}")],
             confidence=0.95)]
