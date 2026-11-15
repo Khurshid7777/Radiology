@@ -134,3 +134,15 @@ def test_security_check_writes_no_secret_values():
     sh = (ROOT / "deploy/security_check.sh").read_text()
     assert "sed -n 's/=.*//p'" in sh            # only the variable names of deploy/.env
     assert "cat " not in sh.replace("# ", "")
+
+
+def test_a_failing_agents_build_cannot_block_the_site_deploy():
+    wf = yaml.safe_load((ROOT / ".github/workflows/deploy.yml").read_text())
+    steps = {s.get("name"): s for s in wf["jobs"]["deploy"]["steps"]}
+    main = steps["Build and start"]["run"]
+    assert "agents" not in main                          # the site and the bot start without the agents
+    ag = steps["Agents (separate, does not block the site)"]
+    assert ag["continue-on-error"] is True and ag["if"] == "env.AGENTS_ON == 'true'"
+    assert "--no-deps agents" in ag["run"]
+    names = list(steps)
+    assert names.index("Build and start") < names.index(ag["name"]) < names.index("The site answers")
