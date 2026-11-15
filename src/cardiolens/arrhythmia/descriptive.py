@@ -89,3 +89,48 @@ def ectopic_atrial_finding(sig, m, codes: set[str]) -> Finding | None:
                  "elektrodlari joylashuvini tekshiring",
         evidence=[Evidence(feature=f"p_neg_share_{ln}", value=str(c["neg"])) for ln, c in covers.items()],
         confidence=0.55)
+
+
+BLOCKED_PAC_EARLY = 0.8      # D286: the P in the pause comes before 0.8 of the median RR after the previous R
+BLOCKED_PAC_LEADS = ("II", "V1")
+
+
+def blocked_pac_in_pause(sig, m) -> dict | None:
+    """D286: a P wave early in the diastole of the longest RR (after the T, before the next QRS) in II or V1 — the
+    pause follows a non-conducted (blocked) atrial premature beat, not sinus arrest. None when not found."""
+    from scipy.signal import butter, filtfilt, find_peaks
+
+    rp = np.asarray(m.r_peaks_samples or [], int)
+    if rp.size < 4:
+        return None
+    fs = sig.sampling_rate_hz
+    rr = np.diff(rp)
+    i = int(np.argmax(rr))
+    med = float(np.median(rr))
+    qrs = (m.intervals.qrs_ms or 90.0) / 1000.0
+    qt = (m.intervals.qt_ms or 400.0) / 1000.0
+    t_end = int((qt - qrs / 2 + 0.02) * fs)
+    a, b = int(rp[i] + t_end), int(rp[i + 1] - (qrs / 2 + 0.02) * fs)
+    early = int(rp[i] + BLOCKED_PAC_EARLY * med)
+    if b - a < int(0.12 * fs) or early <= a:
+        return None
+    nyq = fs / 2.0
+    bb, aa = butter(2, [1.0 / nyq, min(25.0 / nyq, 0.99)], btype="band")
+    for ln in BLOCKED_PAC_LEADS:
+        if ln not in sig.lead_names:
+            continue
+        y = filtfilt(bb, aa, np.asarray(sig.lead(ln), float))
+        # noise level from the ordinary diastoles (all but the pause)
+        dia = [y[int(rp[k] + t_end):int(rp[k + 1] - (qrs / 2 + 0.02) * fs)] for k in range(rr.size) if k != i]
+        dia = [d - np.median(d) for d in dia if d.size > int(0.05 * fs)]
+        if not dia:
+            continue
+        d = np.concatenate(dia)
+        h = max(2.0 * 1.4826 * float(np.median(np.abs(d - np.median(d)))), 15.0)
+        seg = y[a:b] - np.median(y[a:b])
+        for pol in (1.0, -1.0):
+            pk, _ = find_peaks(pol * seg, height=h, prominence=h, width=(int(0.02 * fs), int(0.16 * fs)))
+            hit = [int(a + p) for p in pk if a + p <= early]
+            if hit:
+                return {"lead": ln, "p_at_ms": round((hit[0] - rp[i]) / fs * 1000.0), "rr_med_ms": round(med / fs * 1000)}
+    return None
