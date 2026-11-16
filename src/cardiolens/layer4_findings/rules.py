@@ -826,15 +826,17 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
     # block in a patient whose PR is short. Pre-excitation slurs the upstroke,
     # so the classic route needs the delta descriptor too, at a lower bar than
     # the delta route (D65: true classic calls had delta 53-90 ms, false 21-55).
+    # D290: the WPW thresholds were chosen on the PR before the onset correction — read them on that PR.
+    wpr = None if iv.pr_ms is None else iv.pr_ms - (getattr(m, "pr_onset_offset_ms", 0.0) or 0.0)
     classic_delta = wpw.get("classic_delta_ms")
-    classic = (wide and bool(pr_lo) and iv.pr_ms is not None and iv.pr_ms < pr_lo
+    classic = (wide and bool(pr_lo) and wpr is not None and wpr < pr_lo
                and (classic_delta is None or delta is None or delta >= float(classic_delta)))
     # A definite-LBBB width with a PR that is not short is a block whose slow
     # initial activation looks like a delta wave (D65: 13 such false calls in
     # MIMIC at QRS 136-200 ms; the trade on PTB-XL is 4 true calls).
     lbbb_width = ivn.get("qrs_lbbb_definite")
-    block_like = (bool(lbbb_width) and bool(pr_lo) and iv.pr_ms is not None
-                  and iv.pr_ms >= pr_lo and iv.qrs_ms >= float(lbbb_width))
+    block_like = (bool(lbbb_width) and bool(pr_lo) and wpr is not None
+                  and wpr >= pr_lo and iv.qrs_ms >= float(lbbb_width))
     # ... unless the slurred start reaches V1-V3 too (D234): LBBB starts fast there (QS / rS; PTB-XL
     # CLBBB median 22 ms, p90 < 33), pre-excitation slurs every lead (WPW read as LBBB: median 66 ms).
     # Such a record also gets a longer PR allowance (some had PR 146-180 ms).
@@ -844,7 +846,7 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
         block_like = False
         pr_max = wpw.get("v1v3_pr_max", pr_max)
     by_delta = (delta is not None and wpw.get("delta_ms") is not None and delta >= wpw["delta_ms"]
-                and iv.pr_ms is not None and iv.pr_ms <= pr_max
+                and wpr is not None and wpr <= pr_max
                 and iv.qrs_ms >= wpw.get("qrs_min", 90)
                 and not (wide and m.qrs_v1_terminal_positive is True)
                 and not block_like)

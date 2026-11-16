@@ -123,6 +123,7 @@ class Measurements(BaseModel):
     rsr_prime_lead: str | None = None  # D229: lead (V1/V2) with an r' after the S on the median beat
     qrs_width_from_retry: bool = False  # D239: the QRS width needed the wider search; ST bounds are short
     pr_multilead_ms: float | None = None  # D250: PR from the multi-lead P onset (D242 way); rules do not read it
+    pr_onset_offset_ms: float = 0.0  # D290: added to intervals.pr_ms (LUDB onset); WPW rules undo it (thresholds predate it)
     pr_beats: int | None = None  # D250: beats behind intervals.pr_ms (rhythm lead; dwt fallback included)
     qrs_v6_terminal_positive: bool | None = None  # terminal forces in V6 (broad R -> LBBB)
     qrs_amplitude_limb_uv: float | None = None    # median limb-lead QRS peak-to-peak

@@ -954,6 +954,7 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
         if (not from_photo and pr0 is not None and multi is not None
                 and abs(multi - (pr0 + PR_ONSET_OFFSET_MS)) <= PR_OFFSET_AGREE_MS):
             m.intervals.pr_ms = round(pr0 + PR_ONSET_OFFSET_MS, 1)
+            m.pr_onset_offset_ms = PR_ONSET_OFFSET_MS
 
         # ST measured off the envelope QRS offsets (J points), PR-segment baseline.
         _measure_st(sig, rpeaks, qrs_on, qrs_off, m)
