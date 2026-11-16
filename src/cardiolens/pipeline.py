@@ -745,7 +745,7 @@ RHYTHM_MIN_S = 5.0        # D259: the scanner's validate.rhythm_min_s — no lea
 # D259: findings that rest on RR irregularity; on a page of 2.5-s columns the RR series is
 # stitched across column edges and its irregularity is the digitisation's, not the heart's.
 _IRREGULARITY_CODES = ("atrial_fibrillation", "possible_atrial_fibrillation", "atrial_flutter",
-                       "irregular_rhythm", "sinus_arrhythmia", "sinus_pause", "supraventricular_ectopy",
+                       "irregular_rhythm", "sinus_arrhythmia", "sinus_pause", "rr_pause_af", "supraventricular_ectopy",
                        "atrial_bigeminy", "atrial_trigeminy", "ventricular_ectopy", "ventricular_bigeminy",
                        "ventricular_trigeminy", "ventricular_couplets")
 

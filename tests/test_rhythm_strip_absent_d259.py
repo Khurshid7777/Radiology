@@ -50,3 +50,14 @@ def test_device_record_untouched():
     fs = _set("atrial_fibrillation", "irregular_rhythm")
     _withhold_rhythm_without_strip(generate_synthetic_ecg(), fs, [])
     assert fs.codes() == {"atrial_fibrillation", "irregular_rhythm"}
+
+
+def test_no_strip_withholds_the_af_pause_too():
+    # D258 + D259 (pre-deploy review): the AF ventricular pause rests on the RR series too — stitched across column
+    # edges on a page without a rhythm strip; a critical one (>= 3 s) stays.
+    fs = _set("atrial_fibrillation", "rr_pause_af", "rbbb")
+    _withhold_rhythm_without_strip(_page(None), fs, [])
+    assert fs.codes() == {"rbbb"}
+    fs = _set("atrial_fibrillation", "rr_pause_af", critical=("rr_pause_af",))
+    _withhold_rhythm_without_strip(_page(None), fs, [])
+    assert fs.codes() == {"rr_pause_af"}
