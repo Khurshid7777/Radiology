@@ -27,6 +27,7 @@ from cardiolens.arrhythmia import (
 )
 from cardiolens.arrhythmia.descriptive import (
     alternans_finding,
+    avb_2to1_finding,
     ectopic_atrial_finding,
 )
 from cardiolens.arrhythmia.vf import VF_SOFT_SHARE_MIN, detect_vf, vf_soft_share
@@ -303,10 +304,14 @@ def run_pipeline(
     if not sig.provenance.digitized:
         _codes = findings.codes()
         # short_pr_finding (D283) is not wired: not accepted (NORM 3.7 % on fresh PTB-XL, half right on LUDB).
-        for _f in (alternans_finding(sig, m, _codes), ectopic_atrial_finding(sig, m, _codes)):
+        for _f in (alternans_finding(sig, m, _codes), ectopic_atrial_finding(sig, m, _codes),
+                   avb_2to1_finding(sig, m, _codes)):
             if _f is not None:
                 findings.findings.append(_f)
-                audit.append(f"[L4] {_f.code} (D282-D284)")
+                audit.append(f"[L4] {_f.code} (D282-D284, D292)")
+        if "probable_av_block_2to1" in findings.codes():
+            # D292: the ventricular rate is half the atrial one — the bradycardia is not sinus.
+            findings.findings = [f for f in findings.findings if f.code != "sinus_bradycardia"]
     tc = m.qrs_template_consistency
     pc = m.qrs_partner_consistency
     # Too few complexes to judge (fewer than 3 away from the edges) is not "consistent":

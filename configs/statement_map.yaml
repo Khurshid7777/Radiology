@@ -41,6 +41,7 @@ rr_pause_af:                {aha: rhythm, snomed: [], scp: [], code15: []}   # D
 irregular_rhythm:           {aha: rhythm, snomed: [], scp: [], code15: []}
 electrical_alternans:       {aha: rhythm, snomed: [], scp: [], code15: []}   # D282; no scored label in our sets
 ectopic_atrial_rhythm:      {aha: rhythm, snomed: [], scp: [], code15: []}   # D284; no scored label in our sets
+probable_av_block_2to1:     {aha: av_conduction, snomed: [], scp: [], code15: []}   # D292; PTB-XL 2AVB mixes Mobitz I / 2:1
 first_degree_av_block:      {aha: av_conduction, snomed: ["270492004"], scp: [1AVB, LPR], code15: ["1dAVb"]}   # LPR = prolonged PR, the same statement (D150)
 pr_borderline:              {aha: av_conduction, snomed: [], scp: [], code15: []}   # PR 200-210 ms: named, not a block (D150)
 short_pr:                   {aha: av_conduction, snomed: [], scp: [], code15: []}   # D283: rule kept, not wired

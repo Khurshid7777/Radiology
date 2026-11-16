@@ -176,3 +176,26 @@ def two_p_share(sig, m, lead: str = "II") -> float | None:
                     ok = True
         hits += ok
     return hits / len(wins)
+
+
+AVB21_SHARE_FINAL = 0.9    # D292: chosen on the first half of MIT-BIH 231 "(BII" windows
+
+
+def avb_2to1_finding(sig, m, codes: set[str]) -> Finding | None:
+    """D292: two P waves per RR, about half an RR apart, in a regular bradycardia — probable 2 : 1 AV block (the
+    ventricular rate is half the atrial one, so it reads as sinus bradycardia). Descriptive, not an alert."""
+    hr, cv = m.heart_rate_bpm, _rr_cv(m.r_peaks_samples)
+    if (codes & (NOT_ORGANISED | {"complete_av_block"}) or hr is None or cv is None
+            or not (hr < AVB21_HR_MAX and cv < AVB21_CV_MAX)):
+        return None
+    share = two_p_share(sig, m, "II")
+    if share is None or share < AVB21_SHARE_FINAL:
+        return None
+    return Finding(
+        code="probable_av_block_2to1", group="rhythm",
+        label_ru=f"Вероятна АВ-блокада 2 : 1: зубцов P вдвое больше, чем QRS (ЧСС желудочков {hr:.0f}) — сверьте с "
+                 "лентой; при подтверждении — к кардиологу",
+        label_uz=f"AV blokada 2 : 1 ehtimoli: P tishlari QRS dan ikki baravar ko'p (qorinchalar YuQS {hr:.0f}) — "
+                 "lenta bilan solishtiring; tasdiqlansa — kardiologga",
+        evidence=[Evidence(feature="two_p_share", value=f"{share:.2f}"), Evidence(feature="hr_bpm", value=f"{hr:.0f}")],
+        confidence=0.55)
