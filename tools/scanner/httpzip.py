@@ -74,6 +74,7 @@ def main() -> None:
     ap.add_argument("url")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--extract", nargs="+")
+    ap.add_argument("--names-file", help="with --extract OUT_DIR: member names, one per line")
     a = ap.parse_args()
     zf = zipfile.ZipFile(HttpFile(a.url))
     if a.list:
@@ -81,7 +82,10 @@ def main() -> None:
             print(f"{i.file_size}\t{i.filename}")
         return
     out = Path(a.extract[0])
-    for name in a.extract[1:]:
+    names = a.extract[1:] + (Path(a.names_file).read_text().split("\n") if a.names_file else [])
+    for name in filter(None, names):
+        if (out / name).exists():
+            continue                                      # resumable
         target = (out / name).resolve()
         if out.resolve() not in target.parents:       # never write outside the target folder
             raise SystemExit(f"unsafe member name: {name}")

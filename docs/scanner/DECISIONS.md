@@ -3069,7 +3069,7 @@ QRS, пометки ядра и путь чтения совпали на все
    perspective_transformation_40, blur_kernel_41, brightness_-160, brightness_160, contrast_gamma_0.125,
    contrast_gamma_8, JPEG_compression_2_percent, resolution_scale_down_factor_4, padding_extra_large,
    digital_data_high_freq_noise_large, digital_data_opacity_015; в каждой каждый пятый одностраничный
-   снимок по порядку идентификаторов (22 снимка). Считается отдельно от основной, в сводную таблицу не
+   снимок по порядку идентификаторов (19 снимков: в папке 94 одностраничных). Считается отдельно от основной, в сводную таблицу не
    входит.
 
 Подсказок скорости и усиления сканеру не даём: он работает как в боте, по сетке и калибровочному импульсу.
