@@ -37,6 +37,7 @@ wide_complex_tachycardia:   {aha: rhythm, snomed: [], scp: [], code15: []}
 wide_qrs_tachycardia:       {aha: rhythm, snomed: [], scp: [], code15: []}   # D252
 ventricular_couplets:       {aha: rhythm, snomed: [], scp: [], code15: []}   # D254 (finding defined, not wired yet)
 sinus_pause:                {aha: rhythm, snomed: [], scp: [], code15: []}
+rr_pause_af:                {aha: rhythm, snomed: [], scp: [], code15: []}   # D258: a long RR in AF / flutter
 irregular_rhythm:           {aha: rhythm, snomed: [], scp: [], code15: []}
 electrical_alternans:       {aha: rhythm, snomed: [], scp: [], code15: []}   # D282; no scored label in our sets
 ectopic_atrial_rhythm:      {aha: rhythm, snomed: [], scp: [], code15: []}   # D284; no scored label in our sets

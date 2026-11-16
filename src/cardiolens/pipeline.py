@@ -11,6 +11,7 @@ from __future__ import annotations
 import functools
 import itertools
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 
 from cardiolens.arrhythmia import (
@@ -231,6 +232,7 @@ def run_pipeline(
             audit.append(f"[L4] AF withdrawn: RR CV {cv_left:.3f} without the PVC intervals (D106)")
     # Supraventricular premature beats and sinus arrhythmia (D204): only over an organised atrial
     # rhythm — in AF or flutter every beat is "early" or "late" by chance.
+    pac_idx: list[int] = []
     if not runs and not findings.codes() & {"atrial_fibrillation", "atrial_flutter"}:
         pac_idx = detect_pac_beats(sig, m.r_peaks_samples or [], sig.sampling_rate_hz, skip=pvc_idx)
         if pac_idx:
@@ -289,16 +291,10 @@ def run_pipeline(
                      f"multilead_coupling={ml_coupling}; withheld {dropped}")
     # Pause / dropped beat (TZ §7.1, §10) — R-peak based.
     pc = cfg.pause
-    if m.max_rr_ms is not None and (m.max_rr_ms >= pc.finding_ms
-                                    or (m.pause_ratio or 0) >= pc.ratio):
-        findings.findings.append(Finding(
-            code="sinus_pause", group="rhythm",
-            label_ru=f"Пауза ритма {m.max_rr_ms:.0f} мс (RR ×{m.pause_ratio})",
-            label_uz=f"Ritm pauzasi {m.max_rr_ms:.0f} ms (RR ×{m.pause_ratio})",
-            evidence=[Evidence(feature="max_rr_ms", value=f"{m.max_rr_ms:.0f}"),
-                      Evidence(feature="pause_ratio", value=str(m.pause_ratio))],
-            confidence=0.8, critical=m.max_rr_ms >= pc.critical_ms))
-        audit.append(f"[L4] pause: max_rr={m.max_rr_ms} ms ratio={m.pause_ratio}")
+    pause = _pause_finding(m, pc, findings.codes(), set(pvc_idx) | set(pac_idx))
+    if pause is not None:
+        findings.findings.append(pause)
+        audit.append(f"[L4] pause ({pause.code}): max_rr={m.max_rr_ms} ms ratio={m.pause_ratio}")
     _withhold_rhythm_without_strip(sig, findings, audit)
     # Signal-organization gate (§5) — after all finding emission. If the QRS complexes
     # are not self-consistent, R-peaks (hence HR, intervals, rhythm) are unreliable:
@@ -898,6 +894,39 @@ def _af_second_path(sig, m, findings: FindingSet, audit: list[str]) -> None:
         evidence=[Evidence(feature="af_model_p", value=f"{p:.2f}")], confidence=round(min(0.7, p), 2)))
     audit.append(f"[L4] AF second path (D205): p={p:.2f}; withdrew {dropped}")
 
+
+
+def _pause_finding(m, pc, codes: set[str], ectopic: set[int]):
+    """The pause finding (D258). AF / flutter: a long RR is a pause of the ventricular response, not a sinus pause
+    (named from finding_ms). Sinus: a long RR right after a premature beat is its compensatory pause (not named
+    below critical_ms); the ratio trigger (RR < finding_ms) not where sinus arrhythmia is named. The >= 3 s alert
+    is raised by the safety layer whatever the rhythm."""
+    if m.max_rr_ms is None:
+        return None
+    rp = list(m.r_peaks_samples or [])
+    long_after = None
+    if len(rp) >= 2:
+        rr = [b - a for a, b in pairwise(rp)]
+        long_after = int(max(range(len(rr)), key=rr.__getitem__))   # the beat before the longest RR
+    ev = [Evidence(feature="max_rr_ms", value=f"{m.max_rr_ms:.0f}"),
+          Evidence(feature="pause_ratio", value=str(m.pause_ratio))]
+    if codes & {"atrial_fibrillation", "possible_atrial_fibrillation", "atrial_flutter"}:
+        if m.max_rr_ms < pc.finding_ms:
+            return None
+        return Finding(code="rr_pause_af", group="rhythm",
+                       label_ru=f"Пауза желудочкового ритма {m.max_rr_ms:.0f} мс при фибрилляции / трепетании предсердий",
+                       label_uz=f"BF / bo'lmachalar titrashida qorincha ritmi pauzasi {m.max_rr_ms:.0f} ms",
+                       evidence=ev, confidence=0.7, critical=m.max_rr_ms >= pc.critical_ms)
+    if long_after is not None and long_after in ectopic and m.max_rr_ms < pc.critical_ms:
+        return None
+    # The ratio trigger (RR < finding_ms): not where sinus arrhythmia explains the long cycle (PTB-XL NORM SARRH
+    # at 1.82-1.87); the compensatory pause is excluded above.
+    if m.max_rr_ms < pc.finding_ms and ((m.pause_ratio or 0) < pc.ratio or "sinus_arrhythmia" in codes):
+        return None
+    return Finding(code="sinus_pause", group="rhythm",
+                   label_ru=f"Пауза ритма {m.max_rr_ms:.0f} мс (RR ×{m.pause_ratio})",
+                   label_uz=f"Ritm pauzasi {m.max_rr_ms:.0f} ms (RR ×{m.pause_ratio})",
+                   evidence=ev, confidence=0.8, critical=m.max_rr_ms >= pc.critical_ms)
 
 _PACED_EXCLUDES = ("lbbb", "rbbb", "wide_qrs_nonspecific", "lvh", "lvh_probable",
                    "first_degree_av_block", "sinus_rhythm", "left_axis_deviation", "st_depression",
