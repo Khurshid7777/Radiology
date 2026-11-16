@@ -120,9 +120,9 @@ def main() -> None:
     lines += ["", f"## Плохие без пометки (augmented): {sa['bad_unflagged']} из {sa['ok_n']} «ok»", ""]
     lines += [f"- {c}" for c in sa["bad_unflagged_ids"]]
     lines += ["", "## Для сравнения (заявление PMcardio, их метод и 6000 снимков): средний PCC > 0.91, RMSE < 0.10 мВ.",
-              f"Здесь: r по отведениям на прочитанных — среднее {_f(s['lead_r_mean'])}, медиана {_f(s['lead_r_median'])}; "
+              (f"Здесь: r по отведениям на прочитанных — среднее {_f(s['lead_r_mean'])}, медиана {_f(s['lead_r_median'])}; "
               f"RMSE среднее {_f(s['lead_rmse_mean'])}, медиана {_f(s['lead_rmse_median'])} мВ; "
-              f"доля отведений с r≥0.91: {_f(s['share_lead_r_ge_091'], 2)}."]
+              f"доля отведений с r≥0.91: {_f(s['share_lead_r_ge_091'], 2)}.")]
     (out / "report.md").write_text("\n".join(lines) + "\n")
     with (out / "rows.jsonl").open("w") as f:
         for r in rows:
