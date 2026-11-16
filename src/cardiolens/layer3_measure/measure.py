@@ -946,6 +946,14 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                             not P_MB_CONSENSUS or abs(mb_pr - m.intervals.pr_ms) <= 20.0):
                         m.intervals.pr_ms = mb_pr
             m.p_wave_amplitude_uv = _p_amplitude(sig, p_on, p_off)
+        # D290: the amplitude-refined P onset lands late (PR 7 ms short against LUDB, half the first-degree AV
+        # blocks under 200 ms). Corrected only when the multi-lead PR (D250) agrees with the corrected value — a
+        # plain offset added false first-degree blocks on PTB-XL (D288). Recordings only: a photo's PR has its own error.
+        from_photo = bool(getattr(sig.provenance, "digitized", False)) or sig.source in ("image", "telegram-photo")
+        pr0, multi = m.intervals.pr_ms, m.pr_multilead_ms
+        if (not from_photo and pr0 is not None and multi is not None
+                and abs(multi - (pr0 + PR_ONSET_OFFSET_MS)) <= PR_OFFSET_AGREE_MS):
+            m.intervals.pr_ms = round(pr0 + PR_ONSET_OFFSET_MS, 1)
 
         # ST measured off the envelope QRS offsets (J points), PR-segment baseline.
         _measure_st(sig, rpeaks, qrs_on, qrs_off, m)
@@ -1070,6 +1078,8 @@ def _qrs_net_deflection(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray
     return float(np.median(vals)) if vals else None
 
 
+PR_ONSET_OFFSET_MS = 10.0  # D290: chosen on even LUDB ids
+PR_OFFSET_AGREE_MS = 10.0  # D290: the multi-lead PR must agree with the corrected PR within this
 P_MEDIAN_BEAT = True       # D111: accepted on the held-out check (fold 10)
 P_MB_FRACTION = 0.20       # P bounds: 20 % of the P peak above the window's 10th percentile
 P_MB_CONSENSUS = 1         # use the median-beat value only near the per-beat one (D111)
