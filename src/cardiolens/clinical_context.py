@@ -26,10 +26,10 @@ ISCHEMIA = frozenset({"st_elevation", "st_elevation_any", "st_elevation_nonspeci
 ISCHEMIA_ORDER = ("st_elevation", "st_depression", "st_elevation_any", "pathological_q_waves", "t_inversion",
                   "st_elevation_nonspecific", "st_depression_minor")
 # Findings that can explain a faint by an arrhythmia.
-SYNCOPE_RHYTHM = frozenset({"long_qt", "short_qt", "complete_av_block", "sinus_bradycardia",
+SYNCOPE_RHYTHM = frozenset({"long_qt", "short_qt", "complete_av_block", "probable_av_block_2to1", "sinus_bradycardia",
                             "wpw_preexcitation", "brugada_pattern", "wide_complex_tachycardia",
                             "wide_qrs_tachycardia", "supraventricular_tachycardia", "lbbb", "rbbb"})
-SYNCOPE_ORDER = ("complete_av_block", "wide_complex_tachycardia", "wide_qrs_tachycardia", "long_qt",
+SYNCOPE_ORDER = ("complete_av_block", "probable_av_block_2to1", "wide_complex_tachycardia", "wide_qrs_tachycardia", "long_qt",
                  "brugada_pattern", "wpw_preexcitation", "short_qt", "supraventricular_tachycardia", "sinus_bradycardia", "lbbb",
                  "rbbb")
 # An arrhythmia on the record answers palpitations itself.
