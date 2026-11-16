@@ -134,3 +134,45 @@ def blocked_pac_in_pause(sig, m) -> dict | None:
             if hit:
                 return {"lead": ln, "p_at_ms": round((hit[0] - rp[i]) / fs * 1000.0), "rr_med_ms": round(med / fs * 1000)}
     return None
+
+
+AVB21_HR_MAX = 60.0
+AVB21_CV_MAX = 0.10
+AVB21_SHARE_MIN = 0.7      # D292: share of diastoles holding two P waves about half an RR apart
+AVB21_HALF_TOL = 0.2
+
+
+def two_p_share(sig, m, lead: str = "II") -> float | None:
+    """D292: share of RR intervals (QRS end .. next QRS onset) with two P-like waves of the same sign about half an
+    RR apart — the atria beating twice per conducted beat (2 : 1 AV block). None when it cannot be judged."""
+    from scipy.signal import butter, filtfilt, find_peaks
+
+    rp = np.asarray(m.r_peaks_samples or [], int)
+    if rp.size < 4 or lead not in sig.lead_names:
+        return None
+    fs = sig.sampling_rate_hz
+    qrs = (m.intervals.qrs_ms or 90.0) / 1000.0
+    nyq = fs / 2.0
+    bb, aa = butter(2, [1.0 / nyq, min(25.0 / nyq, 0.99)], btype="band")
+    y = filtfilt(bb, aa, np.asarray(sig.lead(lead), float))
+    qt = (m.intervals.qt_ms or 400.0) / 1000.0
+    t_end = qt - qrs / 2 + 0.02          # after the T wave: a T is not a blocked P
+    wins = [(int(rp[i] + t_end * fs), int(rp[i + 1] - (qrs / 2 + 0.02) * fs), int(rp[i + 1] - rp[i]))
+            for i in range(rp.size - 1)]
+    wins = [(a, b, rr) for a, b, rr in wins if b - a > int(0.25 * fs) and a >= 0 and b <= y.size]
+    if len(wins) < 3:
+        return None
+    hits = 0
+    for a, b, rr in wins:
+        seg = y[a:b] - np.median(y[a:b])
+        h = max(2.0 * 1.4826 * float(np.median(np.abs(seg))), 15.0)
+        ok = False
+        for pol in (1.0, -1.0):
+            pk, _ = find_peaks(pol * seg, height=h, prominence=h, width=(int(0.02 * fs), int(0.14 * fs)),
+                               distance=int(0.2 * fs))
+            if len(pk) >= 2:
+                gaps = np.diff(pk) / rr
+                if np.any(np.abs(gaps - 0.5) <= AVB21_HALF_TOL):
+                    ok = True
+        hits += ok
+    return hits / len(wins)
