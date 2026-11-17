@@ -62,7 +62,7 @@ DAILY_PLAN = ("Плановый запуск: предложи задачи. П�
               "строкой ровно так: «1. [ядро] что сделать и как проверить — почему (цифры)», «2. [сканер] …». "
               "В квадратных скобках только «ядро» или «сканер». Владелец ответит «да 1, 3».")
 MAX_PARALLEL = int(os.environ.get("AGENTS_MAX_PARALLEL", "8"))
-HOLD_POLL_S, FAIL_RETRY_S = 20, 60
+HOLD_POLL_S, FAIL_RETRY_S, SEND_RETRY_S = 20, 60, 5
 SKIP_NOTE = " Пока эта ветка ждёт, следующие задачи агента стоят; «пропустить» — оставить её и идти дальше."
 LIMIT_RETRY_MIN = int(os.environ.get("AGENTS_LIMIT_RETRY_MIN", "30"))     # D301: retry a task the limit stopped
 USAGE_LOG = Path(os.environ.get("AGENTS_USAGE_LOG", "/state/usage.jsonl"))
@@ -347,6 +347,15 @@ class Agents:
                 await self.say(role, head + answer)
             except Exception:                    # the answer is kept in the reports; the branch must still be offered
                 log.warning("answer of %s not delivered", role.key)
+                try:                             # one more try, then at least a short notice: never silence
+                    await asyncio.sleep(SEND_RETRY_S)
+                    await self.say(role, head + answer)
+                except Exception:
+                    try:
+                        await self.say(role, (f"Задача №{task_id}: агент" if task_id else "Агент")
+                                             + " отработал, но ответ не доставлен (сбой отправки) — спросите его «что сделано».")
+                    except Exception:
+                        log.warning("could not report the lost answer of %s", role.key)
             self._remember(role, answer)
             if role.key == "coord":
                 tasks = parse_tasks(answer)

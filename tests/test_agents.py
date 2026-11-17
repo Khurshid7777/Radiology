@@ -753,3 +753,26 @@ def test_limit_then_bot_failure_still_retries_and_a_lost_answer_still_offers_the
         await ag2.workers["dev"]
     asyncio.run(go2())
     assert len(offered) == 1 and ag2._queue("dev") == []
+
+
+def test_an_undelivered_answer_is_never_silent(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    monkeypatch.setattr(B, "SEND_RETRY_S", 0)
+    for fails, expect in ((1, "Готово, задача"), (2, "ответ не доставлен")):
+        ag, sent, calls = _team(tmp_path, monkeypatch)
+        real_say, left = ag.say, {"n": fails}
+
+        async def say(role, text, real_say=real_say, left=left):
+            if text.startswith("Готово") and left["n"] > 0:
+                left["n"] -= 1
+                raise OSError("timeout")
+            await real_say(role, text)
+        monkeypatch.setattr(ag, "say", say)
+
+        async def go(ag=ag):
+            await ag.enqueue(ROLES["sec"], "проверь")
+            await ag.workers["sec"]
+        asyncio.run(go())
+        assert len(calls) == 1 and ag._queue("sec") == []
+        assert any(expect in t for _, t in sent), (fails, sent)
