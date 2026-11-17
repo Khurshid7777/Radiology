@@ -4,7 +4,8 @@ Only ink that belongs to *long* connected strokes counts (a trace runs for
 centimetres; a printed word or a lead label is a few millimetres), so the header
 text no longer counts as a row — the legacy counter read the header as a fifth or
 sixth row (M1/M2). Baselines are the peaks of that ink's horizontal projection
-(ink piles up on the flat segments), at least ``min_gap_mm`` apart.
+(ink piles up on the flat segments), at least ``min_gap_mm`` apart. ``smooth_mm``: the projection's
+smoothing; a coarse one (SD-113) merges the offset pieces of a row whose baseline drifts.
 """
 
 from __future__ import annotations
@@ -65,13 +66,13 @@ def long_stroke_mask(ink: np.ndarray, px_per_mm: float, min_width_mm: float = 20
 
 def row_baselines(ink: np.ndarray, px_per_mm: float, *, min_gap_mm: float = 10.0, rel_height: float = 0.25,
                   min_width_mm: float = 20.0, min_height_mm: float = 3.0, bridge_mm: float = 0.0,
-                  exclude_boxes: list[tuple[int, int, int, int]] | None = None) -> list[int]:
+                  exclude_boxes: list[tuple[int, int, int, int]] | None = None, smooth_mm: float = 0.8) -> list[int]:
     from scipy.ndimage import gaussian_filter1d
     from scipy.signal import find_peaks
 
     strokes = long_stroke_mask(ink, px_per_mm, min_width_mm, min_height_mm, bridge_mm=bridge_mm,
                                exclude_boxes=exclude_boxes)
-    prof = gaussian_filter1d(strokes.sum(axis=1).astype(np.float64), sigma=max(1.0, 0.8 * px_per_mm))
+    prof = gaussian_filter1d(strokes.sum(axis=1).astype(np.float64), sigma=max(1.0, smooth_mm * px_per_mm))
     if prof.max() <= 0:
         return []
     peaks, _ = find_peaks(prof, height=rel_height * prof.max(), distance=max(1, int(min_gap_mm * px_per_mm)))

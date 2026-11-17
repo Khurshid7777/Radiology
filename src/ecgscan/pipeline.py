@@ -660,7 +660,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
     pulse_boxes = [(p.x_left - m2, p.top - m2, p.x_right + m2, p.bottom + m2) for p in pulses]
     guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses],
                           stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes,
-                          min_gap_frac=cfg["layout"].get("min_row_gap_frac"))
+                          min_gap_frac=cfg["layout"].get("min_row_gap_frac"),
+                          drift_smooth_mm=cfg["layout"].get("drift_smooth_mm"))
     gl_cfg = (cfg.get("segmentation") or {}).get("drop_grid_lines") or {}
     if guess.name is None and not hints.layout and gl_cfg.get("enabled") and grid_in_mask(ink, ppm):
         # SD-099: a black grid (b/w scan) is in the mask as dark as the trace and its lines pass
@@ -705,7 +706,7 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
                                                             exclude_boxes=pulse_boxes), ppm,
                            [p.x_right for p in pulses])
     dbg.frame = frame
-    if (frame is not None and not hints.layout and "LAYOUT_UNCERTAIN" in warnings and not guess.repeats_open
+    if (frame is not None and not hints.layout and "LAYOUT_UNCERTAIN" in warnings and not guess.repeats_open and not guess.drift
             and profile_id is None and abs(frame.pitch_px / ppm - spec.row_pitch_mm) <= cfg["layout"]["pitch_tolerance"] * spec.row_pitch_mm):
         # Rows filled/picked to the registry count at the registry pitch: the layout is settled.
         warnings.remove("LAYOUT_UNCERTAIN")
