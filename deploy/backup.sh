@@ -14,6 +14,7 @@ mkdir -p "$OUT"; chmod 700 "$OUT"
 [ -s "$KEY" ] || { openssl rand -base64 48 > "$KEY"; chmod 600 "$KEY"; }
 SRC=${BACKUP_SRC:-$(docker volume inspect -f '{{.Mountpoint}}' "$VOLUME")}
 [ -d "$SRC" ] || { echo "backup: no data directory for volume $VOLUME" >&2; exit 1; }
+command -v flock >/dev/null || { echo "backup: flock is missing" >&2; exit 1; }
 exec 9> "$OUT/.lock"; flock -n 9 || { echo "backup: another run is in progress" >&2; exit 0; }
 # old archives go, but the newest one always stays (a row of failed nights must not leave nothing)
 ls -t "$OUT"/appdata-*.tar.gz.enc 2>/dev/null | tail -n +2 | while read -r f; do

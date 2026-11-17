@@ -667,7 +667,7 @@ def test_skip_during_ci_cancels_the_deploy(tmp_path, monkeypatch):
     monkeypatch.setattr(B.asyncio, "sleep", asyncio.sleep)
     ag.store["pending"] = {"dev": {"branch": "agents/dev-20261117-1000", "sha": "a" * 40, "review": True}}
     asyncio.run(ag.deploy(ROLES["dev"]))
-    assert deployed == [] and any("отменена" in t for _, t in sent)
+    assert deployed == [] and any("не продолжается" in t for _, t in sent)
     ag.store["pending"] = {"dev": {"branch": "b", "sha": "b" * 40, "review": None}}
     asyncio.run(ag.deploy(ROLES["dev"]))
     assert deployed == [] and any("не состоялась" in t for _, t in sent) and "проверки не было" in ag.status_text()
@@ -677,7 +677,7 @@ def test_telegram_outage_does_not_empty_the_queue(tmp_path, monkeypatch):
     pytest.importorskip("aiogram")
     from cardiovision_agents import bot as B
     ag, _, calls = _team(tmp_path, monkeypatch)
-    monkeypatch.setattr(B, "FAIL_RETRY_S", 0.01)
+    monkeypatch.setattr(B, "FAIL_RETRY_S", 0.2)
     real_say, down = ag.say, {"on": True}
 
     async def say(role, text):
@@ -711,3 +711,45 @@ def test_model_hint_ignores_ordinary_errors_and_news_approval_echoes_text(tmp_pa
     ag.store["proposals"] = {"1": ["dev", "задача"]}
     asyncio.run(ag.dispatch([1]))
     assert ag.store["proposals"] == {"1": ["dev", "задача"]} and ag._queue("dev") == []
+
+
+# --- D301, the third review -------------------------------------------------------------------------------------
+def test_limit_then_bot_failure_still_retries_and_a_lost_answer_still_offers_the_branch(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    from cardiovision_agents import github
+    ag, sent, calls = _team(tmp_path, monkeypatch, metas={"sec": [{"ok": False, "limit": True}, {"ok": True}]})
+    monkeypatch.setattr(B, "FAIL_RETRY_S", 0)
+    n = {"clone": 0}
+
+    async def clone(*a, **k):
+        n["clone"] += 1
+        if n["clone"] == 2:                                 # the retry after the limit fails before the agent runs
+            raise OSError("mirror busy")
+    monkeypatch.setattr(github, "ensure_clone", clone)
+
+    async def go():
+        await ag.enqueue(ROLES["sec"], "важная")
+        await ag.workers["sec"]
+    asyncio.run(go())
+    assert len(calls) == 2 and ag._queue("sec") == []       # limit run + the real run: the task was not dropped
+    assert any("Повторю один раз" in t for _, t in sent) and not any("отработал" in t for _, t in sent)
+
+    ag2, _, _ = _team(tmp_path, monkeypatch)
+    offered, real_say = [], ag2.say
+
+    async def say(role, text):
+        if text.startswith("Готово"):
+            raise OSError("flood control")
+        await real_say(role, text)
+
+    async def offer(role, workdir, branch):
+        offered.append(branch)
+    monkeypatch.setattr(ag2, "say", say)
+    monkeypatch.setattr(ag2, "_offer", offer)
+
+    async def go2():
+        await ag2.enqueue(ROLES["dev"], "правка")
+        await ag2.workers["dev"]
+    asyncio.run(go2())
+    assert len(offered) == 1 and ag2._queue("dev") == []

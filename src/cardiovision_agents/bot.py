@@ -102,6 +102,7 @@ class Agents:
         self.locks = {k: asyncio.Lock() for k in ROLES}
         self.slots = asyncio.Semaphore(MAX_PARALLEL)
         self.workers: dict[str, asyncio.Task] = {}
+        self.unsent: dict[int, int] = {}      # failed «Начал задачу» sends per task
         self.ran: set[int] = set()            # tasks whose agent run has finished (this process)
         self.reply_to: dict[str, tuple[int, int | None]] = {}   # role -> where the owner last wrote to it
 
@@ -220,8 +221,11 @@ class Agents:
                                      + (f"\n(в очереди ещё {len(items) - 1})" if len(items) > 1 else ""))
             except Exception:                     # Telegram is down: the task is not touched, wait and try again
                 log.warning("start message of task %s not sent", tid)
-                await asyncio.sleep(FAIL_RETRY_S)
-                continue
+                self.unsent[tid] = self.unsent.get(tid, 0) + 1
+                if self.unsent[tid] < 5:
+                    await asyncio.sleep(FAIL_RETRY_S)
+                    continue
+                self.reply_to.pop(role.key, None)  # a dead chat must not stall the queue: run without the message
             try:
                 meta = await self.turn(role, task["text"], task_id=tid)
             except Exception as exc:              # a failed send or fetch must not block the agent's queue
@@ -236,7 +240,9 @@ class Agents:
                                       not_before=dt.datetime.now(TZ).timestamp() + FAIL_RETRY_S)
                 try:
                     await self.say(role, f"Задача №{tid}: сбой бота ({type(exc).__name__}). "
-                                         + ("Агент отработал, но ответ не доставлен — спросите его «что сделано»." if ran
+                                         + ("Агент отработал, но бот не довёл дело до конца"
+                                            + (" (ветка могла не уйти на проверку) — пришлите задачу заново." if role.branch
+                                               else " — спросите его «что сделано».") if ran
                                             else "Снята — пришлите её заново." if drop else "Повторю один раз."))
                 except Exception:
                     log.warning("could not report the failure of task %s", tid)
@@ -325,19 +331,22 @@ class Agents:
             prompt = build_prompt(role, text, extra, works=works)
             answer, sid, meta = await runner.run(role, prompt, sessions.get(role.key), workdir)
             self._log_usage(role, "report" if scheduled else "task", meta, started, task_id)
-            if task_id:
-                self.ran.add(task_id)
             if meta.get("limit"):
                 if scheduled:
                     await self.say(role, "Плановый отчёт пропущен: лимит подписки исчерпан.")
                 return meta
+            if task_id:
+                self.ran.add(task_id)            # the agent's run is over; what follows is the bot's part
             sessions = dict(self.store["sessions"])
             sessions[role.key] = sid
             self.store["sessions"] = sessions
             if meta.get("fallback"):
                 answer = f"(Модель {runner.model_for(role)} подпиской не выдаётся — работал на {meta.get('model')}.)\n" + answer
             head = f"Готово, задача №{task_id}:\n" if task_id else ""
-            await self.say(role, head + answer)
+            try:
+                await self.say(role, head + answer)
+            except Exception:                    # the answer is kept in the reports; the branch must still be offered
+                log.warning("answer of %s not delivered", role.key)
             self._remember(role, answer)
             if role.key == "coord":
                 tasks = parse_tasks(answer)
@@ -478,7 +487,7 @@ class Agents:
             await self.say(role, f"CI по `{p['branch']}`: {state}. Не выкладываю." + SKIP_NOTE)
             return
         if (self.store.data.get("pending") or {}).get(role.key) != p:
-            await self.say(role, f"Выкладка `{p['branch']}` отменена: вы написали «пропустить», пока шёл CI.")
+            await self.say(role, f"Выкладка `{p['branch']}` не продолжается: пока шёл CI, эта ветка уже выложена или снята («пропустить»).")
             return
         err = await github.fast_forward_and_deploy(p["sha"])
         if err:
