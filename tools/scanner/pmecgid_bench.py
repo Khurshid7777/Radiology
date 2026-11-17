@@ -94,6 +94,7 @@ def main() -> None:
     ap.add_argument("--limit", type=int)
     ap.add_argument("--user-hints", action="store_true",
                     help="give the scanner the speed and gain a user would confirm (25 mm/s, 10 mm/mV; SD-112)")
+    ap.add_argument("--only", type=Path, help="file of case ids (folder/image stem), one per line: score just these")
     ap.add_argument("--wide-lag", type=float, default=None, help="also score r after this wider time-origin search, s")
     a = ap.parse_args()
 
@@ -106,6 +107,9 @@ def main() -> None:
         rels = [r["Image relative path"] for r in meta if r["Image relative path"].split("/")[0] in PHOTOS]
     else:
         rels = [n.split("visual_data/")[1] for n in a.names.read_text().split("\n") if n and "/photos_" not in n]
+    if a.only:
+        keep = {x.strip() for x in a.only.read_text().split("\n") if x.strip()}
+        rels = [r for r in rels if r.rsplit(".", 1)[0] in keep]
     k, n = (int(v) for v in a.shard.split("/"))
     rels = sorted(rels)[k::n]
     cases, skipped = build_cases(a.root, rels)
