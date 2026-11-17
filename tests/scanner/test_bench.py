@@ -207,3 +207,14 @@ def test_resume_scores_only_missing_rows(smoke_cases, tmp_path):
     assert len(calls) == 1 and summary["overall"]["counting"]["n"] == 2
     rows = (rep / "cases.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(rows) == 2 and all(json.loads(r)["digitizer"] == "counting" for r in rows)
+
+
+def test_wide_lag_search_finds_an_offset_the_narrow_one_cannot():
+    """SD-112: a trace shifted by more than ``max_lag_s`` scores low there and high with the wide search."""
+    rng = np.random.default_rng(3)
+    x = rng.standard_normal(2500)
+    shifted = x[300:]                       # 0.6 s at 500 Hz
+    narrow = compare_trace(x, 0.0, shifted, 0.0, 500, max_lag_s=0.25, min_overlap=0.5, snr_cap_db=60)
+    wide = compare_trace(x, 0.0, shifted, 0.0, 500, max_lag_s=1.0, min_overlap=0.5, snr_cap_db=60)
+    assert narrow is None or narrow["r"] < 0.5
+    assert wide["r"] > 0.99 and abs(abs(wide["lag_s"]) - 0.6) < 0.01

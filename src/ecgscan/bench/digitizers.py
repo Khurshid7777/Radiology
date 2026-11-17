@@ -192,9 +192,10 @@ class Ecgscan:
     """This module's own pipeline (``ecgscan.pipeline.scan``); ``segmentation`` overrides that
     section of ``pipeline.yaml`` (``ecgscan-classic``: the threshold segmenter the learned one replaced, M6)."""
 
-    def __init__(self, name: str = "ecgscan", segmentation: dict | None = None):
+    def __init__(self, name: str = "ecgscan", segmentation: dict | None = None, hints: dict | None = None):
         self.name = name
         self.segmentation = segmentation
+        self.hints = hints            # ScanHints fields: what a user would answer to the speed / gain question
         self._config = None
 
     def _cfg(self) -> dict | None:
@@ -233,7 +234,9 @@ class Ecgscan:
         dbg = ScanDebug()
         t = time.perf_counter()
         try:
-            res = scan(image, debug=dbg, config=self._cfg())
+            from ecgscan.pipeline import ScanHints
+
+            res = scan(image, debug=dbg, config=self._cfg(), hints=ScanHints(**self.hints) if self.hints else None)
         except Exception as exc:  # an unhandled pipeline error is a bug, but still a refusal in the numbers
             return DigitizerRun(None, f"{type(exc).__name__}: {exc}"[:200], time.perf_counter() - t)
         extra = {"timings": dbg.timings, "rows": dbg.rows, "pulses": len(dbg.pulses)}

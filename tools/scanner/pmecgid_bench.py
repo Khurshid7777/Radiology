@@ -92,6 +92,9 @@ def main() -> None:
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--shard", default="0/1")
     ap.add_argument("--limit", type=int)
+    ap.add_argument("--user-hints", action="store_true",
+                    help="give the scanner the speed and gain a user would confirm (25 mm/s, 10 mm/mV; SD-112)")
+    ap.add_argument("--wide-lag", type=float, default=None, help="also score r after this wider time-origin search, s")
     a = ap.parse_args()
 
     from ecgscan.bench.cases import bench_config
@@ -112,8 +115,13 @@ def main() -> None:
     import json
     (a.out / "skipped.json").write_text(json.dumps(skipped, indent=1, ensure_ascii=False))
     print(f"{len(cases)} cases, {len(skipped)} skipped", flush=True)
-    digs = [d for d in default_digitizers(bench_config()) if d.name == "ecgscan"]
-    run_bench("standard", a.out, digitizers=digs, cases=cases, resume=a.resume)
+    cfg = bench_config()
+    if a.wide_lag:
+        cfg["metrics"]["wide_lag_s"] = a.wide_lag
+    digs = [d for d in default_digitizers(cfg) if d.name == "ecgscan"]
+    if a.user_hints:
+        digs[0].hints = {"paper_speed_mm_s": 25.0, "gain_mm_mv": 10.0}
+    run_bench("standard", a.out, digitizers=digs, cases=cases, resume=a.resume, config=cfg)
 
 
 if __name__ == "__main__":
