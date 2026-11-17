@@ -61,6 +61,13 @@ services:
     environment:
       AGENTS_TG_TOKEN: ${AGENTS_TG_TOKEN:-}      # required by the bot; ":-" so compose never fails the site without it
       AGENTS_OWNER_ID: ${AGENTS_OWNER_ID:-}
+      AGENTS_TG_COORD: ${AGENTS_TG_COORD:-}
+      AGENTS_TG_DEV: ${AGENTS_TG_DEV:-}
+      AGENTS_TG_SCAN: ${AGENTS_TG_SCAN:-}
+      AGENTS_TG_REVIEW: ${AGENTS_TG_REVIEW:-}
+      AGENTS_TG_SEC: ${AGENTS_TG_SEC:-}
+      AGENTS_TG_TRIAGE: ${AGENTS_TG_TRIAGE:-}
+      AGENTS_TG_NEWS: ${AGENTS_TG_NEWS:-}
       AGENTS_GH_TOKEN: ${AGENTS_GH_TOKEN:-}
       AGENTS_SUMMARY_KEY: ${AGENTS_SUMMARY_KEY:-}
       AGENTS_SITE_URL: http://cardiolens:8000

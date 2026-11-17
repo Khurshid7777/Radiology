@@ -187,3 +187,44 @@ def test_deploy_is_blocked_without_the_reviewers_yes(tmp_path):
     asyncio.run(ag.deploy(ROLES["dev"]))
     assert sent and "не пропустил" in sent[-1]
     assert "agents/dev-20261117-1000" in ag.status_text()
+
+
+def test_a_group_message_is_for_the_bot_it_names_or_answers():
+    from cardiovision_agents.bot import addressed_to
+
+    assert addressed_to("@cv_dev_bot почини тест", "cv_dev_bot", None, 5) == (True, "почини тест")
+    assert addressed_to("да", "cv_dev_bot", 5, 5) == (True, "да")              # a reply to this bot
+    assert addressed_to("да", "cv_dev_bot", 6, 5)[0] is False                 # a reply to another bot
+    assert addressed_to("@cv_scan_bot да", "cv_dev_bot", None, 5)[0] is False
+
+
+def test_each_agent_speaks_through_its_own_bot(tmp_path):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents.bot import Agents
+
+    class FakeBot:
+        def __init__(self, name):
+            self.name, self.sent = name, []
+
+        async def send_message(self, chat, text, message_thread_id=None):
+            self.sent.append((chat, message_thread_id, text))
+
+    bots = {k: FakeBot(k) for k in ROLES}
+    store = Store(tmp_path / "s.json")
+    ag = Agents(bots, store, owner_id=42)
+    assert ag.multi
+    asyncio.run(ag.say(ROLES["sec"], "отчёт"))
+    assert bots["sec"].sent == [(42, None, "отчёт")]                           # no group yet: the owner's private chat
+    store["chat_id"] = -100
+    asyncio.run(ag.say(ROLES["news"], "новости"))
+    assert bots["news"].sent == [(-100, None, "новости")] and not bots["coord"].sent
+    ag.reply_to["dev"] = (42, None)                                             # the owner wrote to the dev bot privately
+    asyncio.run(ag.say(ROLES["dev"], "готово"))
+    assert bots["dev"].sent[-1][0] == 42
+
+
+def test_compose_passes_a_token_per_agent():
+    comp = yaml.safe_load((ROOT / "deploy/docker-compose.yml").read_text())
+    env = comp["services"]["agents"]["environment"]
+    for k in ("COORD", "DEV", "SCAN", "REVIEW", "SEC", "TRIAGE", "NEWS"):
+        assert f"AGENTS_TG_{k}" in env

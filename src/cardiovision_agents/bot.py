@@ -1,6 +1,9 @@
-"""The agents bot (D279): one supergroup, one topic per agent, commands only from the owner.
+"""The agents bots (D279, D298): one supergroup; one bot per agent (or one bot with a topic per agent); commands only
+from the owner.
 
-    AGENTS_TG_TOKEN, AGENTS_OWNER_ID          required
+    AGENTS_TG_COORD / _DEV / _SCAN / _REVIEW / _SEC / _TRIAGE / _NEWS   one bot per agent (D298); a missing one falls
+                                               back to AGENTS_TG_TOKEN (the single bot of D279)
+    AGENTS_OWNER_ID                            required
     AGENTS_GH_TOKEN                            the developer's pushes, the merge and the deploy after «да»
     AGENTS_SUMMARY_KEY, AGENTS_SITE_URL        the triage agent's input (the bot fetches it; the agent never sees the key)
     AGENTS_STATE (/state/agents.json), AGENTS_WORKDIR (/work/repo), AGENTS_SECURITY_REPORT (/security/report.txt)
@@ -55,22 +58,44 @@ def _secrets() -> tuple[str, ...]:
 
 class Agents:
     def __init__(self, bot, store: Store, owner_id: int):
-        self.bot, self.store, self.owner_id = bot, store, owner_id
+        # ``bot``: one bot for every agent (D279) or {role key: bot} (D298, a bot per agent).
+        self.bots = dict(bot) if isinstance(bot, dict) else {k: bot for k in ROLES}
+        self.bot = self.bots.get("coord") or next(iter(self.bots.values()))
+        self.store, self.owner_id = store, owner_id
         self.lock = asyncio.Lock()          # one Claude run at a time: the site shares the server
+        self.reply_to: dict[str, tuple[int, int | None]] = {}   # role -> where the owner last wrote to it
+
+    @property
+    def multi(self) -> bool:
+        return len({id(b) for b in self.bots.values()}) > 1
+
+    def _dest(self, role: Role | None) -> tuple[int | None, int | None]:
+        if role is not None and role.key in self.reply_to:
+            return self.reply_to[role.key]
+        chat = self.store["chat_id"]
+        if chat:
+            thread = None if self.multi or role is None else self.store["topics"].get(role.key)
+            return chat, thread
+        return self.owner_id, None          # no group bound yet: straight to the owner's private chat
 
     async def say(self, role: Role | None, text: str) -> None:
-        chat = self.store["chat_id"]
+        chat, thread = self._dest(role)
         if not chat:
             return
-        thread = self.store["topics"].get(role.key) if role else None
+        bot = self.bots.get(role.key) if role else self.bot
         for part in split_message(redact(text, _secrets())):
-            await self.bot.send_message(chat, part, message_thread_id=thread)
+            await (bot or self.bot).send_message(chat, part, message_thread_id=thread)
 
     # -- setup -------------------------------------------------------------------------------------------------
     async def setup(self, chat_id: int) -> str:
         if self.store["chat_id"] and self.store["chat_id"] != chat_id:
             return "Бот уже привязан к другой группе. Сначала /unbind там."
         self.store["chat_id"] = chat_id
+        if self.multi:                      # D298: a bot per agent — they talk in the group itself, no topics
+            for role in ROLES.values():
+                await self.say(role, f"Я — «{role.title}». В группе обращайтесь ко мне через @ или ответом на моё "
+                                     "сообщение; в личке пишите прямо. /new — начать разговор заново.")
+            return "Готово: все агенты в группе. Команды принимаю только от владельца."
         topics = dict(self.store["topics"])
         for key, role in ROLES.items():
             if key not in topics:
@@ -84,6 +109,8 @@ class Agents:
 
     # -- one turn ----------------------------------------------------------------------------------------------
     async def turn(self, role: Role, text: str, scheduled: bool = False) -> None:
+        if scheduled:
+            self.reply_to.pop(role.key, None)   # planned reports go to the group (or the owner's private chat)
         if self.store["paused"] and not scheduled:
             await self.say(role, "Агенты остановлены («стоп агенты»). Включить: «старт агенты».")
             return
@@ -257,49 +284,37 @@ class Agents:
             await asyncio.sleep(30)
 
 
-def build_dispatcher(agents: Agents):
-    from aiogram import Dispatcher, F
+def addressed_to(text: str, username: str | None, reply_from_id: int | None, bot_id: int | None) -> tuple[bool, str]:
+    """D298: in a group with a bot per agent, a message is for this bot when it names it (@username) or answers it.
+    Returns (for this bot?, text without the mention)."""
+    tag = f"@{username}" if username else None
+    if tag and tag.lower() in (text or "").lower():
+        import re
+        return True, re.sub(re.escape(tag), "", text, flags=re.IGNORECASE).strip()
+    if bot_id is not None and reply_from_id == bot_id:
+        return True, (text or "").strip()
+    return False, text or ""
+
+
+def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] | None = None):
+    """``idents``: bot id -> (role key, username) for a bot per agent (D298); None for the single bot (D279)."""
+    from aiogram import Bot, Dispatcher, F
     from aiogram.filters import Command
     from aiogram.types import Message
 
     dp = Dispatcher()
     owner = agents.owner_id
+    idents = idents or {}
 
-    @dp.message(Command("setup"), F.chat.type == "supergroup")
-    async def _setup(msg: Message):
-        if is_owner(msg.from_user and msg.from_user.id, owner):
-            await msg.reply(await agents.setup(msg.chat.id))
+    def own_role(bot: Bot) -> Role | None:
+        key = idents.get(bot.id, (None, None))[0] if idents else None
+        return ROLES.get(key) if key else None
 
-    @dp.message(Command("unbind"), F.chat.type == "supergroup")
-    async def _unbind(msg: Message):
-        if is_owner(msg.from_user and msg.from_user.id, owner) and agents.store["chat_id"] == msg.chat.id:
-            agents.store["chat_id"], agents.store["topics"] = None, {}
-            await msg.reply("Отвязано.")
+    def primary(bot: Bot) -> bool:
+        """Group-wide commands are answered by one bot only (the coordinator's, or the single bot)."""
+        return not idents or idents.get(bot.id, (None,))[0] == "coord"
 
-    @dp.message(F.chat.type == "private")
-    async def _private(msg: Message):
-        if is_owner(msg.from_user and msg.from_user.id, owner):
-            await msg.answer("Добавьте меня администратором в супергруппу с темами и отправьте там /setup.")
-
-    @dp.message(F.chat.type == "supergroup")
-    async def _group(msg: Message):
-        if not accepts(msg.from_user and msg.from_user.id, msg.chat.id, owner, agents.store["chat_id"]):
-            return                                 # D279: only the owner commands; other chats are ignored
-        text = msg.text or msg.caption or ""
-        if STOP.match(text):
-            agents.store["paused"] = True
-            await msg.reply("Агенты остановлены, в том числе плановые запуски. Включить: «старт агенты».")
-            return
-        if START.match(text):
-            agents.store["paused"] = False
-            await msg.reply("Агенты включены.")
-            return
-        if STATUS.match(text):
-            await msg.reply(agents.status_text())
-            return
-        role = role_for_thread(agents.store["topics"], msg.message_thread_id)
-        if role is None or not text:
-            return
+    async def handle(role: Role, text: str, msg: Message) -> None:
         if role.key == "coord" and parse_choice(text):
             asyncio.create_task(agents.dispatch(parse_choice(text)))
             return
@@ -314,15 +329,98 @@ def build_dispatcher(agents: Agents):
             return
         asyncio.create_task(agents.turn(role, text))
 
+    async def common(text: str, msg: Message) -> bool:
+        if STOP.match(text):
+            agents.store["paused"] = True
+            await msg.reply("Агенты остановлены, в том числе плановые запуски. Включить: «старт агенты».")
+            return True
+        if START.match(text):
+            agents.store["paused"] = False
+            await msg.reply("Агенты включены.")
+            return True
+        if STATUS.match(text):
+            await msg.reply(agents.status_text())
+            return True
+        return False
+
+    @dp.message(Command("setup"), F.chat.type == "supergroup")
+    async def _setup(msg: Message, bot: Bot):
+        if is_owner(msg.from_user and msg.from_user.id, owner) and primary(bot):
+            await msg.reply(await agents.setup(msg.chat.id))
+
+    @dp.message(Command("unbind"), F.chat.type == "supergroup")
+    async def _unbind(msg: Message, bot: Bot):
+        if (is_owner(msg.from_user and msg.from_user.id, owner) and agents.store["chat_id"] == msg.chat.id
+                and primary(bot)):
+            agents.store["chat_id"], agents.store["topics"] = None, {}
+            await msg.reply("Отвязано.")
+
+    @dp.message(F.chat.type == "private")
+    async def _private(msg: Message, bot: Bot):
+        if not is_owner(msg.from_user and msg.from_user.id, owner):
+            return                                 # strangers get no answer at all
+        text = msg.text or msg.caption or ""
+        role = own_role(bot) or ROLES["coord"]
+        if not text or await common(text, msg):
+            return
+        agents.reply_to[role.key] = (msg.chat.id, None)     # D298: answer in this private chat
+        await handle(role, text, msg)
+
+    @dp.message(F.chat.type == "supergroup")
+    async def _group(msg: Message, bot: Bot):
+        if not accepts(msg.from_user and msg.from_user.id, msg.chat.id, owner, agents.store["chat_id"]):
+            return                                 # D279: only the owner commands; other chats are ignored
+        text = msg.text or msg.caption or ""
+        if idents:                                 # D298: a bot per agent
+            username = idents.get(bot.id, (None, None))[1]
+            reply_from = msg.reply_to_message.from_user.id if (msg.reply_to_message and msg.reply_to_message.from_user) else None
+            mine, text = addressed_to(text, username, reply_from, bot.id)
+            if not mine:
+                others = any(addressed_to(msg.text or msg.caption or "", u, reply_from, i)[0]
+                             for i, (_, u) in idents.items() if i != bot.id)
+                if primary(bot) and not others:
+                    await common(text, msg)        # «статус» / «стоп агенты» to the whole group: the coordinator answers
+                return
+            if await common(text, msg):
+                return
+            role = own_role(bot)
+            if role is None or not text:
+                return
+            agents.reply_to[role.key] = (msg.chat.id, msg.message_thread_id)
+            await handle(role, text, msg)
+            return
+        if await common(text, msg):
+            return
+        role = role_for_thread(agents.store["topics"], msg.message_thread_id)
+        if role is None or not text:
+            return
+        agents.reply_to.pop(role.key, None)
+        await handle(role, text, msg)
+
     return dp
+
+
+TOKEN_ENV = {"coord": "AGENTS_TG_COORD", "dev": "AGENTS_TG_DEV", "scan": "AGENTS_TG_SCAN", "review": "AGENTS_TG_REVIEW",
+             "sec": "AGENTS_TG_SEC", "triage": "AGENTS_TG_TRIAGE", "news": "AGENTS_TG_NEWS"}
 
 
 async def main() -> None:
     from aiogram import Bot
 
     logging.basicConfig(level=logging.INFO)
-    token, owner = os.environ["AGENTS_TG_TOKEN"], int(os.environ["AGENTS_OWNER_ID"])
-    bot = Bot(token)
-    agents = Agents(bot, Store(os.environ.get("AGENTS_STATE", "/state/agents.json")), owner)
+    owner = int(os.environ["AGENTS_OWNER_ID"])
+    single = os.environ.get("AGENTS_TG_TOKEN", "")
+    tokens = {k: os.environ.get(env, "") or single for k, env in TOKEN_ENV.items()}
+    if not all(tokens.values()):
+        raise SystemExit("no Telegram token for: " + ", ".join(k for k, t in tokens.items() if not t))
+    by_token: dict[str, Bot] = {}
+    bots = {k: by_token.setdefault(t, Bot(t)) for k, t in tokens.items()}
+    store = Store(os.environ.get("AGENTS_STATE", "/state/agents.json"))
+    agents = Agents(bots, store, owner)
+    idents: dict[int, tuple[str, str | None]] = {}
+    if agents.multi:
+        for k, b in bots.items():
+            me = await b.get_me()
+            idents[me.id] = (k, me.username)
     asyncio.create_task(agents.scheduler())
-    await build_dispatcher(agents).start_polling(bot)
+    await build_dispatcher(agents, idents or None).start_polling(*by_token.values())

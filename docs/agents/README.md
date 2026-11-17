@@ -118,7 +118,7 @@
 «статус» в любой теме — где что сейчас (ветки, проверки, задачи недели, последние отчёты). «стоп агенты» в любой теме выключает всё, включая плановые запуски; «старт агенты» — включает. `/new` в теме — начать
 разговор заново.
 
-Что делает владелец один раз: (1) @BotFather → новый бот, токен → секрет GitHub `AGENTS_TG_TOKEN`; свой Telegram id
+Что делает владелец один раз: (1) @BotFather → по боту на агента (D298), токены → секреты GitHub `AGENTS_TG_COORD`, `AGENTS_TG_DEV`, `AGENTS_TG_SCAN`, `AGENTS_TG_REVIEW`, `AGENTS_TG_SEC`, `AGENTS_TG_TRIAGE`, `AGENTS_TG_NEWS` (только сам токен; у каждого `/setprivacy` → Disable) или один бот — `AGENTS_TG_TOKEN`; свой Telegram id
 (например, от @userinfobot) → секрет `AGENTS_OWNER_ID`; GitHub-токен с правами только на этот репозиторий (Contents и
 Actions: read and write) → секрет `AGENTS_GH_TOKEN`; (2) выкладка (с «да»); (3) на сервере один раз войти в Claude:
 `cd /opt/cardiolens && docker compose -f deploy/docker-compose.yml exec -u agent agents claude` → `/login`;
