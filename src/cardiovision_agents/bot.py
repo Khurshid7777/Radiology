@@ -37,17 +37,24 @@ from .logic import (
     review_ok,
     role_for_thread,
     split_message,
+    task_menu,
 )
 from .store import Store
 
 log = logging.getLogger("agents")
 TZ = ZoneInfo("Asia/Tashkent")
 # (role, weekday or None for daily, hour, minute) — Tashkent time, off the round hour.
-SCHEDULE = (("sec", None, 8, 17), ("triage", 0, 9, 23), ("news", 2, 10, 13), ("coord", 4, 16, 7))
-WEEKLY_PLAN = ("Плановый запуск: составь задачи недели. Прочитай последние сообщения агентов (их отчёты лежат в "
-               "/state/input/reports.md), docs/PROJECT_STATE.md и DECISIONS.md. Выбери не больше трёх задач, которые сильнее всего "
-               "улучшат продукт по цифрам. Каждую — отдельной строкой ровно так: «ЗАДАЧА <номер> [ядро|сканер]: <что "
-               "сделать и как проверить>», под ней одна строка «почему: <цифры>». Владелец ответит «да 1, 3».")
+# D300 (owner, 17.11): every agent reports twice a day, 09:00 and 21:00 Tashkent, two minutes apart.
+REPORT_ORDER = ("sec", "triage", "news", "dev", "scan", "review", "coord")
+SCHEDULE = tuple((key, hour, 2 * i) for hour in (9, 21) for i, key in enumerate(REPORT_ORDER))
+REPORT = ("Плановый отчёт владельцу (коротко, по-русски): что сделано с прошлого отчёта, что в работе, что нужно от "
+          "владельца. Если по твоей части нового нет — скажи это одной строкой. Код не меняй.")
+DAILY_PLAN = ("Плановый запуск: предложи задачи. Прочитай последние отчёты агентов (/state/input/reports.md), "
+              "docs/PROJECT_STATE.md и последние записи DECISIONS.md. Выбери не больше трёх задач, которые сильнее всего "
+              "улучшат продукт по цифрам. Сначала две-три строки «что происходит», затем список — каждая задача одной "
+              "строкой ровно так: «1. [ядро] что сделать и как проверить — почему (цифры)», «2. [сканер] …». "
+              "В квадратных скобках только «ядро» или «сканер». Владелец ответит «да 1, 3».")
+MAX_PARALLEL = int(os.environ.get("AGENTS_MAX_PARALLEL", "7"))
 SERVER_NOTE = ("Here, on the server, the parts of your instructions about git branches, pushing, send_message and "
                "scheduled tasks do not apply: your answer is posted to your Telegram topic and that is your report.")
 
@@ -78,7 +85,9 @@ class Agents:
         self.bots = dict(bot) if isinstance(bot, dict) else {k: bot for k in ROLES}
         self.bot = self.bots.get("coord") or next(iter(self.bots.values()))
         self.store, self.owner_id = store, owner_id
-        self.lock = asyncio.Lock()          # one Claude run at a time: the site shares the server
+        # D300: agents work in parallel — one run at a time per agent (its own clone), up to MAX_PARALLEL at once.
+        self.locks = {k: asyncio.Lock() for k in ROLES}
+        self.slots = asyncio.Semaphore(MAX_PARALLEL)
         self.reply_to: dict[str, tuple[int, int | None]] = {}   # role -> where the owner last wrote to it
 
     @property
@@ -132,25 +141,31 @@ class Agents:
             return
         if self.store["paused"]:
             return
-        if self.lock.locked():
-            await self.say(role, "В очереди: сейчас работает другой агент.")
-        async with self.lock:
-            workdir = runner.WORKDIR
+        if self.locks[role.key].locked():
+            if scheduled:
+                return                           # busy with a task: the planned report is skipped, not queued
+            await self.say(role, "Я ещё занят прошлой задачей — эту поставил в очередь.")
+        async with self.locks[role.key], self.slots:
+            workdir = runner.workdir_for(role)
             await github.ensure_clone(workdir, runner.AGENT_USER)
-            extra = "" if role.branch else SERVER_NOTE
+            works = role.branch and not scheduled      # a planned report never opens a branch
+            extra = "" if works else SERVER_NOTE
             branch = None
-            if role.branch:
+            if works:
                 branch = branch_name(dt.datetime.now(TZ).strftime("%Y%m%d-%H%M"), role.key)
                 err = await github.prepare_branch(workdir, branch, runner.AGENT_USER)
                 if err:
                     await self.say(role, f"Не удалось подготовить ветку: {err}")
                     return
-            else:
+            elif not role.branch:
                 await github.checkout_main(workdir, runner.AGENT_USER)
             extra += await self._inputs(role)
-            await self.say(role, "Принял, работаю…")
+            if not scheduled:
+                await self.say(role, "Принял, работаю…")
             sessions = dict(self.store["sessions"])
-            answer, sid = await runner.run(role, build_prompt(role, text, extra), sessions.get(role.key))
+            prompt = build_prompt(role, text, extra, works=works)
+            answer, sid = await runner.run(role, prompt, sessions.get(role.key), workdir)
+            sessions = dict(self.store["sessions"])
             sessions[role.key] = sid
             self.store["sessions"] = sessions
             await self.say(role, answer)
@@ -159,7 +174,7 @@ class Agents:
                 tasks = parse_tasks(answer)
                 if tasks:
                     self.store["proposals"] = {str(k): v for k, v in tasks.items()}
-                    await self.say(role, "Ответьте здесь «да» и номера задач (например «да 1, 3») — раздам их агентам.")
+                    await self.say(role, task_menu(tasks))
             if branch:
                 await self._offer(role, workdir, branch)
 
@@ -212,7 +227,7 @@ class Agents:
         prompt = build_prompt(rv, (f"Проверь ветку `{branch}` агента «{author.title}» перед выкладкой: `git diff origin/main...{branch}` "
                                    f"и `git log origin/main..{branch}`. Повтори ключевые проверки сам (тесты затронутых частей). "
                                    "Последней строкой напиши ровно «ВЕРДИКТ: можно» или «ВЕРДИКТ: нельзя»."), SERVER_NOTE)
-        answer, _ = await runner.run(rv, prompt, None)
+        answer, _ = await runner.run(rv, prompt, None, runner.workdir_for(author))
         await self.say(rv, f"Ветка `{branch}` ({author.title}):\n{answer}")
         self._remember(rv, answer)
         return review_ok(answer) is True
@@ -262,7 +277,8 @@ class Agents:
     # -- status and the coordinator's dispatch ------------------------------------------------------------------
     def status_text(self) -> str:
         lines = ["Агенты: " + ("остановлены" if self.store["paused"] else "работают") +
-                 (" (сейчас кто-то занят)" if self.lock.locked() else "")]
+                 ("; сейчас заняты: " + ", ".join(ROLES[k].title for k, lk in self.locks.items() if lk.locked())
+                  if any(lk.locked() for lk in self.locks.values()) else "")]
         for k, p in (self.store.data.get("pending") or {}).items():
             if k in ROLES and p:
                 lines.append(f"• {ROLES[k].title}: ветка `{p['branch']}` ({p['sha'][:7]}), проверяющий: "
@@ -274,8 +290,8 @@ class Agents:
         for k, v in (self.store.data.get("last_reports") or {}).items():
             if k in ROLES:
                 lines.append(f"• последний отчёт «{ROLES[k].title}»: {v['at']}")
-        sched = {"sec": "ежедневно 08:17", "triage": "пн 09:23", "news": "ср 10:13", "coord": "пт 16:07"}
-        lines.append("Плановые запуски (Ташкент): " + ", ".join(f"{ROLES[k].title} — {w}" for k, w in sched.items()))
+        lines.append("Плановые отчёты (Ташкент): 09:00 и 21:00, по очереди через 2 минуты — "
+                     + ", ".join(ROLES[k].title for k in REPORT_ORDER))
         return "\n".join(lines)
 
     async def dispatch(self, numbers: list[int]) -> None:
@@ -296,14 +312,16 @@ class Agents:
         done: set[str] = set()
         while True:
             now = dt.datetime.now(TZ)
-            for key, wd, h, m in SCHEDULE:
-                tag = f"{key}:{now:%Y-%m-%d}"
-                if (wd is None or now.weekday() == wd) and (now.hour, now.minute) >= (h, m) and tag not in done:
+            for key, h, m in SCHEDULE:
+                tag = f"{key}:{now:%Y-%m-%d}:{h}"
+                # the slot's own hour only: a restart later in the day does not replay missed reports
+                if now.hour == h and now.minute >= m and tag not in done:
                     done.add(tag)
-                    if now.hour == h:            # missed by more than an hour (restart) -> skip, not catch up
-                        text = WEEKLY_PLAN if key == "coord" else "Плановый запуск: сделай свой отчёт."
-                        asyncio.create_task(self.safe(ROLES[key], self.turn(ROLES[key], text, True)))
-            await asyncio.sleep(30)
+                    text = DAILY_PLAN if (key == "coord" and h == 9) else REPORT
+                    asyncio.create_task(self.safe(ROLES[key], self.turn(ROLES[key], text, True)))
+            if len(done) > 200:
+                done = {t for t in done if f":{now:%Y-%m-%d}:" in t}
+            await asyncio.sleep(20)
 
 
 def addressed_to(text: str, username: str | None, reply_from_id: int | None, bot_id: int | None) -> tuple[bool, str]:

@@ -51,3 +51,18 @@ with the same three lines for the owner.
 - No code or rule changes, no dataset downloads, no deploy, no new scheduled tasks.
 - No medical claim without its source beside it; no source you did not open.
 - No text of a paper copied at length: retell and link.
+
+
+## On the server (Telegram, D300 — the owner's brief of 17.11)
+
+You are the «Новости» agent on the server; your answer in Telegram is your report (no branch, no file needed). The owner
+wants two things from you, in this order:
+
+1. **New data to train and test our models**: open ECG datasets and benchmarks (signals, images, beat or wave
+   annotations — P waves, AV blocks, VT / VF, paper-ECG photos), with size, licence, labels, how to get them and which of
+   our weak spots they would help (see `docs/ARRHYTHMIA_CATALOG.md` and the last DECISIONS entries: complete AV block,
+   2nd-degree block, SVT at 100-139, P-wave detector). You never download a dataset: you propose it, the owner says «да».
+2. **Any news tied to our work**: guidelines, papers, digitisation methods, regulation, failures of ECG software.
+
+Do not repeat what your previous report already said: say "нового нет" in one line when nothing appeared. Search widely
+(web search, the primary source), keep at most ten items, most useful first.

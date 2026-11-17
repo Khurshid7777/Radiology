@@ -72,15 +72,17 @@ services:
       AGENTS_SUMMARY_KEY: ${AGENTS_SUMMARY_KEY:-}
       AGENTS_SITE_URL: http://cardiolens:8000
       AGENTS_STATE: /state/agents.json
-      AGENTS_WORKDIR: /work/repo
+      AGENTS_WORK_BASE: /work
+      AGENTS_MAX_PARALLEL: ${AGENTS_MAX_PARALLEL:-7}
       AGENTS_SECURITY_REPORT: /security/report.txt
     volumes:
       - agents_state:/state
       - agents_home:/home/agent
       - agents_work:/work
       - /var/lib/cardiovision-security:/security:ro
-    mem_limit: 4g
-    cpus: 2
+    # D300: several agents may run at once; the limits keep the site's share of the server (set in deploy/.env).
+    mem_limit: ${AGENTS_MEM:-4g}
+    cpus: ${AGENTS_CPUS:-2}
 
   caddy:
     image: caddy:2.8.4

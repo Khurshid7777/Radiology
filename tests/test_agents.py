@@ -153,14 +153,64 @@ def test_a_failing_agents_build_cannot_block_the_site_deploy():
 
 
 def test_coordinator_list_and_owner_choice():
-    text = ("Задачи недели:\nЗАДАЧА 1 [ядро]: убрать ложную ФП у блокад — стенд Chapman\nпочему: 31/66\n"
-            "ЗАДАЧА 2 [сканер]: отказ на размытом фото\nЗАДАЧА 3 [кухня]: не наша\n")
+    text = ("Что происходит: всё спокойно.\n1. [ядро] убрать ложную ФП у блокад — стенд Chapman — почему: 31/66\n"
+            "2. [сканер] отказ на размытом фото\n3. [кухня] не наша\n**4. [Ядро]** PR по LUDB\n"
+            "ЗАДАЧА 5 [сканер]: старый формат\n")
     t = logic.parse_tasks(text)
-    assert t == {1: ("dev", "убрать ложную ФП у блокад — стенд Chapman"), 2: ("scan", "отказ на размытом фото")}
+    assert t == {1: ("dev", "убрать ложную ФП у блокад — стенд Chapman — почему: 31/66"),
+                 2: ("scan", "отказ на размытом фото"), 4: ("dev", "PR по LUDB"), 5: ("scan", "старый формат")}
+    menu = logic.task_menu(t)
+    assert "1. [Программист] убрать ложную ФП" in menu and "2. [Сканер] отказ" in menu and "да 1, 3" in menu
     assert logic.parse_choice("да 1, 3") == [1, 3]
     assert logic.parse_choice("Да: 2") == [2]
     assert logic.parse_choice("да") == [] and logic.parse_choice("да, но позже") == [] and logic.parse_choice(None) == []
     assert not logic.is_approval("да 1, 3")        # a choice is not a deploy approval
+
+
+def test_every_agent_reports_twice_a_day_two_minutes_apart():
+    pytest.importorskip("aiogram")
+    from cardiovision_agents.bot import SCHEDULE
+
+    assert len(SCHEDULE) == 2 * len(ROLES) and {k for k, _, _ in SCHEDULE} == set(ROLES)
+    for hour in (9, 21):
+        mins = sorted(m for _, h, m in SCHEDULE if h == hour)
+        assert mins == [2 * i for i in range(len(ROLES))]
+
+
+def test_agents_work_in_parallel_in_their_own_clones(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    from cardiovision_agents import github, runner
+
+    assert len({runner.workdir_for(r) for r in ROLES.values()}) == len(ROLES)
+    running, peak = set(), []
+
+    async def fake_run(role, prompt, session=None, cwd=None):
+        running.add(role.key)
+        peak.append(len(running))
+        await asyncio.sleep(0.05)
+        running.discard(role.key)
+        return f"ответ {role.key}", None
+
+    async def nothing(*a, **k):
+        return ""
+
+    monkeypatch.setattr(runner, "run", fake_run)
+    for name in ("ensure_clone", "checkout_main", "prepare_branch"):
+        monkeypatch.setattr(github, name, nothing)
+    monkeypatch.setattr(B, "INPUT_DIR", tmp_path / "input")
+
+    class FakeBot:
+        async def send_message(self, *a, **k):
+            pass
+
+    ag = B.Agents({k: FakeBot() for k in ROLES}, Store(tmp_path / "s.json"), owner_id=42)
+
+    async def go():
+        await asyncio.gather(*(ag.turn(ROLES[k], "отчёт", True) for k in ("sec", "news", "coord")))
+    asyncio.run(go())
+    assert max(peak) == 3                       # three agents at once
+    assert set(ag.store["last_reports"]) == {"sec", "news", "coord"}
 
 
 def test_review_verdict_line():

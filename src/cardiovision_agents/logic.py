@@ -94,8 +94,9 @@ def branch_name(stamp: str, kind: str = "dev") -> str:
     return f"agents/{kind}-{stamp}"
 
 
-# The coordinator's weekly list: one line per task, "ЗАДАЧА <n> [ядро|сканер]: <text>".
-TASK_LINE = re.compile(r"^\s*ЗАДАЧА\s+(\d+)\s*\[\s*(ядро|сканер)\s*\]\s*[:—-]\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+# The coordinator's task list: one line per task — "1. [ядро] <text>" (the older "ЗАДАЧА 1 [ядро]: <text>" is read too).
+TASK_LINE = re.compile(r"^\s*(?:[-*•]\s*)?\**\s*(?:ЗАДАЧА\s+)?(\d+)\s*[.):]?\s*\**\s*\[\s*(ядро|сканер)\s*\]\s*\**\s*[:—–-]?\s*(.+?)\s*$",
+                       re.IGNORECASE | re.MULTILINE)
 TARGET = {"ядро": "dev", "сканер": "scan"}
 CHOICE = re.compile(r"^\s*да\s*[,:]?\s*((?:\d+\s*[, ]\s*)*\d+)\s*[.!]*\s*$", re.IGNORECASE)
 STATUS = re.compile(r"^\s*(статус|/status)\s*[?.!]*\s*$", re.IGNORECASE)
@@ -105,6 +106,12 @@ VERDICT = re.compile(r"ВЕРДИКТ\s*:\s*(можно|нельзя)", re.IGNOR
 def parse_tasks(text: str) -> dict[int, tuple[str, str]]:
     """{n: (role key, task text)} from the coordinator's weekly list."""
     return {int(n): (TARGET[t.lower()], body) for n, t, body in TASK_LINE.findall(text or "")}
+
+
+def task_menu(tasks: dict[int, tuple[str, str]]) -> str:
+    """The clean numbered list the bot shows the owner (D300)."""
+    lines = [f"{n}. [{ROLES[r].title}] {t}" for n, (r, t) in sorted(tasks.items())]
+    return "Задачи на выбор:\n" + "\n".join(lines) + "\n\nОтветьте мне: «да» и номера — например «да 1, 3»."
 
 
 def parse_choice(text: str | None) -> list[int]:
@@ -125,12 +132,14 @@ def review_ok(text: str) -> bool | None:
     return None if m is None else m.group(1).lower() == "можно"
 
 
-def build_prompt(role: Role, text: str, extra: str = "") -> str:
+def build_prompt(role: Role, text: str, extra: str = "", works: bool | None = None) -> str:
+    """``works``: the agent is on its own branch for a task (default: every turn of a branch role)."""
+    works = role.branch if works is None else works
     head = (f"You are the «{role.title}» agent of CardioVision, running on the project's server and talking to the "
-            f"owner in a Telegram topic. First read docs/agents/README.md and docs/agents/{role.doc}; their rules bind "
+            f"owner in Telegram. First read docs/agents/README.md and docs/agents/{role.doc}; their rules bind "
             "you. Answer the owner in Russian, short and plain. Never print keys or tokens; there is no patient data "
             "here and you must not look for any.")
-    if role.branch:
+    if works:
         head += (" You are on your own git branch in this clone: commit your work there (git commit), do not switch "
                  "branches, do not push (the bot pushes). Run the full test suite before you finish. End with: what "
                  "changed, the test result, and whether it is ready to deploy.")

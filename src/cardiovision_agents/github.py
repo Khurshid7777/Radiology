@@ -65,7 +65,20 @@ async def agent_git(workdir: str, *args: str) -> tuple[int, str]:
     return await _run([*as_agent(), "git", "-C", workdir, *args], _agent_env())
 
 
+_locks: dict[int, asyncio.Lock] = {}
+
+
+def _mirror_lock() -> asyncio.Lock:
+    """One lock per event loop for everything that touches root's mirror (D300: agents work in parallel)."""
+    return _locks.setdefault(id(asyncio.get_running_loop()), asyncio.Lock())
+
+
 async def ensure_mirror() -> None:
+    async with _mirror_lock():
+        await _mirror_sync()
+
+
+async def _mirror_sync() -> None:
     if not os.path.isdir(os.path.join(MIRROR, "objects")):
         os.makedirs(os.path.dirname(MIRROR) or "/", exist_ok=True)
         await _run(["git", *HARDEN, "clone", "--bare", f"https://github.com/{REPO}.git", MIRROR], _root_env())
@@ -74,7 +87,12 @@ async def ensure_mirror() -> None:
 
 
 async def ensure_clone(workdir: str, user: str = AGENT) -> None:
-    await ensure_mirror()
+    async with _mirror_lock():
+        await _ensure_clone(workdir, user)
+
+
+async def _ensure_clone(workdir: str, user: str) -> None:
+    await _mirror_sync()
     # The mirror is root's and only read by the agent: trusting that one path in the agent's own global config is safe
     # (git honours safe.directory only from protected config, not from -c for a local clone).
     await _run([*as_agent(), "git", "config", "--global", "--replace-all", "safe.directory", MIRROR], _agent_env())
@@ -107,14 +125,15 @@ async def push(workdir: str, branch: str) -> tuple[bool, str, str]:
     transfer running as the agent, then pushed to GitHub from the mirror."""
     # The environment is emptied BEFORE setpriv, so not even setpriv sees root's git environment (the token).
     upload = " ".join(["env", "-i", "PATH=/usr/bin:/bin", *as_agent(), "git-upload-pack"])
-    code, out = await mirror_git("fetch", f"--upload-pack={upload}", workdir, f"+refs/heads/{branch}:refs/heads/{branch}")
-    if code != 0:
-        return False, "", out[-300:]
-    _, ahead = await mirror_git("rev-list", "--count", f"main..{branch}")
-    if ahead.strip() in ("", "0"):
-        return False, "", "нет коммитов поверх main"
-    code, out = await mirror_git("push", "origin", f"refs/heads/{branch}:refs/heads/{branch}")
-    _, sha = await mirror_git("rev-parse", branch)
+    async with _mirror_lock():
+        code, out = await mirror_git("fetch", f"--upload-pack={upload}", workdir, f"+refs/heads/{branch}:refs/heads/{branch}")
+        if code != 0:
+            return False, "", out[-300:]
+        _, ahead = await mirror_git("rev-list", "--count", f"main..{branch}")
+        if ahead.strip() in ("", "0"):
+            return False, "", "нет коммитов поверх main"
+        code, out = await mirror_git("push", "origin", f"refs/heads/{branch}:refs/heads/{branch}")
+        _, sha = await mirror_git("rev-parse", branch)
     return code == 0, sha.strip(), out[-300:]
 
 
