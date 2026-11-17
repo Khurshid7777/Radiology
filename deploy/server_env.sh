@@ -37,6 +37,8 @@ if ! grep -q "^CARDIOLENS_SHARE_SECRET=..*" .env; then
 fi
 if [ ! -t 0 ]; then
   while IFS='=' read -r name value; do
+    # D298: a secret pasted with spaces, a trailing CR / newline or quotes around it is taken as the bare value.
+    value=$(printf '%s' "${value:-}" | tr -d '\r\n' | sed -e 's/^[[:space:]"'"'"']*//' -e 's/[[:space:]"'"'"']*$//')
     [ -n "${value:-}" ] || continue
     case "$name" in
       ANTHROPIC_API_KEY)    set_var ANTHROPIC_API_KEY "$value" ;;
