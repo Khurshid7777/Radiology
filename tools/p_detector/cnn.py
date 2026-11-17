@@ -111,6 +111,42 @@ def prep(out: Path) -> None:
     print("[prep]", meta, "ludb", sum(i["src"] == "ludb" for i in items), "qtdb", sum(i["src"] == "qtdb" for i in items))
 
 
+INSERT_P = __import__("os").environ.get("PDET_INSERT_P", "0") == "1"   # D295 v2
+
+
+def p_bank(items, rng, n_max: int = 4000) -> list:
+    """Real P waves (+-20 ms, linear trend removed) cut from annotated LUDB training leads."""
+    bank = []
+    for it in items:
+        for pk in it["peaks"]:
+            lab = it["y"]
+            on = pk
+            while on > 0 and lab[on - 1]:
+                on -= 1
+            off = pk
+            while off < lab.size - 1 and lab[off + 1]:
+                off += 1
+            a, b = on - 10, off + 10
+            if a < 0 or b >= it["x"].size or off - on < 15:
+                continue
+            w = it["x"][a:b].astype(np.float32)
+            w = w - np.linspace(w[0], w[-1], w.size, dtype=np.float32)
+            bank.append((w, 10, w.size - 10))
+    rng.shuffle(bank)
+    return bank[:n_max]
+
+
+def insert_p(x, y, bank, rng, k: int) -> None:
+    """Add k bank P waves at random places (on T, in the pause, right after QRS); their span becomes label 1."""
+    for _ in range(k):
+        w, on, off = bank[int(rng.integers(len(bank)))]
+        s = int(rng.integers(0, x.size - w.size))
+        if y[s:s + w.size].any():
+            continue
+        x[s:s + w.size] += w * float(rng.uniform(0.6, 1.4))
+        y[s + on:s + off] = 1
+
+
 def build_model():
     from torch import nn
 
@@ -139,6 +175,7 @@ def train(data: Path, out: Path, epochs: int, seed: int) -> None:
     # crops: LUDB anywhere in the annotated range; QTDB centred on annotated beats
     ludb = [i for i in items if i["src"] == "ludb"]
     qtdb = [i for i in items if i["src"] == "qtdb"]
+    bank = p_bank(ludb, rng)
 
     def crop():
         pool = qtdb if (qtdb and rng.random() < QTDB_SHARE) else ludb
@@ -154,6 +191,9 @@ def train(data: Path, out: Path, epochs: int, seed: int) -> None:
         x, y, m = it["x"][s:s + WIN], it["y"][s:s + WIN], it["m"][s:s + WIN]
         if m.sum() < 200:
             return None
+        if INSERT_P and rng.random() < 0.5:
+            x, y = x.copy(), y.copy()
+            insert_p(x, y, bank, rng, int(rng.integers(1, 4)))
         g = 1.0 + rng.normal(0, 0.15)
         x = x * (g if rng.random() < 0.5 else -g) if it["src"] == "qtdb" else x * g   # qtdb leads are unnamed
         x = x + rng.normal(0, 0.05, x.size).astype(np.float32)
@@ -240,9 +280,36 @@ def evaluate(data: Path, model: Path, thr: float, split: str = "test") -> dict:
     return res
 
 
+def evaluate_inserted(data: Path, model: Path, thr: float, split: str = "val", seed: int = 777) -> dict:
+    """D295 v2: P waves from training leads pasted at random places of held-out LUDB leads — how many are found."""
+    import pickle
+
+    import onnxruntime as ort
+    sess = ort.InferenceSession(str(model), providers=["CPUExecutionProvider"])
+    allit = pickle.load((data / "items.pkl").open("rb"))
+    rng = np.random.default_rng(seed)
+    bank = p_bank([i for i in allit if i["split"] == "train" and i["src"] == "ludb"], rng)
+    tol = int(0.04 * FS)
+    found = total = 0
+    for it in allit:
+        if it["split"] != split or it["src"] != "ludb" or it["lead"] != "ii":
+            continue
+        x, y = it["x"].copy(), it["y"].copy()
+        before = y.copy()
+        lo, hi = it["lo"], it["hi"]
+        seg_x, seg_y = x[lo:hi], y[lo:hi]
+        insert_p(seg_x, seg_y, bank, rng, 4)
+        new = np.flatnonzero(np.diff(np.concatenate(([0], (seg_y & ~before[lo:hi]).astype(int), [0]))))
+        centres = [lo + (a + b) // 2 for a, b in zip(new[::2], new[1::2])]
+        d = peaks_from_prob(predict(sess, x), x, thr)
+        total += len(centres)
+        found += sum(bool(len(d)) and bool(np.any(np.abs(d - c) <= tol)) for c in centres)
+    return {"inserted": total, "found": found, "recall": round(found / max(1, total), 3)}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["prep", "train", "eval"])
+    ap.add_argument("cmd", choices=["prep", "train", "eval", "eval_insert"])
     ap.add_argument("--out", type=Path)
     ap.add_argument("--data", type=Path)
     ap.add_argument("--model", type=Path)
@@ -255,6 +322,8 @@ def main() -> None:
         prep(a.out)
     elif a.cmd == "train":
         train(a.data, a.out, a.epochs, a.seed)
+    elif a.cmd == "eval_insert":
+        print(json.dumps(evaluate_inserted(a.data, a.model, a.thr, a.split)))
     else:
         print(json.dumps(evaluate(a.data, a.model, a.thr, a.split), indent=1))
 
