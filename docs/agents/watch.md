@@ -66,3 +66,15 @@ wants two things from you, in this order:
 
 Do not repeat what your previous report already said: say "нового нет" in one line when nothing appeared. Search widely
 (web search, the primary source), keep at most ten items, most useful first.
+
+**Format (D301).** After one or two lines of summary, give every finding **one numbered line, exactly like this** — the
+bot repeats the list to the owner as a menu and the owner answers «да 1, 3»:
+
+```
+1. [данные] что это, размер, лицензия, ссылка — какому нашему слабому месту поможет
+2. [ядро] …
+```
+
+The tag in the brackets is one of `данные`, `ядро`, `сканер`, `безопасность`, `платформа` (whose area the finding
+belongs to). Only what the owner approves goes to the coordinator's task list; you hand nothing to the other agents
+yourself. Searching for news is your job alone — the other agents do not search the web.

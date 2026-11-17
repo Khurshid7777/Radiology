@@ -19,4 +19,9 @@ if [ -d /etc/cron.d ]; then   # a server without cron must not stop the deploy (
   printf 'SHELL=/bin/bash\n50 2 * * * root bash %s/deploy/security_check.sh %s\n' "$APP_DIR_SETUP" "$APP_DIR_SETUP" \
     > /etc/cron.d/cardiovision-security && chmod 644 /etc/cron.d/cardiovision-security || true
 fi
+# D301: a daily encrypted backup of the site's data volume (03:20 Tashkent = 22:20 UTC), kept 14 days on this server.
+if [ -d /etc/cron.d ]; then
+  printf 'SHELL=/bin/bash\n20 22 * * * root bash %s/deploy/backup.sh\n' "$APP_DIR_SETUP" \
+    > /etc/cron.d/cardiovision-backup && chmod 644 /etc/cron.d/cardiovision-backup || true
+fi
 bash "$APP_DIR_SETUP/deploy/security_check.sh" "$APP_DIR_SETUP" || true

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 import logging
 import os
 from pathlib import Path
@@ -21,6 +22,8 @@ import httpx
 
 from . import github, runner
 from .logic import (
+    CANCEL,
+    QUEUE,
     ROLES,
     START,
     STATUS,
@@ -31,7 +34,9 @@ from .logic import (
     build_prompt,
     is_approval,
     is_owner,
+    news_menu,
     parse_choice,
+    parse_news,
     parse_tasks,
     redact,
     review_ok,
@@ -45,7 +50,7 @@ log = logging.getLogger("agents")
 TZ = ZoneInfo("Asia/Tashkent")
 # (role, weekday or None for daily, hour, minute) — Tashkent time, off the round hour.
 # D300 (owner, 17.11): every agent reports twice a day, 09:00 and 21:00 Tashkent, two minutes apart.
-REPORT_ORDER = ("sec", "triage", "news", "dev", "scan", "review", "coord")
+REPORT_ORDER = ("sec", "triage", "news", "dev", "scan", "review", "audit", "coord")
 SCHEDULE = tuple((key, hour, 2 * i) for hour in (9, 21) for i, key in enumerate(REPORT_ORDER))
 REPORT = ("Плановый отчёт владельцу (коротко, по-русски): что сделано с прошлого отчёта, что в работе, что нужно от "
           "владельца. Если по твоей части нового нет — скажи это одной строкой. Код не меняй.")
@@ -54,7 +59,11 @@ DAILY_PLAN = ("Плановый запуск: предложи задачи. П�
               "улучшат продукт по цифрам. Сначала две-три строки «что происходит», затем список — каждая задача одной "
               "строкой ровно так: «1. [ядро] что сделать и как проверить — почему (цифры)», «2. [сканер] …». "
               "В квадратных скобках только «ядро» или «сканер». Владелец ответит «да 1, 3».")
-MAX_PARALLEL = int(os.environ.get("AGENTS_MAX_PARALLEL", "7"))
+MAX_PARALLEL = int(os.environ.get("AGENTS_MAX_PARALLEL", "8"))
+LIMIT_RETRY_MIN = int(os.environ.get("AGENTS_LIMIT_RETRY_MIN", "30"))     # D301: retry a task the limit stopped
+USAGE_LOG = Path(os.environ.get("AGENTS_USAGE_LOG", "/state/usage.jsonl"))
+EVENING = ("Вечерняя сводка владельцу (коротко): что сделано за день по агентам, что выложено, что ждёт «да» владельца, "
+           "что в очереди, расход за день (из usage.md). Без списка задач.")
 SERVER_NOTE = ("Here, on the server, the parts of your instructions about git branches, pushing, send_message and "
                "scheduled tasks do not apply: your answer is posted to your Telegram topic and that is your report.")
 
@@ -88,6 +97,7 @@ class Agents:
         # D300: agents work in parallel — one run at a time per agent (its own clone), up to MAX_PARALLEL at once.
         self.locks = {k: asyncio.Lock() for k in ROLES}
         self.slots = asyncio.Semaphore(MAX_PARALLEL)
+        self.workers: dict[str, asyncio.Task] = {}
         self.reply_to: dict[str, tuple[int, int | None]] = {}   # role -> where the owner last wrote to it
 
     @property
@@ -133,50 +143,165 @@ class Agents:
         return "Готово: темы созданы. Команды принимаю только от владельца."
 
     # -- one turn ----------------------------------------------------------------------------------------------
-    async def turn(self, role: Role, text: str, scheduled: bool = False) -> None:
+    # -- the task queue (D301): tasks run one after another per agent, without gaps; reports at start and at end ----
+    def _queue(self, key: str) -> list[dict]:
+        return list((self.store.data.get("queue") or {}).get(key, []))
+
+    def _set_queue(self, key: str, items: list[dict]) -> None:
+        q = dict(self.store.data.get("queue") or {})
+        q[key] = items
+        self.store["queue"] = q
+
+    async def enqueue(self, role: Role, text: str, source: str = "владелец") -> int:
+        """Add a task for the agent; it starts at once, or right after the agent's current one."""
+        if self.store["paused"]:
+            await self.say(role, "Агенты остановлены («стоп агенты»). Включить: «старт агенты».")
+            return 0
+        tid = int(self.store.data.get("next_id", 1))
+        self.store["next_id"] = tid + 1
+        items = self._queue(role.key)
+        items.append({"id": tid, "text": text, "source": source,
+                      "at": dt.datetime.now(TZ).strftime("%Y-%m-%d %H:%M"), "reply": self.reply_to.get(role.key)})
+        self._set_queue(role.key, items)
+        if len(items) > 1 or self.locks[role.key].locked():
+            await self.say(role, f"Задача №{tid} в очереди (перед ней {max(len(items) - 1, 1)}). Начну сразу после текущей.")
+        self.kick(role)
+        return tid
+
+    def kick(self, role: Role) -> None:
+        """Make sure the agent's worker is running."""
+        t = self.workers.get(role.key)
+        if t is None or t.done():
+            self.workers[role.key] = asyncio.create_task(self.safe(role, self._work(role)))
+
+    async def _work(self, role: Role) -> None:
+        while not self.store["paused"]:
+            items = self._queue(role.key)
+            if not items:
+                return
+            task = items[0]
+            wait = task.get("not_before", 0) - dt.datetime.now(TZ).timestamp()
+            if wait > 0:
+                await asyncio.sleep(min(wait, 60))
+                continue
+            if task.get("reply"):
+                self.reply_to[role.key] = tuple(task["reply"])
+            await self.say(role, f"Начал задачу №{task['id']}: {task['text'][:300]}"
+                                 + (f"\n(в очереди ещё {len(items) - 1})" if len(items) > 1 else ""))
+            meta = await self.turn(role, task["text"], task_id=task["id"])
+            items = self._queue(role.key)
+            if meta.get("limit"):                 # the subscription limit: keep the task, try again later
+                tries = int(task.get("tries", 0)) + 1
+                again = dt.datetime.now(TZ) + dt.timedelta(minutes=LIMIT_RETRY_MIN)
+                for it in items:
+                    if it["id"] == task["id"]:
+                        it["tries"], it["not_before"] = tries, again.timestamp()
+                self._set_queue(role.key, items)
+                await self.say(role, f"Лимит подписки исчерпан — задача №{task['id']} сохранена, продолжу в "
+                                     f"{again:%H:%M} (попытка {tries}).")
+                continue
+            self._set_queue(role.key, [it for it in items if it["id"] != task["id"]])
+
+    async def cancel(self, tid: int) -> str:
+        for key in ROLES:
+            items = self._queue(key)
+            for i, it in enumerate(items):
+                if it["id"] == tid:
+                    if i == 0 and self.locks[key].locked():
+                        return f"Задача №{tid} уже выполняется ({ROLES[key].title}) — остановить её можно только «стоп агенты»."
+                    self._set_queue(key, [x for x in items if x["id"] != tid])
+                    return f"Задача №{tid} снята ({ROLES[key].title})."
+        return f"Задачи №{tid} в очереди нет."
+
+    def queue_text(self) -> str:
+        lines = []
+        for key, role in ROLES.items():
+            for i, it in enumerate(self._queue(key)):
+                state = "выполняется" if (i == 0 and self.locks[key].locked()) else "ждёт"
+                lines.append(f"№{it['id']} [{role.title}] {state} с {it['at']}: {it['text'][:120]}")
+        return "\n".join(lines) if lines else "Очередь пуста: все агенты свободны."
+
+    def _log_usage(self, role: Role, kind: str, meta: dict, started: dt.datetime, task_id: int | None = None) -> None:
+        """One line per agent run (numbers only) for the controller: who, what kind, minutes, cost, outcome."""
+        rec = {"at": started.strftime("%Y-%m-%d %H:%M"), "role": role.key, "kind": kind, "task": task_id,
+               "min": round((dt.datetime.now(TZ) - started).total_seconds() / 60, 1),
+               **{k: meta.get(k) for k in ("model", "cost_usd", "turns", "in", "out", "ok", "limit", "fallback")}}
+        try:
+            USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with USAGE_LOG.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except OSError:
+            log.warning("usage log not written")
+
+    # -- one turn ----------------------------------------------------------------------------------------------
+    async def turn(self, role: Role, text: str, scheduled: bool = False, task_id: int | None = None) -> dict:
+        """Run the agent once; returns the run's meta ({} when it did not run)."""
         if scheduled:
             self.reply_to.pop(role.key, None)   # planned reports go to the group (or the owner's private chat)
-        if self.store["paused"] and not scheduled:
-            await self.say(role, "Агенты остановлены («стоп агенты»). Включить: «старт агенты».")
-            return
         if self.store["paused"]:
-            return
-        if self.locks[role.key].locked():
-            if scheduled:
-                return                           # busy with a task: the planned report is skipped, not queued
-            await self.say(role, "Я ещё занят прошлой задачей — эту поставил в очередь.")
+            return {}
+        if scheduled and self.locks[role.key].locked():
+            return {}                            # busy with a task: the planned report is skipped, not queued
         async with self.locks[role.key], self.slots:
+            started = dt.datetime.now(TZ)
             workdir = runner.workdir_for(role)
             await github.ensure_clone(workdir, runner.AGENT_USER)
             works = role.branch and not scheduled      # a planned report never opens a branch
             extra = "" if works else SERVER_NOTE
             branch = None
             if works:
-                branch = branch_name(dt.datetime.now(TZ).strftime("%Y%m%d-%H%M"), role.key)
+                branch = branch_name(started.strftime("%Y%m%d-%H%M"), role.key)
                 err = await github.prepare_branch(workdir, branch, runner.AGENT_USER)
                 if err:
                     await self.say(role, f"Не удалось подготовить ветку: {err}")
-                    return
+                    return {"ok": False}
             elif not role.branch:
                 await github.checkout_main(workdir, runner.AGENT_USER)
             extra += await self._inputs(role)
-            if not scheduled:
-                await self.say(role, "Принял, работаю…")
             sessions = dict(self.store["sessions"])
             prompt = build_prompt(role, text, extra, works=works)
-            answer, sid = await runner.run(role, prompt, sessions.get(role.key), workdir)
+            answer, sid, meta = await runner.run(role, prompt, sessions.get(role.key), workdir)
+            self._log_usage(role, "report" if scheduled else "task", meta, started, task_id)
+            if meta.get("limit"):
+                if scheduled:
+                    await self.say(role, "Плановый отчёт пропущен: лимит подписки исчерпан.")
+                return meta
             sessions = dict(self.store["sessions"])
             sessions[role.key] = sid
             self.store["sessions"] = sessions
-            await self.say(role, answer)
+            if meta.get("fallback"):
+                answer = f"(Модель {runner.model_for(role)} подпиской не выдаётся — работал на {meta.get('model')}.)\n" + answer
+            head = f"Готово, задача №{task_id}:\n" if task_id else ""
+            await self.say(role, head + answer)
             self._remember(role, answer)
             if role.key == "coord":
                 tasks = parse_tasks(answer)
                 if tasks:
                     self.store["proposals"] = {str(k): v for k, v in tasks.items()}
+                    self.store["approved_news"] = []          # they were on the coordinator's desk for this list
                     await self.say(role, task_menu(tasks))
-            if branch:
+            if role.key == "news":
+                items = parse_news(answer)
+                if items:
+                    self.store["news_items"] = {str(k): v for k, v in items.items()}
+                    await self.say(role, news_menu(items))
+            if branch and meta.get("ok"):
                 await self._offer(role, workdir, branch)
+            return meta
+
+    async def approve_news(self, numbers: list[int]) -> None:
+        """«да 1, 3» to the news agent: the approved findings go to the coordinator's next task list (D301, variant A)."""
+        news, items = ROLES["news"], self.store.data.get("news_items") or {}
+        chosen = [(n, items[str(n)]) for n in numbers if str(n) in items]
+        if not chosen:
+            await self.say(news, "Таких номеров в списке находок нет.")
+            return
+        kept = list(self.store.data.get("approved_news") or [])
+        kept += [{"at": dt.datetime.now(TZ).strftime("%Y-%m-%d"), "tag": tag, "text": t} for _, (tag, t) in chosen]
+        self.store["approved_news"] = kept[-30:]
+        self.store["news_items"] = {k: v for k, v in items.items() if int(k) not in {n for n, _ in chosen}}
+        await self.say(news, "Подтверждено: " + ", ".join(str(n) for n, _ in chosen)
+                             + ". Передал координатору — войдёт в его список задач.")
 
     def _remember(self, role: Role, answer: str) -> None:
         """The last report of every agent, for the coordinator's weekly list (kept short)."""
@@ -184,12 +309,40 @@ class Agents:
         last[role.key] = {"at": dt.datetime.now(TZ).strftime("%Y-%m-%d %H:%M"), "text": redact(answer, _secrets())[-3000:]}
         self.store["last_reports"] = last
 
+    def _usage_summary(self) -> str:
+        """Per agent, today and the last 7 days: runs, minutes, cost, failures, limit hits (from the usage log)."""
+        rows = []
+        try:
+            rows = [json.loads(x) for x in USAGE_LOG.read_text(encoding="utf-8").splitlines() if x.strip()]
+        except (OSError, ValueError):
+            pass
+        today = dt.datetime.now(TZ).strftime("%Y-%m-%d")
+        week = (dt.datetime.now(TZ) - dt.timedelta(days=7)).strftime("%Y-%m-%d")
+        out = ["| агент | модель | сегодня: запусков / мин / $ | 7 дней: запусков / мин / $ | сбоев 7 д | лимит 7 д |", "|---|---|---|---|---|---|"]
+        for key, role in ROLES.items():
+            mine = [r for r in rows if r.get("role") == key and r.get("at", "") >= week]
+            day = [r for r in mine if r.get("at", "").startswith(today)]
+
+            def agg(rs):
+                return f"{len(rs)} / {sum(r.get('min') or 0 for r in rs):.0f} / {sum(r.get('cost_usd') or 0 for r in rs):.2f}"
+            out.append(f"| {role.title} | {runner.model_for(role)} | {agg(day)} | {agg(mine)} | "
+                       f"{sum(1 for r in mine if r.get('ok') is False and not r.get('limit'))} | {sum(1 for r in mine if r.get('limit'))} |")
+        return "\n".join(out)
+
     async def _inputs(self, role: Role) -> str:
-        if role.key == "coord":
+        if role.key in ("coord", "audit"):
             last = self.store.data.get("last_reports", {})
             body = "\n\n".join(f"## {ROLES[k].title} ({v['at']})\n{v['text']}" for k, v in last.items() if k in ROLES)
             path = write_input("reports.md", body or "(отчётов агентов пока нет)")
-            return f"\nThe agents' latest reports are in {path}."
+            usage = write_input("usage.md", "# Расход и работа агентов (счётчик бота; $ — оценка Claude Code, по подписке "
+                                            "не списывается)\n\n" + self._usage_summary()
+                                + "\n\n# Очередь\n" + self.queue_text() + "\n\n# Статус\n" + self.status_text())
+            note = f"\nThe agents' latest reports are in {path}; their runs, minutes, cost and the queue are in {usage}."
+            news = self.store.data.get("approved_news") or []
+            if role.key == "coord" and news:
+                p2 = write_input("approved_news.md", "\n".join(f"- [{n['tag']}] {n['text']} (подтверждено {n['at']})" for n in news))
+                note += f" The findings the owner approved from the news agent are in {p2}: turn the useful ones into tasks."
+            return note
         if role.key == "sec":
             path = os.environ.get("AGENTS_SECURITY_REPORT", "/security/report.txt")
             return f"\nThe host's daily read-only check is in {path} — read it; it is your only view of the host."
@@ -227,7 +380,9 @@ class Agents:
         prompt = build_prompt(rv, (f"Проверь ветку `{branch}` агента «{author.title}» перед выкладкой: `git diff origin/main...{branch}` "
                                    f"и `git log origin/main..{branch}`. Повтори ключевые проверки сам (тесты затронутых частей). "
                                    "Последней строкой напиши ровно «ВЕРДИКТ: можно» или «ВЕРДИКТ: нельзя»."), SERVER_NOTE)
-        answer, _ = await runner.run(rv, prompt, None, runner.workdir_for(author))
+        started = dt.datetime.now(TZ)
+        answer, _, meta = await runner.run(rv, prompt, None, runner.workdir_for(author))
+        self._log_usage(rv, "review", meta, started)
         await self.say(rv, f"Ветка `{branch}` ({author.title}):\n{answer}")
         self._remember(rv, answer)
         return review_ok(answer) is True
@@ -304,8 +459,8 @@ class Agents:
         await self.say(coord, "Раздаю: " + "; ".join(f"{n} → {ROLES[r].title}" for n, (r, _) in chosen))
         self.store["proposals"] = {k: v for k, v in props.items() if int(k) not in {n for n, _ in chosen}}
         for n, (r, task) in chosen:
-            await self.say(ROLES[r], f"Задача {n} от координатора (владелец: «да»):\n{task}")
-            asyncio.create_task(self.safe(ROLES[r], self.turn(ROLES[r], task)))
+            self.reply_to.pop(r, None)           # a coordinator task is reported in the group
+            await self.enqueue(ROLES[r], task, source=f"координатор, задача {n}")
 
     # -- schedule ----------------------------------------------------------------------------------------------
     async def scheduler(self) -> None:
@@ -317,7 +472,7 @@ class Agents:
                 # the slot's own hour only: a restart later in the day does not replay missed reports
                 if now.hour == h and now.minute >= m and tag not in done:
                     done.add(tag)
-                    text = DAILY_PLAN if (key == "coord" and h == 9) else REPORT
+                    text = (DAILY_PLAN if h == 9 else EVENING) if key == "coord" else REPORT
                     asyncio.create_task(self.safe(ROLES[key], self.turn(ROLES[key], text, True)))
             if len(done) > 200:
                 done = {t for t in done if f":{now:%Y-%m-%d}:" in t}
@@ -364,10 +519,13 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
             agents.store["sessions"] = s
             await msg.reply("Начинаем разговор заново.")
             return
+        if role.key == "news" and parse_choice(text):
+            await agents.approve_news(parse_choice(text))
+            return
         if role.branch and is_approval(text):
             asyncio.create_task(agents.safe(role, agents.deploy(role)))
             return
-        asyncio.create_task(agents.safe(role, agents.turn(role, text)))
+        await agents.enqueue(role, text)
 
     async def common(text: str, msg: Message) -> bool:
         if STOP.match(text):
@@ -376,10 +534,19 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
             return True
         if START.match(text):
             agents.store["paused"] = False
+            for k in ROLES:
+                if agents._queue(k):
+                    agents.kick(ROLES[k])
             await msg.reply("Агенты включены.")
             return True
         if STATUS.match(text):
             await msg.reply(agents.status_text())
+            return True
+        if QUEUE.match(text):
+            await msg.reply(agents.queue_text())
+            return True
+        if CANCEL.match(text):
+            await msg.reply(await agents.cancel(int(CANCEL.match(text).group(1))))
             return True
         return False
 
@@ -440,7 +607,7 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
     return dp
 
 
-TOKEN_ENV = {"coord": "AGENTS_TG_COORD", "dev": "AGENTS_TG_DEV", "scan": "AGENTS_TG_SCAN", "review": "AGENTS_TG_REVIEW",
+TOKEN_ENV = {"audit": "AGENTS_TG_AUDIT", "coord": "AGENTS_TG_COORD", "dev": "AGENTS_TG_DEV", "scan": "AGENTS_TG_SCAN", "review": "AGENTS_TG_REVIEW",
              "sec": "AGENTS_TG_SEC", "triage": "AGENTS_TG_TRIAGE", "news": "AGENTS_TG_NEWS"}
 
 
@@ -468,4 +635,7 @@ async def main() -> None:
             me = await b.get_me()
             idents[me.id] = (k, me.username)
     asyncio.create_task(agents.scheduler())
+    for k in ROLES:                              # D301: tasks queued before a restart continue
+        if agents._queue(k):
+            agents.kick(ROLES[k])
     await build_dispatcher(agents, idents or None).start_polling(*by_token.values())

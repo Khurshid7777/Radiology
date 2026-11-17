@@ -7,7 +7,7 @@
 #   TELEGRAM_BOT_TOKEN    -> ECGSCAN_BOT_TOKEN      (D161; with ECGSCAN_BOT_API_KEY = the clinic key)
 #   TELEGRAM_BOT_ALLOWED  -> ECGSCAN_BOT_ALLOWED
 #   AGENTS_TG_TOKEN, AGENTS_OWNER_ID, AGENTS_GH_TOKEN -> the same names (D279: the agents bot)
-#   AGENTS_TG_COORD ... AGENTS_TG_NEWS                -> the same names (D298: a bot per agent)
+#   AGENTS_TG_COORD ... AGENTS_TG_AUDIT               -> the same names (D298: a bot per agent)
 #   AGENTS_API_KEY        -> the "agents:<key>" entry of ECGSCAN_API_KEYS (D274: a read-only key for the triage
 #                            agent — the server lets it read GET /api/quality/summary only, without comments)
 # Usage: printf 'NAME=VALUE\n...' | server_env.sh DOMAIN
@@ -53,7 +53,7 @@ if [ ! -t 0 ]; then
       # D279: the agents bot. Each value is checked for its shape, so nothing odd reaches sed or compose.
       AGENTS_TG_TOKEN)      if printf '%s' "$value" | grep -Eq '^[0-9]{6,12}:[A-Za-z0-9_-]{30,}$'; then
                               set_var AGENTS_TG_TOKEN "$value"; else echo "AGENTS_TG_TOKEN ignored: not a bot token" >&2; fi ;;
-      AGENTS_TG_COORD|AGENTS_TG_DEV|AGENTS_TG_SCAN|AGENTS_TG_REVIEW|AGENTS_TG_SEC|AGENTS_TG_TRIAGE|AGENTS_TG_NEWS)
+      AGENTS_TG_COORD|AGENTS_TG_DEV|AGENTS_TG_SCAN|AGENTS_TG_REVIEW|AGENTS_TG_SEC|AGENTS_TG_TRIAGE|AGENTS_TG_NEWS|AGENTS_TG_AUDIT)
                             # D298: a bot per agent; only the bare token is accepted
                             if printf '%s' "$value" | grep -Eq '^[0-9]{6,12}:[A-Za-z0-9_-]{30,}$'; then
                               set_var "$name" "$value"; else echo "$name ignored: not a bot token (paste the token only)" >&2; fi ;;

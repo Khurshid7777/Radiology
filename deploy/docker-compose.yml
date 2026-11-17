@@ -68,12 +68,13 @@ services:
       AGENTS_TG_SEC: ${AGENTS_TG_SEC:-}
       AGENTS_TG_TRIAGE: ${AGENTS_TG_TRIAGE:-}
       AGENTS_TG_NEWS: ${AGENTS_TG_NEWS:-}
+      AGENTS_TG_AUDIT: ${AGENTS_TG_AUDIT:-}       # D301: the controller
       AGENTS_GH_TOKEN: ${AGENTS_GH_TOKEN:-}
       AGENTS_SUMMARY_KEY: ${AGENTS_SUMMARY_KEY:-}
       AGENTS_SITE_URL: http://cardiolens:8000
       AGENTS_STATE: /state/agents.json
       AGENTS_WORK_BASE: /work
-      AGENTS_MAX_PARALLEL: ${AGENTS_MAX_PARALLEL:-7}
+      AGENTS_MAX_PARALLEL: ${AGENTS_MAX_PARALLEL:-8}
       AGENTS_SECURITY_REPORT: /security/report.txt
     volumes:
       - agents_state:/state

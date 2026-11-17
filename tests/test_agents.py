@@ -81,7 +81,7 @@ def test_only_the_developer_edits_and_works_on_a_branch():
         assert role.branch == (key in ("dev", "scan"))
         if key not in ("dev", "scan"):
             assert "Edit" not in role.tools
-        if key == "sec":
+        if key in ("sec", "audit"):
             assert "Bash" not in role.tools and "Write" not in role.tools
         assert (ROOT / "docs/agents" / role.doc).exists(), role.doc
 
@@ -190,7 +190,7 @@ def test_agents_work_in_parallel_in_their_own_clones(tmp_path, monkeypatch):
         peak.append(len(running))
         await asyncio.sleep(0.05)
         running.discard(role.key)
-        return f"ответ {role.key}", None
+        return f"ответ {role.key}", None, {"ok": True, "model": role.model, "cost_usd": 0.1}
 
     async def nothing(*a, **k):
         return ""
@@ -199,6 +199,7 @@ def test_agents_work_in_parallel_in_their_own_clones(tmp_path, monkeypatch):
     for name in ("ensure_clone", "checkout_main", "prepare_branch"):
         monkeypatch.setattr(github, name, nothing)
     monkeypatch.setattr(B, "INPUT_DIR", tmp_path / "input")
+    monkeypatch.setattr(B, "USAGE_LOG", tmp_path / "usage.jsonl")
 
     class FakeBot:
         async def send_message(self, *a, **k):
@@ -281,7 +282,7 @@ def test_each_agent_speaks_through_its_own_bot(tmp_path):
 def test_compose_passes_a_token_per_agent():
     comp = yaml.safe_load((ROOT / "deploy/docker-compose.yml").read_text())
     env = comp["services"]["agents"]["environment"]
-    for k in ("COORD", "DEV", "SCAN", "REVIEW", "SEC", "TRIAGE", "NEWS"):
+    for k in ("COORD", "DEV", "SCAN", "REVIEW", "SEC", "TRIAGE", "NEWS", "AUDIT"):
         assert f"AGENTS_TG_{k}" in env
 
 
@@ -365,3 +366,122 @@ def test_input_files_never_follow_a_planted_link(tmp_path, monkeypatch):
     p = B.write_input("reports.md", "import os  # would run at Python start")
     assert not target.exists() and not p.is_symlink() and p.read_text().startswith("import os")
     assert oct(p.stat().st_mode & 0o777) == "0o644"
+
+
+def _team(tmp_path, monkeypatch, answers=None, metas=None):
+    """An Agents object whose Claude runs are faked; returns (agents, sent messages, calls)."""
+    from cardiovision_agents import bot as B
+    from cardiovision_agents import github, runner
+
+    sent, calls = [], []
+
+    async def fake_run(role, prompt, session=None, cwd=None):
+        calls.append((role.key, prompt))
+        await asyncio.sleep(0.01)
+        meta = (metas or {}).get(role.key, []).pop(0) if (metas or {}).get(role.key) else {"ok": True, "model": role.model}
+        return (answers or {}).get(role.key, f"ответ {role.key}"), None, meta
+
+    async def nothing(*a, **k):
+        return ""
+
+    async def no_push(workdir, branch):
+        return False, "", "нет коммитов поверх main"
+
+    monkeypatch.setattr(runner, "run", fake_run)
+    for name in ("ensure_clone", "checkout_main", "prepare_branch"):
+        monkeypatch.setattr(github, name, nothing)
+    monkeypatch.setattr(github, "push", no_push)
+    monkeypatch.setattr(B, "INPUT_DIR", tmp_path / "input")
+    monkeypatch.setattr(B, "USAGE_LOG", tmp_path / "usage.jsonl")
+    monkeypatch.setattr(B, "LIMIT_RETRY_MIN", 0)
+
+    class FakeBot:
+        def __init__(self, key):
+            self.key = key
+
+        async def send_message(self, chat, text, message_thread_id=None):
+            sent.append((self.key, text))
+
+    return B.Agents({k: FakeBot(k) for k in ROLES}, Store(tmp_path / "s.json"), owner_id=42), sent, calls
+
+
+def test_tasks_queue_per_agent_and_report_start_and_end(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, sent, calls = _team(tmp_path, monkeypatch)
+
+    async def go():
+        a = await ag.enqueue(ROLES["sec"], "первая")
+        b = await ag.enqueue(ROLES["sec"], "вторая")
+        await ag.workers["sec"]
+        return a, b
+    a, b = asyncio.run(go())
+    texts = [t for k, t in sent if k == "sec"]
+    assert [c[0] for c in calls] == ["sec", "sec"] and "первая" in calls[0][1] and "вторая" in calls[1][1]
+    assert any(t.startswith(f"Начал задачу №{a}") for t in texts) and any(t.startswith(f"Готово, задача №{a}") for t in texts)
+    assert any(f"Задача №{b} в очереди" in t for t in texts) and any(t.startswith(f"Начал задачу №{b}") for t in texts)
+    assert ag._queue("sec") == [] and ag.queue_text().startswith("Очередь пуста")
+    rows = [__import__("json").loads(x) for x in (tmp_path / "usage.jsonl").read_text().splitlines()]
+    assert [r["role"] for r in rows] == ["sec", "sec"] and all(r["kind"] == "task" for r in rows)
+
+
+def test_queue_survives_a_restart_and_a_task_can_be_cancelled(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, _, _ = _team(tmp_path, monkeypatch)
+    ag._set_queue("news", [{"id": 7, "text": "найди наборы", "source": "владелец", "at": "2026-11-17 10:00", "reply": None},
+                           {"id": 8, "text": "ещё", "source": "владелец", "at": "2026-11-17 10:01", "reply": None}])
+    ag2, _, calls = _team(tmp_path, monkeypatch)             # a new process reads the same state file
+    assert [it["id"] for it in ag2._queue("news")] == [7, 8]
+    assert "снята" in asyncio.run(ag2.cancel(8)) and "нет" in asyncio.run(ag2.cancel(99))
+
+    async def go():
+        ag2.kick(ROLES["news"])
+        await ag2.workers["news"]
+    asyncio.run(go())
+    assert len(calls) == 1 and "найди наборы" in calls[0][1] and ag2._queue("news") == []
+
+
+def test_a_task_stopped_by_the_limit_is_kept_and_retried(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, sent, calls = _team(tmp_path, monkeypatch, metas={"dev": [{"ok": False, "limit": True}, {"ok": True}]})
+
+    async def go():
+        await ag.enqueue(ROLES["dev"], "почини")
+        await ag.workers["dev"]
+    asyncio.run(go())
+    assert len(calls) == 2                                   # the same task ran again after the limit
+    assert any("Лимит подписки исчерпан" in t and "сохранена" in t for _, t in sent)
+    assert ag._queue("dev") == []
+
+
+def test_news_findings_are_approved_into_the_coordinators_list(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    news = "Нашёл:\n1. [данные] Набор ЭКГ с разметкой P, 12 000 записей\n2. [ядро] Новые критерии АВ-блокады\n3. [реклама] мимо"
+    ag, sent, calls = _team(tmp_path, monkeypatch, answers={"news": news, "coord": "Спокойно.\n1. [ядро] взять набор — почему: P"})
+
+    async def go():
+        await ag.turn(ROLES["news"], "отчёт", True)
+        await ag.approve_news([1, 3])
+        await ag.turn(ROLES["coord"], "план", True)
+    asyncio.run(go())
+    assert any("Находки на подтверждение" in t and "1. [данные]" in t and "[реклама]" not in t for _, t in sent)
+    assert any("Подтверждено: 1" in t for _, t in sent)
+    assert "approved_news.md" in calls[-1][1]                # the coordinator was pointed at the approved findings
+    assert "Набор ЭКГ с разметкой P" in (tmp_path / "input" / "approved_news.md").read_text()
+    assert ag.store["approved_news"] == [] and any("Задачи на выбор" in t for _, t in sent)
+    assert "usage.md" in calls[-1][1] and "| Новости |" in (tmp_path / "input" / "usage.md").read_text()
+
+
+def test_models_and_helpers_by_role(monkeypatch):
+    from cardiovision_agents.logic import FABLE, helper_agents
+
+    assert {k for k, r in ROLES.items() if r.model == FABLE} == {"coord", "dev", "sec", "audit"}
+    cmd = runner.command(ROLES["dev"], "hi", None)
+    assert cmd[cmd.index("--model") + 1] == FABLE and "--agents" in cmd
+    helper = __import__("json").loads(cmd[cmd.index("--agents") + 1])["helper"]
+    assert helper["model"] == "sonnet" and "Task" in cmd[cmd.index("--allowedTools") + 1]
+    assert "Edit" not in helper_agents(ROLES["sec"])["helper"]["tools"]
+    monkeypatch.setenv("AGENTS_MODEL_DEV", "opus")
+    assert runner.model_for(ROLES["dev"]) == "opus"
+    assert logic.MODEL_HINT.search("API Error: model claude-fable-5-2 is not available on your plan")
+    assert logic.LIMIT_HINT.search("Claude usage limit reached. Your limit will reset at 3pm")
+    assert logic.QUEUE.match("очередь") and logic.CANCEL.match("отмена 12").group(1) == "12"

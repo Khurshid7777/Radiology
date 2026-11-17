@@ -26,6 +26,10 @@ mkdir -p "$OUT"; chmod 755 "$OUT"
   echo "## deploy/.env"; stat -c '%a %U:%G' "$APP_DIR/deploy/.env" 2>/dev/null; sed -n 's/=.*//p' "$APP_DIR/deploy/.env" 2>/dev/null | paste -sd' '
   echo "## containers"; docker ps --format '{{.Names}} {{.Status}} {{.Image}}' 2>/dev/null
   echo "## disk"; df -h / | tail -1
+  echo "## backups (D301)"
+  last=$(ls -t /var/backups/cardiovision/appdata-*.tar.gz.enc 2>/dev/null | head -1)
+  if [ -n "$last" ]; then echo "last: $(basename "$last") $(( ( $(date +%s) - $(stat -c %Y "$last") ) / 3600 )) h ago, $(du -h "$last" | cut -f1); kept: $(ls /var/backups/cardiovision/appdata-*.tar.gz.enc | wc -l)"
+  else echo "no backup yet"; fi
   echo "## certificate"
   dom=$(sed -n 's/^DOMAIN=//p' "$APP_DIR/deploy/.env" 2>/dev/null)
   [ -n "$dom" ] && echo | timeout 15 openssl s_client -servername "$dom" -connect "$dom:443" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null

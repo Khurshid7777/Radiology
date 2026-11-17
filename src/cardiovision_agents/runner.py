@@ -9,7 +9,7 @@ import asyncio
 import json
 import os
 
-from .logic import Role
+from .logic import FALLBACK_MODEL, HELPER_TOOLS, LIMIT_HINT, MODEL_HINT, Role, helper_agents
 
 AGENT_USER = os.environ.get("AGENTS_RUN_AS", "agent")
 WORKDIR = os.environ.get("AGENTS_WORKDIR", "/work/repo")     # the old shared clone (D279); now the base for per-role clones
@@ -24,17 +24,24 @@ CLEAN_ENV = {"HOME": f"/home/{AGENT_USER}", "PATH": "/usr/local/bin:/usr/bin:/bi
              "OMP_NUM_THREADS": "2"}
 
 
-def command(role: Role, prompt: str, session: str | None) -> list[str]:
+def model_for(role: Role) -> str:
+    """The role's model; AGENTS_MODEL_<KEY> overrides it (e.g. AGENTS_MODEL_NEWS=haiku)."""
+    return os.environ.get(f"AGENTS_MODEL_{role.key.upper()}", "") or role.model
+
+
+def command(role: Role, prompt: str, session: str | None, model: str | None = None) -> list[str]:
     cmd = ["setpriv", f"--reuid={AGENT_USER}", f"--regid={AGENT_USER}", "--init-groups", "--",
            "nice", "-n", "10", "claude", "-p", prompt, "--output-format", "json",
-           "--allowedTools", ",".join(role.tools)]
+           "--model", model or model_for(role),
+           "--agents", json.dumps(helper_agents(role), ensure_ascii=False),
+           "--allowedTools", ",".join(role.tools + HELPER_TOOLS)]
     if session:
         cmd += ["--resume", session]
     return cmd
 
 
-async def _once(role: Role, prompt: str, session: str | None, cwd: str) -> tuple[int, dict, str]:
-    proc = await asyncio.create_subprocess_exec(*command(role, prompt, session), cwd=cwd, env=CLEAN_ENV,
+async def _once(role: Role, prompt: str, session: str | None, cwd: str, model: str | None = None) -> tuple[int, dict, str]:
+    proc = await asyncio.create_subprocess_exec(*command(role, prompt, session, model), cwd=cwd, env=CLEAN_ENV,
                                                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         out, err = await asyncio.wait_for(proc.communicate(), TIMEOUT_S)
@@ -45,23 +52,45 @@ async def _once(role: Role, prompt: str, session: str | None, cwd: str) -> tuple
         res = json.loads(out.decode() or "{}")
     except json.JSONDecodeError:
         res = {}
-    return proc.returncode, res if isinstance(res, dict) else {}, (err.decode(errors="replace") or out.decode(errors="replace"))[-600:]
+    res = res if isinstance(res, dict) else {}
+    tail = (err.decode(errors="replace") or out.decode(errors="replace"))[-600:]
+    if res.get("is_error") and res.get("result"):
+        tail = str(res["result"])[-600:] + " " + tail
+        res = {k: v for k, v in res.items() if k != "result"}
+    return proc.returncode, res, tail
 
 
-async def run(role: Role, prompt: str, session: str | None = None, cwd: str | None = None) -> tuple[str, str | None]:
-    """(answer text, Claude session id). Errors come back as text for the topic, never as an exception."""
+def _meta(res: dict, model: str, **extra) -> dict:
+    u = res.get("usage") or {}
+    return {"model": model, "cost_usd": res.get("total_cost_usd"), "ms": res.get("duration_ms"),
+            "turns": res.get("num_turns"), "in": u.get("input_tokens"), "out": u.get("output_tokens"), **extra}
+
+
+async def run(role: Role, prompt: str, session: str | None = None, cwd: str | None = None) -> tuple[str, str | None, dict]:
+    """(answer text, Claude session id, meta). Errors come back as text, never as an exception. ``meta``: model,
+    cost_usd, ms, turns, tokens, ``ok``, ``limit`` (the subscription limit was hit), ``fallback`` (model replaced)."""
     cwd = cwd or workdir_for(role)
-    code, res, tail = await _once(role, prompt, session, cwd)
-    if (code != 0 or not res.get("result")) and session and tail != "timeout":
+    model = model_for(role)
+    extra: dict = {}
+    code, res, tail = await _once(role, prompt, session, cwd, model)
+    bad = code != 0 or not res.get("result")
+    if bad and MODEL_HINT.search(tail) and model != FALLBACK_MODEL:
+        model, extra["fallback"] = FALLBACK_MODEL, True      # the subscription does not serve this model
+        code, res, tail = await _once(role, prompt, session, cwd, model)
+        bad = code != 0 or not res.get("result")
+    if bad and session and tail != "timeout" and not LIMIT_HINT.search(tail):
         # a session kept from another working directory (or expired) cannot be resumed: start a new conversation
         session = None
-        code, res, tail = await _once(role, prompt, None, cwd)
+        code, res, tail = await _once(role, prompt, None, cwd, model)
+        bad = code != 0 or not res.get("result")
     if tail == "timeout":
-        return f"Агент не уложился в {TIMEOUT_S // 60} мин и остановлен.", session
-    text = res.get("result")
-    if code != 0 or not text:
+        return f"Агент не уложился в {TIMEOUT_S // 60} мин и остановлен.", session, _meta(res, model, ok=False, **extra)
+    if bad:
+        if LIMIT_HINT.search(tail):
+            return "Лимит подписки исчерпан.", session, _meta(res, model, ok=False, limit=True, **extra)
         if "login" in tail.lower() or "auth" in tail.lower():
             return ("Claude Code на сервере не вошёл в подписку. Владельцу: один раз выполнить на сервере "
-                    "`docker compose -f deploy/docker-compose.yml exec -u agent agents claude` и войти (/login)."), session
-        return f"Агент завершился с ошибкой (код {code}): {tail}", session
-    return text, res.get("session_id") or session
+                    "`docker compose -f deploy/docker-compose.yml exec -u agent agents claude` и войти (/login)."), \
+                session, _meta(res, model, ok=False, **extra)
+        return f"Агент завершился с ошибкой (код {code}): {tail}", session, _meta(res, model, ok=False, **extra)
+    return res["result"], res.get("session_id") or session, _meta(res, model, ok=True, **extra)

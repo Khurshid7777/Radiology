@@ -10,6 +10,10 @@ DEV_TOOLS = ("Bash", "Read", "Edit", "Write", "Grep", "Glob")
 READ_TOOLS = ("Read", "Grep", "Glob")
 
 
+FABLE, OPUS, SONNET, HAIKU = "claude-fable-5-2", "opus", "sonnet", "haiku"
+FALLBACK_MODEL = OPUS        # when the subscription does not serve a role's model
+
+
 @dataclass(frozen=True)
 class Role:
     key: str
@@ -17,17 +21,33 @@ class Role:
     doc: str            # instructions, docs/agents/<doc>
     tools: tuple[str, ...]
     branch: bool        # works on its own git branch, the bot pushes it and offers a deploy
+    model: str = OPUS   # D301: the department lead's model
+    helper: str = SONNET  # D301: the model of its helper subagents (bulk legwork, checked by the lead)
 
 
 ROLES: dict[str, Role] = {r.key: r for r in (
-    Role("coord", "Координатор", "coordinator.md", READ_TOOLS + ("Bash",), False),
-    Role("dev", "Программист", "developer.md", DEV_TOOLS, True),
-    Role("scan", "Сканер", "scanner.md", DEV_TOOLS, True),
-    Role("review", "Проверяющий", "reviewer.md", READ_TOOLS + ("Bash",), False),
-    Role("sec", "Безопасность", "security.md", READ_TOOLS, False),
-    Role("news", "Новости", "watch.md", READ_TOOLS + ("WebSearch", "WebFetch", "Write"), False),
-    Role("triage", "Ошибки", "triage.md", READ_TOOLS + ("Bash", "Write"), False),
+    Role("coord", "Координатор", "coordinator.md", READ_TOOLS + ("Bash",), False, FABLE, SONNET),
+    Role("dev", "Программист", "developer.md", DEV_TOOLS, True, FABLE, SONNET),
+    Role("scan", "Сканер", "scanner.md", DEV_TOOLS, True, OPUS, SONNET),
+    Role("review", "Проверяющий", "reviewer.md", READ_TOOLS + ("Bash",), False, OPUS, SONNET),
+    Role("sec", "Безопасность", "security.md", READ_TOOLS, False, FABLE, SONNET),
+    Role("news", "Новости", "watch.md", READ_TOOLS + ("WebSearch", "WebFetch", "Write"), False, SONNET, HAIKU),
+    Role("triage", "Ошибки", "triage.md", READ_TOOLS + ("Bash", "Write"), False, OPUS, SONNET),
+    Role("audit", "Контролёр", "audit.md", READ_TOOLS, False, FABLE, HAIKU),
 )}
+HELPER_TOOLS = ("Task", "Agent")     # the tool a lead delegates with (name differs between Claude Code versions)
+
+
+def helper_agents(role: Role) -> dict:
+    """D301: the `helper` subagent of a department lead — a cheaper model for bulk legwork, same read tools."""
+    tools = [t for t in role.tools if t not in ("Edit", "Write")] if not role.branch else list(role.tools)
+    return {"helper": {
+        "description": "Bulk legwork for the lead: searching and reading code, logs, pages; trying variants; drafts.",
+        "prompt": ("You are a helper of a CardioVision department lead. Do exactly the piece of work you are given, "
+                   "report facts with file paths / links and numbers, say what you could not check. Never print keys; "
+                   "no patient data. The lead verifies your result."),
+        "model": role.helper, "tools": tools}}
+
 
 APPROVE = re.compile(r"^\s*(да|yes|ha|выкладывай|да,?\s*выкладывай)\s*[.!]*\s*$", re.IGNORECASE)
 STOP = re.compile(r"^\s*стоп\s+агенты\s*[.!]*\s*$", re.IGNORECASE)
@@ -108,6 +128,26 @@ def parse_tasks(text: str) -> dict[int, tuple[str, str]]:
     return {int(n): (TARGET[t.lower()], body) for n, t, body in TASK_LINE.findall(text or "")}
 
 
+NEWS_LINE = re.compile(r"^\s*(?:[-*•]\s*)?\**\s*(\d+)\s*[.):]\s*\**\s*\[\s*(данные|ядро|сканер|безопасность|платформа)\s*\]\s*\**\s*[:—–-]?\s*(.+?)\s*$",
+                       re.IGNORECASE | re.MULTILINE)
+QUEUE = re.compile(r"^\s*(очередь|/queue)\s*[?.!]*\s*$", re.IGNORECASE)
+CANCEL = re.compile(r"^\s*отмена\s+(\d+)\s*[.!]*\s*$", re.IGNORECASE)
+LIMIT_HINT = re.compile(r"usage limit|limit reached|rate limit|limit will reset|out of (?:extra )?usage|5-hour limit|weekly limit", re.IGNORECASE)
+MODEL_HINT = re.compile(r"model.{0,60}(not (?:found|available|supported)|invalid|does not exist|no access|unknown)|"
+                        r"(invalid|unknown|unsupported).{0,30}model", re.IGNORECASE | re.DOTALL)
+
+
+def parse_news(text: str) -> dict[int, tuple[str, str]]:
+    """{n: (tag, item)} from the news agent's numbered list «1. [данные] …»."""
+    return {int(n): (tag.lower(), body) for n, tag, body in NEWS_LINE.findall(text or "")}
+
+
+def news_menu(items: dict[int, tuple[str, str]]) -> str:
+    lines = [f"{n}. [{tag}] {t}" for n, (tag, t) in sorted(items.items())]
+    return ("Находки на подтверждение:\n" + "\n".join(lines)
+            + "\n\nОтветьте мне: «да» и номера — например «да 1, 3». Подтверждённое передам координатору в список задач.")
+
+
 def task_menu(tasks: dict[int, tuple[str, str]]) -> str:
     """The clean numbered list the bot shows the owner (D300)."""
     lines = [f"{n}. [{ROLES[r].title}] {t}" for n, (r, t) in sorted(tasks.items())]
@@ -139,6 +179,9 @@ def build_prompt(role: Role, text: str, extra: str = "", works: bool | None = No
             f"owner in Telegram. First read docs/agents/README.md and docs/agents/{role.doc}; their rules bind "
             "you. Answer the owner in Russian, short and plain. Never print keys or tokens; there is no patient data "
             "here and you must not look for any.")
+    head += (" You lead your department: hand bulky legwork (searching and reading many files, logs or pages, trying "
+             "variants) to your `helper` subagent — it runs on a cheaper model, several at once if useful — and check "
+             "its results yourself before you answer; decisions and the final answer are yours.")
     if works:
         head += (" You are on your own git branch in this clone: commit your work there (git commit), do not switch "
                  "branches, do not push (the bot pushes). Run the full test suite before you finish. End with: what "

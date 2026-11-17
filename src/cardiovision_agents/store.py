@@ -10,7 +10,8 @@ class Store:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.data: dict = {"chat_id": None, "topics": {}, "sessions": {}, "pending": {}, "paused": False,
-                           "proposals": {}, "last_reports": {}}
+                           "proposals": {}, "last_reports": {}, "queue": {}, "next_id": 1,
+                           "news_items": {}, "approved_news": []}
         if self.path.exists():
             self.data.update(json.loads(self.path.read_text()))
 
