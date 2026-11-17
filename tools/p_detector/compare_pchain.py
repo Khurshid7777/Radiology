@@ -37,6 +37,9 @@ def pchain_peaks(x, rp, fs, qrs, qt):
     return np.array(best, int)
 
 
+SEL = (lambda i: i % 2 == 1) if 'val' not in sys.argv else (lambda i: i % 4 == 0)   # test = odd ids, val = ids % 4 == 0
+
+
 def main():
     warnings.filterwarnings("ignore")
     import wfdb
@@ -46,7 +49,7 @@ def main():
     rows = {r["ID"]: r for r in csv.DictReader(open(ROOT / "data/ludb/ludb.csv"))}
     g = tp = fp = 0; af_d = n_af = 0; tol = 20
     for rid in sorted(rows, key=int):
-        if int(rid) % 2 == 0:
+        if not SEL(int(rid)):
             continue
         p = str(ROOT / "data/ludb/data" / rid)
         ann = wfdb.rdann(p, "ii"); sym = np.array(ann.symbol); smp = np.array(ann.sample)

@@ -19,6 +19,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 FS = 500
 WIN = 2048
+QTDB_SHARE = 0.4      # D295 it.2: QTDB crops share (it.1 sampled items uniformly: ~8 % QTDB)
 LUDB_LEADS = ("i", "ii", "iii", "avr", "avl", "avf", "v1", "v2", "v3", "v4", "v5", "v6")
 
 
@@ -77,7 +78,7 @@ def prep(out: Path) -> None:
             for on, pk, off in p_spans(ann):
                 lab[on:off + 1] = 1
                 peaks.append(pk)
-            items.append(dict(split="train" if rid % 2 == 0 else "test", src="ludb", id=rid, lead=ln,
+            items.append(dict(split=("val" if rid % 4 == 0 else "train") if rid % 2 == 0 else "test", src="ludb", id=rid, lead=ln,
                               x=x, y=lab, m=mask, peaks=np.array(peaks, int),
                               lo=int(ann.sample.min()), hi=int(ann.sample.max())))
     recs = (ROOT / "data/qtdb/RECORDS").read_text().split()
@@ -101,7 +102,7 @@ def prep(out: Path) -> None:
                 mask[max(0, a):min(x.size, b)] = 1
             for on, pk, off in ps:
                 lab[on:off + 1] = 1
-            items.append(dict(split="train" if k % 2 == 0 else "test", src="qtdb", id=r, lead=f"ch{li}",
+            items.append(dict(split=("val" if k % 4 == 0 else "train") if k % 2 == 0 else "test", src="qtdb", id=r, lead=f"ch{li}",
                               x=x, y=lab, m=mask, peaks=np.array([pk for _, pk, _ in ps], int), spans=spans))
     import pickle
     with (out / "items.pkl").open("wb") as fh:
@@ -136,8 +137,12 @@ def train(data: Path, out: Path, epochs: int, seed: int) -> None:
     rng = np.random.default_rng(seed)
     items = [i for i in pickle.load((data / "items.pkl").open("rb")) if i["split"] == "train"]
     # crops: LUDB anywhere in the annotated range; QTDB centred on annotated beats
+    ludb = [i for i in items if i["src"] == "ludb"]
+    qtdb = [i for i in items if i["src"] == "qtdb"]
+
     def crop():
-        it = items[rng.integers(len(items))]
+        pool = qtdb if (qtdb and rng.random() < QTDB_SHARE) else ludb
+        it = pool[rng.integers(len(pool))]
         n = it["x"].size
         if n <= WIN:
             return None
@@ -195,12 +200,12 @@ def peaks_from_prob(prob: np.ndarray, x: np.ndarray, thr: float = 0.5, min_len: 
     return np.array(out, int)
 
 
-def evaluate(data: Path, model: Path, thr: float) -> dict:
+def evaluate(data: Path, model: Path, thr: float, split: str = "test") -> dict:
     import pickle
 
     import onnxruntime as ort
     sess = ort.InferenceSession(str(model), providers=["CPUExecutionProvider"])
-    items = [i for i in pickle.load((data / "items.pkl").open("rb")) if i["split"] == "test"]
+    items = [i for i in pickle.load((data / "items.pkl").open("rb")) if i["split"] == split]
     tol = int(0.04 * FS)
     import csv
     rhythm = {int(r["ID"]): r["Rhythms"].strip() for r in csv.DictReader(open(ROOT / "data/ludb/ludb.csv"))}
@@ -244,13 +249,14 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=15)
     ap.add_argument("--seed", type=int, default=295)
     ap.add_argument("--thr", type=float, default=0.5)
+    ap.add_argument("--split", default="test", choices=["test", "val"])
     a = ap.parse_args()
     if a.cmd == "prep":
         prep(a.out)
     elif a.cmd == "train":
         train(a.data, a.out, a.epochs, a.seed)
     else:
-        print(json.dumps(evaluate(a.data, a.model, a.thr), indent=1))
+        print(json.dumps(evaluate(a.data, a.model, a.thr, a.split), indent=1))
 
 
 if __name__ == "__main__":
