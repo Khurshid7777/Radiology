@@ -19,7 +19,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 FS = 500
 WIN = 2048
-QTDB_SHARE = 0.4      # D295 it.2: QTDB crops share (it.1 sampled items uniformly: ~8 % QTDB)
+QTDB_SHARE = float(__import__("os").environ.get("PDET_QTDB_SHARE", "0.4"))   # D295: QTDB crop share (it.1 ~8 %, it.2 0.4, it.3 0.6)
 LUDB_LEADS = ("i", "ii", "iii", "avr", "avl", "avf", "v1", "v2", "v3", "v4", "v5", "v6")
 
 
