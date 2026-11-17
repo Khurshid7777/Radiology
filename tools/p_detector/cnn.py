@@ -151,7 +151,7 @@ def build_model():
     from torch import nn
 
     class Net(nn.Module):
-        def __init__(self, c=24):
+        def __init__(self, c=int(__import__("os").environ.get("PDET_CH", "24"))):
             super().__init__()
             layers, ch = [], 1
             for d in (1, 2, 4, 8, 16, 1, 2, 4, 8, 16):
