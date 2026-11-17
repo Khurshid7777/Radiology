@@ -20,6 +20,7 @@ from . import github, runner
 from .logic import (
     ROLES,
     START,
+    STATUS,
     STOP,
     Role,
     accepts,
@@ -27,7 +28,10 @@ from .logic import (
     build_prompt,
     is_approval,
     is_owner,
+    parse_choice,
+    parse_tasks,
     redact,
+    review_ok,
     role_for_thread,
     split_message,
 )
@@ -36,7 +40,11 @@ from .store import Store
 log = logging.getLogger("agents")
 TZ = ZoneInfo("Asia/Tashkent")
 # (role, weekday or None for daily, hour, minute) — Tashkent time, off the round hour.
-SCHEDULE = (("sec", None, 8, 17), ("triage", 0, 9, 23), ("news", 2, 10, 13))
+SCHEDULE = (("sec", None, 8, 17), ("triage", 0, 9, 23), ("news", 2, 10, 13), ("coord", 4, 16, 7))
+WEEKLY_PLAN = ("Плановый запуск: составь задачи недели. Прочитай последние сообщения агентов (их отчёты лежат в "
+               "/work/input/reports.md), docs/PROJECT_STATE.md и DECISIONS.md. Выбери не больше трёх задач, которые сильнее всего "
+               "улучшат продукт по цифрам. Каждую — отдельной строкой ровно так: «ЗАДАЧА <номер> [ядро|сканер]: <что "
+               "сделать и как проверить>», под ней одна строка «почему: <цифры>». Владелец ответит «да 1, 3».")
 SERVER_NOTE = ("Here, on the server, the parts of your instructions about git branches, pushing, send_message and "
                "scheduled tasks do not apply: your answer is posted to your Telegram topic and that is your report.")
 
@@ -89,7 +97,7 @@ class Agents:
             extra = "" if role.branch else SERVER_NOTE
             branch = None
             if role.branch:
-                branch = branch_name(dt.datetime.now(TZ).strftime("%Y%m%d-%H%M"))
+                branch = branch_name(dt.datetime.now(TZ).strftime("%Y%m%d-%H%M"), role.key)
                 err = await github.prepare_branch(workdir, branch, runner.AGENT_USER)
                 if err:
                     await self.say(role, f"Не удалось подготовить ветку: {err}")
@@ -103,10 +111,28 @@ class Agents:
             sessions[role.key] = sid
             self.store["sessions"] = sessions
             await self.say(role, answer)
+            self._remember(role, answer)
+            if role.key == "coord":
+                tasks = parse_tasks(answer)
+                if tasks:
+                    self.store["proposals"] = {str(k): v for k, v in tasks.items()}
+                    await self.say(role, "Ответьте здесь «да» и номера задач (например «да 1, 3») — раздам их агентам.")
             if branch:
                 await self._offer(role, workdir, branch)
 
+    def _remember(self, role: Role, answer: str) -> None:
+        """The last report of every agent, for the coordinator's weekly list (kept short)."""
+        last = dict(self.store.data.get("last_reports", {}))
+        last[role.key] = {"at": dt.datetime.now(TZ).strftime("%Y-%m-%d %H:%M"), "text": redact(answer, _secrets())[-3000:]}
+        self.store["last_reports"] = last
+
     async def _inputs(self, role: Role) -> str:
+        if role.key == "coord":
+            os.makedirs("/work/input", exist_ok=True)
+            last = self.store.data.get("last_reports", {})
+            body = "\n\n".join(f"## {ROLES[k].title} ({v['at']})\n{v['text']}" for k, v in last.items() if k in ROLES)
+            Path("/work/input/reports.md").write_text(body or "(отчётов агентов пока нет)")
+            return "\nThe agents' latest reports are in /work/input/reports.md."
         if role.key == "sec":
             path = os.environ.get("AGENTS_SECURITY_REPORT", "/security/report.txt")
             return f"\nThe host's daily read-only check is in {path} — read it; it is your only view of the host."
@@ -129,15 +155,36 @@ class Agents:
         if not ok:
             await self.say(role, f"Ветка не отправлена ({out}). Выкладывать нечего.")
             return
-        self.store["pending"] = {"branch": branch, "sha": sha}
-        await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, CI проверяет. Чтобы выложить на сайт — "
-                             "ответьте здесь «да». Выложу только при зелёном CI.")
+        verdict = await self._review(role, branch)
+        pend = dict(self.store.data.get("pending") or {})
+        pend[role.key] = {"branch": branch, "sha": sha, "review": verdict}
+        self.store["pending"] = pend
+        if verdict:
+            await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, проверяющий: можно. CI проверяет. Чтобы "
+                                 "выложить на сайт — ответьте здесь «да». Выложу только при зелёном CI.")
+        else:
+            await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, но проверяющий не пропустил — см. тему "
+                                 "«Проверяющий». Напишите здесь, что исправить; выкладка этой ветки заблокирована.")
+
+    async def _review(self, author: Role, branch: str) -> bool:
+        """The reviewer reads the branch against main with fresh eyes (runs inside the author's turn and lock)."""
+        rv = ROLES["review"]
+        prompt = build_prompt(rv, (f"Проверь ветку `{branch}` агента «{author.title}» перед выкладкой: `git diff main...{branch}` "
+                                   f"и `git log main..{branch}`. Повтори ключевые проверки сам (тесты затронутых частей). "
+                                   "Последней строкой напиши ровно «ВЕРДИКТ: можно» или «ВЕРДИКТ: нельзя»."), SERVER_NOTE)
+        answer, _ = await runner.run(rv, prompt, None)
+        await self.say(rv, f"Ветка `{branch}` ({author.title}):\n{answer}")
+        self._remember(rv, answer)
+        return review_ok(answer) is True
 
     # -- deploy after «да» -------------------------------------------------------------------------------------
     async def deploy(self, role: Role) -> None:
-        p = self.store["pending"]
+        p = (self.store.data.get("pending") or {}).get(role.key)
         if not p:
             await self.say(role, "Нечего выкладывать: нет готовой ветки.")
+            return
+        if not p.get("review"):
+            await self.say(role, "Проверяющий эту ветку не пропустил — не выкладываю.")
             return
         for _ in range(90):                       # CI takes ~10-25 min
             state = await github.ci_state(p["sha"])
@@ -151,7 +198,9 @@ class Agents:
         if err:
             await self.say(role, err)
             return
-        self.store["pending"] = None
+        pend = dict(self.store.data.get("pending") or {})
+        pend.pop(role.key, None)
+        self.store["pending"] = pend
         await self.say(role, "CI зелёный, влито в main, выкладка запущена.")
         await asyncio.sleep(60)
         for _ in range(60):
@@ -161,6 +210,37 @@ class Agents:
                 return
             await asyncio.sleep(30)
         await self.say(role, "Выкладка идёт дольше 30 мин — проверьте Actions.")
+
+    # -- status and the coordinator's dispatch ------------------------------------------------------------------
+    def status_text(self) -> str:
+        lines = ["Агенты: " + ("остановлены" if self.store["paused"] else "работают") +
+                 (" (сейчас кто-то занят)" if self.lock.locked() else "")]
+        for k, p in (self.store.data.get("pending") or {}).items():
+            if k in ROLES and p:
+                lines.append(f"• {ROLES[k].title}: ветка `{p['branch']}` ({p['sha'][:7]}), проверяющий: "
+                             + ("можно" if p.get("review") else "не пропустил") + " — ждёт «да» в своей теме")
+        props = self.store.data.get("proposals") or {}
+        if props:
+            lines.append("Задачи недели (ответ «да 1, 3» в теме Координатор):")
+            lines += [f"  {n}. [{ROLES[r].title}] {t}" for n, (r, t) in sorted(props.items(), key=lambda kv: int(kv[0]))]
+        for k, v in (self.store.data.get("last_reports") or {}).items():
+            if k in ROLES:
+                lines.append(f"• последний отчёт «{ROLES[k].title}»: {v['at']}")
+        sched = {"sec": "ежедневно 08:17", "triage": "пн 09:23", "news": "ср 10:13", "coord": "пт 16:07"}
+        lines.append("Плановые запуски (Ташкент): " + ", ".join(f"{ROLES[k].title} — {w}" for k, w in sched.items()))
+        return "\n".join(lines)
+
+    async def dispatch(self, numbers: list[int]) -> None:
+        props = self.store.data.get("proposals") or {}
+        coord = ROLES["coord"]
+        chosen = [(n, props[str(n)]) for n in numbers if str(n) in props]
+        if not chosen:
+            await self.say(coord, "Таких номеров в списке задач нет.")
+            return
+        await self.say(coord, "Раздаю: " + "; ".join(f"{n} → {ROLES[r].title}" for n, (r, _) in chosen))
+        for n, (r, task) in chosen:
+            await self.say(ROLES[r], f"Задача {n} от координатора (владелец: «да»):\n{task}")
+            asyncio.create_task(self.turn(ROLES[r], task))
 
     # -- schedule ----------------------------------------------------------------------------------------------
     async def scheduler(self) -> None:
@@ -172,7 +252,8 @@ class Agents:
                 if (wd is None or now.weekday() == wd) and (now.hour, now.minute) >= (h, m) and tag not in done:
                     done.add(tag)
                     if now.hour == h:            # missed by more than an hour (restart) -> skip, not catch up
-                        asyncio.create_task(self.turn(ROLES[key], "Плановый запуск: сделай свой отчёт.", True))
+                        text = WEEKLY_PLAN if key == "coord" else "Плановый запуск: сделай свой отчёт."
+                        asyncio.create_task(self.turn(ROLES[key], text, True))
             await asyncio.sleep(30)
 
 
@@ -213,8 +294,14 @@ def build_dispatcher(agents: Agents):
             agents.store["paused"] = False
             await msg.reply("Агенты включены.")
             return
+        if STATUS.match(text):
+            await msg.reply(agents.status_text())
+            return
         role = role_for_thread(agents.store["topics"], msg.message_thread_id)
         if role is None or not text:
+            return
+        if role.key == "coord" and parse_choice(text):
+            asyncio.create_task(agents.dispatch(parse_choice(text)))
             return
         if text.strip() == "/new":
             s = dict(agents.store["sessions"])

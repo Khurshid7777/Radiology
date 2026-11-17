@@ -9,7 +9,8 @@ from pathlib import Path
 class Store:
     def __init__(self, path: str | Path):
         self.path = Path(path)
-        self.data: dict = {"chat_id": None, "topics": {}, "sessions": {}, "pending": None, "paused": False}
+        self.data: dict = {"chat_id": None, "topics": {}, "sessions": {}, "pending": {}, "paused": False,
+                           "proposals": {}, "last_reports": {}}
         if self.path.exists():
             self.data.update(json.loads(self.path.read_text()))
 

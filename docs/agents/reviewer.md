@@ -38,3 +38,10 @@ answer, in Russian:
 - **Что не проверял** — and why.
 
 You approve nothing by yourself: the owner's «да» is still required after your «можно выкладывать».
+
+## On the server (Telegram, D297)
+
+The bot calls you after every branch of the developer or scanner agent. The branch is local in your clone: read
+`git diff main...<branch>` and `git log main..<branch>`, re-run the tests of the touched parts. The **last line** of your
+answer must be exactly `ВЕРДИКТ: можно` or `ВЕРДИКТ: нельзя` — without `ВЕРДИКТ: можно` the bot will not deploy the branch
+even after the owner's «да».

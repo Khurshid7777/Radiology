@@ -22,6 +22,8 @@ class Role:
 ROLES: dict[str, Role] = {r.key: r for r in (
     Role("coord", "Координатор", "coordinator.md", READ_TOOLS + ("Bash",), False),
     Role("dev", "Программист", "developer.md", DEV_TOOLS, True),
+    Role("scan", "Сканер", "scanner.md", DEV_TOOLS, True),
+    Role("review", "Проверяющий", "reviewer.md", READ_TOOLS + ("Bash",), False),
     Role("sec", "Безопасность", "security.md", READ_TOOLS, False),
     Role("news", "Новости", "watch.md", READ_TOOLS + ("WebSearch", "WebFetch", "Write"), False),
     Role("triage", "Ошибки", "triage.md", READ_TOOLS + ("Bash", "Write"), False),
@@ -85,11 +87,36 @@ def split_message(text: str, limit: int = TG_LIMIT) -> list[str]:
     return out
 
 
-def branch_name(stamp: str) -> str:
-    """agents/dev-<YYYYMMDD-HHMM>: the developer's own branch, never main."""
-    if not re.fullmatch(r"\d{8}-\d{4}", stamp):
-        raise ValueError("stamp must be YYYYMMDD-HHMM")
-    return f"agents/dev-{stamp}"
+def branch_name(stamp: str, kind: str = "dev") -> str:
+    """agents/<dev|scan>-<YYYYMMDD-HHMM>: a working agent's own branch, never main."""
+    if not re.fullmatch(r"\d{8}-\d{4}", stamp) or kind not in ("dev", "scan"):
+        raise ValueError("stamp must be YYYYMMDD-HHMM, kind dev or scan")
+    return f"agents/{kind}-{stamp}"
+
+
+# The coordinator's weekly list: one line per task, "ЗАДАЧА <n> [ядро|сканер]: <text>".
+TASK_LINE = re.compile(r"^\s*ЗАДАЧА\s+(\d+)\s*\[\s*(ядро|сканер)\s*\]\s*[:—-]\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+TARGET = {"ядро": "dev", "сканер": "scan"}
+CHOICE = re.compile(r"^\s*да\s*[,:]?\s*((?:\d+\s*[, ]\s*)*\d+)\s*[.!]*\s*$", re.IGNORECASE)
+STATUS = re.compile(r"^\s*(статус|/status)\s*[?.!]*\s*$", re.IGNORECASE)
+VERDICT = re.compile(r"ВЕРДИКТ\s*:\s*(можно|нельзя)", re.IGNORECASE)
+
+
+def parse_tasks(text: str) -> dict[int, tuple[str, str]]:
+    """{n: (role key, task text)} from the coordinator's weekly list."""
+    return {int(n): (TARGET[t.lower()], body) for n, t, body in TASK_LINE.findall(text or "")}
+
+
+def parse_choice(text: str | None) -> list[int]:
+    """«да 1, 3» -> [1, 3]; a plain «да» or anything else -> []."""
+    m = CHOICE.match(text or "")
+    return sorted({int(x) for x in re.findall(r"\d+", m.group(1))}) if m else []
+
+
+def review_ok(text: str) -> bool | None:
+    """The reviewer's verdict line: True «можно», False «нельзя», None when missing (treated as not passed)."""
+    m = VERDICT.search(text or "")
+    return None if m is None else m.group(1).lower() == "можно"
 
 
 def build_prompt(role: Role, text: str, extra: str = "") -> str:

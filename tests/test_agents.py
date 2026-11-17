@@ -1,6 +1,7 @@
 """D279: the agents bot — only the owner commands, topics route to agents, secrets never leave, isolation."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -68,14 +69,17 @@ def test_long_answers_are_split_for_telegram():
 
 def test_developer_branch_is_never_main():
     assert logic.branch_name("20261115-1030") == "agents/dev-20261115-1030"
+    assert logic.branch_name("20261115-1030", "scan") == "agents/scan-20261115-1030"
     with pytest.raises(ValueError):
         logic.branch_name("main")
+    with pytest.raises(ValueError):
+        logic.branch_name("20261115-1030", "main")
 
 
 def test_only_the_developer_edits_and_works_on_a_branch():
     for key, role in ROLES.items():
-        assert role.branch == (key == "dev")
-        if key != "dev":
+        assert role.branch == (key in ("dev", "scan"))
+        if key not in ("dev", "scan"):
             assert "Edit" not in role.tools
         if key == "sec":
             assert "Bash" not in role.tools and "Write" not in role.tools
@@ -146,3 +150,40 @@ def test_a_failing_agents_build_cannot_block_the_site_deploy():
     assert "--no-deps agents" in ag["run"]
     names = list(steps)
     assert names.index("Build and start") < names.index(ag["name"]) < names.index("The site answers")
+
+
+def test_coordinator_list_and_owner_choice():
+    text = ("Задачи недели:\nЗАДАЧА 1 [ядро]: убрать ложную ФП у блокад — стенд Chapman\nпочему: 31/66\n"
+            "ЗАДАЧА 2 [сканер]: отказ на размытом фото\nЗАДАЧА 3 [кухня]: не наша\n")
+    t = logic.parse_tasks(text)
+    assert t == {1: ("dev", "убрать ложную ФП у блокад — стенд Chapman"), 2: ("scan", "отказ на размытом фото")}
+    assert logic.parse_choice("да 1, 3") == [1, 3]
+    assert logic.parse_choice("Да: 2") == [2]
+    assert logic.parse_choice("да") == [] and logic.parse_choice("да, но позже") == [] and logic.parse_choice(None) == []
+    assert not logic.is_approval("да 1, 3")        # a choice is not a deploy approval
+
+
+def test_review_verdict_line():
+    assert logic.review_ok("...\nВЕРДИКТ: можно") is True
+    assert logic.review_ok("ВЕРДИКТ: нельзя — тест падает") is False
+    assert logic.review_ok("всё хорошо") is None
+    assert logic.STATUS.match("статус") and logic.STATUS.match("/status") and not logic.STATUS.match("статус ветки 3")
+
+
+def test_deploy_is_blocked_without_the_reviewers_yes(tmp_path):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents.bot import Agents
+
+    sent = []
+
+    class FakeBot:
+        async def send_message(self, chat, text, message_thread_id=None):
+            sent.append(text)
+
+    store = Store(tmp_path / "s.json")
+    store["chat_id"], store["topics"] = -100, {"dev": 7}
+    store["pending"] = {"dev": {"branch": "agents/dev-20261117-1000", "sha": "abcdef1234", "review": False}}
+    ag = Agents(FakeBot(), store, owner_id=42)
+    asyncio.run(ag.deploy(ROLES["dev"]))
+    assert sent and "не пропустил" in sent[-1]
+    assert "agents/dev-20261117-1000" in ag.status_text()
