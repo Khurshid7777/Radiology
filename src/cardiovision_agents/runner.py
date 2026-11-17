@@ -9,7 +9,16 @@ import asyncio
 import json
 import os
 
-from .logic import FALLBACK_MODEL, HELPER_TOOLS, LIMIT_HINT, MODEL_HINT, Role, helper_agents
+from .logic import (
+    FALLBACK_MODEL,
+    HELPER_TOOLS,
+    LIMIT_HINT,
+    MODEL_HINT,
+    MODEL_LIMIT_HINT,
+    Role,
+    denied_tools,
+    helper_agents,
+)
 
 AGENT_USER = os.environ.get("AGENTS_RUN_AS", "agent")
 WORKDIR = os.environ.get("AGENTS_WORKDIR", "/work/repo")     # the old shared clone (D279); now the base for per-role clones
@@ -35,6 +44,8 @@ def command(role: Role, prompt: str, session: str | None, model: str | None = No
            "--model", model or model_for(role),
            "--agents", json.dumps(helper_agents(role), ensure_ascii=False),
            "--allowedTools", ",".join(role.tools + HELPER_TOOLS)]
+    if denied_tools(role):
+        cmd += ["--disallowedTools", ",".join(denied_tools(role))]
     if session:
         cmd += ["--resume", session]
     return cmd
@@ -74,8 +85,9 @@ async def run(role: Role, prompt: str, session: str | None = None, cwd: str | No
     extra: dict = {}
     code, res, tail = await _once(role, prompt, session, cwd, model)
     bad = code != 0 or not res.get("result")
-    if bad and MODEL_HINT.search(tail) and model != FALLBACK_MODEL:
-        model, extra["fallback"] = FALLBACK_MODEL, True      # the subscription does not serve this model
+    if bad and model != FALLBACK_MODEL and (MODEL_HINT.search(tail) or MODEL_LIMIT_HINT.search(tail)):
+        # the subscription does not serve this model, or this model's own limit is spent: the work goes on on Opus
+        model, extra["fallback"] = FALLBACK_MODEL, True
         code, res, tail = await _once(role, prompt, session, cwd, model)
         bad = code != 0 or not res.get("result")
     if bad and session and tail != "timeout" and not LIMIT_HINT.search(tail):

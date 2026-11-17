@@ -132,9 +132,21 @@ NEWS_LINE = re.compile(r"^\s*(?:[-*•]\s*)?\**\s*(\d+)\s*[.):]\s*\**\s*\[\s*(д
                        re.IGNORECASE | re.MULTILINE)
 QUEUE = re.compile(r"^\s*(очередь|/queue)\s*[?.!]*\s*$", re.IGNORECASE)
 CANCEL = re.compile(r"^\s*отмена\s+(\d+)\s*[.!]*\s*$", re.IGNORECASE)
-LIMIT_HINT = re.compile(r"usage limit|limit reached|rate limit|limit will reset|out of (?:extra )?usage|5-hour limit|weekly limit", re.IGNORECASE)
+# Claude Code's own wording differs between versions («You've hit your session limit · resets …», «usage limit reached»).
+LIMIT_HINT = re.compile(r"usage limit|limit reached|rate limit|limit will reset|out of (?:extra )?usage|5-hour limit|weekly limit|"
+                        r"hit your .{0,40}limit|out of usage credits|spend limit", re.IGNORECASE)
+MODEL_LIMIT_HINT = re.compile(r"hit your (fable|mythos|opus|sonnet|haiku)\b.{0,20}limit", re.IGNORECASE)   # one model's own limit
 MODEL_HINT = re.compile(r"model.{0,60}(not (?:found|available|supported)|invalid|does not exist|no access|unknown)|"
-                        r"(invalid|unknown|unsupported).{0,30}model", re.IGNORECASE | re.DOTALL)
+                        r"(invalid|unknown|unsupported).{0,30}model|issue with the selected model|may not exist|"
+                        r"may not have access|not_found_error|model_not_found", re.IGNORECASE | re.DOTALL)
+SKIP = re.compile(r"^\s*(пропустить|не выкладывать)\s*[.!]*\s*$", re.IGNORECASE)
+LIMIT_TRIES = 12                     # D301: after that many limit hits a task waits for «старт агенты»
+HARD_DENY = ("Bash", "Edit", "Write", "NotebookEdit")
+
+
+def denied_tools(role: Role) -> tuple[str, ...]:
+    """Tools a role must not get by any route (its helper or a built-in subagent included): a hard deny list."""
+    return tuple(t for t in HARD_DENY if t not in role.tools)
 
 
 def parse_news(text: str) -> dict[int, tuple[str, str]]:

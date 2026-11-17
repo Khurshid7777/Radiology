@@ -14,9 +14,17 @@ mkdir -p "$OUT"; chmod 700 "$OUT"
 [ -s "$KEY" ] || { openssl rand -base64 48 > "$KEY"; chmod 600 "$KEY"; }
 SRC=${BACKUP_SRC:-$(docker volume inspect -f '{{.Mountpoint}}' "$VOLUME")}
 [ -d "$SRC" ] || { echo "backup: no data directory for volume $VOLUME" >&2; exit 1; }
-name="$OUT/appdata-$(date -u +%Y%m%d-%H%M).tar.gz.enc"
-tar -C "$SRC" -czf - . | openssl enc -aes-256-cbc -pbkdf2 -salt -pass "file:$KEY" -out "$name.tmp"
-mv "$name.tmp" "$name"
 find "$OUT" -name 'appdata-*.tar.gz.enc' -mtime "+$KEEP_DAYS" -delete
-find "$OUT" -name '*.tmp' -mmin +120 -delete
+find "$OUT" -name '*.tmp' -delete
+need=$(du -sk "$SRC" | cut -f1); free=$(df -Pk "$OUT" | awk 'NR==2 {print $4}')
+[ "$free" -gt $((need + 1048576)) ] || { echo "backup: skipped, free ${free}K < data ${need}K + 1G" >&2; exit 1; }
+name="$OUT/appdata-$(date -u +%Y%m%d-%H%M).tar.gz.enc"
+trap 'rm -f "$name.tmp"' EXIT
+set +e
+tar -C "$SRC" -czf - . | openssl enc -aes-256-cbc -pbkdf2 -salt -pass "file:$KEY" -out "$name.tmp"
+rc=("${PIPESTATUS[@]}")
+set -e
+# tar's 1 is "a file changed while it was read" (a live volume): the archive is still complete
+{ [ "${rc[0]}" -le 1 ] && [ "${rc[1]}" -eq 0 ]; } || { echo "backup: failed (tar ${rc[0]}, openssl ${rc[1]})" >&2; exit 1; }
+mv "$name.tmp" "$name"
 echo "backup: $(basename "$name") $(du -h "$name" | cut -f1)"

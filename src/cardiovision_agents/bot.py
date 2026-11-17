@@ -23,8 +23,10 @@ import httpx
 from . import github, runner
 from .logic import (
     CANCEL,
+    LIMIT_TRIES,
     QUEUE,
     ROLES,
+    SKIP,
     START,
     STATUS,
     STOP,
@@ -60,6 +62,7 @@ DAILY_PLAN = ("Плановый запуск: предложи задачи. П�
               "строкой ровно так: «1. [ядро] что сделать и как проверить — почему (цифры)», «2. [сканер] …». "
               "В квадратных скобках только «ядро» или «сканер». Владелец ответит «да 1, 3».")
 MAX_PARALLEL = int(os.environ.get("AGENTS_MAX_PARALLEL", "8"))
+HOLD_POLL_S, FAIL_RETRY_S = 20, 60
 LIMIT_RETRY_MIN = int(os.environ.get("AGENTS_LIMIT_RETRY_MIN", "30"))     # D301: retry a task the limit stopped
 USAGE_LOG = Path(os.environ.get("AGENTS_USAGE_LOG", "/state/usage.jsonl"))
 EVENING = ("Вечерняя сводка владельцу (коротко): что сделано за день по агентам, что выложено, что ждёт «да» владельца, "
@@ -174,33 +177,80 @@ class Agents:
         if t is None or t.done():
             self.workers[role.key] = asyncio.create_task(self.safe(role, self._work(role)))
 
+    def _update_task(self, key: str, tid: int, **fields) -> None:
+        items = self._queue(key)
+        for it in items:
+            if it["id"] == tid:
+                it.update(fields)
+        self._set_queue(key, items)
+
+    def _drop_task(self, key: str, tid: int) -> None:
+        self._set_queue(key, [it for it in self._queue(key) if it["id"] != tid])
+
     async def _work(self, role: Role) -> None:
         while not self.store["paused"]:
             items = self._queue(role.key)
             if not items:
                 return
             task = items[0]
+            tid = task["id"]
             wait = task.get("not_before", 0) - dt.datetime.now(TZ).timestamp()
             if wait > 0:
                 await asyncio.sleep(min(wait, 60))
                 continue
+            ready = (self.store.data.get("pending") or {}).get(role.key)
+            if role.branch and ready and ready.get("review"):
+                # the next task would be cut from main without the approved branch and would replace its deploy
+                # offer: one approved branch at a time (reviewer's finding on D301)
+                if not task.get("held"):
+                    self._update_task(role.key, tid, held=True)
+                    await self.say(role, f"Задача №{tid} ждёт: ветка `{ready['branch']}` готова к выкладке. Ответьте «да» — "
+                                         "выложу и начну следующую; «пропустить» — не выкладывать её и идти дальше.")
+                await asyncio.sleep(HOLD_POLL_S)
+                continue
             if task.get("reply"):
                 self.reply_to[role.key] = tuple(task["reply"])
-            await self.say(role, f"Начал задачу №{task['id']}: {task['text'][:300]}"
-                                 + (f"\n(в очереди ещё {len(items) - 1})" if len(items) > 1 else ""))
-            meta = await self.turn(role, task["text"], task_id=task["id"])
-            items = self._queue(role.key)
+            try:
+                await self.say(role, f"Начал задачу №{tid}: {task['text'][:300]}"
+                                     + (f"\n(в очереди ещё {len(items) - 1})" if len(items) > 1 else ""))
+                meta = await self.turn(role, task["text"], task_id=tid)
+            except Exception as exc:              # a failed send or fetch must not block the agent's queue
+                log.exception("task %s of %s failed", tid, role.key)
+                fails = int(task.get("fails", 0)) + 1
+                if fails >= 2:
+                    self._drop_task(role.key, tid)
+                else:
+                    self._update_task(role.key, tid, fails=fails,
+                                      not_before=dt.datetime.now(TZ).timestamp() + FAIL_RETRY_S)
+                try:
+                    await self.say(role, f"Задача №{tid}: сбой бота ({type(exc).__name__}). "
+                                         + ("Снята — пришлите её заново." if fails >= 2 else "Повторю один раз."))
+                except Exception:
+                    log.warning("could not report the failure of task %s", tid)
+                continue
+            if not meta:                          # «стоп агенты» arrived: the task stays in the queue
+                return
             if meta.get("limit"):                 # the subscription limit: keep the task, try again later
                 tries = int(task.get("tries", 0)) + 1
                 again = dt.datetime.now(TZ) + dt.timedelta(minutes=LIMIT_RETRY_MIN)
-                for it in items:
-                    if it["id"] == task["id"]:
-                        it["tries"], it["not_before"] = tries, again.timestamp()
-                self._set_queue(role.key, items)
-                await self.say(role, f"Лимит подписки исчерпан — задача №{task['id']} сохранена, продолжу в "
+                self._update_task(role.key, tid, tries=tries, not_before=again.timestamp())
+                if tries >= LIMIT_TRIES:
+                    await self.say(role, f"Лимит подписки исчерпан уже {tries} раз подряд — задача №{tid} сохранена, но сам "
+                                         "больше не повторяю. Продолжить: «старт агенты»; снять: «отмена " + str(tid) + "».")
+                    return
+                await self.say(role, f"Лимит подписки исчерпан — задача №{tid} сохранена, продолжу в "
                                      f"{again:%H:%M} (попытка {tries}).")
                 continue
-            self._set_queue(role.key, [it for it in items if it["id"] != task["id"]])
+            self._drop_task(role.key, tid)
+
+    async def skip(self, role: Role) -> None:
+        """«пропустить»: the approved branch is not deployed; the agent goes on with its queue."""
+        pend = dict(self.store.data.get("pending") or {})
+        p = pend.pop(role.key, None)
+        self.store["pending"] = pend
+        await self.say(role, f"Ветка `{p['branch']}` не выкладывается (осталась в репозитории)." if p
+                             else "Готовой ветки нет.")
+        self.kick(role)
 
     async def cancel(self, tid: int) -> str:
         for key in ROLES:
@@ -300,8 +350,8 @@ class Agents:
         kept += [{"at": dt.datetime.now(TZ).strftime("%Y-%m-%d"), "tag": tag, "text": t} for _, (tag, t) in chosen]
         self.store["approved_news"] = kept[-30:]
         self.store["news_items"] = {k: v for k, v in items.items() if int(k) not in {n for n, _ in chosen}}
-        await self.say(news, "Подтверждено: " + ", ".join(str(n) for n, _ in chosen)
-                             + ". Передал координатору — войдёт в его список задач.")
+        await self.say(news, "Подтверждено: " + ", ".join(str(n) for n, _ in chosen) + ". Передал координатору:\n"
+                             + "\n".join(f"• [{tag}] {t[:200]}" for _, (tag, t) in chosen))
 
     def _remember(self, role: Role, answer: str) -> None:
         """The last report of every agent, for the coordinator's weekly list (kept short)."""
@@ -364,9 +414,14 @@ class Agents:
             await self.say(role, f"Ветка не отправлена ({out}). Выкладывать нечего.")
             return
         verdict = await self._review(role, branch)
+        if verdict is None:
+            await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, но проверка не состоялась: лимит подписки "
+                                 "исчерпан. Пришлите задачу ещё раз позже; выкладка этой ветки заблокирована.")
         pend = dict(self.store.data.get("pending") or {})
         pend[role.key] = {"branch": branch, "sha": sha, "review": verdict}
         self.store["pending"] = pend
+        if verdict is None:
+            return
         if verdict:
             await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, проверяющий: можно. CI проверяет. Чтобы "
                                  "выложить на сайт — ответьте здесь «да». Выложу только при зелёном CI.")
@@ -374,7 +429,7 @@ class Agents:
             await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, но проверяющий не пропустил — см. тему "
                                  "«Проверяющий». Напишите здесь, что исправить; выкладка этой ветки заблокирована.")
 
-    async def _review(self, author: Role, branch: str) -> bool:
+    async def _review(self, author: Role, branch: str) -> bool | None:
         """The reviewer reads the branch against main with fresh eyes (runs inside the author's turn and lock)."""
         rv = ROLES["review"]
         prompt = build_prompt(rv, (f"Проверь ветку `{branch}` агента «{author.title}» перед выкладкой: `git diff origin/main...{branch}` "
@@ -383,6 +438,8 @@ class Agents:
         started = dt.datetime.now(TZ)
         answer, _, meta = await runner.run(rv, prompt, None, runner.workdir_for(author))
         self._log_usage(rv, "review", meta, started)
+        if meta.get("limit"):
+            return None                           # not a verdict: the branch stays blocked, the owner is told why
         await self.say(rv, f"Ветка `{branch}` ({author.title}):\n{answer}")
         self._remember(rv, answer)
         return review_ok(answer) is True
@@ -412,6 +469,7 @@ class Agents:
         pend.pop(role.key, None)
         self.store["pending"] = pend
         await self.say(role, f"CI зелёный, main перемотан на {p['sha'][:7]}, выкладка запущена.")
+        self.kick(role)
         await asyncio.sleep(60)
         for _ in range(60):
             status, concl, url = await github.last_deploy()
@@ -455,6 +513,9 @@ class Agents:
         chosen = [(n, props[str(n)]) for n in numbers if str(n) in props]
         if not chosen:
             await self.say(coord, "Таких номеров в списке задач нет.")
+            return
+        if self.store["paused"]:
+            await self.say(coord, "Агенты остановлены («стоп агенты») — список сохранён. Включить: «старт агенты».")
             return
         await self.say(coord, "Раздаю: " + "; ".join(f"{n} → {ROLES[r].title}" for n, (r, _) in chosen))
         self.store["proposals"] = {k: v for k, v in props.items() if int(k) not in {n for n, _ in chosen}}
@@ -521,6 +582,9 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
             return
         if role.key == "news" and parse_choice(text):
             await agents.approve_news(parse_choice(text))
+            return
+        if role.branch and SKIP.match(text):
+            await agents.skip(role)
             return
         if role.branch and is_approval(text):
             asyncio.create_task(agents.safe(role, agents.deploy(role)))

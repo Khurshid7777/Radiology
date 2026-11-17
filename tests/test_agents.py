@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
@@ -485,3 +486,162 @@ def test_models_and_helpers_by_role(monkeypatch):
     assert logic.MODEL_HINT.search("API Error: model claude-fable-5-2 is not available on your plan")
     assert logic.LIMIT_HINT.search("Claude usage limit reached. Your limit will reset at 3pm")
     assert logic.QUEUE.match("очередь") and logic.CANCEL.match("отмена 12").group(1) == "12"
+
+
+# --- D301, the reviewer's findings ------------------------------------------------------------------------------
+REAL_MODEL_ERROR = "There's an issue with the selected model (claude-fable-5-2). It may not exist or you may not have access to it."
+REAL_LIMITS = ("You've hit your session limit · resets 3pm", "You've hit your limit", "You're out of usage credits",
+               "You've hit your monthly spend limit", "Claude usage limit reached")
+
+
+def _fake_once(monkeypatch, script):
+    """runner._once replaced: ``script(model, session)`` -> (code, res, tail); returns the list of calls."""
+    seen = []
+
+    async def once(role, prompt, session, cwd, model=None):
+        seen.append((model, session))
+        return script(model, session)
+    monkeypatch.setattr(runner, "_once", once)
+    return seen
+
+
+def test_unavailable_model_falls_back_to_opus_on_the_real_message(monkeypatch):
+    seen = _fake_once(monkeypatch, lambda m, s: (1, {}, REAL_MODEL_ERROR) if m != "opus"
+                      else (0, {"result": "готово", "total_cost_usd": 0.2}, ""))
+    text, _, meta = asyncio.run(runner.run(ROLES["dev"], "p", None, "/tmp"))
+    assert [m for m, _ in seen] == ["claude-fable-5-2", "opus"]
+    assert text == "готово" and meta["ok"] and meta["fallback"] and meta["model"] == "opus"
+
+
+def test_real_limit_messages_keep_the_task(monkeypatch):
+    for msg in REAL_LIMITS:
+        seen = _fake_once(monkeypatch, lambda m, s, msg=msg: (1, {}, msg))
+        _, sid, meta = asyncio.run(runner.run(ROLES["scan"], "p", "sess", "/tmp"))
+        assert meta.get("limit") and not meta["ok"], msg
+        assert len(seen) == 1 and sid == "sess", msg         # no blind retry, the session is kept
+    seen = _fake_once(monkeypatch, lambda m, s: (1, {}, "You've hit your Fable limit") if m != "opus" else (0, {"result": "ok"}, ""))
+    _, _, meta = asyncio.run(runner.run(ROLES["sec"], "p", None, "/tmp"))
+    assert meta["ok"] and meta["fallback"] and len(seen) == 2    # one model's own limit: the work goes on on Opus
+
+
+def test_read_only_roles_are_hard_denied_write_and_shell():
+    import json as _json
+
+    from cardiovision_agents.logic import helper_agents
+    for key in ("sec", "audit"):
+        cmd = runner.command(ROLES[key], "hi", None)
+        denied = cmd[cmd.index("--disallowedTools") + 1].split(",")
+        assert {"Bash", "Edit", "Write"} <= set(denied)
+        helper = _json.loads(cmd[cmd.index("--agents") + 1])["helper"]["tools"]
+        assert not {"Bash", "Edit", "Write"} & set(helper)
+        assert not {"Bash", "Edit", "Write"} & set(helper_agents(ROLES[key])["helper"]["tools"])
+    dev = runner.command(ROLES["dev"], "hi", None)
+    assert "Bash" not in dev[dev.index("--disallowedTools") + 1].split(",")
+
+
+def test_usage_log_holds_no_task_text(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, _, _ = _team(tmp_path, monkeypatch)
+
+    async def go():
+        await ag.enqueue(ROLES["triage"], "СЕКРЕТНЫЙ-ТЕКСТ-ЗАДАЧИ")
+        await ag.workers["triage"]
+    asyncio.run(go())
+    raw = (tmp_path / "usage.jsonl").read_text()
+    assert "СЕКРЕТНЫЙ" not in raw and "ответ triage" not in raw and '"role": "triage"' in raw
+
+
+def test_second_branch_task_waits_for_the_owner_decision_on_the_first(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    ag, sent, calls = _team(tmp_path, monkeypatch)
+    monkeypatch.setattr(B, "HOLD_POLL_S", 0.01)
+
+    async def offer(role, workdir, branch):               # every dev task ends with a reviewer-approved branch
+        pend = dict(ag.store.data.get("pending") or {})
+        pend[role.key] = {"branch": branch, "sha": "a" * 40, "review": True}
+        ag.store["pending"] = pend
+    monkeypatch.setattr(ag, "_offer", offer)
+
+    async def go():
+        await ag.enqueue(ROLES["dev"], "первая")
+        await ag.enqueue(ROLES["dev"], "вторая")
+        await asyncio.sleep(0.3)
+        first = ag.store["pending"]["dev"]["branch"]
+        assert len(calls) == 1 and len(ag._queue("dev")) == 1          # the second did not start, the offer stands
+        assert any("ждёт: ветка" in t and "пропустить" in t for _, t in sent)
+        await ag.skip(ROLES["dev"])
+        await ag.workers["dev"]
+        return first
+    first = asyncio.run(go())
+    assert len(calls) == 2 and first and sum("ждёт: ветка" in t for _, t in sent) == 1
+
+
+def test_a_bot_failure_does_not_block_or_endlessly_repeat_a_task(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    ag, sent, calls = _team(tmp_path, monkeypatch)
+    monkeypatch.setattr(B, "FAIL_RETRY_S", 0)
+    real_turn, n = ag.turn, {"n": 0}
+
+    async def turn(role, text, scheduled=False, task_id=None):
+        n["n"] += 1
+        if text == "плохая":
+            raise RuntimeError("telegram down")
+        return await real_turn(role, text, scheduled, task_id)
+    monkeypatch.setattr(ag, "turn", turn)
+
+    async def go():
+        await ag.enqueue(ROLES["sec"], "плохая")
+        await ag.enqueue(ROLES["sec"], "хорошая")
+        await ag.workers["sec"]
+    asyncio.run(go())
+    assert n["n"] == 3 and len(calls) == 1 and "хорошая" in calls[0][1]     # tried twice, dropped, the next one ran
+    assert ag._queue("sec") == [] and any("Снята" in t for _, t in sent)
+
+
+def test_stop_keeps_the_task_and_the_limit_retry_is_capped(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, _, _ = _team(tmp_path, monkeypatch)
+
+    async def paused_turn(role, text, scheduled=False, task_id=None):
+        return {}                                           # what turn() returns after «стоп агенты»
+    monkeypatch.setattr(ag, "turn", paused_turn)
+
+    async def go():
+        await ag.enqueue(ROLES["news"], "не потеряй")
+        await ag.workers["news"]
+    asyncio.run(go())
+    assert [it["text"] for it in ag._queue("news")] == ["не потеряй"]
+
+    from cardiovision_agents.logic import LIMIT_TRIES
+    ag2, sent2, calls2 = _team(tmp_path, monkeypatch, metas={"dev": [{"ok": False, "limit": True} for _ in range(LIMIT_TRIES + 5)]})
+
+    async def go2():
+        await ag2.enqueue(ROLES["dev"], "под лимитом")
+        await ag2.workers["dev"]
+    asyncio.run(go2())
+    assert len(calls2) == LIMIT_TRIES and len(ag2._queue("dev")) == 1
+    assert any("больше не повторяю" in t for _, t in sent2)
+    assert any("продолжу в " in t and ":" in t.split("продолжу в ")[1][:5] for _, t in sent2)
+
+
+def test_backup_script_makes_a_decryptable_archive_and_cleans_up(tmp_path):
+    import shutil
+    import subprocess
+    if not shutil.which("openssl"):
+        pytest.skip("no openssl")
+    src, out, key = tmp_path / "src", tmp_path / "out", tmp_path / "key"
+    src.mkdir()
+    (src / "a.txt").write_text("данные")
+    out.mkdir()
+    (out / "old.tmp").write_text("x")
+    env = {**os.environ, "BACKUP_SRC": str(src), "BACKUP_DIR": str(out), "BACKUP_KEY": str(key)}
+    r = subprocess.run(["bash", str(ROOT / "deploy/backup.sh")], env=env, capture_output=True, text=True, check=False)
+    assert r.returncode == 0, r.stderr
+    files = sorted(p.name for p in out.iterdir())
+    assert len(files) == 1 and files[0].endswith(".tar.gz.enc")
+    assert (out / files[0]).stat().st_mode & 0o077 == 0 and key.stat().st_mode & 0o077 == 0
+    dec = subprocess.run(f"openssl enc -d -aes-256-cbc -pbkdf2 -pass file:{key} -in {out / files[0]} | tar tz",
+                         shell=True, capture_output=True, text=True, check=False)
+    assert "a.txt" in dec.stdout and key.read_text().strip() not in r.stdout + r.stderr
