@@ -218,3 +218,38 @@ def test_wide_lag_search_finds_an_offset_the_narrow_one_cannot():
     wide = compare_trace(x, 0.0, shifted, 0.0, 500, max_lag_s=1.0, min_overlap=0.5, snr_cap_db=60)
     assert narrow is None or narrow["r"] < 0.5
     assert wide["r"] > 0.99 and abs(abs(wide["lag_s"]) - 0.6) < 0.01
+
+
+def test_wander_is_added_to_the_truth_signal_not_hidden_from_it():
+    """SD-113: the page shows the drifting signal, so the source the page is rendered from carries the drift."""
+    from ecgscan.bench.cases import add_wander
+    from ecgscan.bench.sources import SourceSignal
+
+    rng = np.random.default_rng(1)
+    flat = SourceSignal("x", 500.0, {"I": np.zeros(5000), "II": np.zeros(5000)}, {})
+    out = add_wander(flat, 1.0, rng)
+    assert out.meta["wander_mv"] == 1.0
+    assert 0.3 < float(np.ptp(out.leads_mv["I"])) < 6.0
+    assert not np.allclose(out.leads_mv["I"], out.leads_mv["II"])      # a phase per lead
+    assert np.allclose(flat.leads_mv["I"], 0.0)                         # the source is not changed in place
+
+
+def test_coarse_row_search_is_off_by_default_and_finds_drifting_rows_when_asked():
+    from ecgscan.layout.detect import detect_layout
+    from ecgscan.pipeline import pipeline_config
+
+    assert pipeline_config()["layout"].get("drift_smooth_mm") is None
+    ppm, rows = 4.0, 3
+    ink = np.zeros((int(rows * 25 * ppm + 60 * ppm), int(260 * ppm)), bool)
+    for r in range(rows):
+        for seg in range(4):                           # each 2.5 s piece of a row has its own baseline offset
+            off = (-9, 8, -7, 9)[(r + seg) % 4]
+            x0, x1 = int((10 + seg * 62) * ppm), int((10 + (seg + 1) * 62) * ppm) - 2
+            y = int((30 + r * 25 + off) * ppm)
+            ink[y:y + 2, x0:x1] = True
+            ink[y - int(5 * ppm):y + int(5 * ppm), x0 + 20] = True    # a complex tall enough to count
+    plain = detect_layout(ink, ppm)
+    coarse = detect_layout(ink, ppm, drift_smooth_mm=[4.0, 8.0])
+    assert coarse.name is not None or plain.name is not None
+    if plain.name is None:
+        assert coarse.drift and coarse.uncertain

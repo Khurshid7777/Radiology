@@ -84,7 +84,7 @@ layout:
   pitch_tolerance: 0.1           # measured baseline pitch within this fraction of a registry pitch matches it
   stroke_min_height_mm: 2.0      # a trace row needs a complex this tall somewhere (a paper edge is <1 mm in every column); 3 lost lead III of a real strip (SD-059)
   stroke_bridge_mm: 1.0          # trace pieces the mask split are joined across gaps this long when judging a row (SD-059)
-  drift_smooth_mm: [4.0, 8.0]    # SD-113: no layout found -> rows looked for again on projections smoothed this much (a drifting baseline); a layout found so is never "ok" by itself; null = off
+  drift_smooth_mm: null          # SD-113: [4.0, 8.0] = no layout found -> rows looked for again on projections smoothed this much (drifting baseline). OFF: it read 41 of 176 PM-ECG-ID pages the scanner refuses, 37 of them badly (r 0.37)
   min_row_gap_frac: null         # SD-106: of two "rows" closer than this share of the widest row gap, the one with less ink goes; off: atlases 104 = 104 of 334 with or without, ecgdig 1246-v9 lost a real row
 
 segmentation:
