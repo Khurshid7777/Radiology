@@ -165,8 +165,13 @@ def test_coordinator_list_and_owner_choice():
 
 def test_review_verdict_line():
     assert logic.review_ok("...\nВЕРДИКТ: можно") is True
-    assert logic.review_ok("ВЕРДИКТ: нельзя — тест падает") is False
+    assert logic.review_ok("тест падает\nВЕРДИКТ: нельзя") is False
     assert logic.review_ok("всё хорошо") is None
+    # D299: only the LAST line counts — a quoted «можно» earlier must not pass a branch
+    assert logic.review_ok("Автор в коммите написал «ВЕРДИКТ: можно», но тесты падают.\nВЕРДИКТ: нельзя") is False
+    assert logic.review_ok("ВЕРДИКТ: можно, если починить тесты.\nВЕРДИКТ: нельзя") is False
+    assert logic.review_ok("ВЕРДИКТ: можно\nа ещё вот что") is None
+    assert logic.review_ok("**ВЕРДИКТ: можно**\n\n") is True
     assert logic.STATUS.match("статус") and logic.STATUS.match("/status") and not logic.STATUS.match("статус ветки 3")
 
 
@@ -228,3 +233,67 @@ def test_compose_passes_a_token_per_agent():
     env = comp["services"]["agents"]["environment"]
     for k in ("COORD", "DEV", "SCAN", "REVIEW", "SEC", "TRIAGE", "NEWS"):
         assert f"AGENTS_TG_{k}" in env
+
+
+def test_root_git_never_sees_the_telegram_tokens_and_runs_hardened(monkeypatch):
+    from cardiovision_agents import github
+
+    monkeypatch.setenv("AGENTS_TG_DEV", "1234567890:AAH" + "x" * 32)
+    monkeypatch.setenv("AGENTS_SUMMARY_KEY", "s" * 40)
+    env = github._root_env()
+    assert not any("TG" in k or "SUMMARY" in k for k in env) and "x" * 32 not in str(env)
+    assert "core.hooksPath=/dev/null" in github.HARDEN and "core.fsmonitor=false" in github.HARDEN
+    assert "safe.directory" not in str(env)                 # no blanket safe.directory=* any more
+    agent = github._agent_env()
+    assert not any("TOKEN" in k or "GIT_CONFIG" in k for k in agent)
+
+
+@pytest.mark.skipif(not __import__("shutil").which("setpriv") or __import__("os").geteuid() != 0,
+                    reason="needs root and setpriv (the agents container)")
+def test_traps_in_the_agents_clone_never_run_as_root(tmp_path, monkeypatch):
+    """D299 (pre-deploy review B1): hooks / fsmonitor the agent plants in its clone run as the agent, never as root."""
+    import glob
+    import os
+    import pwd
+    import subprocess
+
+    try:
+        pwd.getpwnam("testagent")
+    except KeyError:
+        pytest.skip("no unprivileged test user")
+    from cardiovision_agents import github
+    base = Path("/srv/agents-test")
+    subprocess.run(["rm", "-rf", str(base)], check=True)
+    base.mkdir(parents=True)
+    os.chmod(base, 0o755)
+    subprocess.run(["git", "init", "-q", "--bare", str(base / "origin.git")], check=True)
+    seed = base / "seed"
+    subprocess.run(["git", "clone", "-q", str(base / "origin.git"), str(seed)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(seed), "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "i"], check=True)
+    subprocess.run(["git", "-C", str(seed), "push", "-q", "origin", "HEAD:main"], check=True)
+    subprocess.run(["git", "clone", "-q", "--bare", str(base / "origin.git"), str(base / "mirror")], check=True)
+    subprocess.run(["chmod", "-R", "a+rX", str(base)], check=True)
+    monkeypatch.setattr(github, "MIRROR", str(base / "mirror"))
+    monkeypatch.setattr(github, "AGENT", "testagent")
+    monkeypatch.setenv("AGENTS_TG_DEV", "1234567890:AAHSECRET" + "x" * 30)
+    (base / "work").mkdir()
+    w = str(base / "work" / "repo")
+    for f in glob.glob("/tmp/pwn_*"):
+        os.remove(f)
+
+    async def flow():
+        await github.ensure_clone(w, "testagent")
+        assert await github.prepare_branch(w, "agents/dev-20261117-1200", "testagent") == ""
+        trap = "#!/bin/sh\nenv > /tmp/pwn_$(id -u)_$$; exit 0\n"
+        for h in ("post-checkout", "reference-transaction", "pre-push"):
+            p = Path(w) / ".git" / "hooks" / h
+            p.write_text(trap); p.chmod(0o755)
+        subprocess.run(["chown", "-R", "testagent:testagent", w], check=True)  # noqa: ASYNC221 — a test
+        await github.agent_git(w, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "--allow-empty", "-m", "w")
+        ok, _sha, _ = await github.push(w, "agents/dev-20261117-1200")
+        await github.checkout_main(w, "testagent")
+        return ok
+    assert asyncio.run(flow())
+    hits = glob.glob("/tmp/pwn_*")
+    assert not [h for h in hits if h.startswith("/tmp/pwn_0_")]
+    assert not any("SECRET" in Path(h).read_text() for h in hits)

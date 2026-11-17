@@ -1,7 +1,15 @@
-"""Git and GitHub for the developer agent (D279): its branch, the push, CI, the merge into main, the deploy.
+"""Git and GitHub for the working agents (D279, D299): their branch, the push, CI, main and the deploy.
 
-The token stays in this (root) process: git gets it through GIT_CONFIG_* environment variables, which the agent's
-user cannot read, never on a command line.
+Trust boundary (D299, pre-deploy review): the bot runs as root and holds the tokens; the agents run as the unprivileged
+user ``agent`` and own their clone (/work/repo). Root never runs git inside the agent's clone — its hooks, config or
+fsmonitor would run with root's environment. Instead:
+
+* root keeps its own mirror (``MIRROR``, root-owned, world-readable, never writable by the agent) and talks to GitHub
+  only from there, with the token in GIT_CONFIG_* variables and a minimal environment;
+* every git command inside the agent's clone runs AS the agent, with a clean environment (no tokens);
+* to take the agent's commits, root fetches into the mirror with ``--upload-pack`` running as the agent — the agent's
+  side of the transfer runs under the agent's uid, root only receives objects;
+* the deploy fast-forwards ``main`` to the exact commit that passed CI and the reviewer (no new merge commit).
 """
 from __future__ import annotations
 
@@ -13,61 +21,96 @@ import httpx
 
 REPO = os.environ.get("AGENTS_GH_REPO", "Khurshid7777/Radiology")
 API = "https://api.github.com"
+MIRROR = os.environ.get("AGENTS_MIRROR", "/state/mirror")
+AGENT = os.environ.get("AGENTS_RUN_AS", "agent")
+HARDEN = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.file.allow=always")
 
 
 def _token() -> str:
     return os.environ.get("AGENTS_GH_TOKEN", "")
 
 
-def _git_env() -> dict:
+def _root_env() -> dict:
+    """Root's git: PATH, HOME and the GitHub token as an extra header — no Telegram tokens, no summary key."""
     basic = base64.b64encode(f"x-access-token:{_token()}".encode()).decode()
-    return {**os.environ, "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-            "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}", "GIT_CONFIG_KEY_1": "safe.directory",
-            "GIT_CONFIG_VALUE_1": "*", "GIT_TERMINAL_PROMPT": "0"}
+    return {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/root", "GIT_TERMINAL_PROMPT": "0",
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+            "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}"}
 
 
-async def git(workdir: str, *args: str) -> tuple[int, str]:
-    p = await asyncio.create_subprocess_exec("git", "-C", workdir, *args, env=_git_env(),
-                                             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+def _agent_env() -> dict:
+    return {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": f"/home/{AGENT}", "LANG": "C.UTF-8",
+            "GIT_TERMINAL_PROMPT": "0"}
+
+
+def as_agent() -> list[str]:
+    return ["setpriv", f"--reuid={AGENT}", f"--regid={AGENT}", "--init-groups", "--"]
+
+
+async def _run(cmd: list[str], env: dict, cwd: str | None = None) -> tuple[int, str]:
+    p = await asyncio.create_subprocess_exec(*cmd, env=env, cwd=cwd, stdout=asyncio.subprocess.PIPE,
+                                             stderr=asyncio.subprocess.STDOUT)
     out, _ = await p.communicate()
     return p.returncode, out.decode(errors="replace")
 
 
-async def ensure_clone(workdir: str, user: str) -> None:
+async def mirror_git(*args: str) -> tuple[int, str]:
+    """git as root in root's own mirror."""
+    return await _run(["git", *HARDEN, "-C", MIRROR, *args], _root_env())
+
+
+async def agent_git(workdir: str, *args: str) -> tuple[int, str]:
+    """git as the agent in the agent's clone (no tokens in its environment)."""
+    return await _run([*as_agent(), "git", "-C", workdir, *args], _agent_env())
+
+
+async def ensure_mirror() -> None:
+    if not os.path.isdir(os.path.join(MIRROR, "objects")):
+        os.makedirs(os.path.dirname(MIRROR) or "/", exist_ok=True)
+        await _run(["git", *HARDEN, "clone", "--bare", f"https://github.com/{REPO}.git", MIRROR], _root_env())
+    await mirror_git("fetch", "origin", "+refs/heads/main:refs/heads/main")
+    os.chmod(MIRROR, 0o755)       # readable by the agent (to clone / fetch main), never writable
+
+
+async def ensure_clone(workdir: str, user: str = AGENT) -> None:
+    await ensure_mirror()
+    # The mirror is root's and only read by the agent: trusting that one path in the agent's own global config is safe
+    # (git honours safe.directory only from protected config, not from -c for a local clone).
+    await _run([*as_agent(), "git", "config", "--global", "--replace-all", "safe.directory", MIRROR], _agent_env())
     if not os.path.isdir(os.path.join(workdir, ".git")):
-        os.makedirs(os.path.dirname(workdir), exist_ok=True)
-        p = await asyncio.create_subprocess_exec("git", "clone", f"https://github.com/{REPO}.git", workdir,
-                                                 env=_git_env())
-        await p.wait()
-    await _chown(workdir, user)
+        parent = os.path.dirname(workdir)
+        os.makedirs(parent, exist_ok=True)
+        await _run(["chown", f"{user}:{user}", parent], {"PATH": "/usr/bin:/bin"})
+        await _run([*as_agent(), "git", "clone", MIRROR, workdir], _agent_env())
 
 
-async def _chown(path: str, user: str) -> None:
-    p = await asyncio.create_subprocess_exec("chown", "-R", f"{user}:{user}", path)
-    await p.wait()
-
-
-async def prepare_branch(workdir: str, branch: str, user: str) -> str:
-    await git(workdir, "fetch", "origin", "main")
-    await git(workdir, "reset", "--hard")
-    code, out = await git(workdir, "checkout", "-B", branch, "origin/main")
-    await _chown(workdir, user)
+async def prepare_branch(workdir: str, branch: str, user: str = AGENT) -> str:
+    await ensure_mirror()
+    await agent_git(workdir, "fetch", "origin", "+refs/heads/main:refs/remotes/origin/main")
+    await agent_git(workdir, "reset", "--hard")
+    code, out = await agent_git(workdir, "checkout", "-B", branch, "origin/main")
     return "" if code == 0 else out[-300:]
 
 
-async def checkout_main(workdir: str, user: str) -> None:
-    await git(workdir, "fetch", "origin", "main")
-    await git(workdir, "checkout", "-B", "main", "origin/main")
-    await _chown(workdir, user)
+async def checkout_main(workdir: str, user: str = AGENT) -> None:
+    await ensure_mirror()
+    await agent_git(workdir, "fetch", "origin", "+refs/heads/main:refs/remotes/origin/main")
+    await agent_git(workdir, "checkout", "-B", "main", "origin/main")
 
 
 async def push(workdir: str, branch: str) -> tuple[bool, str, str]:
-    """(pushed, head sha, git output). Nothing to push (no commit on top of main) counts as not pushed."""
-    _, ahead = await git(workdir, "rev-list", "--count", f"origin/main..{branch}")
+    """(pushed, head sha, output). The agent's branch is fetched into root's mirror with the agent's side of the
+    transfer running as the agent, then pushed to GitHub from the mirror."""
+    upload = " ".join([*as_agent(), "env", "-i", "PATH=/usr/bin:/bin", "git-upload-pack"])
+    code, out = await mirror_git("fetch", f"--upload-pack={upload}", workdir, f"+refs/heads/{branch}:refs/heads/{branch}")
+    if code != 0:
+        return False, "", out[-300:]
+    _, ahead = await mirror_git("rev-list", "--count", f"main..{branch}")
     if ahead.strip() in ("", "0"):
         return False, "", "нет коммитов поверх main"
-    code, out = await git(workdir, "push", "-u", "origin", f"{branch}:{branch}")
-    _, sha = await git(workdir, "rev-parse", branch)
+    code, out = await mirror_git("push", "origin", f"refs/heads/{branch}:refs/heads/{branch}")
+    _, sha = await mirror_git("rev-parse", branch)
     return code == 0, sha.strip(), out[-300:]
 
 
@@ -87,12 +130,13 @@ async def ci_state(sha: str) -> str:
     return "green" if all(x["conclusion"] in ("success", "skipped", "neutral") for x in runs) else "red"
 
 
-async def merge_and_deploy(branch: str) -> str:
+async def fast_forward_and_deploy(sha: str) -> str:
+    """Move main to exactly ``sha`` (fast-forward only — the commit CI and the reviewer passed), then start Deploy."""
     async with _client() as c:
-        r = await c.post(f"/repos/{REPO}/merges", json={"base": "main", "head": branch,
-                                                         "commit_message": f"Merge {branch} (agents, owner: да)"})
-        if r.status_code not in (201, 204):
-            return f"слияние в main не удалось: {r.status_code} {r.text[:200]}"
+        r = await c.patch(f"/repos/{REPO}/git/refs/heads/main", json={"sha": sha, "force": False})
+        if r.status_code != 200:
+            return (f"main не перемотан на {sha[:7]} ({r.status_code}): main ушёл вперёд — нужна новая ветка от "
+                    "свежего main")
         r = await c.post(f"/repos/{REPO}/actions/workflows/deploy.yml/dispatches",
                          json={"ref": "main", "inputs": {"ref": "main"}})
         if r.status_code != 204:

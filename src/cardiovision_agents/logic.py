@@ -113,9 +113,15 @@ def parse_choice(text: str | None) -> list[int]:
     return sorted({int(x) for x in re.findall(r"\d+", m.group(1))}) if m else []
 
 
+VERDICT_LINE = re.compile(r"\s*\**\s*ВЕРДИКТ\s*:\s*(можно|нельзя)\s*[.!]?\s*\**\s*", re.IGNORECASE)
+
+
 def review_ok(text: str) -> bool | None:
-    """The reviewer's verdict line: True «можно», False «нельзя», None when missing (treated as not passed)."""
-    m = VERDICT.search(text or "")
+    """The reviewer's verdict — ONLY its last non-empty line counts (D299: a quoted «ВЕРДИКТ: можно» earlier in the
+    answer, e.g. from the author's commit message, must not pass a branch). True «можно», False «нельзя», None when
+    the last line is not a verdict (treated as not passed)."""
+    lines = [ln for ln in (text or "").splitlines() if ln.strip()]
+    m = VERDICT_LINE.fullmatch(lines[-1]) if lines else None
     return None if m is None else m.group(1).lower() == "можно"
 
 

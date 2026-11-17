@@ -196,8 +196,8 @@ class Agents:
     async def _review(self, author: Role, branch: str) -> bool:
         """The reviewer reads the branch against main with fresh eyes (runs inside the author's turn and lock)."""
         rv = ROLES["review"]
-        prompt = build_prompt(rv, (f"Проверь ветку `{branch}` агента «{author.title}» перед выкладкой: `git diff main...{branch}` "
-                                   f"и `git log main..{branch}`. Повтори ключевые проверки сам (тесты затронутых частей). "
+        prompt = build_prompt(rv, (f"Проверь ветку `{branch}` агента «{author.title}» перед выкладкой: `git diff origin/main...{branch}` "
+                                   f"и `git log origin/main..{branch}`. Повтори ключевые проверки сам (тесты затронутых частей). "
                                    "Последней строкой напиши ровно «ВЕРДИКТ: можно» или «ВЕРДИКТ: нельзя»."), SERVER_NOTE)
         answer, _ = await runner.run(rv, prompt, None)
         await self.say(rv, f"Ветка `{branch}` ({author.title}):\n{answer}")
@@ -221,14 +221,14 @@ class Agents:
         if state != "green":
             await self.say(role, f"CI по `{p['branch']}`: {state}. Не выкладываю.")
             return
-        err = await github.merge_and_deploy(p["branch"])
+        err = await github.fast_forward_and_deploy(p["sha"])
         if err:
             await self.say(role, err)
             return
         pend = dict(self.store.data.get("pending") or {})
         pend.pop(role.key, None)
         self.store["pending"] = pend
-        await self.say(role, "CI зелёный, влито в main, выкладка запущена.")
+        await self.say(role, f"CI зелёный, main перемотан на {p['sha'][:7]}, выкладка запущена.")
         await asyncio.sleep(60)
         for _ in range(60):
             status, concl, url = await github.last_deploy()
@@ -237,6 +237,14 @@ class Agents:
                 return
             await asyncio.sleep(30)
         await self.say(role, "Выкладка идёт дольше 30 мин — проверьте Actions.")
+
+    async def safe(self, role: Role, coro) -> None:
+        """A background job whose failure is told to the owner instead of vanishing."""
+        try:
+            await coro
+        except Exception as ex:
+            log.exception("agent job failed")
+            await self.say(role, f"Сбой: {type(ex).__name__}. Подробности — в журнале контейнера агентов.")
 
     # -- status and the coordinator's dispatch ------------------------------------------------------------------
     def status_text(self) -> str:
@@ -265,9 +273,10 @@ class Agents:
             await self.say(coord, "Таких номеров в списке задач нет.")
             return
         await self.say(coord, "Раздаю: " + "; ".join(f"{n} → {ROLES[r].title}" for n, (r, _) in chosen))
+        self.store["proposals"] = {k: v for k, v in props.items() if int(k) not in {n for n, _ in chosen}}
         for n, (r, task) in chosen:
             await self.say(ROLES[r], f"Задача {n} от координатора (владелец: «да»):\n{task}")
-            asyncio.create_task(self.turn(ROLES[r], task))
+            asyncio.create_task(self.safe(ROLES[r], self.turn(ROLES[r], task)))
 
     # -- schedule ----------------------------------------------------------------------------------------------
     async def scheduler(self) -> None:
@@ -280,7 +289,7 @@ class Agents:
                     done.add(tag)
                     if now.hour == h:            # missed by more than an hour (restart) -> skip, not catch up
                         text = WEEKLY_PLAN if key == "coord" else "Плановый запуск: сделай свой отчёт."
-                        asyncio.create_task(self.turn(ROLES[key], text, True))
+                        asyncio.create_task(self.safe(ROLES[key], self.turn(ROLES[key], text, True)))
             await asyncio.sleep(30)
 
 
@@ -316,7 +325,7 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
 
     async def handle(role: Role, text: str, msg: Message) -> None:
         if role.key == "coord" and parse_choice(text):
-            asyncio.create_task(agents.dispatch(parse_choice(text)))
+            asyncio.create_task(agents.safe(ROLES["coord"], agents.dispatch(parse_choice(text))))
             return
         if text.strip() == "/new":
             s = dict(agents.store["sessions"])
@@ -325,9 +334,9 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
             await msg.reply("Начинаем разговор заново.")
             return
         if role.branch and is_approval(text):
-            asyncio.create_task(agents.deploy(role))
+            asyncio.create_task(agents.safe(role, agents.deploy(role)))
             return
-        asyncio.create_task(agents.turn(role, text))
+        asyncio.create_task(agents.safe(role, agents.turn(role, text)))
 
     async def common(text: str, msg: Message) -> bool:
         if STOP.match(text):
@@ -411,8 +420,13 @@ async def main() -> None:
     owner = int(os.environ["AGENTS_OWNER_ID"])
     single = os.environ.get("AGENTS_TG_TOKEN", "")
     tokens = {k: os.environ.get(env, "") or single for k, env in TOKEN_ENV.items()}
-    if not all(tokens.values()):
-        raise SystemExit("no Telegram token for: " + ", ".join(k for k, t in tokens.items() if not t))
+    fallback = tokens.get("coord") or next((t for t in tokens.values() if t), "")
+    if not fallback:
+        raise SystemExit("no Telegram token at all (AGENTS_TG_COORD ... or AGENTS_TG_TOKEN)")
+    missing = [k for k, t in tokens.items() if not t]
+    if missing:      # a missing agent bot speaks through the coordinator's (no restart loop)
+        log.warning("no own bot for %s: they use the coordinator's", ", ".join(missing))
+        tokens = {k: t or fallback for k, t in tokens.items()}
     by_token: dict[str, Bot] = {}
     bots = {k: by_token.setdefault(t, Bot(t)) for k, t in tokens.items()}
     store = Store(os.environ.get("AGENTS_STATE", "/state/agents.json"))
