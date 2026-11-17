@@ -45,11 +45,27 @@ TZ = ZoneInfo("Asia/Tashkent")
 # (role, weekday or None for daily, hour, minute) — Tashkent time, off the round hour.
 SCHEDULE = (("sec", None, 8, 17), ("triage", 0, 9, 23), ("news", 2, 10, 13), ("coord", 4, 16, 7))
 WEEKLY_PLAN = ("Плановый запуск: составь задачи недели. Прочитай последние сообщения агентов (их отчёты лежат в "
-               "/work/input/reports.md), docs/PROJECT_STATE.md и DECISIONS.md. Выбери не больше трёх задач, которые сильнее всего "
+               "/state/input/reports.md), docs/PROJECT_STATE.md и DECISIONS.md. Выбери не больше трёх задач, которые сильнее всего "
                "улучшат продукт по цифрам. Каждую — отдельной строкой ровно так: «ЗАДАЧА <номер> [ядро|сканер]: <что "
                "сделать и как проверить>», под ней одна строка «почему: <цифры>». Владелец ответит «да 1, 3».")
 SERVER_NOTE = ("Here, on the server, the parts of your instructions about git branches, pushing, send_message and "
                "scheduled tasks do not apply: your answer is posted to your Telegram topic and that is your report.")
+
+
+INPUT_DIR = Path(os.environ.get("AGENTS_INPUT_DIR", "/state/input"))   # root's, readable by the agent (D299 / B3)
+
+
+def write_input(name: str, text: str) -> Path:
+    """Write an input file for the agents into root's own directory, never following a link (D299 / B3)."""
+    INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(INPUT_DIR, 0o755)
+    path = INPUT_DIR / name
+    if path.is_symlink():
+        path.unlink()
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return path
 
 
 def _secrets() -> tuple[str, ...]:
@@ -155,11 +171,10 @@ class Agents:
 
     async def _inputs(self, role: Role) -> str:
         if role.key == "coord":
-            os.makedirs("/work/input", exist_ok=True)
             last = self.store.data.get("last_reports", {})
             body = "\n\n".join(f"## {ROLES[k].title} ({v['at']})\n{v['text']}" for k, v in last.items() if k in ROLES)
-            Path("/work/input/reports.md").write_text(body or "(отчётов агентов пока нет)")
-            return "\nThe agents' latest reports are in /work/input/reports.md."
+            path = write_input("reports.md", body or "(отчётов агентов пока нет)")
+            return f"\nThe agents' latest reports are in {path}."
         if role.key == "sec":
             path = os.environ.get("AGENTS_SECURITY_REPORT", "/security/report.txt")
             return f"\nThe host's daily read-only check is in {path} — read it; it is your only view of the host."
@@ -167,13 +182,11 @@ class Agents:
             key, url = os.environ.get("AGENTS_SUMMARY_KEY", ""), os.environ.get("AGENTS_SITE_URL", "http://cardiolens:8000")
             if not key:
                 return "\nThe summary key is not set on the server: say so and stop."
-            os.makedirs("/work/input", exist_ok=True)
             async with httpx.AsyncClient(timeout=30) as c:
                 for days in (7, 30):
                     r = await c.get(f"{url}/api/quality/summary", params={"days": days}, headers={"X-API-Key": key})
-                    Path(f"/work/input/summary_{days}.json").write_text(
-                        r.text if r.status_code == 200 else f'{{"error": {r.status_code}}}')
-            return ("\nThe server summary was fetched for you: /work/input/summary_7.json and summary_30.json "
+                    write_input(f"summary_{days}.json", r.text if r.status_code == 200 else f'{{"error": {r.status_code}}}')
+            return (f"\nThe server summary was fetched for you: {INPUT_DIR}/summary_7.json and summary_30.json "
                     "(do not request it yourself).")
         return ""
 

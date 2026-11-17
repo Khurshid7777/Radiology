@@ -79,9 +79,12 @@ async def ensure_clone(workdir: str, user: str = AGENT) -> None:
     # (git honours safe.directory only from protected config, not from -c for a local clone).
     await _run([*as_agent(), "git", "config", "--global", "--replace-all", "safe.directory", MIRROR], _agent_env())
     if not os.path.isdir(os.path.join(workdir, ".git")):
-        parent = os.path.dirname(workdir)
-        os.makedirs(parent, exist_ok=True)
-        await _run(["chown", f"{user}:{user}", parent], {"PATH": "/usr/bin:/bin"})
+        # D299 / B3: only the clone itself is the agent's — its parent stays root's, so the agent cannot plant
+        # symlinks next to it where root writes. Root makes an empty directory, hands over that one, the agent clones
+        # into it.
+        os.makedirs(workdir, exist_ok=True)
+        if not os.listdir(workdir):
+            await _run(["chown", f"{user}:{user}", workdir], {"PATH": "/usr/bin:/bin"})
         await _run([*as_agent(), "git", "clone", MIRROR, workdir], _agent_env())
 
 
@@ -102,7 +105,8 @@ async def checkout_main(workdir: str, user: str = AGENT) -> None:
 async def push(workdir: str, branch: str) -> tuple[bool, str, str]:
     """(pushed, head sha, output). The agent's branch is fetched into root's mirror with the agent's side of the
     transfer running as the agent, then pushed to GitHub from the mirror."""
-    upload = " ".join([*as_agent(), "env", "-i", "PATH=/usr/bin:/bin", "git-upload-pack"])
+    # The environment is emptied BEFORE setpriv, so not even setpriv sees root's git environment (the token).
+    upload = " ".join(["env", "-i", "PATH=/usr/bin:/bin", *as_agent(), "git-upload-pack"])
     code, out = await mirror_git("fetch", f"--upload-pack={upload}", workdir, f"+refs/heads/{branch}:refs/heads/{branch}")
     if code != 0:
         return False, "", out[-300:]

@@ -293,7 +293,25 @@ def test_traps_in_the_agents_clone_never_run_as_root(tmp_path, monkeypatch):
         ok, _sha, _ = await github.push(w, "agents/dev-20261117-1200")
         await github.checkout_main(w, "testagent")
         return ok
-    assert asyncio.run(flow())
-    hits = glob.glob("/tmp/pwn_*")
-    assert not [h for h in hits if h.startswith("/tmp/pwn_0_")]
-    assert not any("SECRET" in Path(h).read_text() for h in hits)
+    try:
+        assert asyncio.run(flow())
+        hits = glob.glob("/tmp/pwn_*")
+        assert not [h for h in hits if h.startswith("/tmp/pwn_0_")]
+        assert not any("SECRET" in Path(h).read_text() for h in hits)
+        assert Path(w).parent.stat().st_uid == 0          # B3: the clone's parent stays root's
+    finally:
+        subprocess.run(["rm", "-rf", str(base), *glob.glob("/tmp/pwn_*")], check=False)
+
+
+def test_input_files_never_follow_a_planted_link(tmp_path, monkeypatch):
+    """D299 / B3: root writes the agents' inputs into its own directory and never through a symlink."""
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+
+    monkeypatch.setattr(B, "INPUT_DIR", tmp_path / "input")
+    target = tmp_path / "evil.pth"
+    (tmp_path / "input").mkdir()
+    (tmp_path / "input" / "reports.md").symlink_to(target)
+    p = B.write_input("reports.md", "import os  # would run at Python start")
+    assert not target.exists() and not p.is_symlink() and p.read_text().startswith("import os")
+    assert oct(p.stat().st_mode & 0o777) == "0o644"
