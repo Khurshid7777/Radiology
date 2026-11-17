@@ -63,6 +63,7 @@ DAILY_PLAN = ("Плановый запуск: предложи задачи. П�
               "В квадратных скобках только «ядро» или «сканер». Владелец ответит «да 1, 3».")
 MAX_PARALLEL = int(os.environ.get("AGENTS_MAX_PARALLEL", "8"))
 HOLD_POLL_S, FAIL_RETRY_S = 20, 60
+SKIP_NOTE = " Пока эта ветка ждёт, следующие задачи агента стоят; «пропустить» — оставить её и идти дальше."
 LIMIT_RETRY_MIN = int(os.environ.get("AGENTS_LIMIT_RETRY_MIN", "30"))     # D301: retry a task the limit stopped
 USAGE_LOG = Path(os.environ.get("AGENTS_USAGE_LOG", "/state/usage.jsonl"))
 EVENING = ("Вечерняя сводка владельцу (коротко): что сделано за день по агентам, что выложено, что ждёт «да» владельца, "
@@ -101,6 +102,7 @@ class Agents:
         self.locks = {k: asyncio.Lock() for k in ROLES}
         self.slots = asyncio.Semaphore(MAX_PARALLEL)
         self.workers: dict[str, asyncio.Task] = {}
+        self.ran: set[int] = set()            # tasks whose agent run has finished (this process)
         self.reply_to: dict[str, tuple[int, int | None]] = {}   # role -> where the owner last wrote to it
 
     @property
@@ -166,8 +168,11 @@ class Agents:
         items.append({"id": tid, "text": text, "source": source,
                       "at": dt.datetime.now(TZ).strftime("%Y-%m-%d %H:%M"), "reply": self.reply_to.get(role.key)})
         self._set_queue(role.key, items)
+        held = role.branch and ((self.store.data.get("pending") or {}).get(role.key) or {}).get("review")
         if len(items) > 1 or self.locks[role.key].locked():
-            await self.say(role, f"Задача №{tid} в очереди (перед ней {max(len(items) - 1, 1)}). Начну сразу после текущей.")
+            await self.say(role, f"Задача №{tid} в очереди (перед ней {max(len(items) - 1, 1)}). "
+                                 + ("Очередь ждёт вашего решения по готовой ветке: «да» или «пропустить»." if held
+                                    else "Начну сразу после текущей."))
         self.kick(role)
         return tid
 
@@ -213,18 +218,26 @@ class Agents:
             try:
                 await self.say(role, f"Начал задачу №{tid}: {task['text'][:300]}"
                                      + (f"\n(в очереди ещё {len(items) - 1})" if len(items) > 1 else ""))
+            except Exception:                     # Telegram is down: the task is not touched, wait and try again
+                log.warning("start message of task %s not sent", tid)
+                await asyncio.sleep(FAIL_RETRY_S)
+                continue
+            try:
                 meta = await self.turn(role, task["text"], task_id=tid)
             except Exception as exc:              # a failed send or fetch must not block the agent's queue
                 log.exception("task %s of %s failed", tid, role.key)
+                ran = tid in self.ran             # the agent did its work; only the bot's part after it failed
                 fails = int(task.get("fails", 0)) + 1
-                if fails >= 2:
+                drop = ran or fails >= 2
+                if drop:
                     self._drop_task(role.key, tid)
                 else:
                     self._update_task(role.key, tid, fails=fails,
                                       not_before=dt.datetime.now(TZ).timestamp() + FAIL_RETRY_S)
                 try:
                     await self.say(role, f"Задача №{tid}: сбой бота ({type(exc).__name__}). "
-                                         + ("Снята — пришлите её заново." if fails >= 2 else "Повторю один раз."))
+                                         + ("Агент отработал, но ответ не доставлен — спросите его «что сделано»." if ran
+                                            else "Снята — пришлите её заново." if drop else "Повторю один раз."))
                 except Exception:
                     log.warning("could not report the failure of task %s", tid)
                 continue
@@ -312,6 +325,8 @@ class Agents:
             prompt = build_prompt(role, text, extra, works=works)
             answer, sid, meta = await runner.run(role, prompt, sessions.get(role.key), workdir)
             self._log_usage(role, "report" if scheduled else "task", meta, started, task_id)
+            if task_id:
+                self.ran.add(task_id)
             if meta.get("limit"):
                 if scheduled:
                     await self.say(role, "Плановый отчёт пропущен: лимит подписки исчерпан.")
@@ -451,7 +466,8 @@ class Agents:
             await self.say(role, "Нечего выкладывать: нет готовой ветки.")
             return
         if not p.get("review"):
-            await self.say(role, "Проверяющий эту ветку не пропустил — не выкладываю.")
+            await self.say(role, ("Проверка этой ветки не состоялась (лимит подписки)" if p.get("review") is None
+                                  else "Проверяющий эту ветку не пропустил") + " — не выкладываю.")
             return
         for _ in range(90):                       # CI takes ~10-25 min
             state = await github.ci_state(p["sha"])
@@ -459,14 +475,18 @@ class Agents:
                 break
             await asyncio.sleep(30)
         if state != "green":
-            await self.say(role, f"CI по `{p['branch']}`: {state}. Не выкладываю.")
+            await self.say(role, f"CI по `{p['branch']}`: {state}. Не выкладываю." + SKIP_NOTE)
+            return
+        if (self.store.data.get("pending") or {}).get(role.key) != p:
+            await self.say(role, f"Выкладка `{p['branch']}` отменена: вы написали «пропустить», пока шёл CI.")
             return
         err = await github.fast_forward_and_deploy(p["sha"])
         if err:
-            await self.say(role, err)
+            await self.say(role, err + SKIP_NOTE)
             return
         pend = dict(self.store.data.get("pending") or {})
-        pend.pop(role.key, None)
+        if pend.get(role.key) == p:
+            pend.pop(role.key)
         self.store["pending"] = pend
         await self.say(role, f"CI зелёный, main перемотан на {p['sha'][:7]}, выкладка запущена.")
         self.kick(role)
@@ -495,7 +515,7 @@ class Agents:
         for k, p in (self.store.data.get("pending") or {}).items():
             if k in ROLES and p:
                 lines.append(f"• {ROLES[k].title}: ветка `{p['branch']}` ({p['sha'][:7]}), проверяющий: "
-                             + ("можно" if p.get("review") else "не пропустил") + " — ждёт «да» в своей теме")
+                             + ("можно" if p.get("review") else "проверки не было (лимит)" if p.get("review") is None else "не пропустил") + " — ждёт «да» в своей теме")
         props = self.store.data.get("proposals") or {}
         if props:
             lines.append("Задачи недели (ответ «да 1, 3» в теме Координатор):")

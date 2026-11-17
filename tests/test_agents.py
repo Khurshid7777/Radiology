@@ -639,9 +639,75 @@ def test_backup_script_makes_a_decryptable_archive_and_cleans_up(tmp_path):
     env = {**os.environ, "BACKUP_SRC": str(src), "BACKUP_DIR": str(out), "BACKUP_KEY": str(key)}
     r = subprocess.run(["bash", str(ROOT / "deploy/backup.sh")], env=env, capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stderr
-    files = sorted(p.name for p in out.iterdir())
-    assert len(files) == 1 and files[0].endswith(".tar.gz.enc")
+    files = sorted(p.name for p in out.iterdir() if p.name != ".lock")
+    assert len(files) == 1 and files[0].endswith(".tar.gz.enc")  # the stale old.tmp is gone
     assert (out / files[0]).stat().st_mode & 0o077 == 0 and key.stat().st_mode & 0o077 == 0
     dec = subprocess.run(f"openssl enc -d -aes-256-cbc -pbkdf2 -pass file:{key} -in {out / files[0]} | tar tz",
                          shell=True, capture_output=True, text=True, check=False)
     assert "a.txt" in dec.stdout and key.read_text().strip() not in r.stdout + r.stderr
+
+
+# --- D301, the second review ------------------------------------------------------------------------------------
+def test_skip_during_ci_cancels_the_deploy(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    from cardiovision_agents import github
+    ag, sent, _ = _team(tmp_path, monkeypatch)
+    deployed = []
+
+    async def ci(sha):
+        await ag.skip(ROLES["dev"])                         # the owner changes their mind while CI runs
+        return "green"
+
+    async def ff(sha):
+        deployed.append(sha)
+        return ""
+    monkeypatch.setattr(github, "ci_state", ci)
+    monkeypatch.setattr(github, "fast_forward_and_deploy", ff)
+    monkeypatch.setattr(B.asyncio, "sleep", asyncio.sleep)
+    ag.store["pending"] = {"dev": {"branch": "agents/dev-20261117-1000", "sha": "a" * 40, "review": True}}
+    asyncio.run(ag.deploy(ROLES["dev"]))
+    assert deployed == [] and any("отменена" in t for _, t in sent)
+    ag.store["pending"] = {"dev": {"branch": "b", "sha": "b" * 40, "review": None}}
+    asyncio.run(ag.deploy(ROLES["dev"]))
+    assert deployed == [] and any("не состоялась" in t for _, t in sent) and "проверки не было" in ag.status_text()
+
+
+def test_telegram_outage_does_not_empty_the_queue(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    ag, _, calls = _team(tmp_path, monkeypatch)
+    monkeypatch.setattr(B, "FAIL_RETRY_S", 0.01)
+    real_say, down = ag.say, {"on": True}
+
+    async def say(role, text):
+        if down["on"]:
+            raise OSError("telegram down")
+        await real_say(role, text)
+    monkeypatch.setattr(ag, "say", say)
+    for i, t in enumerate(("а", "б", "в"), 1):
+        ag._set_queue("sec", [*ag._queue("sec"), {"id": i, "text": t, "source": "x", "at": "", "reply": None}])
+
+    async def go():
+        ag.kick(ROLES["sec"])
+        await asyncio.sleep(0.1)
+        assert len(ag._queue("sec")) == 3 and calls == []   # nothing ran, nothing was dropped
+        down["on"] = False
+        await ag.workers["sec"]
+    asyncio.run(go())
+    assert len(calls) == 3 and ag._queue("sec") == []
+
+
+def test_model_hint_ignores_ordinary_errors_and_news_approval_echoes_text(tmp_path, monkeypatch):
+    for ok in ("the file tests/x.py may not exist", "invalid value for field in model Foo", "Session not found"):
+        assert not logic.MODEL_HINT.search(ok), ok
+    assert logic.MODEL_HINT.search(REAL_MODEL_ERROR)
+    pytest.importorskip("aiogram")
+    ag, sent, _ = _team(tmp_path, monkeypatch)
+    ag.store["news_items"] = {"2": ["данные", "Набор X, 5 000 записей"]}
+    asyncio.run(ag.approve_news([2]))
+    assert any("Набор X, 5 000 записей" in t for _, t in sent)
+    ag.store["paused"] = True
+    ag.store["proposals"] = {"1": ["dev", "задача"]}
+    asyncio.run(ag.dispatch([1]))
+    assert ag.store["proposals"] == {"1": ["dev", "задача"]} and ag._queue("dev") == []

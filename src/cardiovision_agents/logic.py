@@ -136,9 +136,9 @@ CANCEL = re.compile(r"^\s*отмена\s+(\d+)\s*[.!]*\s*$", re.IGNORECASE)
 LIMIT_HINT = re.compile(r"usage limit|limit reached|rate limit|limit will reset|out of (?:extra )?usage|5-hour limit|weekly limit|"
                         r"hit your .{0,40}limit|out of usage credits|spend limit", re.IGNORECASE)
 MODEL_LIMIT_HINT = re.compile(r"hit your (fable|mythos|opus|sonnet|haiku)\b.{0,20}limit", re.IGNORECASE)   # one model's own limit
-MODEL_HINT = re.compile(r"model.{0,60}(not (?:found|available|supported)|invalid|does not exist|no access|unknown)|"
-                        r"(invalid|unknown|unsupported).{0,30}model|issue with the selected model|may not exist|"
-                        r"may not have access|not_found_error|model_not_found", re.IGNORECASE | re.DOTALL)
+MODEL_HINT = re.compile(r"issue with the selected model|model.{0,60}(may not exist|not have access|not (?:found|available|supported)|"
+                        r"does not exist)|(invalid|unknown|unsupported) model|model_not_found|not_found_error.{0,40}model",
+                        re.IGNORECASE | re.DOTALL)
 SKIP = re.compile(r"^\s*(пропустить|не выкладывать)\s*[.!]*\s*$", re.IGNORECASE)
 LIMIT_TRIES = 12                     # D301: after that many limit hits a task waits for «старт агенты»
 HARD_DENY = ("Bash", "Edit", "Write", "NotebookEdit")
