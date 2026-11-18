@@ -561,6 +561,12 @@ VERDICT_HELP = (
 )
 
 
+# D311 (owner via the scanner session, 18.11): the scanner's LEAD_INCOHERENT (SD-117/118) gets its own text.
+LEAD_INCOHERENT_RU = ("Форма комплексов в одном из отведений не повторяется от удара к удару — отведение могло быть "
+                      "прочитано неверно, проверьте его на снимке.")
+LEAD_INCOHERENT_UZ = ("Bitta tarmoqda kompleks shakli urishdan urishga takrorlanmaydi — tarmoq noto‘g‘ri o‘qilgan "
+                      "bo‘lishi mumkin, uni rasmda tekshiring.")
+
 def format_card(rec: Record, result: PipelineResult | None, error: str | None = None) -> str:
     head = f"📷 ЭКГ из «{rec.chat_title or rec.chat_id}» · {rec.date[:16]} · id {rec.id}"
     if rec.caption:
@@ -586,7 +592,12 @@ def format_card(rec: Record, result: PipelineResult | None, error: str | None = 
     scanner = next((n for n in result.signal.provenance.notes if n.startswith("ecgscan scan_id=")), None)
     if scanner and "status=needs_confirmation" in scanner:   # D139: the scanner read it but asks to check
         warn = next((n for n in result.signal.provenance.notes if n.startswith("warnings: ")), "")
-        lines.append("⚠️ Сканер просит проверить масштаб и раскладку по снимку" + (f" ({warn[10:]})" if warn else ""))
+        codes = {w.strip() for w in warn[10:].replace(",", " ").split()}
+        if "LEAD_INCOHERENT" in codes:      # D311: one lead's beats do not repeat — say what to check, not "scale"
+            lines.append("⚠️ " + LEAD_INCOHERENT_RU)
+        others = sorted(codes - {"LEAD_INCOHERENT"})
+        if others or not codes:
+            lines.append("⚠️ Сканер просит проверить масштаб и раскладку по снимку" + (f" ({', '.join(others)})" if others else ""))
     lines.append("Находки: " + "; ".join(findings))
     lines.append("Коды: " + (", ".join(sorted(result.findings.codes())) or "—"))
     lines.append(f"Уверенность {s['confidence']:.2f} · оцифровка {_fmt(s['digitiser_coverage'], '', 2)}"
