@@ -67,6 +67,7 @@ from ecgscan.validate import (
     rhythm_check,
     rhythm_inconsistent,
 )
+from ecgscan.validate.coherence import coherence_by_lead
 from ecgscan.vectorize import read_panels
 
 
@@ -869,6 +870,13 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         if pr_unstable(check, pr_ratio):
             # SD-110: the PR rests on fallback P onsets: RR, QRS and QT right, PR off by 40-60 ms.
             res.warnings = sorted({*res.warnings, "PR_UNSTABLE"})
+            res.status = "needs_confirmation"
+    coh_min = val.get("coherence_min")
+    if res.status == "ok" and coh_min is not None:
+        # SD-117: a panel lead that does not repeat its own beat is a lead that may be misread.
+        coh = coherence_by_lead(leads, rhythm, fs_out)
+        if any(c is not None and c < coh_min for c in coh.values()):
+            res.warnings = sorted({*res.warnings, "LEAD_INCOHERENT"})
             res.status = "needs_confirmation"
     t = tick("validate", t)
     if artifacts_dir is not None:
