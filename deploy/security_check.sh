@@ -19,8 +19,20 @@ mkdir -p "$OUT"; chmod 755 "$OUT"
   echo "## failed ssh logins, last 24 h"
   journalctl -u ssh -u sshd --since "24 hours ago" 2>/dev/null | grep -Ec "Failed password|Invalid user" || true
   journalctl -u ssh -u sshd --since "24 hours ago" 2>/dev/null | grep -Eo "from [0-9a-f.:]+" | sort | uniq -c | sort -rn | head -10
+  # D310: where the top addresses are — country, city, provider, abuse e-mail (cached, at most 15 lookups a run)
+  echo "## failed ssh logins, where from (top 10)"
+  top=$(journalctl -u ssh -u sshd --since "24 hours ago" 2>/dev/null | grep -E "Failed password|Invalid user" \
+        | grep -Eo "from [0-9a-f.:]+" | awk '{print $2}' | sort | uniq -c | sort -rn | head -10 | awk '{print $2}')
+  [ -n "$top" ] && python3 "$APP_DIR/deploy/ip_where.py" "$OUT/ipcache.json" $top 2>/dev/null || echo "нет данных"
   echo "## successful ssh logins, last 24 h"
   journalctl -u ssh -u sshd --since "24 hours ago" 2>/dev/null | grep -E "Accepted (publickey|password)" | sed -E 's/.*Accepted ([a-z]+) for ([^ ]+) from ([^ ]+).*/\1 \2 \3/' | sort | uniq -c
+  echo "## successful ssh logins, where from"
+  ok=$(journalctl -u ssh -u sshd --since "24 hours ago" 2>/dev/null | grep -E "Accepted (publickey|password)" \
+       | sed -E 's/.* from ([^ ]+).*/\1/' | sort -u | head -10)
+  [ -n "$ok" ] && python3 "$APP_DIR/deploy/ip_where.py" "$OUT/ipcache.json" $ok 2>/dev/null || echo "нет входов"
+  echo "## fail2ban banned now"; (command -v fail2ban-client >/dev/null && fail2ban-client status sshd 2>/dev/null | grep -E "Currently banned|Total banned") || echo "fail2ban not running"
+  echo "## memory and swap"; free -m | sed -n '1,3p'
+  echo "## journal size"; journalctl --disk-usage 2>/dev/null
   echo "## fail2ban"; (command -v fail2ban-client >/dev/null && fail2ban-client status 2>/dev/null) || echo "not installed"
   echo "## unattended-upgrades"; dpkg -l unattended-upgrades 2>/dev/null | grep -q '^ii' && echo installed || echo "not installed"
   echo "## deploy/.env"; stat -c '%a %U:%G' "$APP_DIR/deploy/.env" 2>/dev/null; sed -n 's/=.*//p' "$APP_DIR/deploy/.env" 2>/dev/null | paste -sd' '

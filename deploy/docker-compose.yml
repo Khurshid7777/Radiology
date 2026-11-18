@@ -3,8 +3,16 @@
 # by the deploy workflow from the repository's GitHub secrets; nothing secret is in git.
 #
 #   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+# D310: every container keeps at most 3 x 10 MB of logs (an unbounded log once filled a disk).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   cardiolens:
+    logging: *logging
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -27,6 +35,7 @@ services:
   # The Telegram bot (D161): the same image, started only with the "bot" profile, i.e. when
   # deploy/.env holds a bot token; it talks to the app over the compose network.
   bot:
+    logging: *logging
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -51,6 +60,7 @@ services:
   # Isolated on purpose: no appdata volume (photos, analyses), no deploy/.env, no Docker socket. The host's daily
   # read-only security check (deploy/security_check.sh) is mounted read-only.
   agents:
+    logging: *logging
     build:
       context: ..
       dockerfile: deploy/Dockerfile.agents
@@ -86,6 +96,7 @@ services:
     cpus: ${AGENTS_CPUS:-2}
 
   caddy:
+    logging: *logging
     image: caddy:2.8.4
     restart: unless-stopped
     depends_on:

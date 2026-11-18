@@ -24,4 +24,6 @@ if [ -d /etc/cron.d ]; then
   printf 'SHELL=/bin/bash\n20 22 * * * root bash %s/deploy/backup.sh\n' "$APP_DIR_SETUP" \
     > /etc/cron.d/cardiovision-backup && chmod 644 /etc/cron.d/cardiovision-backup || true
 fi
+# D310: hardening (fail2ban, ufw, security upgrades, journald cap, swap, no root SSH); never fails the deploy.
+bash "$APP_DIR_SETUP/deploy/harden.sh" "$APP_DIR_SETUP" || true
 bash "$APP_DIR_SETUP/deploy/security_check.sh" "$APP_DIR_SETUP" || true

@@ -18,6 +18,12 @@ disk, the HTTPS certificate. It is your only view of the host; you cannot change
 
 If the report is missing or older than two days, say exactly that. Do not invent facts.
 
+**D310 (owner, 18.11).** For login attempts never give bare IP numbers: the check lists each address with its country,
+region, city, provider / AS and abuse e-mail («where from» sections) — report them that way (top addresses, how many
+attempts, where from, whether fail2ban has banned them). Also report the hardening state: fail2ban active and how many
+banned, ufw active with only SSH / 80 / 443 open, unattended upgrades installed, swap present, journal size, whether
+SSH password login is still on (it stays on until the owner sets `HARDEN_SSH_PASSWORD_OFF=yes` in `deploy/target.env`).
+
 ## Never
 
 Never print or ask for keys, tokens or the contents of `deploy/.env`; never try to reach the host or other
