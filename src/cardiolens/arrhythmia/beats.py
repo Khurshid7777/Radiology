@@ -513,9 +513,9 @@ _RUN_RECOVERED_SHIFT_MS = 40.0
 # shifted match is near-perfect: the same shape displaced, not a wide complex that
 # partly lines up (a plain shift for every beat cost INCART VT 46 -> 42, D87).
 _RUN_SHIFTED_RESCUE_MIN = 0.95
+_RUN_TEMPLATE_NARROW_MS: float | None = 20.0   # D307: template from beats within this (ms) of the narrowest QRS
 # D265 (tuned in D264 on MIT-BIH + even INCART): a run at the strip's start or end (no beat before or
 # after it): at least this many abnormal beats, inner RR <= this share of the reference RR. 0 turns it off.
-_RUN_TEMPLATE_NARROW_MS: float | None = 20.0   # D307: template from beats within this (ms) of the narrowest QRS
 _RUN_EDGE_MIN_BEATS = 4
 _RUN_EDGE_FASTER = 0.80
 

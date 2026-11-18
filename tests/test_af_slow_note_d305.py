@@ -16,6 +16,9 @@ def _af(hr, age="adult"):
 def test_slow_af_keeps_the_code_and_gets_the_av_block_note():
     f = _af(48)
     assert "исключите АВ-блокаду" in f.label_ru and "AV blokadani" in f.label_uz
+    # the note ends the text, after the slow-response qualifier (review of 18.11)
+    assert f.label_ru.endswith("(проверьте зубцы P)") and f.label_uz.endswith("(P tishlarini tekshiring)")
+    assert "медленн" in f.label_ru.lower()
 
 
 def test_af_at_55_and_above_has_no_note():
