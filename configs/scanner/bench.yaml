@@ -63,6 +63,10 @@ slices:
   coarse_6x2_thermal: {suite_only: true, layout: "6x2", render: {grid: gray, grid_fade: 0.3, trace_gray: 40},
                        degrade: {<<: *photo, background: 0.03, low_light: 0.31, max_side_px: 1280, jpeg_quality: 70}}
 
+  # R8, SD-115: six rows x two columns and a lead-II strip (seven trace rows).
+  layout_6x2_rhythm:      {suite_only: true, layout: "6x2+rhythm", degrade: {jpeg_quality: 95}}
+  photo_6x2_rhythm:       {suite_only: true, layout: "6x2+rhythm", degrade: *photo}
+
   # R8, SD-113: baseline drift as in real records (PM-ECG-ID found rows overlapping and LAYOUT_UNKNOWN).
   scan_wander_1:   {suite_only: true, wander_mv: 1.0, degrade: {jpeg_quality: 95}}
   scan_wander_2:   {suite_only: true, wander_mv: 2.0, degrade: {jpeg_quality: 95}}
@@ -83,6 +87,9 @@ suites:
   ablation_shadow:              # S3, TZ 18.7: the illumination step on / off (scripts in reports/scanner/s3-shadow)
     cases_per_slice: 8
     slices: [photo_clean, photo_shadow_mid, photo_shadow_strong, photo_low_light, faded_thermal, photo_stains]
+  layout_6x2_rhythm:            # R8, SD-115
+    cases_per_slice: 12
+    slices: [layout_6x2_rhythm, photo_6x2_rhythm]
   wander:                       # R8, SD-113: drifting baseline
     cases_per_slice: 12
     slices: [scan_wander_1, scan_wander_2, photo_wander_1]

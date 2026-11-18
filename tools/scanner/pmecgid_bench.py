@@ -18,7 +18,7 @@ import numpy as np
 
 LEADS = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
 LAYOUT = {"6x2": "6x2", "3x4": "3x4", "3x4+1R": "3x4+rhythm", "3x4+3R": "3x4+3rhythm", "12x1": "12x1",
-          "6x2+1R": "6x2"}                       # 6x2 + 1R has no registry entry: windows of 6x2, the strip on top
+          "6x2+1R": "6x2+rhythm"}                    # 6x2 + 1R has no registry entry: windows of 6x2, the strip on top
 FS = 500.0
 PHOTOS = ("photos_bents", "photos_crumbles", "photos_doogee", "photos_iphone", "photos_samsung", "photos_scans",
           "photos_screens")
