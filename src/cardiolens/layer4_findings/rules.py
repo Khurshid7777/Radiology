@@ -38,6 +38,10 @@ _ST_CONTIGUOUS = [("I", "aVL"), ("I", "V5"), ("I", "V6"), ("aVL", "V5"), ("aVL",
                   ("V1", "V2"), ("V2", "V3"), ("V3", "V4"), ("V4", "V5")]
 
 
+_AF_SLOW_RU = "; редкий желудочковый ритм — исключите АВ-блокаду II–III степени (проверьте зубцы P)"
+_AF_SLOW_UZ = "; siyrak qorinchalar ritmi — II–III darajali AV blokadani istisno qiling (P tishlarini tekshiring)"
+
+
 def _has_contiguous(leads: list[str]) -> bool:
     s = set(leads)
     return any(a in s and b in s for a, b in _ST_CONTIGUOUS)
@@ -252,10 +256,14 @@ def detect_findings(
         pc = p_window_consistency(sig, m.r_peaks_samples)
         unrepeated = pc is not None and pc[0] < pc_route["corr_max"] and pc[1] < pc_route["keep_max"]
     if unrepeated or ((m.rr_cv or 0) > af_cv and (no_p or fwaves) and not conducted_p):
+        # D305: a slow ventricular rate in an irregular rhythm is AV block II-III as often as AF (Chapman: block named
+        # AF had HR < 55 in 10 / 19); the AF stays, the text asks to rule the block out.
+        af_slow = rh.get("af_slow_av_block_note_bpm") is not None and m.heart_rate_bpm is not None \
+            and m.heart_rate_bpm < float(rh["af_slow_av_block_note_bpm"])
         fs.findings.append(Finding(
             code="atrial_fibrillation", group="rhythm",
-            label_ru="Фибрилляция предсердий (нерегулярный ритм, отсутствие P)",
-            label_uz="Bo'lmachalar fibrillyatsiyasi (notekis ritm, P yo'q)",
+            label_ru="Фибрилляция предсердий (нерегулярный ритм, отсутствие P)" + (_AF_SLOW_RU if af_slow else ""),
+            label_uz="Bo'lmachalar fibrillyatsiyasi (notekis ritm, P yo'q)" + (_AF_SLOW_UZ if af_slow else ""),
             evidence=_ev(rr_cv=m.rr_cv, p_wave_ratio=m.p_wave_ratio, pr_std_ms=m.pr_std_ms,
                          fwave_index=m.fwave_index,
                          route=("f_waves" if (fwaves and not no_p) else "no_p")

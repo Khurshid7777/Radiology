@@ -40,6 +40,8 @@ rhythm:
   # and PTB-XL (AF-or-flutter family: spec >= 0.92 everywhere, sensitivity
   # 0.50 -> 0.62 on PTB-XL). The old (0.15, 0.30) was tuned on 300 records.
   af_rr_cv_min: 0.10
+  # D305: AF below this ventricular rate gets the note «исключите АВ-блокаду» (the AF itself stays).
+  af_slow_av_block_note_bpm: 55
   af_p_ratio_max: 0.5
   # Conducted P: refined P onset on >= 50 % of beats with beat-to-beat PR SD below
   # this excludes AF (same physiology as the AV-dissociation gate, D26/D28).
