@@ -13,7 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-cer
 WORKDIR /app
 # The project's dependencies, so the developer agent can run the test suite in its clone.
 COPY pyproject.toml README.md ./
+COPY deploy/constraints.txt ./deploy/constraints.txt
 COPY src ./src
-RUN pip install --upgrade pip && pip install -e ".[dev,digitize,scanner,llm,dicom,bot,agents]"
+RUN pip install --upgrade pip && pip install -c deploy/constraints.txt -e ".[dev,digitize,scanner,llm,dicom,bot,agents]"
 
 CMD ["python", "-m", "cardiovision_agents"]

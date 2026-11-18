@@ -10,11 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./
+COPY deploy/constraints.txt ./deploy/constraints.txt
 COPY src ./src
 COPY configs ./configs
 COPY models ./models
 COPY data/samples ./data/samples
-RUN pip install --upgrade pip && pip install -e ".[digitize,scanner,llm,dicom,bot]"
+RUN pip install --upgrade pip && pip install -c deploy/constraints.txt -e ".[digitize,scanner,llm,dicom,bot]"
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD python -c \
