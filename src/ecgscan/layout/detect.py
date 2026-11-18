@@ -238,7 +238,7 @@ def _detect(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
     # A pulse bottom near a found row is that row's pulse, even when the printer floats it a
     # few mm off the baseline (a real strip: 4.1 mm below row II, read as a 4th row and a
     # 3x4+rhythm page, SD-059): no two rows are closer than the smallest registry pitch.
-    near_mm = 0.35 * min(spec.row_pitch_mm for spec in available_layouts().values())
+    near_mm = 0.35 * min(spec.row_pitch_mm for spec in available_layouts().values() if spec.auto_detect)
     base = merge_baselines(row_baselines(ink, px_per_mm, min_height_mm=stroke_min_height_mm, bridge_mm=stroke_bridge_mm,
                                          exclude_boxes=exclude_boxes, smooth_mm=smooth_mm),
                            pulse_bottoms or [], px_per_mm, tol_mm=max(4.0, near_mm))
@@ -252,6 +252,8 @@ def _detect(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
     by_count, by_pitch = [], []
     trace_below = None
     for spec in available_layouts().values():
+        if not spec.auto_detect:
+            continue
         if spec.max_gap_ratio and n > 2:
             gaps = np.diff(sorted(base))
             if gaps.max() > spec.max_gap_ratio * max(1, gaps.min()):

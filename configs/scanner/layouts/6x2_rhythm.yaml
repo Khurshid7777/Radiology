@@ -4,6 +4,7 @@ name: "6x2+rhythm"
 registry_version: "1"
 confidence: medium        # TODO(real devices): the strip lead and the row pitch vary by machine
 aliases: ["6x2+1R"]
+auto_detect: false        # SD-115: chosen by a doctor/client only; as a candidate it took other formats' pages
 panel_s: 5.0
 rows:
   - [I, V1]
