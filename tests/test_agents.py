@@ -864,3 +864,8 @@ def test_a_limit_hit_pauses_planned_reports_and_queued_tasks_wait(tmp_path, monk
     assert ag.limited() and any("пауза до" in t for _, t in sent)
     assert [t["text"] for t in ag._queue("dev")] == ["почини"] and [t["text"] for t in ag._queue("scan")] == ["проверь фото"]
     assert any(k == "scan" and "ждёт общей паузы" in t for k, t in sent)
+
+
+def test_task_prompts_ask_for_a_closing_report_except_the_reviewers():
+    assert "short report" in logic.build_prompt(ROLES["dev"], "x") and "short report" in logic.build_prompt(ROLES["sec"], "x")
+    assert "short report" not in logic.build_prompt(ROLES["review"], "x")

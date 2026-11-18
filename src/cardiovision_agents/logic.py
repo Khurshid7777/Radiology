@@ -194,8 +194,9 @@ def build_prompt(role: Role, text: str, extra: str = "", works: bool | None = No
     head += (" You lead your department: hand bulky legwork (searching and reading many files, logs or pages, trying "
              "variants) to your `helper` subagent — it runs on a cheaper model, several at once if useful — and check "
              "its results yourself before you answer; decisions and the final answer are yours.")
-    head += (" When you finish a task, end with a short report for the owner: what you did, the result (with numbers), "
-             "and what is next or what you need from the owner.")
+    if role.key != "review":      # the reviewer's last line must stay «ВЕРДИКТ: …» (D299)
+        head += (" When you finish a task, end with a short report for the owner: what you did, the result (with "
+                 "numbers), and what is next or what you need from the owner.")
     if works:
         head += (" You are on your own git branch in this clone: commit your work there (git commit), do not switch "
                  "branches, do not push (the bot pushes). Run the full test suite before you finish. End with: what "

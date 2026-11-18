@@ -244,8 +244,11 @@ class Agents:
             if self.limited() and task.get("not_before", 0) < self.store.data.get("limit_until", 0):
                 # D308: another agent hit the subscription limit — wait for the shared pause instead of a failing call
                 self._update_task(role.key, tid, not_before=float(self.store.data["limit_until"]))
-                await self.say(role, f"Лимит подписки: задача №{tid} ждёт общей паузы до {self.limit_until():%H:%M}, "
-                                     "потом начну сама.")
+                try:
+                    await self.say(role, f"Лимит подписки: задача №{tid} ждёт общей паузы до {self.limit_until():%H:%M}, "
+                                         "потом начну сама.")
+                except Exception:                 # a lost notice must not kill the worker and strand the task
+                    log.warning("pause notice of task %s not sent", tid)
                 continue
             wait = task.get("not_before", 0) - dt.datetime.now(TZ).timestamp()
             if wait > 0:
