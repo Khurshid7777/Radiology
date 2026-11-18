@@ -53,14 +53,19 @@ TZ = ZoneInfo("Asia/Tashkent")
 # (role, weekday or None for daily, hour, minute) — Tashkent time, off the round hour.
 # D300 (owner, 17.11): every agent reports twice a day, 09:00 and 21:00 Tashkent, two minutes apart.
 REPORT_ORDER = ("sec", "triage", "news", "dev", "scan", "review", "audit", "coord")
-MORNING = ("sec", "triage", "news", "coord")          # D308: the morning report only where the morning brings news
-SCHEDULE = tuple((key, hour, 2 * i) for hour, keys in ((9, MORNING), (21, REPORT_ORDER)) for i, key in enumerate(keys))
+# D309 (owner, 18.11): in the morning all eight report — the full picture of each agent's work for the day; in the
+# evening only four (security, errors, the controller, the coordinator's summary); the others report when they finish a
+# task («Готово, задача №N» with what was done).
+MORNING = REPORT_ORDER
+EVENING_KEYS = ("sec", "triage", "audit", "coord")
+SCHEDULE = tuple((key, hour, 2 * i) for hour, keys in ((9, MORNING), (21, EVENING_KEYS)) for i, key in enumerate(keys))
 # D308 (+review): their planned run is new work every time — the coordinator and news by their job, security and errors
 # because their inputs (the host check, the site's quality summary) change daily and a stale input must be reported.
 ALWAYS_RUN = ("coord", "news", "sec", "triage")
 LEAD_REPORTS = ("news",)                               # D308: the news report is the agent's job — the lead's model
-REPORT = ("Плановый отчёт владельцу (коротко, по-русски): что сделано с прошлого отчёта, что в работе, что нужно от "
-          "владельца. Если по твоей части нового нет — скажи это одной строкой. Код не меняй.")
+REPORT = ("Плановый отчёт владельцу (коротко, по-русски): что сделано с прошлого отчёта, что в работе и в очереди на "
+          "сегодня, сколько это работы, что нужно от владельца. Если по твоей части нового нет — скажи это одной строкой. "
+          "Код не меняй.")
 DAILY_PLAN = ("Плановый запуск: предложи задачи. Прочитай последние отчёты агентов (/state/input/reports.md), "
               "docs/PROJECT_STATE.md и последние записи DECISIONS.md. Выбери не больше трёх задач, которые сильнее всего "
               "улучшат продукт по цифрам. Сначала две-три строки «что происходит», затем список — каждая задача одной "
@@ -359,7 +364,10 @@ class Agents:
         fp = self.fingerprint(role) if scheduled and role.key not in ALWAYS_RUN else None
         if fp is not None and fp == (self.store.data.get("fingerprints") or {}).get(role.key):
             pend = (self.store.data.get("pending") or {}).get(role.key)
+            queue = self._queue(role.key)
             await self.say(role, "Плановый отчёт: по моей части нового нет с прошлого отчёта (модель не запускалась)."
+                           + (f" В очереди задач: {len(queue)} — " + "; ".join(f"№{t['id']} {t['text'][:80]}" for t in queue)
+                              if queue else " Задач в очереди нет.")
                            + (f" Напоминаю: ветка `{pend['branch']}` ждёт вашего «да» или «пропустить»."
                               if pend and pend.get("review") else ""))
             return {}
@@ -606,7 +614,8 @@ class Agents:
             if k in ROLES:
                 lines.append(f"• последний отчёт «{ROLES[k].title}»: {v['at']}")
         lines.append("Плановые отчёты (Ташкент), по очереди через 2 минуты: 09:00 — "
-                     + ", ".join(ROLES[k].title for k in MORNING) + "; 21:00 — все. Если у агента ничего не изменилось, "
+                     "все; 21:00 — " + ", ".join(ROLES[k].title for k in EVENING_KEYS) + "; остальные пишут итог, когда закончат задачу. "
+                     "Если у агента ничего не изменилось, "
                      "«нового нет» пишет бот без запуска модели (D308).")
         return "\n".join(lines)
 

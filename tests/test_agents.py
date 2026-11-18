@@ -168,15 +168,16 @@ def test_coordinator_list_and_owner_choice():
     assert not logic.is_approval("да 1, 3")        # a choice is not a deploy approval
 
 
-def test_reports_morning_four_evening_all_two_minutes_apart():
-    """D300 schedule as narrowed by D308: in the morning only security, errors, news and the coordinator."""
+def test_reports_morning_all_evening_four_two_minutes_apart():
+    """D309 (owner, 18.11): all eight in the morning; in the evening security, errors, the controller, the coordinator."""
     pytest.importorskip("aiogram")
     from cardiovision_agents.bot import SCHEDULE
 
     morning = [k for k, h, _ in SCHEDULE if h == 9]
     evening = [k for k, h, _ in SCHEDULE if h == 21]
-    assert morning == ["sec", "triage", "news", "coord"] and set(evening) == set(ROLES) and evening[-1] == "coord"
-    for hour, n in ((9, 4), (21, len(ROLES))):
+    assert set(morning) == set(ROLES) and morning[-1] == "coord"
+    assert evening == ["sec", "triage", "audit", "coord"]
+    for hour, n in ((9, len(ROLES)), (21, 4)):
         assert sorted(m for _, h, m in SCHEDULE if h == hour) == [2 * i for i in range(n)]
 
 
