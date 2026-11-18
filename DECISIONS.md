@@ -8103,3 +8103,9 @@ flutter); выкладка — успех («Build and start» 19 с); живо�
 владелец прислал состояние сервера: ufw выключен, fail2ban не установлен, журнала укрепления нет. Результат укрепления
 (`/var/log/cardiovision-harden.log`, `ufw status`, `fail2ban-client status sshd`) — ждём от владельца: быстрая сборка
 может означать, что часть установки не прошла (ошибки пишутся в журнал, выкладку не роняют).
+
+**Результат D310 на сервере (владелец прислал 18.11, после Deploy #54):** журнал укрепления — `ok` по всем частям
+(fail2ban, ufw, upgrades, journal, swap, ssh); `sshd now: permitrootlogin no passwordauthentication no
+kbdinteractiveauthentication no`; ufw `active`, открыты только 22/tcp, 80/tcp, 443/tcp, 443/udp (IPv4 и IPv6); fail2ban,
+тюрьма sshd работает и видит попытки (`Total failed: 6`, банов пока 0). Владелец вошёл по ключу после выкладки. Критерии
+D310 на сервере выполнены; адреса с местом появятся в следующей ежедневной проверке (07:50 Ташкент).
