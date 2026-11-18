@@ -55,7 +55,7 @@ def test_the_flag_is_in_the_contract_and_the_languages():
     assert json.loads(Path("src/ecgscan/contract/scan_result.schema.json").read_text())
 
 
-def test_scan_flags_an_incoherent_lead_only_when_asked(synth_mv, monkeypatch):
+def test_scan_flags_an_incoherent_lead_unless_switched_off(synth_mv, monkeypatch):
     import copy
 
     import cv2
@@ -68,12 +68,13 @@ def test_scan_flags_an_incoherent_lead_only_when_asked(synth_mv, monkeypatch):
     img, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=10.0, header=False))
     data, hints = cv2.imencode(".png", img)[1].tobytes(), P.ScanHints(paper_speed_mm_s=25, gain_mm_mv=10)
     cfg = copy.deepcopy(load_yaml("pipeline.yaml"))
-    assert cfg["validate"]["coherence_min"] is None                      # off by default
+    assert cfg["validate"]["coherence_min"] == 0.90                      # on by default (SD-118)
     base = P.scan(data, hints=hints, config=cfg)
-    assert base.status == "ok" and "LEAD_INCOHERENT" not in base.warnings
+    assert base.status == "ok" and "LEAD_INCOHERENT" not in base.warnings      # a clean page is not touched
     monkeypatch.setattr(P, "coherence_by_lead", lambda leads, rhythm, fs: {"V3": 0.5, "II": 0.99, "V1": None})
-    assert P.scan(data, hints=hints, config=cfg).status == "ok"          # still off: nothing changes
-    cfg["validate"]["coherence_min"] = 0.9
+    off = copy.deepcopy(cfg)
+    off["validate"]["coherence_min"] = None
+    assert P.scan(data, hints=hints, config=off).status == "ok"          # null = off: nothing changes
     res = P.scan(data, hints=hints, config=cfg)
     assert res.status == "needs_confirmation" and "LEAD_INCOHERENT" in res.warnings
     ScanResult.model_validate_json(res.model_dump_json())
