@@ -11,7 +11,8 @@ class Store:
         self.path = Path(path)
         self.data: dict = {"chat_id": None, "topics": {}, "sessions": {}, "pending": {}, "paused": False,
                            "proposals": {}, "last_reports": {}, "queue": {}, "next_id": 1,
-                           "news_items": {}, "approved_news": []}
+                           "news_items": {}, "approved_news": [],
+                           "fingerprints": {}, "limit_until": 0}
         if self.path.exists():
             self.data.update(json.loads(self.path.read_text()))
 

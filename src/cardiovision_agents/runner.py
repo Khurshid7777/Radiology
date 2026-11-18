@@ -77,11 +77,17 @@ def _meta(res: dict, model: str, **extra) -> dict:
             "turns": res.get("num_turns"), "in": u.get("input_tokens"), "out": u.get("output_tokens"), **extra}
 
 
-async def run(role: Role, prompt: str, session: str | None = None, cwd: str | None = None) -> tuple[str, str | None, dict]:
+def report_model_for(role: Role) -> str:
+    """D308: a planned report runs on the helper's (cheaper) model; AGENTS_REPORT_MODEL_<KEY> overrides it."""
+    return os.environ.get(f"AGENTS_REPORT_MODEL_{role.key.upper()}", "") or role.helper
+
+
+async def run(role: Role, prompt: str, session: str | None = None, cwd: str | None = None,
+              model: str | None = None) -> tuple[str, str | None, dict]:
     """(answer text, Claude session id, meta). Errors come back as text, never as an exception. ``meta``: model,
     cost_usd, ms, turns, tokens, ``ok``, ``limit`` (the subscription limit was hit), ``fallback`` (model replaced)."""
     cwd = cwd or workdir_for(role)
-    model = model_for(role)
+    model = model or model_for(role)
     extra: dict = {}
     code, res, tail = await _once(role, prompt, session, cwd, model)
     bad = code != 0 or not res.get("result")

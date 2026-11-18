@@ -53,7 +53,10 @@ TZ = ZoneInfo("Asia/Tashkent")
 # (role, weekday or None for daily, hour, minute) — Tashkent time, off the round hour.
 # D300 (owner, 17.11): every agent reports twice a day, 09:00 and 21:00 Tashkent, two minutes apart.
 REPORT_ORDER = ("sec", "triage", "news", "dev", "scan", "review", "audit", "coord")
-SCHEDULE = tuple((key, hour, 2 * i) for hour in (9, 21) for i, key in enumerate(REPORT_ORDER))
+MORNING = ("sec", "triage", "news", "coord")          # D308: the morning report only where the morning brings news
+SCHEDULE = tuple((key, hour, 2 * i) for hour, keys in ((9, MORNING), (21, REPORT_ORDER)) for i, key in enumerate(keys))
+ALWAYS_RUN = ("coord", "news")                         # D308: their planned run is new work every time
+LEAD_REPORTS = ("news",)                               # D308: the news report is the agent's job — the lead's model
 REPORT = ("Плановый отчёт владельцу (коротко, по-русски): что сделано с прошлого отчёта, что в работе, что нужно от "
           "владельца. Если по твоей части нового нет — скажи это одной строкой. Код не меняй.")
 DAILY_PLAN = ("Плановый запуск: предложи задачи. Прочитай последние отчёты агентов (/state/input/reports.md), "
@@ -61,7 +64,7 @@ DAILY_PLAN = ("Плановый запуск: предложи задачи. П�
               "улучшат продукт по цифрам. Сначала две-три строки «что происходит», затем список — каждая задача одной "
               "строкой ровно так: «1. [ядро] что сделать и как проверить — почему (цифры)», «2. [сканер] …». "
               "В квадратных скобках только «ядро» или «сканер». Владелец ответит «да 1, 3».")
-MAX_PARALLEL = int(os.environ.get("AGENTS_MAX_PARALLEL", "8"))
+MAX_PARALLEL = int(os.environ.get("AGENTS_MAX_PARALLEL", "3"))     # D308: 3 at once (was 8)
 HOLD_POLL_S, FAIL_RETRY_S, SEND_RETRY_S = 20, 60, 5
 SKIP_NOTE = " Пока эта ветка ждёт, следующие задачи агента стоят; «пропустить» — оставить её и идти дальше."
 LIMIT_RETRY_MIN = int(os.environ.get("AGENTS_LIMIT_RETRY_MIN", "30"))     # D301: retry a task the limit stopped
@@ -148,6 +151,43 @@ class Agents:
                                  "/new — начать разговор заново.")
         return "Готово: темы созданы. Команды принимаю только от владельца."
 
+    # -- D308: economy -----------------------------------------------------------------------------------------
+    def limit_until(self) -> dt.datetime:
+        return dt.datetime.fromtimestamp(float(self.store.data.get("limit_until") or 0), TZ)
+
+    def limited(self) -> bool:
+        return dt.datetime.now(TZ) < self.limit_until()
+
+    def set_limit(self) -> None:
+        """The first limit hit pauses every planned report until the retry time (tasks wait in the queue as before)."""
+        until = dt.datetime.now(TZ) + dt.timedelta(minutes=LIMIT_RETRY_MIN)
+        self.store["limit_until"] = max(until, self.limit_until()).timestamp()
+
+    def fingerprint(self, role: Role) -> str:
+        """What the agent's report is about; the same value as at the last report means nothing new to say."""
+        import hashlib
+        rows = []
+        try:
+            rows = [x for x in USAGE_LOG.read_text(encoding="utf-8").splitlines() if f'"role": "{role.key}"' in x
+                    and '"kind": "report"' not in x]
+        except OSError:
+            pass
+        part = [str(len(rows)), rows[-1] if rows else "", json.dumps(self._queue(role.key), sort_keys=True, ensure_ascii=False),
+                json.dumps((self.store.data.get("pending") or {}).get(role.key), sort_keys=True)]
+        files = {"sec": os.environ.get("AGENTS_SECURITY_REPORT", "/security/report.txt"), "audit": str(USAGE_LOG)}
+        if role.key in files:
+            try:
+                text = Path(files[role.key]).read_text(encoding="utf-8", errors="replace")
+                if role.key == "sec":          # the check's own time stamp changes daily; its findings are what count
+                    text = "\n".join(ln for ln in text.splitlines() if not ln.startswith("# security check")
+                                     and "ago" not in ln and "up " not in ln)
+                part.append(text)
+            except OSError:
+                part.append("")
+        if role.key == "triage":
+            part.append(dt.datetime.now(TZ).strftime("%Y-%m-%d"))   # new site data every day: one report a day at most
+        return hashlib.sha256("\x00".join(part).encode()).hexdigest()[:16]
+
     # -- one turn ----------------------------------------------------------------------------------------------
     # -- the task queue (D301): tasks run one after another per agent, without gaps; reports at start and at end ----
     def _queue(self, key: str) -> list[dict]:
@@ -200,6 +240,10 @@ class Agents:
                 return
             task = items[0]
             tid = task["id"]
+            if self.limited() and task.get("not_before", 0) < self.store.data.get("limit_until", 0):
+                # D308: another agent hit the subscription limit — wait for the shared pause instead of a failing call
+                self._update_task(role.key, tid, not_before=float(self.store.data["limit_until"]))
+                continue
             wait = task.get("not_before", 0) - dt.datetime.now(TZ).timestamp()
             if wait > 0:
                 await asyncio.sleep(min(wait, 60))
@@ -311,6 +355,14 @@ class Agents:
             return {}
         if scheduled and self.locks[role.key].locked():
             return {}                            # busy with a task: the planned report is skipped, not queued
+        if scheduled and self.limited():
+            await self.say(role, f"Плановый отчёт пропущен: лимит подписки, пауза до {self.limit_until():%H:%M}.")
+            return {}
+        if scheduled and role.key not in ALWAYS_RUN:
+            fp = self.fingerprint(role)
+            if fp == (self.store.data.get("fingerprints") or {}).get(role.key):
+                await self.say(role, "Плановый отчёт: по моей части нового нет с прошлого отчёта (модель не запускалась).")
+                return {}
         async with self.locks[role.key], self.slots:
             started = dt.datetime.now(TZ)
             workdir = runner.workdir_for(role)
@@ -329,9 +381,13 @@ class Agents:
             extra += await self._inputs(role)
             sessions = dict(self.store["sessions"])
             prompt = build_prompt(role, text, extra, works=works)
-            answer, sid, meta = await runner.run(role, prompt, sessions.get(role.key), workdir)
+            model = None
+            if scheduled and role.key not in LEAD_REPORTS and not (role.key == "coord" and text == DAILY_PLAN):
+                model = runner.report_model_for(role)          # D308: routine reports on the cheaper model
+            answer, sid, meta = await runner.run(role, prompt, sessions.get(role.key), workdir, model=model)
             self._log_usage(role, "report" if scheduled else "task", meta, started, task_id)
             if meta.get("limit"):
+                self.set_limit()
                 if scheduled:
                     await self.say(role, "Плановый отчёт пропущен: лимит подписки исчерпан.")
                 return meta
@@ -340,6 +396,10 @@ class Agents:
             sessions = dict(self.store["sessions"])
             sessions[role.key] = sid
             self.store["sessions"] = sessions
+            if scheduled and meta.get("ok"):
+                fps = dict(self.store.data.get("fingerprints") or {})
+                fps[role.key] = self.fingerprint(role)
+                self.store["fingerprints"] = fps
             if meta.get("fallback"):
                 answer = f"(Модель {runner.model_for(role)} подпиской не выдаётся — работал на {meta.get('model')}.)\n" + answer
             head = f"Готово, задача №{task_id}:\n" if task_id else ""

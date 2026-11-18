@@ -74,7 +74,7 @@ services:
       AGENTS_SITE_URL: http://cardiolens:8000
       AGENTS_STATE: /state/agents.json
       AGENTS_WORK_BASE: /work
-      AGENTS_MAX_PARALLEL: ${AGENTS_MAX_PARALLEL:-8}
+      AGENTS_MAX_PARALLEL: ${AGENTS_MAX_PARALLEL:-3}       # D308: 3 at once
       AGENTS_SECURITY_REPORT: /security/report.txt
     volumes:
       - agents_state:/state

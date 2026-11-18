@@ -168,14 +168,16 @@ def test_coordinator_list_and_owner_choice():
     assert not logic.is_approval("да 1, 3")        # a choice is not a deploy approval
 
 
-def test_every_agent_reports_twice_a_day_two_minutes_apart():
+def test_reports_morning_four_evening_all_two_minutes_apart():
+    """D300 schedule as narrowed by D308: in the morning only security, errors, news and the coordinator."""
     pytest.importorskip("aiogram")
     from cardiovision_agents.bot import SCHEDULE
 
-    assert len(SCHEDULE) == 2 * len(ROLES) and {k for k, _, _ in SCHEDULE} == set(ROLES)
-    for hour in (9, 21):
-        mins = sorted(m for _, h, m in SCHEDULE if h == hour)
-        assert mins == [2 * i for i in range(len(ROLES))]
+    morning = [k for k, h, _ in SCHEDULE if h == 9]
+    evening = [k for k, h, _ in SCHEDULE if h == 21]
+    assert morning == ["sec", "triage", "news", "coord"] and set(evening) == set(ROLES) and evening[-1] == "coord"
+    for hour, n in ((9, 4), (21, len(ROLES))):
+        assert sorted(m for _, h, m in SCHEDULE if h == hour) == [2 * i for i in range(n)]
 
 
 def test_agents_work_in_parallel_in_their_own_clones(tmp_path, monkeypatch):
@@ -186,7 +188,7 @@ def test_agents_work_in_parallel_in_their_own_clones(tmp_path, monkeypatch):
     assert len({runner.workdir_for(r) for r in ROLES.values()}) == len(ROLES)
     running, peak = set(), []
 
-    async def fake_run(role, prompt, session=None, cwd=None):
+    async def fake_run(role, prompt, session=None, cwd=None, model=None):
         running.add(role.key)
         peak.append(len(running))
         await asyncio.sleep(0.05)
@@ -374,10 +376,11 @@ def _team(tmp_path, monkeypatch, answers=None, metas=None):
     from cardiovision_agents import bot as B
     from cardiovision_agents import github, runner
 
-    sent, calls = [], []
+    sent, calls, models = [], [], []
 
-    async def fake_run(role, prompt, session=None, cwd=None):
+    async def fake_run(role, prompt, session=None, cwd=None, model=None):
         calls.append((role.key, prompt))
+        models.append((role.key, model or runner.model_for(role)))
         await asyncio.sleep(0.01)
         meta = (metas or {}).get(role.key, []).pop(0) if (metas or {}).get(role.key) else {"ok": True, "model": role.model}
         return (answers or {}).get(role.key, f"ответ {role.key}"), None, meta
@@ -403,7 +406,9 @@ def _team(tmp_path, monkeypatch, answers=None, metas=None):
         async def send_message(self, chat, text, message_thread_id=None):
             sent.append((self.key, text))
 
-    return B.Agents({k: FakeBot(k) for k in ROLES}, Store(tmp_path / "s.json"), owner_id=42), sent, calls
+    ag = B.Agents({k: FakeBot(k) for k in ROLES}, Store(tmp_path / "s.json"), owner_id=42)
+    ag.models_used = models
+    return ag, sent, calls
 
 
 def test_tasks_queue_per_agent_and_report_start_and_end(tmp_path, monkeypatch):
@@ -776,3 +781,63 @@ def test_an_undelivered_answer_is_never_silent(tmp_path, monkeypatch):
         asyncio.run(go())
         assert len(calls) == 1 and ag._queue("sec") == []
         assert any(expect in t for _, t in sent), (fails, sent)
+
+
+# --- D308: economy mode ----------------------------------------------------------------------------------------
+def test_unchanged_agent_reports_without_a_model_run_and_reports_use_the_cheap_model(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    ag, sent, calls = _team(tmp_path, monkeypatch)
+    sec = tmp_path / "security.txt"
+    sec.write_text("# security check 2026-11-18T02:50Z\n## disk\n40% used\n")
+    monkeypatch.setenv("AGENTS_SECURITY_REPORT", str(sec))
+
+    asyncio.run(ag.turn(ROLES["sec"], B.REPORT, True))
+    assert ag.models_used == [("sec", ROLES["sec"].helper)]          # a routine report: the helper's model
+    sec.write_text("# security check 2026-11-19T02:50Z\n## disk\n40% used\n")   # only the time stamp moved
+    asyncio.run(ag.turn(ROLES["sec"], B.REPORT, True))
+    assert len(calls) == 1 and "модель не запускалась" in sent[-1][1]
+    sec.write_text("# security check 2026-11-20T02:50Z\n## disk\n91% used\n")   # a real change
+    asyncio.run(ag.turn(ROLES["sec"], B.REPORT, True))
+    assert len(calls) == 2
+
+    for _ in range(2):                                                   # the coordinator and news always run
+        asyncio.run(ag.turn(ROLES["coord"], B.EVENING, True))
+        asyncio.run(ag.turn(ROLES["news"], B.REPORT, True))
+    assert len(calls) == 6
+
+
+def test_tasks_review_morning_plan_and_news_keep_the_lead_model(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    ag, _, _ = _team(tmp_path, monkeypatch)
+
+    async def go():
+        await ag.enqueue(ROLES["sec"], "проверь порты")
+        await ag.workers["sec"]
+        await ag.turn(ROLES["coord"], B.DAILY_PLAN, True)
+        await ag.turn(ROLES["news"], B.REPORT, True)
+        await ag._review(ROLES["dev"], "agents/dev-20261118-1000")
+    asyncio.run(go())
+    assert ag.models_used == [("sec", ROLES["sec"].model), ("coord", ROLES["coord"].model),
+                              ("news", ROLES["news"].model), ("review", ROLES["review"].model)]
+
+
+def test_a_limit_hit_pauses_planned_reports_and_queued_tasks_wait(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    ag, sent, calls = _team(tmp_path, monkeypatch, metas={"dev": [{"ok": False, "limit": True}]})
+    monkeypatch.setattr(B, "LIMIT_RETRY_MIN", 30)
+
+    async def go():
+        await ag.enqueue(ROLES["dev"], "почини")
+        await asyncio.sleep(0.2)                        # the task hits the limit and is kept for later
+        ag.workers["dev"].cancel()
+        await ag.turn(ROLES["sec"], B.REPORT, True)     # planned report during the pause: no model run
+        await ag.enqueue(ROLES["scan"], "проверь фото")  # a task of another agent waits for the shared pause
+        await asyncio.sleep(0.2)
+        ag.workers["scan"].cancel()
+    asyncio.run(go())
+    assert [k for k, _ in calls] == ["dev"]
+    assert ag.limited() and any("пауза до" in t for _, t in sent)
+    assert [t["text"] for t in ag._queue("dev")] == ["почини"] and [t["text"] for t in ag._queue("scan")] == ["проверь фото"]
