@@ -1,5 +1,9 @@
 """D304: RR group-beating check over the rows of rr_dump.py (run it in the folder holding avb/ptb/fresh/fresh2.jsonl)."""
-import json, numpy as np
+import json
+
+import numpy as np
+
+
 def load(f): return [json.loads(l) for l in open(f) if '"error"' not in l]
 rows = {w: load(f"{w}.jsonl") for w in ("avb","ptb","fresh","fresh2")}
 def grouped(rr, long_k=1.3, cv_max=0.06, spread=0, min_long=3, ratio_hi=2.1):

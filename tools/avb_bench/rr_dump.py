@@ -2,8 +2,12 @@
 
     python tools/avb_bench/rr_dump.py {avb,ptb,fresh,fresh2} --out rows.jsonl [--shard k/n]
 """
-import argparse, json, sys, warnings
+import argparse
+import json
+import sys
+import warnings
 from pathlib import Path
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -24,6 +28,7 @@ def items(which):
 def main():
     warnings.filterwarnings("ignore")
     import numpy as np
+
     from cardiolens.layer1_ingestion import load_wfdb
     from cardiolens.pipeline import run_pipeline
     ap = argparse.ArgumentParser(); ap.add_argument("which", choices=["avb", "ptb", "fresh", "fresh2"])
