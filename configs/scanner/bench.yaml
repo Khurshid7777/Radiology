@@ -67,6 +67,14 @@ slices:
   layout_6x2_rhythm:      {suite_only: true, layout: "6x2+rhythm", degrade: {jpeg_quality: 95}}
   photo_6x2_rhythm:       {suite_only: true, layout: "6x2+rhythm", degrade: *photo}
 
+  # R8, SD-120: dark grids (a b/w copy, a red grid gone dark or brown on a phone): the grid is in the ink mask.
+  grid_black_scan:   {suite_only: true, render: {grid: black}, degrade: {jpeg_quality: 95}}
+  grid_black_photo:  {suite_only: true, render: {grid: black}, degrade: *photo}
+  grid_dark_red_photo: {suite_only: true, render: {grid: dark_red}, degrade: *photo}
+  grid_brown_photo:  {suite_only: true, render: {grid: brown}, degrade: *photo}
+  grid_black_6x2:    {suite_only: true, layout: "6x2", render: {grid: black}, degrade: *photo}
+  grid_black_12x1:   {suite_only: true, layout: "12x1", render: {grid: black}, degrade: {jpeg_quality: 95}}
+
   # R8, SD-113: baseline drift as in real records (PM-ECG-ID found rows overlapping and LAYOUT_UNKNOWN).
   scan_wander_1:   {suite_only: true, wander_mv: 1.0, degrade: {jpeg_quality: 95}}
   scan_wander_2:   {suite_only: true, wander_mv: 2.0, degrade: {jpeg_quality: 95}}
@@ -93,6 +101,9 @@ suites:
   wander:                       # R8, SD-113: drifting baseline
     cases_per_slice: 12
     slices: [scan_wander_1, scan_wander_2, photo_wander_1]
+  grid_dark:                    # SD-120: dev suite for the dark grid in the ink mask
+    cases_per_slice: 8
+    slices: [grid_black_scan, grid_black_photo, grid_dark_red_photo, grid_brown_photo, grid_black_6x2, grid_black_12x1]
   coarse:                       # D170 acceptance: messenger copies at ~3-4 px/mm
     cases_per_slice: 6
     slices: [coarse_3x4_3ppm, coarse_3x4_4ppm, coarse_6x2_3ppm, coarse_6x2_4ppm, coarse_6x2_thermal]
