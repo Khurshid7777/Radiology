@@ -93,6 +93,7 @@ services:
       - /var/lib/cardiovision-security:/security:ro
     # D300: several agents may run at once; the limits keep the site's share of the server (set in deploy/.env).
     mem_limit: ${AGENTS_MEM:-4g}
+    memswap_limit: ${AGENTS_MEM:-4g}      # D310: with the new swap file the agents get no extra swap
     cpus: ${AGENTS_CPUS:-2}
 
   caddy:

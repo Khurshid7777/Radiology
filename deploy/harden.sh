@@ -4,6 +4,8 @@
 #   fail2ban (sshd + recidive) · ufw (SSH port first, then 80/443) · unattended security upgrades (no auto reboot)
 #   · journald size cap · 2 GB swap when there is none · SSH: no root login; password login off ONLY with
 #   HARDEN_SSH_PASSWORD_OFF=yes (deploy/target.env) — the owner's consent, since a password user would be locked out.
+# Note: root SSH is refused, so deploy/target.env SERVER_USER must stay a sudo user (ubuntu), never root.
+# A ban on the owner's own address is lifted from the OVH console: fail2ban-client unban <ip>
 set -u
 APP_DIR=${1:-/opt/cardiolens}
 LOG=/var/log/cardiovision-harden.log
@@ -54,30 +56,38 @@ part_upgrades() {
 
 part_journal() {
   mkdir -p /etc/systemd/journald.conf.d
-  printf '[Journal]\nSystemMaxUse=500M\n' > /etc/systemd/journald.conf.d/cardiovision.conf
+  local f=/etc/systemd/journald.conf.d/cardiovision.conf
+  [ "$(cat "$f" 2>/dev/null)" = "$(printf '[Journal]\nSystemMaxUse=500M')" ] && return 0
+  printf '[Journal]\nSystemMaxUse=500M\n' > "$f"
   systemctl restart systemd-journald >/dev/null 2>&1
 }
 
 part_swap() {
   [ -n "$(swapon --show --noheadings 2>/dev/null)" ] && return 0
-  [ -f /swapfile ] || { fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048; } >/dev/null 2>&1
-  chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile || return 1
-  grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  # only with >= 5 GB free on / (2 GB swap + room for the site); never a partial file: on any failure it is removed
+  [ "$(df --output=avail -k / | tail -1)" -ge $((5 * 1024 * 1024)) ] || { log "swap skipped: less than 5 GB free"; return 1; }
+  if fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile; then
+    grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  else
+    swapoff /swapfile >/dev/null 2>&1; rm -f /swapfile; return 1
+  fi
 }
 
 part_ssh() {
-  local f=/etc/ssh/sshd_config.d/60-cardiovision.conf want
+  local f=/etc/ssh/sshd_config.d/00-cardiovision.conf want   # 00-: sshd takes the FIRST value it reads
   want="PermitRootLogin no"
   if grep -qs '^HARDEN_SSH_PASSWORD_OFF=yes' "$APP_DIR/deploy/target.env"; then
     want="$want
 PasswordAuthentication no
 KbdInteractiveAuthentication no"
   fi
+  rm -f /etc/ssh/sshd_config.d/60-cardiovision.conf        # an earlier name of this file
   [ -f "$f" ] && [ "$(cat "$f")" = "$want" ] && return 0
   local old; old=$(cat "$f" 2>/dev/null || true)
   printf '%s\n' "$want" > "$f"
   if sshd -t 2>/dev/null; then
     systemctl reload ssh >/dev/null 2>&1 || systemctl reload sshd >/dev/null 2>&1
+    log "sshd now: $(sshd -T 2>/dev/null | grep -iE '^(permitrootlogin|passwordauthentication) ' | tr '\n' ' ')"
   else                                                      # a broken config must never reach a restart
     if [ -n "$old" ]; then printf '%s\n' "$old" > "$f"; else rm -f "$f"; fi
     return 1

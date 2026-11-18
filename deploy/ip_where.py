@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import sys
 import time
 import urllib.request
@@ -58,13 +59,21 @@ def lookup(ip: str, get=_get) -> dict:
     return out
 
 
+_SAFE = re.compile(r"[^A-Za-z0-9 .,@_()+:-]")
+
+
+def _clean(text: str) -> str:
+    """Text from outside (a PTR name the attacker sets, registry data) reaches an LLM agent's input: plain chars only."""
+    return _SAFE.sub("", str(text))[:100]
+
+
 def describe(ip: str, info: dict | None) -> str:
     if not info or (info.get("err") and not info.get("abuse")):
         return f"{ip}  нет данных о месте"
-    place = ", ".join(x for x in (info.get("country"), info.get("region"), info.get("city")) if x) or "место неизвестно"
-    org = info.get("org") or "провайдер неизвестен"
-    extra = f"; abuse: {info['abuse']}" if info.get("abuse") else ""
-    host = f"; {info['host']}" if info.get("host") else ""
+    place = ", ".join(_clean(x) for x in (info.get("country"), info.get("region"), info.get("city")) if x) or "место неизвестно"
+    org = _clean(info.get("org") or "") or "провайдер неизвестен"
+    extra = f"; abuse: {_clean(info['abuse'])}" if info.get("abuse") else ""
+    host = f"; {_clean(info['host'])}" if info.get("host") else ""
     return f"{ip}  {place} — {org}{host}{extra}"
 
 
@@ -84,7 +93,8 @@ def where(ips: list[str], cache_path: str, get=_get, now: float | None = None) -
         except ValueError:
             continue
         info = cache.get(ip)
-        if (not info or now - info.get("t", 0) > TTL_S) and lookups < MAX_LOOKUPS:
+        ttl = 86400 if info and info.get("err") else TTL_S          # a failed lookup is retried the next day
+        if (not info or now - info.get("t", 0) > ttl) and lookups < MAX_LOOKUPS:
             info = lookup(ip, get)
             lookups += 1
             cache[ip] = info
