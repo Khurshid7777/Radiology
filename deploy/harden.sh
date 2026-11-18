@@ -81,13 +81,13 @@ part_ssh() {
 PasswordAuthentication no
 KbdInteractiveAuthentication no"
   fi
-  rm -f /etc/ssh/sshd_config.d/60-cardiovision.conf        # an earlier name of this file
-  [ -f "$f" ] && [ "$(cat "$f")" = "$want" ] && return 0
+  [ -f "$f" ] && [ "$(cat "$f")" = "$want" ] && { rm -f /etc/ssh/sshd_config.d/60-cardiovision.conf; return 0; }
   local old; old=$(cat "$f" 2>/dev/null || true)
   printf '%s\n' "$want" > "$f"
   if sshd -t 2>/dev/null; then
+    rm -f /etc/ssh/sshd_config.d/60-cardiovision.conf        # an earlier name of this file, only after a valid config
     systemctl reload ssh >/dev/null 2>&1 || systemctl reload sshd >/dev/null 2>&1
-    log "sshd now: $(sshd -T 2>/dev/null | grep -iE '^(permitrootlogin|passwordauthentication) ' | tr '\n' ' ')"
+    log "sshd now: $(sshd -T 2>/dev/null | grep -iE '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication) ' | tr '\n' ' ')"
   else                                                      # a broken config must never reach a restart
     if [ -n "$old" ]; then printf '%s\n' "$old" > "$f"; else rm -f "$f"; fi
     return 1

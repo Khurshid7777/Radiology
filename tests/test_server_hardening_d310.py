@@ -64,7 +64,7 @@ def test_hardening_script_is_safe_by_construction():
     assert ssh.index("sshd -t") < ssh.index("systemctl reload ssh")               # a broken config never reloads
     assert "Automatic-Reboot \"false\"" in sh and sh.rstrip().endswith("exit 0")
     env = (ROOT / "deploy/target.env").read_text()
-    assert "HARDEN_SSH_PASSWORD_OFF=no" in env                                       # off until the owner says so
+    assert "HARDEN_SSH_PASSWORD_OFF=yes" in env       # owner's consent, 18.11 (logs in with a key; passphrase only)
     setup = (ROOT / "deploy/server_setup.sh").read_text()
     assert 'deploy/harden.sh" "$APP_DIR_SETUP" || true' in setup
 
