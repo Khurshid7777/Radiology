@@ -788,23 +788,44 @@ def test_unchanged_agent_reports_without_a_model_run_and_reports_use_the_cheap_m
     pytest.importorskip("aiogram")
     from cardiovision_agents import bot as B
     ag, sent, calls = _team(tmp_path, monkeypatch)
-    sec = tmp_path / "security.txt"
-    sec.write_text("# security check 2026-11-18T02:50Z\n## disk\n40% used\n")
-    monkeypatch.setenv("AGENTS_SECURITY_REPORT", str(sec))
 
-    asyncio.run(ag.turn(ROLES["sec"], B.REPORT, True))
-    assert ag.models_used == [("sec", ROLES["sec"].helper)]          # a routine report: the helper's model
-    sec.write_text("# security check 2026-11-19T02:50Z\n## disk\n40% used\n")   # only the time stamp moved
-    asyncio.run(ag.turn(ROLES["sec"], B.REPORT, True))
+    asyncio.run(ag.turn(ROLES["dev"], B.REPORT, True))
+    assert ag.models_used == [("dev", ROLES["dev"].helper)]          # a routine report: the helper's model
+    asyncio.run(ag.turn(ROLES["dev"], B.REPORT, True))               # nothing happened in between
     assert len(calls) == 1 and "модель не запускалась" in sent[-1][1]
-    sec.write_text("# security check 2026-11-20T02:50Z\n## disk\n91% used\n")   # a real change
-    asyncio.run(ag.turn(ROLES["sec"], B.REPORT, True))
-    assert len(calls) == 2
 
-    for _ in range(2):                                                   # the coordinator and news always run
-        asyncio.run(ag.turn(ROLES["coord"], B.EVENING, True))
-        asyncio.run(ag.turn(ROLES["news"], B.REPORT, True))
-    assert len(calls) == 6
+    async def task():
+        await ag.enqueue(ROLES["dev"], "почини тест")
+        await ag.workers["dev"]
+    asyncio.run(task())                                              # the agent worked: the next report runs
+    asyncio.run(ag.turn(ROLES["dev"], B.REPORT, True))
+    assert len(calls) == 3
+
+    ag.store["pending"] = {"dev": {"branch": "agents/dev-x", "sha": "a" * 40, "review": True}}
+    asyncio.run(ag.turn(ROLES["dev"], B.REPORT, True))               # pending changed -> runs
+    asyncio.run(ag.turn(ROLES["dev"], B.REPORT, True))               # same again -> bot answers, with a reminder
+    assert len(calls) == 4 and "ждёт вашего «да»" in sent[-1][1]
+
+    for _ in range(2):                                # coordinator, news, security, errors always run
+        for k in ("coord", "news", "sec", "triage"):
+            asyncio.run(ag.turn(ROLES[k], B.REPORT, True))
+    assert len(calls) == 12
+
+
+def test_a_planned_report_neither_resumes_nor_replaces_the_working_session(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    from cardiovision_agents import runner
+    seen = []
+
+    async def run(role, prompt, session=None, cwd=None, model=None):
+        seen.append(session)
+        return "ok", "report-session", {"ok": True}
+    ag, _, _ = _team(tmp_path, monkeypatch)
+    monkeypatch.setattr(runner, "run", run)
+    ag.store["sessions"] = {"dev": "work-session"}
+    asyncio.run(ag.turn(ROLES["dev"], B.REPORT, True))
+    assert seen == [None] and ag.store["sessions"]["dev"] == "work-session"
 
 
 def test_tasks_review_morning_plan_and_news_keep_the_lead_model(tmp_path, monkeypatch):
@@ -841,3 +862,4 @@ def test_a_limit_hit_pauses_planned_reports_and_queued_tasks_wait(tmp_path, monk
     assert [k for k, _ in calls] == ["dev"]
     assert ag.limited() and any("пауза до" in t for _, t in sent)
     assert [t["text"] for t in ag._queue("dev")] == ["почини"] and [t["text"] for t in ag._queue("scan")] == ["проверь фото"]
+    assert any(k == "scan" and "ждёт общей паузы" in t for k, t in sent)
