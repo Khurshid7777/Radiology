@@ -30,7 +30,7 @@ from cardiolens.arrhythmia.descriptive import (
     avb_2to1_finding,
     ectopic_atrial_finding,
 )
-from cardiolens.arrhythmia.vf import VF_SOFT_SHARE_MIN, detect_vf, vf_soft_share
+from cardiolens.arrhythmia.vf import VF_SOFT_SHARE_MIN, detect_vf, vf_is_harmonic, vf_soft_share
 from cardiolens.calibration import TemperatureScaler
 from cardiolens.clinical_context import ESCALATING, Advice, advise
 from cardiolens.config import (
@@ -537,7 +537,23 @@ def run_pipeline(
         audit.append("[L2] no ECG signal (8-40 Hz below threshold in every lead) — all findings and alerts withheld")
     # D281: the strict detector missed it, but half the leads show VF and the window was read as AF / flutter or
     # closed by a quality gate — the alert, not AF and not "no signal" (D277: 59 + 55 + 21 VT / VF windows).
-    if vf_soft and findings.codes() & _VF_SOFT_GATES:
+    # D324: the "VF" waves are a 2nd / 3rd harmonic of a regular R train — a regular tachycardia (VT, flutter 2:1).
+    # D323: the alarm stays (the same pattern is true VT on VFDB); only its wording says what is seen.
+    vf_regular = (vf_on or vf_soft) and vf_is_harmonic(vf_mts, m.r_peaks_samples, sig.sampling_rate_hz)
+    vf_regular_finding = Finding(
+        code="ventricular_fibrillation", group="rhythm",
+        label_ru="Частая правильная тахикардия: волны похожи на ФЖ, но комплексы идут ровным рядом — возможна ЖТ "
+                 "(или трепетание предсердий 2:1). Немедленно оцените пациента (сознание, пульс); если пульса нет — "
+                 "реанимация и дефибрилляция",
+        label_uz="Tez va to'g'ri ritmli taxikardiya: to'lqinlar qorinchalar fibrillyatsiyasiga o'xshaydi, lekin "
+                 "komplekslar bir tekis qatorda — JT bo'lishi mumkin (yoki bo'lmachalar titrashi 2:1). Bemorni zudlik "
+                 "bilan baholang (hush, puls); puls bo'lmasa — reanimatsiya va defibrillyatsiya",
+        evidence=[Evidence(feature="vf_pattern", value="regular_harmonic")],
+        confidence=0.7 if vf_on else 0.5, critical=True)
+    if vf_soft and vf_regular and findings.codes() & _VF_SOFT_GATES:
+        findings.findings.insert(0, vf_regular_finding)
+        audit.append("[L4] regular tachycardia with VF-like harmonic waves: VT / VF to exclude (D324, soft tier)")
+    elif vf_soft and findings.codes() & _VF_SOFT_GATES:
         findings.findings.insert(0, Finding(
             code="ventricular_fibrillation", group="rhythm",
             label_ru="Возможна фибрилляция желудочков / полиморфная ЖТ: хаотичные волны в части отведений — немедленно "
@@ -547,7 +563,10 @@ def run_pipeline(
             evidence=[Evidence(feature="vf_detector", value=f"soft: {vf_soft_share(vf_mts):.2f} of leads")],
             confidence=0.5, critical=True))
         audit.append("[L4] possible VF / polymorphic VT: soft VF tier over an AF / quality-gated window (D281)")
-    if vf_on:
+    if vf_on and vf_regular:
+        findings.findings.insert(0, vf_regular_finding)
+        audit.append("[L4] regular tachycardia with VF-like harmonic waves: VT / VF to exclude (D324)")
+    elif vf_on:
         findings.findings.insert(0, Finding(
             code="ventricular_fibrillation", group="rhythm",
             label_ru="Фибрилляция / трепетание желудочков: хаотичные волны без комплексов QRS — немедленно оцените "

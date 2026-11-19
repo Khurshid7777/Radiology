@@ -31,6 +31,8 @@ CRITICAL_CODES = {
 }
 
 
+VF_REGULAR_ALERT = ("Правильная тахикардия — исключить ЖТ / ФЖ (D324)",
+                    "To'g'ri ritmli taxikardiya — JT / qorinchalar fibrillyatsiyasini istisno qilish")
 LONG_QT_CRITICAL_MS = 500.0   # D241: QTc (as the long-QT rule judged it) that raises the critical alert
 
 
@@ -91,6 +93,10 @@ def scan_critical(findings: FindingSet, m: Measurements) -> SafetyResult:
                 continue
             add(code, ru, uz, reason=f"finding '{code}' present, QTc {qtc} ms >= {LONG_QT_CRITICAL_MS:g}")
             continue
+        if code == "ventricular_fibrillation" and any(
+                e.feature == "vf_pattern" and e.value == "regular_harmonic" for e in findings.by_code(code).evidence):
+            # D324: VF-like waves at a harmonic of a regular R train — the alarm stays, the wording says what is seen
+            ru, uz = VF_REGULAR_ALERT
         add(code, ru, uz, reason=f"finding '{code}' present")
 
     # Measurement-derived critical patterns (may exist without a Layer-4 finding).
