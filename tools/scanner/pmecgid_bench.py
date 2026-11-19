@@ -96,6 +96,7 @@ def main() -> None:
                     help="give the scanner the speed and gain a user would confirm (25 mm/s, 10 mm/mV; SD-112)")
     ap.add_argument("--user-layout", help="also give this layout, as a doctor would pick it (SD-115); use with --only "
                                           "for pages of that one format")
+    ap.add_argument("--rotate", type=int, default=0, help="the doctor's quarter turn given to the scanner (0/90/180/270)")
     ap.add_argument("--only", type=Path, help="file of case ids (folder/image stem), one per line: score just these")
     ap.add_argument("--wide-lag", type=float, default=None, help="also score r after this wider time-origin search, s")
     a = ap.parse_args()
@@ -127,6 +128,8 @@ def main() -> None:
     digs = [d for d in default_digitizers(cfg) if d.name == "ecgscan"]
     if a.user_hints:
         digs[0].hints = {"paper_speed_mm_s": 25.0, "gain_mm_mv": 10.0}
+    if a.rotate:
+        digs[0].hints = {**(digs[0].hints or {}), "capture": {"rotate_deg": a.rotate}}
     if a.user_layout:
         digs[0].hints = {**(digs[0].hints or {}), "layout": a.user_layout}
     run_bench("standard", a.out, digitizers=digs, cases=cases, resume=a.resume, config=cfg)
