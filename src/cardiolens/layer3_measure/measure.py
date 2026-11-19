@@ -92,6 +92,8 @@ ATRIAL_P_TRAIN = True
 AV_DISSOCIATION_MIN_P_RATIO = 0.3
 
 
+P_GRID_BLOCK = False   # D316: atrial grid route for complete AV block (off until accepted)
+
 def _lacks_organised_p(p_wave_ratio: float | None, n_beats: int) -> bool:
     """Too few beats with an organised P for AV dissociation (AF with a slow response).
 
@@ -1000,6 +1002,15 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                 rate = round(train["rate_bpm"], 1)
                 notes.append(f"atrial activity: P train {rate}/min, PR spread "
                              f"{round(1000 * train['pr_iqr_s'])} ms -> AV dissociation")
+            if not av and not flutter and P_GRID_BLOCK:
+                # D316 (owner, 19.11): the atrial grid on the residual (D313), when the P train found nothing
+                from cardiolens.layer3_measure.p_grid import grid_block
+                g = grid_block({ln: sig.lead(ln) for ln in ("II", "V1") if ln in sig.lead_names}, rpeaks, fs,
+                               m.intervals.qrs_ms, m.heart_rate_bpm)
+                if g is not None:
+                    av, rate = True, round(g["rate"], 1)
+                    notes.append(f"atrial activity: atrial grid {rate}/min in {g['lead']}, PR spread "
+                                 f"{round(1000 * g['pr_iqr_s'])} ms -> AV dissociation (D316)")
         m.atrial_rate_bpm, m.av_dissociation = rate, av
         m.fwave_index = fwave_index(atrial_leads, rpeaks, fs, qrs_on=qrs_on, qrs_off=qrs_off)
         m.notes.extend(notes)
