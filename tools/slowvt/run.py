@@ -1,6 +1,10 @@
 """D312: run the site pipeline over data/slowvt_bench; rows hold codes, alerts, HR, QRS (numbers only)."""
-import argparse, json, sys, warnings
+import argparse
+import json
+import sys
+import warnings
 from pathlib import Path
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 

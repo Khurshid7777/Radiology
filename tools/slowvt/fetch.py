@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from svt_bench.fetch import BASE, get  # noqa: E402
+from svt_bench.fetch import BASE, get
 
 TARGET = {"61277005": "AIVR"}
 ST, SR, RBBB, LBBB = "427084000", "426783006", "59118001", "164909002"
