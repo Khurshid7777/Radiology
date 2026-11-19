@@ -38,7 +38,7 @@ def test_edge_beats_are_added_inside_the_edge_zones_only():
 
 
 def test_mirror_maps_back_exactly():
-    fs, pad, n = 500.0, 500, 5001
+    pad, n = 500, 5001
     x = np.arange(n, dtype=float)
     padded = np.concatenate([x[pad:0:-1], x, x[-2:-pad - 2:-1]])
     assert len(padded) == n + 2 * pad and (padded[pad:pad + n] == x).all()
