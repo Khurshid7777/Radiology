@@ -31,10 +31,11 @@ CRITICAL_CODES = {
 }
 
 
-SLOW_HINT = ((" — возможна дисфункция синусового узла (СССУ) или АВ-блокада: Холтер, пересмотр препаратов, "
-             "замедляющих ритм"),
-             (" — sinus tugunining disfunksiyasi (SSSU) yoki AV blokada bo'lishi mumkin: Xolter, ritmni sekinlashtiruvchi "
-             "dorilarni qayta ko'rib chiqish"))   # D327
+SLOW_HINT = ((" — возможна дисфункция синусового узла (СССУ) или АВ-блокада: при стабильном состоянии — Холтер, "
+             "пересмотр препаратов, замедляющих ритм"),
+             (" — sinus tugunining disfunksiyasi (sinus tuguni zaifligi sindromi) yoki AV blokada bo'lishi mumkin: holat "
+             "barqaror bo'lsa — Xolter monitoringi, ritmni sekinlashtiruvchi dorilarni qayta ko'rib chiqish"))   # D327
+_AV_BLOCK_NAMED = frozenset({"complete_av_block", "probable_av_block_2to1", "slow_wide_escape_rhythm"})
 VF_REGULAR_ALERT = ("Правильная тахикардия — исключить ЖТ / ФЖ (D324)",
                     "To'g'ri ritmli taxikardiya — JT / qorinchalar fibrillyatsiyasini istisno qilish")
 LONG_QT_CRITICAL_MS = 500.0   # D241: QTc (as the long-QT rule judged it) that raises the critical alert
@@ -106,8 +107,10 @@ def scan_critical(findings: FindingSet, m: Measurements) -> SafetyResult:
     # Measurement-derived critical patterns (may exist without a Layer-4 finding).
     # D327: a slow rate / long pause on one ECG cannot tell sinus node dysfunction from AV block (D326); the alert
     # names both and the next step. Not under pacing: there a pause is a question of the device.
-    paced = "paced_rhythm" in findings.codes()
-    slow_ru, slow_uz = ("", "") if paced else SLOW_HINT
+    # Not where an AV block is already named (review D327: "possible ... Holter" next to a named complete AV block at
+    # HR 27 understates it). Said once: the pause alert carries it only when the bradycardia alert does not.
+    named = findings.codes() & ({"paced_rhythm"} | _AV_BLOCK_NAMED)
+    slow_ru, slow_uz = ("", "") if named else SLOW_HINT
     hr = m.heart_rate_bpm
     if hr is not None and hr < 40:
         add("severe_bradycardia", "Тяжёлая брадикардия" + slow_ru, "Og'ir bradikardiya" + slow_uz,
@@ -122,7 +125,9 @@ def scan_critical(findings: FindingSet, m: Measurements) -> SafetyResult:
             reason=f"HR {hr} bpm with wide QRS {m.intervals.qrs_ms} ms")
     # Significant pause / asystole: longest RR gap >= 3 s (measured in Layer 3).
     if m.max_rr_ms is not None and m.max_rr_ms >= 3000:
-        add("ventricular_pause", "Значимая пауза / асистолия" + slow_ru, "Muhim pauza / asistoliya" + slow_uz,
+        once = not any(a.code == "severe_bradycardia" for a in result.alerts)
+        add("ventricular_pause", "Значимая пауза / асистолия" + (slow_ru if once else ""),
+            "Muhim pauza / asistoliya" + (slow_uz if once else ""),
             reason=f"max RR gap {m.max_rr_ms:.0f} ms >= 3000 ms")
 
     if not result.alerts:

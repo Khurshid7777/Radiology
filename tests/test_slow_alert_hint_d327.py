@@ -15,14 +15,26 @@ def test_slow_alerts_carry_the_hint():
     r = scan_critical(FindingSet(findings=[]), _m(30.0, 3500.0))
     by = {a.code: a for a in r.alerts}
     assert set(by) == {"severe_bradycardia", "ventricular_pause"}
-    for a in by.values():
-        assert a.label_ru.endswith(SLOW_HINT[0]) and a.label_uz.endswith(SLOW_HINT[1])
+    b, p = by["severe_bradycardia"], by["ventricular_pause"]
+    assert b.label_ru.endswith(SLOW_HINT[0]) and b.label_uz.endswith(SLOW_HINT[1])
+    assert p.label_ru == "Значимая пауза / асистолия"          # said once, on the bradycardia alert
+    only_pause = {a.code: a for a in scan_critical(FindingSet(findings=[]), _m(55.0, 3500.0)).alerts}
+    assert only_pause["ventricular_pause"].label_ru.endswith(SLOW_HINT[0])
     assert by["severe_bradycardia"].label_ru.startswith("Тяжёлая брадикардия — возможна дисфункция синусового узла")
 
 
-def test_no_hint_under_pacing_and_other_alerts_untouched():
-    paced = FindingSet(findings=[Finding(code="paced_rhythm", group="rhythm", label_ru="x", label_uz="x",
-                                         evidence=[], confidence=0.9)])
-    r = scan_critical(paced, _m(30.0, 3500.0))
-    assert {a.label_ru for a in r.alerts} == {"Тяжёлая брадикардия", "Значимая пауза / асистолия"}
+import pytest
+
+
+@pytest.mark.parametrize("code", ["paced_rhythm", "complete_av_block", "probable_av_block_2to1",
+                                  "slow_wide_escape_rhythm"])
+def test_no_hint_under_pacing_or_a_named_av_block(code):
+    fs = FindingSet(findings=[Finding(code=code, group="rhythm", label_ru="x", label_uz="x", evidence=[],
+                                      confidence=0.9)])
+    r = scan_critical(fs, _m(30.0, 3500.0))
+    labels = {a.label_ru for a in r.alerts if a.code in ("severe_bradycardia", "ventricular_pause")}
+    assert labels == {"Тяжёлая брадикардия", "Значимая пауза / асистолия"}
+
+
+def test_other_alerts_untouched():
     assert scan_critical(FindingSet(findings=[]), _m(70.0, 900.0)).alerts == []
