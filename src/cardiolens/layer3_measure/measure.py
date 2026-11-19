@@ -200,8 +200,11 @@ RECOVER_ENV_FRACTION = 0.5    # a recovered QRS reaches half the accepted beats'
 RECOVER_MIN_GAP_S = 0.25      # ... and lies a refractory period from every accepted beat: a wide
                               # (LBBB) QRS has two envelope peaks ~130 ms apart (PTB-XL 13820)
 RECOVER_REF_HALF_S = 0.15     # an accepted beat's envelope level = max within this of its R (QRS search half-width)
-R_EDGE_PAD_S = 1.0            # D321: mirrored padding around the strip for the R detector (Holter N 0.976 -> 0.985)
-R_EDGE_KEEP_S = 0.2           # D321: ... but a detection within this of an edge (a cut complex) is dropped
+R_EDGE_PAD_S = 1.0            # D322: a second detector run on the lead with this much mirrored padding at each end
+R_EDGE_ZONE_S = 0.6           # ... adds only beats in the first / last this many seconds, missing from the plain run,
+R_EDGE_START_S = 0.3          # ... not closer than this to the start (room for P) ...
+R_EDGE_END_S = 0.15           # ... nor this to the end (a whole QRS); plain-run beats are never removed
+R_EDGE_MIN_RECORD_S = 5.0     # ... and only on records at least this long
 RECOVER_MAX_FLOOR = 0.25      # no recovery when the envelope between beats is this high relative
                               # to the beats: noise, not QRS, reaches half their level (PTB-XL 15973)
 
@@ -262,6 +265,28 @@ def _move_off_pacing_spikes(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
         merged.append(r)
     return np.asarray(merged, dtype=rpeaks.dtype), moved
 
+
+
+def _edge_beats(cleaned: np.ndarray, rpeaks: np.ndarray, fs: float, nk) -> np.ndarray:
+    """D322: beats the detector misses in the first / last seconds of a strip (its smoothing and thresholds start up
+    there; 70 % of the missed beats on the Holter bench, D319). A second run on the lead with mirrored padding finds
+    them; only beats absent from the plain run are added, inside the edge zones and clear of the very edges."""
+    if not R_EDGE_PAD_S or len(cleaned) < R_EDGE_MIN_RECORD_S * fs:
+        return rpeaks
+    pad = int(R_EDGE_PAD_S * fs)
+    padded = np.concatenate([cleaned[pad:0:-1], cleaned, cleaned[-2:-pad - 2:-1]])
+    try:
+        _, info = nk.ecg_peaks(padded, sampling_rate=fs)
+    except Exception:
+        return rpeaks
+    cand = np.asarray(info["ECG_R_Peaks"], dtype=int) - pad
+    n, tol = len(cleaned), int(0.075 * fs)
+    lo, hi = int(R_EDGE_START_S * fs), n - int(R_EDGE_END_S * fs)
+    zone = int(R_EDGE_ZONE_S * fs)
+    add = [int(c) for c in cand
+           if lo <= c < hi and (c < zone or c >= n - zone)
+           and (rpeaks.size == 0 or np.min(np.abs(rpeaks - c)) > tol)]
+    return np.unique(np.concatenate([rpeaks, np.asarray(add, dtype=int)])) if add else rpeaks
 
 def _recover_missed_qrs(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
                         notes: list[str] | None = None) -> tuple[np.ndarray, int]:
@@ -673,19 +698,9 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
 
     # --- R-peaks, HR, regularity, HRV ---
     try:
-        pad = int(R_EDGE_PAD_S * fs) if R_EDGE_PAD_S and len(cleaned) > 2 * R_EDGE_PAD_S * fs else 0
-        if pad:
-            # D320: the detector misses beats in the first / last ~0.6 s of a strip (start-up of its smoothing and
-            # thresholds; 70 % of the missed beats on the Holter bench). Mirrored padding gives it room; peaks found in
-            # the padding are dropped.
-            padded = np.concatenate([cleaned[pad:0:-1], cleaned, cleaned[-2:-pad - 2:-1]])
-            _, info = nk.ecg_peaks(padded, sampling_rate=fs)
-            rpeaks = np.asarray(info["ECG_R_Peaks"], dtype=int) - pad
-            keep = int(R_EDGE_KEEP_S * fs)      # D321: a complex cut by the strip edge is not a beat to judge
-            rpeaks = rpeaks[(rpeaks >= keep) & (rpeaks < len(cleaned) - keep)]
-        else:
-            _, info = nk.ecg_peaks(cleaned, sampling_rate=fs)
-            rpeaks = np.asarray(info["ECG_R_Peaks"], dtype=int)
+        _, info = nk.ecg_peaks(cleaned, sampling_rate=fs)
+        rpeaks = np.asarray(info["ECG_R_Peaks"], dtype=int)
+        rpeaks = _edge_beats(cleaned, rpeaks, fs, nk)
     except Exception:
         rpeaks = np.array([], dtype=int)
     rpeaks, n_moved = _move_off_pacing_spikes(sig.signal, rpeaks, fs, pacing_spikes_s)

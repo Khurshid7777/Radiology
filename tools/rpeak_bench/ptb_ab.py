@@ -19,10 +19,14 @@ def main():
     ap.add_argument("--sets", default="ptbxl_fresh,ptbxl_fresh2"); ap.add_argument("--parity", type=int, default=-1)
     ap.add_argument("--keep", type=float, default=0.0)
     a = ap.parse_args(); k, n = (int(v) for v in a.shard.split("/"))
-    M.R_EDGE_KEEP_S = a.keep
-    items = [(d, r) for d in a.sets.split(",")
-             for r in json.loads((ROOT / f"data/{d}/manifest.json").read_text())["records"]
-             if a.parity < 0 or int(r["ecg_id"]) % 2 == a.parity]
+    items = []
+    for d in a.sets.split(","):
+        for r in json.loads((ROOT / f"data/{d}/manifest.json").read_text())["records"]:
+            if d == "avb_bench":       # Chapman controls (D322 acceptance on untouched data)
+                if set(r["labels"]) <= {"SB", "SR"}:
+                    items.append((d, dict(r, ecg_id=r["name"], filename_hr=r["folder"] + r["name"])))
+            elif a.parity < 0 or int(r["ecg_id"]) % 2 == a.parity:
+                items.append((d, r))
     with a.out.open("w") as fh:
         for d, r in items[k::n]:
             row = {"id": r["ecg_id"], "labels": r["labels"]}
