@@ -8,7 +8,8 @@ quality:
   low_light_needs_confirmation: true   # SD-062: until checked on real dark photos, a corrected one is never "ok" by itself
   min_side_px: 200               # D136: a smaller image -> rejected LOW_RESOLUTION before any check runs
   marginal_px_per_mm: 10.0       # below this -> warning LOW_RESOLUTION_MARGINAL
-  weak_grid_agree: 0.03          # SD-123: a grid read under the floor whose x and y pitches agree within this share is accepted AT the floor ...
+  weak_grid_agree: null          # SD-123/124: 0.03 = a grid read under the floor whose x and y pitches agree within this share is accepted AT the floor
+                                 # (with validate.weak_grid_guard). OFF: SD-124 criterion 3 not met (PM-ECG-ID: 1 of 5 mediocre reads kept, needed 3)  ...
   weak_grid_min_score: 0.2       # ... when both comb scores reach this (never 'ok' by itself: overall <= sqrt(0.3)); null: off
   min_grid_confidence: 0.3       # grid read below this -> rejected GRID_NOT_FOUND (bench: 113/114 correct reads are above, no wrong one is)
   capture_qc: true               # repeat the phone's frame checks on the photo (quality.sharpness / glare_fraction)
