@@ -31,6 +31,10 @@ CRITICAL_CODES = {
 }
 
 
+SLOW_HINT = ((" — возможна дисфункция синусового узла (СССУ) или АВ-блокада: Холтер, пересмотр препаратов, "
+             "замедляющих ритм"),
+             (" — sinus tugunining disfunksiyasi (SSSU) yoki AV blokada bo'lishi mumkin: Xolter, ritmni sekinlashtiruvchi "
+             "dorilarni qayta ko'rib chiqish"))   # D327
 VF_REGULAR_ALERT = ("Правильная тахикардия — исключить ЖТ / ФЖ (D324)",
                     "To'g'ri ritmli taxikardiya — JT / qorinchalar fibrillyatsiyasini istisno qilish")
 LONG_QT_CRITICAL_MS = 500.0   # D241: QTc (as the long-QT rule judged it) that raises the critical alert
@@ -100,9 +104,13 @@ def scan_critical(findings: FindingSet, m: Measurements) -> SafetyResult:
         add(code, ru, uz, reason=f"finding '{code}' present")
 
     # Measurement-derived critical patterns (may exist without a Layer-4 finding).
+    # D327: a slow rate / long pause on one ECG cannot tell sinus node dysfunction from AV block (D326); the alert
+    # names both and the next step. Not under pacing: there a pause is a question of the device.
+    paced = "paced_rhythm" in findings.codes()
+    slow_ru, slow_uz = ("", "") if paced else SLOW_HINT
     hr = m.heart_rate_bpm
     if hr is not None and hr < 40:
-        add("severe_bradycardia", "Тяжёлая брадикардия", "Og'ir bradikardiya",
+        add("severe_bradycardia", "Тяжёлая брадикардия" + slow_ru, "Og'ir bradikardiya" + slow_uz,
             reason=f"HR {hr} bpm < 40")
     # Backstop when Layer 4 did not emit the finding (e.g. pediatric norms): the same
     # 140/min threshold as the adult SVT/WCT split, so nothing wide in 140-150 slips by.
@@ -114,7 +122,7 @@ def scan_critical(findings: FindingSet, m: Measurements) -> SafetyResult:
             reason=f"HR {hr} bpm with wide QRS {m.intervals.qrs_ms} ms")
     # Significant pause / asystole: longest RR gap >= 3 s (measured in Layer 3).
     if m.max_rr_ms is not None and m.max_rr_ms >= 3000:
-        add("ventricular_pause", "Значимая пауза / асистолия", "Muhim pauza / asistoliya",
+        add("ventricular_pause", "Значимая пауза / асистолия" + slow_ru, "Muhim pauza / asistoliya" + slow_uz,
             reason=f"max RR gap {m.max_rr_ms:.0f} ms >= 3000 ms")
 
     if not result.alerts:
