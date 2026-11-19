@@ -47,12 +47,6 @@ def _sampled(img: np.ndarray, axis: int, max_lines: int = 400) -> np.ndarray:
     return np.swapaxes(img[:, :: max(1, img.shape[1] // max_lines)], 0, 1)
 
 
-# SD-122: a page without colour (a grey or b/w copy) has JPEG noise of ~3 levels in its chroma channel; the 16-px
-# blocks of that noise make a comb of their own (9.6 px/mm for a 12.0 px/mm grid, score 22 against the real 15.6) and
-# "chroma first" returned it. A page whose chroma 99th percentile is below this has no coloured grid to read there.
-MIN_CHROMA = 8.0
-
-
 def _channels(img: np.ndarray) -> dict[str, np.ndarray]:
     if img.ndim == 2:
         return {"gray": 255.0 - img.astype(np.float32)}
@@ -63,10 +57,7 @@ def _channels(img: np.ndarray) -> dict[str, np.ndarray]:
     b, g, r = cv2.split(np.ascontiguousarray(img))
     chroma = cv2.subtract(cv2.max(cv2.max(b, g), r), cv2.min(cv2.min(b, g), r)).astype(np.float32)
     total = b.astype(np.uint16) + g + r
-    gray = 255.0 - total.astype(np.float32) / np.float32(3.0)
-    if float(np.percentile(chroma, 99)) < MIN_CHROMA:
-        return {"gray": gray}
-    return {"chroma": chroma, "gray": gray}
+    return {"chroma": chroma, "gray": 255.0 - total.astype(np.float32) / np.float32(3.0)}
 
 
 def _spectrum(ch: np.ndarray, axis: int, max_rows: int = 400) -> np.ndarray:
@@ -234,6 +225,9 @@ PEAK_PROMINENCE = 8.0         # spectral peaks this many medians above the floor
 MINOR_MIN = 3.0               # spectral magnitude at the 1-mm frequency, in units of the median
 SUBHARMONIC_ACCEPT = 0.5      # a divisor pitch is preferred when it scores at least this fraction
 CONF_SCALE = 3.0              # comb score (in spectral medians) that counts as full confidence
+# SD-122: on a JPEG of a grey / b/w page the chroma channel is block noise whose comb can win ("chroma first"); the
+# brightness channel's pitch overrules it when that one is confident on its own (score / CONF_SCALE at the grid floor).
+GRAY_OVERRULES_CHROMA = 0.3
 SQUARE_TOL = 0.15             # x and y pitch may differ this much (perspective, non-square pixels)
 
 
@@ -241,6 +235,7 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
                   min_score: float = 0.2) -> GridEstimate:
     """Grid pitch along x and y; ``None`` where no lattice is found."""
     best: GridEstimate | None = None
+    chroma_est: GridEstimate | None = None
     lines = {ax: _channels(_sampled(img, ax)) for ax in (1, 0)}     # both as [lines, samples]
     for name in lines[1]:
         res = []
@@ -277,10 +272,17 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
         # (a 12x1 strip's row pitch is a strong lattice in brightness). Brightness is the
         # fallback for grey grids only.
         if name == "chroma" and est.px_per_mm is not None:
+            chroma_est = est                    # SD-122: brightness is still read, it may contradict this
+            continue
+        if (chroma_est is not None and est.px_per_mm is not None
+                and min(sx, sy) / CONF_SCALE >= GRAY_OVERRULES_CHROMA
+                and abs(est.px_per_mm - chroma_est.px_per_mm) > SQUARE_TOL * max(est.px_per_mm, chroma_est.px_per_mm)):
             return est
+        if chroma_est is not None:
+            return chroma_est
         if best is None or min(sx, sy) > min(best.score_x, best.score_y):
             best = est
-    return best  # type: ignore[return-value]
+    return chroma_est if chroma_est is not None else best  # type: ignore[return-value]
 
 
 WEAK_SHARE = 0.25             # anchored: the other axis near the anchor's pitch scores at least this share
