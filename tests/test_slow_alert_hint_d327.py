@@ -1,4 +1,6 @@
 """D327: the severe-bradycardia and pause alerts name sinus node dysfunction or AV block; not under pacing."""
+import pytest
+
 from cardiolens.contracts.features import Measurements
 from cardiolens.contracts.findings import Finding, FindingSet
 from cardiolens.safety.critical import SLOW_HINT, scan_critical
@@ -23,8 +25,6 @@ def test_slow_alerts_carry_the_hint():
     assert by["severe_bradycardia"].label_ru.startswith("Тяжёлая брадикардия — возможна дисфункция синусового узла")
 
 
-import pytest
-
 
 @pytest.mark.parametrize("code", ["paced_rhythm", "complete_av_block", "probable_av_block_2to1",
                                   "slow_wide_escape_rhythm"])
@@ -38,3 +38,10 @@ def test_no_hint_under_pacing_or_a_named_av_block(code):
 
 def test_other_alerts_untouched():
     assert scan_critical(FindingSet(findings=[]), _m(70.0, 900.0)).alerts == []
+
+
+def test_quality_note_goes_before_the_hint():
+    from cardiolens.pipeline import _before_hint
+    note = " — сигнал низкого качества, проверить по записи"
+    assert _before_hint("Тяжёлая брадикардия" + SLOW_HINT[0], note, SLOW_HINT[0]) == "Тяжёлая брадикардия" + note + SLOW_HINT[0]
+    assert _before_hint("Полная АВ-блокада", note, SLOW_HINT[0]) == "Полная АВ-блокада" + note

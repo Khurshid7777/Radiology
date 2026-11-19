@@ -72,7 +72,7 @@ from cardiolens.layer5_causal import analyze
 from cardiolens.layer6_interpret import InterpretationInput, default_provider, interpret
 from cardiolens.layer6_interpret.provider import LLMProvider
 from cardiolens.safety import SafetyResult, scan_critical
-from cardiolens.safety.critical import CriticalAlert
+from cardiolens.safety.critical import SLOW_HINT, CriticalAlert
 from cardiolens.serial import SerialComparison, compare
 from cardiolens.serial.compare import UNRELIABLE as SERIAL_UNRELIABLE
 from cardiolens.serial.compare import skipped as serial_skipped
@@ -542,10 +542,10 @@ def run_pipeline(
     vf_regular = (vf_on or vf_soft) and vf_is_harmonic(vf_mts, m.r_peaks_samples, sig.sampling_rate_hz)
     vf_regular_finding = Finding(
         code="ventricular_fibrillation", group="rhythm",
-        label_ru="Частая правильная тахикардия: волны похожи на ФЖ, но комплексы идут ровным рядом — возможна ЖТ "
+        label_ru="Правильная тахикардия: волны похожи на ФЖ, но комплексы идут ровным рядом — возможна ЖТ "
                  "(или трепетание предсердий 2:1). Немедленно оцените пациента (сознание, пульс); если пульса нет — "
                  "реанимация и дефибрилляция",
-        label_uz="Tez va to'g'ri ritmli taxikardiya: to'lqinlar qorinchalar fibrillyatsiyasiga o'xshaydi, lekin "
+        label_uz="To'g'ri ritmli taxikardiya: to'lqinlar qorinchalar fibrillyatsiyasiga o'xshaydi, lekin "
                  "komplekslar bir tekis qatorda — JT bo'lishi mumkin (yoki bo'lmachalar titrashi 2:1). Bemorni zudlik "
                  "bilan baholang (hush, puls); puls bo'lmasa — reanimatsiya va defibrillyatsiya",
         evidence=[Evidence(feature="vf_pattern", value="regular_harmonic")],
@@ -632,8 +632,9 @@ def run_pipeline(
     if not quality_ok and not hard_gate:
         for a in safety.alerts:
             a.unverified = True
-            a.label_ru += " — сигнал низкого качества, проверить по записи"
-            a.label_uz += " — signal sifati past, yozuv bo'yicha tekshiring"
+            # D330: the quality caveat goes right after the alert's name, before a D327 hint
+            a.label_ru = _before_hint(a.label_ru, " — сигнал низкого качества, проверить по записи", SLOW_HINT[0])
+            a.label_uz = _before_hint(a.label_uz, " — signal sifati past, yozuv bo'yicha tekshiring", SLOW_HINT[1])
     # New critical dynamics on serial comparison force escalation (TZ §8.4, §10).
     if serial is not None:
         for d in serial.deltas:
@@ -918,6 +919,11 @@ def _af_second_path(sig, m, findings: FindingSet, audit: list[str]) -> None:
         evidence=[Evidence(feature="af_model_p", value=f"{p:.2f}")], confidence=round(min(0.7, p), 2)))
     audit.append(f"[L4] AF second path (D205): p={p:.2f}; withdrew {dropped}")
 
+
+
+def _before_hint(label: str, note: str, hint: str) -> str:
+    """``label`` + ``note``, with ``note`` placed before a trailing ``hint`` (D330)."""
+    return label[: -len(hint)] + note + hint if hint and label.endswith(hint) else label + note
 
 
 def _pause_finding(m, pc, codes: set[str], ectopic: set[int]):
