@@ -110,6 +110,23 @@ _QC_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ecgscan-qc")
 _BOARDS: dict[tuple[str, ...], list] = {}
 
 
+def _weak_grid(raw, q_cfg: dict):
+    """SD-123: a grid read below the confidence floor whose x and y pitches nevertheless agree is accepted at the floor.
+
+    A dark grid on a phone photo leaves the comb scores low (0.04-0.29 in confidence) while both axes still give the
+    right pitch within 2-3 %; two independent axes agreeing is not chance. The confidence is set to the floor, so
+    ``overall`` (a factor sqrt(0.3)) stays under ``ok_min_overall``: such a page is never "ok" by itself."""
+    tol, floor = q_cfg.get("weak_grid_agree"), q_cfg.get("weak_grid_min_score")
+    floor_conf = q_cfg["min_grid_confidence"]
+    if (tol is None or floor is None or raw.confidence >= floor_conf or raw.px_per_mm_x is None
+            or raw.px_per_mm_y is None):
+        return raw
+    if (abs(raw.px_per_mm_x - raw.px_per_mm_y) > tol * max(raw.px_per_mm_x, raw.px_per_mm_y)
+            or min(raw.score_x, raw.score_y) < floor):
+        return raw
+    return dataclasses.replace(raw, confidence=floor_conf)
+
+
 def _fits(works: list[np.ndarray], b_cfg: dict, *, whole_zone: bool) -> list:
     key = tuple(b_cfg.get("specs", []))
     if key not in _BOARDS:
@@ -573,6 +590,7 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
             tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
             if tiled is not None and tiled.confidence > raw.confidence:
                 raw = tiled
+        raw = _weak_grid(raw, q_cfg)
         coarse = _coarse_grid(work, raw, cfg, original=img.bgr)
         if coarse is not None:
             # D170: below the floor, but the 5-mm grid gives the scale: read, never "ok".

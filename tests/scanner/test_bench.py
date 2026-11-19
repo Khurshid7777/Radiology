@@ -270,3 +270,18 @@ def test_a_page_without_colour_does_not_read_its_grid_from_jpeg_chroma_noise(syn
         assert ("chroma" in _channels(jpg)) is chroma
         est = estimate_grid(jpg)
         assert est.px_per_mm_x == pytest.approx(12.0, rel=0.03) and est.px_per_mm_y == pytest.approx(12.0, rel=0.03)
+
+
+def test_a_weak_grid_whose_axes_agree_is_accepted_at_the_floor_only():
+    """SD-123: x and y pitches within 3 % and both scores >= 0.2 -> confidence = the floor (never "ok" by itself)."""
+    from ecgscan.geometry.grid import GridEstimate
+    from ecgscan.pipeline import _weak_grid
+
+    q = {"min_grid_confidence": 0.3, "weak_grid_agree": 0.03, "weak_grid_min_score": 0.2}
+    agree = GridEstimate(11.97, 11.94, 0.75, 1.09, "gray", 0.249)
+    assert _weak_grid(agree, q).confidence == 0.3
+    assert _weak_grid(GridEstimate(16.75, 12.08, 0.72, 0.44, "gray", 0.044), q).confidence == 0.044    # axes disagree
+    assert _weak_grid(GridEstimate(12.0, 12.0, 0.15, 0.9, "gray", 0.05), q).confidence == 0.05          # a score too low
+    assert _weak_grid(GridEstimate(12.0, 12.0, 3.0, 3.0, "gray", 1.0), q).confidence == 1.0             # not weak
+    assert _weak_grid(agree, {**q, "weak_grid_agree": None}).confidence == 0.249                         # off
+    assert _weak_grid(GridEstimate(None, 12.0, 0.0, 1.0, "gray", 0.0), q).confidence == 0.0
