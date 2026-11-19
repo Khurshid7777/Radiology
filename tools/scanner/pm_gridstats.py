@@ -60,7 +60,8 @@ def run(root: Path, out: Path, shard: str, every: int) -> None:
             try:
                 scan(str(root / "final_data" / "visual_data" / rel), debug=dbg,
                      hints=ScanHints(paper_speed_mm_s=25, gain_mm_mv=10))
-            except Exception:                                   # noqa: BLE001  a refusal is not a statistic
+            except Exception as exc:        # a page the scanner cannot process gives no statistic
+                print(f"skipped {rel}: {type(exc).__name__}", flush=True)
                 continue
             if dbg.rectified is None:
                 continue
