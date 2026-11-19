@@ -60,3 +60,17 @@ def test_a_pause_ending_near_the_end_keeps_its_alert(monkeypatch):
         s = base.model_copy(update={"signal": y[:, end - int(10 * fs):end].copy(), "duration_s": 10.0})
         res = run_pipeline(s, mode="A")
         assert "sinus_pause" in res.findings.codes() or "ventricular_pause" in {al.code for al in res.safety.alerts}, e
+
+
+def test_a_tall_t_wave_at_the_start_is_not_added(monkeypatch):
+    """D322 review: a strip starting on a QRS of a slow rhythm with T as tall as R — the T at ~0.34 s is not a beat."""
+    from cardiolens.pipeline import run_pipeline
+    b = generate_synthetic_ecg(duration_s=24, seed=2, heart_rate_bpm=50, t_amp_uv=1000, amplitude_scale=0.6)
+    fs, i = b.sampling_rate_hz, b.lead_names.index("II")
+    a0 = int(round(3.80 * fs))
+    s = b.model_copy(update={"signal": b.signal[i:i + 1, a0:a0 + int(7 * fs)].copy(), "duration_s": 7.0, "lead_names": ["II"]})
+    on = run_pipeline(s, mode="A")
+    monkeypatch.setattr(M, "R_EDGE_PAD_S", 0.0)
+    off = run_pipeline(s, mode="A")
+    assert on.measurements.r_peaks_samples == off.measurements.r_peaks_samples
+    assert on.findings.codes() == off.findings.codes()

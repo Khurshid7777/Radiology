@@ -205,6 +205,7 @@ R_EDGE_ZONE_S = 0.6           # ... adds only beats in the first / last this man
 R_EDGE_START_S = 0.3          # ... not closer than this to the start (room for P) ...
 R_EDGE_END_S = 0.15           # ... nor this to the end (a whole QRS); plain-run beats are never removed
 R_EDGE_MIN_RECORD_S = 5.0     # ... and only on records at least this long
+R_EDGE_MIN_RR = 0.6           # ... at least this share of the median RR from every plain-run beat
 RECOVER_MAX_FLOOR = 0.25      # no recovery when the envelope between beats is this high relative
                               # to the beats: noise, not QRS, reaches half their level (PTB-XL 15973)
 
@@ -286,6 +287,19 @@ def _edge_beats(cleaned: np.ndarray, rpeaks: np.ndarray, fs: float, nk) -> np.nd
     add = [int(c) for c in cand
            if lo <= c < hi and (c < zone or c >= n - zone)
            and (rpeaks.size == 0 or np.min(np.abs(rpeaks - c)) > tol)]
+    if add and rpeaks.size >= 2:
+        # D322 review: the padded run marks another point of the same wide / paced QRS (90-130 ms off) or a tall T
+        # wave; a missed beat sits a plausible cycle away (>= 0.6 x the median RR, as PAGE_BEAT_ADD_MIN_RR) and
+        # reaches half the accepted beats' envelope (D75's RECOVER_ENV_FRACTION)
+        med = float(np.median(np.diff(np.sort(rpeaks))))
+        env = spatial_velocity(cleaned[None, :], fs)
+        w = int(RECOVER_REF_HALF_S * fs)
+        lvl = lambda r: float(env[max(0, r - w):r + w].max())
+        ref = float(np.median([lvl(int(r)) for r in rpeaks]))
+        add = [c for c in add if np.min(np.abs(rpeaks - c)) >= R_EDGE_MIN_RR * med
+               and lvl(c) >= RECOVER_ENV_FRACTION * ref]
+    elif add:
+        add = []                                       # nothing to compare a new beat with
     return np.unique(np.concatenate([rpeaks, np.asarray(add, dtype=int)])) if add else rpeaks
 
 def _recover_missed_qrs(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
