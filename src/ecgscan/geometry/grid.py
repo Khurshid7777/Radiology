@@ -47,6 +47,12 @@ def _sampled(img: np.ndarray, axis: int, max_lines: int = 400) -> np.ndarray:
     return np.swapaxes(img[:, :: max(1, img.shape[1] // max_lines)], 0, 1)
 
 
+# SD-122: a page without colour (a grey or b/w copy) has JPEG noise of ~3 levels in its chroma channel; the 16-px
+# blocks of that noise make a comb of their own (9.6 px/mm for a 12.0 px/mm grid, score 22 against the real 15.6) and
+# "chroma first" returned it. A page whose chroma 99th percentile is below this has no coloured grid to read there.
+MIN_CHROMA = 8.0
+
+
 def _channels(img: np.ndarray) -> dict[str, np.ndarray]:
     if img.ndim == 2:
         return {"gray": 255.0 - img.astype(np.float32)}
@@ -57,7 +63,10 @@ def _channels(img: np.ndarray) -> dict[str, np.ndarray]:
     b, g, r = cv2.split(np.ascontiguousarray(img))
     chroma = cv2.subtract(cv2.max(cv2.max(b, g), r), cv2.min(cv2.min(b, g), r)).astype(np.float32)
     total = b.astype(np.uint16) + g + r
-    return {"chroma": chroma, "gray": 255.0 - total.astype(np.float32) / np.float32(3.0)}
+    gray = 255.0 - total.astype(np.float32) / np.float32(3.0)
+    if float(np.percentile(chroma, 99)) < MIN_CHROMA:
+        return {"gray": gray}
+    return {"chroma": chroma, "gray": gray}
 
 
 def _spectrum(ch: np.ndarray, axis: int, max_rows: int = 400) -> np.ndarray:

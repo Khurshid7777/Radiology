@@ -253,3 +253,20 @@ def test_coarse_row_search_is_off_by_default_and_finds_drifting_rows_when_asked(
     assert coarse.name is not None or plain.name is not None
     if plain.name is None:
         assert coarse.drift and coarse.uncertain
+
+
+def test_a_page_without_colour_does_not_read_its_grid_from_jpeg_chroma_noise(synth_mv):
+    """SD-122: a grey copy's chroma channel is JPEG block noise (a comb at 9.6 px/mm for a 12.0 px/mm grid); the grid
+    is read in brightness. A coloured grid still goes through chroma."""
+    import cv2
+
+    from ecgscan.bench.render import RenderSpec, render_page
+    from ecgscan.geometry.grid import _channels, estimate_grid
+    from ecgscan.layout import get_layout
+
+    for grid, chroma in (("black", False), ("red", True)):
+        page, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=12.0, grid=grid))
+        jpg = cv2.imdecode(cv2.imencode(".jpg", page, [cv2.IMWRITE_JPEG_QUALITY, 95])[1], cv2.IMREAD_COLOR)
+        assert ("chroma" in _channels(jpg)) is chroma
+        est = estimate_grid(jpg)
+        assert est.px_per_mm_x == pytest.approx(12.0, rel=0.03) and est.px_per_mm_y == pytest.approx(12.0, rel=0.03)
