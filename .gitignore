@@ -79,3 +79,4 @@ data/ptbxl_fresh2/
 data/avb_bench/
 # D295: QT Database (downloaded, git-ignored)
 data/qtdb/
+data/slowvt_bench/
