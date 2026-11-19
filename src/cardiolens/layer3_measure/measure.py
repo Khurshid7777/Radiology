@@ -200,6 +200,8 @@ RECOVER_ENV_FRACTION = 0.5    # a recovered QRS reaches half the accepted beats'
 RECOVER_MIN_GAP_S = 0.25      # ... and lies a refractory period from every accepted beat: a wide
                               # (LBBB) QRS has two envelope peaks ~130 ms apart (PTB-XL 13820)
 RECOVER_REF_HALF_S = 0.15     # an accepted beat's envelope level = max within this of its R (QRS search half-width)
+R_EDGE_PAD_S = 1.0            # D321: mirrored padding around the strip for the R detector (Holter N 0.976 -> 0.985)
+R_EDGE_KEEP_S = 0.2           # D321: ... but a detection within this of an edge (a cut complex) is dropped
 RECOVER_MAX_FLOOR = 0.25      # no recovery when the envelope between beats is this high relative
                               # to the beats: noise, not QRS, reaches half their level (PTB-XL 15973)
 
@@ -671,8 +673,19 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
 
     # --- R-peaks, HR, regularity, HRV ---
     try:
-        _, info = nk.ecg_peaks(cleaned, sampling_rate=fs)
-        rpeaks = np.asarray(info["ECG_R_Peaks"], dtype=int)
+        pad = int(R_EDGE_PAD_S * fs) if R_EDGE_PAD_S and len(cleaned) > 2 * R_EDGE_PAD_S * fs else 0
+        if pad:
+            # D320: the detector misses beats in the first / last ~0.6 s of a strip (start-up of its smoothing and
+            # thresholds; 70 % of the missed beats on the Holter bench). Mirrored padding gives it room; peaks found in
+            # the padding are dropped.
+            padded = np.concatenate([cleaned[pad:0:-1], cleaned, cleaned[-2:-pad - 2:-1]])
+            _, info = nk.ecg_peaks(padded, sampling_rate=fs)
+            rpeaks = np.asarray(info["ECG_R_Peaks"], dtype=int) - pad
+            keep = int(R_EDGE_KEEP_S * fs)      # D321: a complex cut by the strip edge is not a beat to judge
+            rpeaks = rpeaks[(rpeaks >= keep) & (rpeaks < len(cleaned) - keep)]
+        else:
+            _, info = nk.ecg_peaks(cleaned, sampling_rate=fs)
+            rpeaks = np.asarray(info["ECG_R_Peaks"], dtype=int)
     except Exception:
         rpeaks = np.array([], dtype=int)
     rpeaks, n_moved = _move_off_pacing_spikes(sig.signal, rpeaks, fs, pacing_spikes_s)
