@@ -80,3 +80,4 @@ data/avb_bench/
 # D295: QT Database (downloaded, git-ignored)
 data/qtdb/
 data/slowvt_bench/
+data/untaken_bench/
