@@ -558,6 +558,7 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
     else:
         on_board = _board(work, cfg, dbg)
     t = tick("board", t)
+    weak_grid = False                  # SD-123/124: the scale came from a weak grid whose x and y pitches agree
     if on_board is not None:
         rect, raw, raw_ppm = on_board
         if rect is None:
@@ -590,11 +591,12 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
             tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
             if tiled is not None and tiled.confidence > raw.confidence:
                 raw = tiled
-        raw = _weak_grid(raw, q_cfg)
+        accepted = _weak_grid(raw, q_cfg)
+        weak_grid, raw = accepted is not raw, accepted
         coarse = _coarse_grid(work, raw, cfg, original=img.bgr)
         if coarse is not None:
             # D170: below the floor, but the 5-mm grid gives the scale: read, never "ok".
-            raw = coarse
+            raw, weak_grid = coarse, False
             warnings.append("LOW_RESOLUTION_COARSE")
         t = tick("grid", t)
         raw_ppm = raw.px_per_mm
@@ -851,6 +853,14 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         # SD-106: no lead long enough to judge the rhythm (a 3x4 page without a rhythm strip: 2-4
         # beats a lead). Atlas pages so read gave atrial fibrillation on sinus rhythm: the doctor looks.
         warnings.append("RHYTHM_STRIP_ABSENT")
+    coh_floor = val.get("coherence_min")
+    if weak_grid and val.get("weak_grid_guard", True) and coh_floor is not None:
+        # SD-124: a read on a weak grid must repeat itself beat to beat on every lead that can be judged.
+        verdicts = [c for c in coherence_by_lead(leads, rhythm, fs_out).values() if c is not None]
+        if len(verdicts) < int(val.get("weak_grid_min_verdicts", 3)) or min(verdicts) < coh_floor:
+            reasons.append("GRID_NOT_FOUND")
+            return result("rejected", calibration=decision.calibration, ppm=raw_ppm, contrast=contrast,
+                          layout=Layout(name=layout_name, confidence=layout_conf, **mine))
     lead_q = float(np.median([r.quality for r in readings]))
     cons_f = 1.0 if cons.score is None else float(np.clip(0.5 + cons.score, 0.0, 1.0))
     overall = lead_q * cons_f * raw.confidence ** 0.5 * (decision.calibration.confidence if decision.established else 0.5)

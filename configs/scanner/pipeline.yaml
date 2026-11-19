@@ -166,6 +166,8 @@ validate:
                                  # to wavelet onsets) -> PR_UNSTABLE (needs confirmation); null = off
   coherence_min: 0.90            # SD-117/118: a panel lead (>=3 beats) repeating its own beat less well than this -> LEAD_INCOHERENT
                                  # (an 'ok' page goes to needs_confirmation); null = off
+  weak_grid_guard: true          # SD-124: a page read on a weak grid (quality.weak_grid_agree) needs coherent beats on every judgeable lead, else GRID_NOT_FOUND
+  weak_grid_min_verdicts: 3      # ... and at least this many leads with a verdict (>= 3 beats)
   ok_min_overall: 0.6            # overall quality below -> needs_confirmation
 
 artifacts:

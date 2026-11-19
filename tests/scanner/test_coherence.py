@@ -80,3 +80,35 @@ def test_scan_flags_an_incoherent_lead_unless_switched_off(synth_mv, monkeypatch
     ScanResult.model_validate_json(res.model_dump_json())
     monkeypatch.setattr(P, "coherence_by_lead", lambda leads, rhythm, fs: {"V3": 0.95, "V1": None})
     assert P.scan(data, hints=hints, config=cfg).status == "ok"          # above the line, or no verdict: untouched
+
+
+def test_a_read_on_a_weak_grid_must_repeat_itself_on_the_leads_it_can_judge(synth_mv, monkeypatch):
+    """SD-124: weak-grid pages are refused (GRID_NOT_FOUND) unless >= 3 leads have a verdict and all are coherent."""
+    import copy
+    import dataclasses
+
+    import cv2
+
+    from ecgscan import pipeline as P
+    from ecgscan.bench.render import RenderSpec, render_page
+    from ecgscan.config import load_yaml
+    from ecgscan.layout import get_layout
+
+    img, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=10.0, header=False))
+    data, hints = cv2.imencode(".png", img)[1].tobytes(), P.ScanHints(paper_speed_mm_s=25, gain_mm_mv=10)
+    cfg = copy.deepcopy(load_yaml("pipeline.yaml"))
+    monkeypatch.setattr(P, "_weak_grid", lambda raw, q: dataclasses.replace(raw))    # as if accepted through the weak path
+
+    def scan(coh):
+        monkeypatch.setattr(P, "coherence_by_lead", lambda leads, rhythm, fs: coh)
+        return P.scan(data, hints=hints, config=cfg)
+
+    good = {"I": 0.99, "II": 0.98, "III": 0.97, "V1": None}
+    assert scan(good).status != "rejected"                                              # coherent: kept
+    res = scan({**good, "III": 0.6})
+    assert res.status == "rejected" and "GRID_NOT_FOUND" in res.reject_reasons          # one incoherent lead: refused
+    assert scan({"I": 0.99, "II": 0.99, "V1": None}).status == "rejected"                # only 2 verdicts: cannot judge
+    cfg["validate"]["weak_grid_guard"] = False
+    assert scan({"I": 0.2}).status != "rejected"                                         # guard off: as SD-123
+    monkeypatch.undo()
+    assert P.scan(data, hints=hints, config=cfg).status != "rejected"                    # a normally read page: untouched
