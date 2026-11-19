@@ -513,6 +513,7 @@ _RUN_RECOVERED_SHIFT_MS = 40.0
 # shifted match is near-perfect: the same shape displaced, not a wide complex that
 # partly lines up (a plain shift for every beat cost INCART VT 46 -> 42, D87).
 _RUN_SHIFTED_RESCUE_MIN = 0.95
+_RUN_RECOVER = False                          # D314 (under test): recover missed complexes before the run search
 _RUN_TEMPLATE_NARROW_MS: float | None = 20.0   # D307: template from beats within this (ms) of the narrowest QRS
 # D265 (tuned in D264 on MIT-BIH + even INCART): a run at the strip's start or end (no beat before or
 # after it): at least this many abnormal beats, inner RR <= this share of the reference RR. 0 turns it off.
@@ -553,6 +554,10 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
     rp = np.asarray(rpeaks, dtype=int)
     if rp.size < 6:
         return []
+    if _RUN_RECOVER:
+        # D314: wide complexes inside a run are what the R detector misses most (10 of 18 missed 3-beat runs); the
+        # couplet rule's recovery (D254) adds complexes the multi-lead envelope shows but the detector skipped
+        rp = _with_missed_complexes(sig, rp, fs)
     leads = [n for n in _RUN_LEADS if n in sig.lead_names] or list(sig.lead_names[:3])
     half = int(_PVC_HALF_S * fs)
     n_samples = sig.signal.shape[1]
