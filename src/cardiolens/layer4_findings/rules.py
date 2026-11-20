@@ -896,6 +896,8 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
                     or (lbbb_idt is not None and idt is not None and idt >= lbbb_idt))
     if term is False and not lbbb_support:
         term = None
+    if term is True and _lbbb_read_as_rbbb(m):
+        term = False   # D336
     if term is True:
         fs.findings.append(Finding(
             code="rbbb", group="interval",
@@ -1028,6 +1030,26 @@ _SECONDARY_ST_CONTEXT = {"rbbb", "lbbb", "wpw_preexcitation", "lvh"}
 # secondary change is ST depression / T inversion in V1-V3, so ST elevation with
 # an RBBB is primary (acute anterior MI with RBBB was vetoed on PTBDB, D38).
 _ELEVATION_MIMIC_CONTEXT = {"lbbb", "wpw_preexcitation", "lvh"}
+
+
+LBBB_V1_ST_QRS_MS = 150.0       # D336: a "positive V1 terminal" is LBBB's discordant ST, not an R', when the QRS is at least
+LBBB_V1_ST_IDT_MS = 65.0        # ... this wide, the V5-V6 R peaks at least this late (intrinsicoid deflection),
+LBBB_V1_ST_R_EQ_J_UV = 60.0     # ... V1 is net negative (deep S) and its "R" is no taller than its J point (+- this)
+
+
+def _lbbb_read_as_rbbb(m: Measurements) -> bool:
+    """D336: complete LBBB typed as RBBB — the discordant ST elevation in V1 fills the terminal window like an R'.
+
+    PTB-XL CLBBB named rbbb (19 / 329): V1 deep S (net -600 ... -4 200 uV) and its "R" equal to the J level, QRS 150-208 ms,
+    V5-V6 intrinsicoid 68-116 ms. An anterior STEMI whose elevation makes V1 read as RBBB has a short intrinsicoid
+    deflection (30-47 ms) and QRS 111-129 ms (elevation added to 240 PTB-XL anterior-MI records), true RBBB a real R'."""
+    qrs, idt = m.intervals.qrs_ms, (m.voltages.intrinsicoid_v5_v6_ms if m.voltages is not None else None)
+    if qrs is None or idt is None or qrs < LBBB_V1_ST_QRS_MS or idt < LBBB_V1_ST_IDT_MS or m.qrs_width_from_retry:
+        return False
+    v1 = next((st for st in m.morphology.st if st.lead == "V1"), None)
+    if v1 is None or None in (v1.qrs_net_uv, v1.r_height_uv, v1.j_point_uv):
+        return False
+    return v1.qrs_net_uv < 0 and abs(v1.r_height_uv - v1.j_point_uv) <= LBBB_V1_ST_R_EQ_J_UV
 
 
 def _st_thresholds(norms, patient, lead: str) -> tuple[float | None, float | None]:
