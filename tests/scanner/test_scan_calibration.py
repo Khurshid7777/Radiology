@@ -233,8 +233,8 @@ def test_a_grid_re_read_far_from_the_predicted_scale_is_not_used(synth_mv, monke
     real = R.estimate_grid
     calls = []
 
-    def harmonic(bgr):
-        g = real(bgr)
+    def harmonic(bgr, **kw):
+        g = real(bgr, **kw)
         calls.append(g)
         return GridEstimate(17.9, g.px_per_mm_y, 0.3, 0.4, "gray", 0.03) if len(calls) == 1 else g
 

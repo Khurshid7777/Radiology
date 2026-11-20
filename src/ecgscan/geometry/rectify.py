@@ -53,7 +53,8 @@ def tile_residual(bgr: np.ndarray, ppm: float, tiles: tuple[int, int] = (2, 3)) 
     vals = []
     for i in range(tiles[0]):
         for j in range(tiles[1]):
-            g = estimate_grid(bgr[i * th:(i + 1) * th, j * tw:(j + 1) * tw])
+            # no brightness override here (SD-122): a tile's pitch is a spread measure, not a second opinion on the scale
+            g = estimate_grid(bgr[i * th:(i + 1) * th, j * tw:(j + 1) * tw], gray_overrules_chroma=False)
             if g.px_per_mm is not None and g.confidence >= 0.5 and abs(g.px_per_mm - ppm) < 0.2 * ppm:
                 vals.append(g.px_per_mm)
     if len(vals) < 3:
