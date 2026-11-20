@@ -1022,6 +1022,7 @@ def _fascicular_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
         ))
 
 
+WIDE_QRS_MIMIC_MS = 120.0   # D333: measured QRS at/above this — discordant elevation judged as under a block
 _SECONDARY_ST_CONTEXT = {"rbbb", "lbbb", "wpw_preexcitation", "lvh"}
 # Contexts whose expected repolarisation can mimic ST ELEVATION (discordant to a
 # negative QRS): LBBB, pre-excitation, LVH strain. RBBB is not one of them — its
@@ -1105,6 +1106,12 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
     # is discordant to the QRS; only concordant deviations count as primary.
     secondary_ctx = bool(fs.codes() & _SECONDARY_ST_CONTEXT)
     elevation_mimic_ctx = bool(fs.codes() & _ELEVATION_MIMIC_CONTEXT)
+    # D333: a measured wide QRS is the same mimic when no block was named (PTB-XL CLBBB named neither or RBBB: V1-V3
+    # elevation against a deep S raised STEMI). Smith-modified Sgarbossa holds for any wide complex; RBBB with an
+    # anterior STEMI is untouched (its V1-V3 QRS is positive, the elevation concordant).
+    qrs = m.intervals.qrs_ms
+    if qrs is not None and qrs >= WIDE_QRS_MIMIC_MS and not m.qrs_width_from_retry:
+        elevation_mimic_ctx = True
     # Early repolarisation (D66, pediatric table): elevation that is small next to
     # the lead's own T wave and upsloping is the juvenile normal variant.
     er_ratio = thr.get("early_repolarisation_j_t_ratio_max")
