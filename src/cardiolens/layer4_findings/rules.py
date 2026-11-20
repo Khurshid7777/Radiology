@@ -452,7 +452,7 @@ def detect_findings(
     # Pathological Q (old MI) and the Brugada type-1 pattern on the median beat (ported
     # from claude/vibrant-curie-ro1zsz D36, D89, D90). LBBB suppresses Brugada as in the source.
     _q_wave_findings(m, norms, fs)
-    if fs.by_code("lbbb") is None:
+    if fs.by_code("lbbb") is None or _lbbb_by_v1_st(fs):   # D336: that LBBB label does not hide a Brugada V1
         _brugada_pattern(m, fs)
 
     # D265: a regular tachycardia >= the SVT rate whose complexes carry a bundle-branch-block pattern is a
@@ -896,7 +896,8 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
                     or (lbbb_idt is not None and idt is not None and idt >= lbbb_idt))
     if term is False and not lbbb_support:
         term = None
-    if term is True and _lbbb_read_as_rbbb(m):
+    via_v1_st = term is True and _lbbb_read_as_rbbb(m)
+    if via_v1_st:
         term = False   # D336
     if term is True:
         fs.findings.append(Finding(
@@ -911,7 +912,8 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
             code="lbbb", group="interval",
             label_ru=f"Полная блокада левой ножки (QRS {iv.qrs_ms} мс)",
             label_uz=f"Chap oyoqcha to'liq blokadasi (QRS {iv.qrs_ms} ms)",
-            evidence=_ev(qrs_ms=iv.qrs_ms, v1_terminal="negative", v6_terminal="positive"),
+            evidence=_ev(qrs_ms=iv.qrs_ms, v1_terminal="positive_st" if via_v1_st else "negative", v6_terminal="positive",
+                         **({"route": D336_ROUTE} if via_v1_st else {})),
             confidence=0.72,
         ))
     else:
@@ -1037,6 +1039,14 @@ LBBB_V1_ST_IDT_MS = 65.0        # ... this wide, the V5-V6 R peaks at least this
 LBBB_V1_ST_R_EQ_J_UV = 60.0     # ... V1 is net negative (deep S) and its "R" is no taller than its J point (+- this)
 
 
+D336_ROUTE = "v1_st_as_r_prime"
+
+
+def _lbbb_by_v1_st(fs: FindingSet) -> bool:
+    f = fs.by_code("lbbb")
+    return f is not None and any(e.feature == "route" and e.value == D336_ROUTE for e in f.evidence)
+
+
 def _lbbb_read_as_rbbb(m: Measurements) -> bool:
     """D336: complete LBBB typed as RBBB — the discordant ST elevation in V1 fills the terminal window like an R'.
 
@@ -1125,8 +1135,11 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
     proportional: list[str] = []
     # With a bundle branch block, pre-excitation or LVH the expected repolarisation
     # is discordant to the QRS; only concordant deviations count as primary.
-    secondary_ctx = bool(fs.codes() & _SECONDARY_ST_CONTEXT)
-    elevation_mimic_ctx = bool(fs.codes() & _ELEVATION_MIMIC_CONTEXT)
+    # D336: an LBBB named only because V1's "R'" was its discordant ST is a report label; for ST it stays what it was
+    # (RBBB — no mimic context), since anterior ST elevation itself can produce that reading (review D336: STEMI lost).
+    st_codes = (fs.codes() - {"lbbb"}) | {"rbbb"} if _lbbb_by_v1_st(fs) else fs.codes()
+    secondary_ctx = bool(st_codes & _SECONDARY_ST_CONTEXT)
+    elevation_mimic_ctx = bool(st_codes & _ELEVATION_MIMIC_CONTEXT)
     # Early repolarisation (D66, pediatric table): elevation that is small next to
     # the lead's own T wave and upsloping is the juvenile normal variant.
     er_ratio = thr.get("early_repolarisation_j_t_ratio_max")

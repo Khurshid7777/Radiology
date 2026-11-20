@@ -38,3 +38,14 @@ def test_missing_measurements_keep_rbbb():
     m.morphology.st = []
     assert not _lbbb_read_as_rbbb(m)
     assert not _lbbb_read_as_rbbb(_m(idt=None))
+
+
+def test_v1_st_lbbb_label_does_not_silence_stemi():
+    """Review D336: anterior elevation can itself produce the reading; for ST the record stays as it was (RBBB)."""
+    from cardiolens.contracts.findings import Evidence, Finding, FindingSet
+    from cardiolens.layer4_findings.rules import D336_ROUTE, _lbbb_by_v1_st
+    f = Finding(code="lbbb", group="interval", label_ru="x", label_uz="x", confidence=0.7,
+                evidence=[Evidence(feature="route", value=D336_ROUTE)])
+    assert _lbbb_by_v1_st(FindingSet(findings=[f]))
+    plain = Finding(code="lbbb", group="interval", label_ru="x", label_uz="x", confidence=0.7, evidence=[])
+    assert not _lbbb_by_v1_st(FindingSet(findings=[plain]))
