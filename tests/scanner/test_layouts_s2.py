@@ -73,3 +73,16 @@ def test_6x2_rhythm_is_known_but_never_proposed_by_the_detector(synth_mv):
     assert res.layout.name != "6x2+rhythm"
     res = scan(_png(synth_mv, "6x2+rhythm"), hints=ScanHints(layout="6x2+1R", paper_speed_mm_s=25, gain_mm_mv=10))
     assert res.layout.name == "6x2+rhythm" and res.status != "rejected"
+
+
+def test_every_layout_the_app_offers_is_known_to_the_registry():
+    """The mobile app's layout chips (widgets.dart) are the doctor's choices; each must resolve on the server (SD-129)."""
+    import re
+    from pathlib import Path
+
+    src = Path("mobile/ecg_scanner/lib/ui/widgets.dart").read_text()
+    names = re.search(r"const layoutTemplates = \[(.*?)\];", src, re.DOTALL).group(1)
+    templates = re.findall(r"'([^']+)'", names)
+    assert "6x2+rhythm" in templates and len(templates) >= 5
+    for t in templates:
+        assert layout_name(t) in available_layouts(), t
