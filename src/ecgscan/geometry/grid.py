@@ -238,7 +238,7 @@ SQUARE_TOL = 0.15             # x and y pitch may differ this much (perspective,
 
 
 def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm: float = 40.0,
-                  min_score: float = 0.2) -> GridEstimate:
+                  min_score: float = 0.2, gray_overrules_chroma: bool = True) -> GridEstimate:
     """Grid pitch along x and y; ``None`` where no lattice is found."""
     best: GridEstimate | None = None
     chroma_est: GridEstimate | None = None
@@ -281,7 +281,7 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
         if name == "chroma" and est.px_per_mm is not None:
             chroma_est = est                    # SD-122: brightness is still read, it may contradict this
             continue
-        if (chroma_est is not None and mono and est.px_per_mm is not None
+        if (chroma_est is not None and mono and gray_overrules_chroma and est.px_per_mm is not None
                 and abs(px - py) <= MONO_AGREE * max(px, py)
                 and min(sx, sy) / CONF_SCALE >= GRAY_OVERRULES_CHROMA
                 and abs(est.px_per_mm - chroma_est.px_per_mm) > SQUARE_TOL * max(est.px_per_mm, chroma_est.px_per_mm)):

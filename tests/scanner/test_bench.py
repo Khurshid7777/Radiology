@@ -304,3 +304,4 @@ def test_a_pale_tinted_grid_saved_as_jpeg_is_not_overruled_by_brightness(tmp_pat
     assert 8.0 < g.px_per_mm < 11.0 and g.channel == "chroma"
     res = scan(str(jpg))
     assert res.status != "rejected" and 8.0 < res.quality.px_per_mm < 11.0
+    assert res.calibration.grid_residual_mm is not None and res.calibration.grid_residual_mm < 0.5   # tiles: no override (SD-122)
