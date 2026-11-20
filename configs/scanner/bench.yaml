@@ -75,6 +75,13 @@ slices:
   grid_black_6x2:    {suite_only: true, layout: "6x2", render: {grid: black}, degrade: *photo}
   grid_black_12x1:   {suite_only: true, layout: "12x1", render: {grid: black}, degrade: {jpeg_quality: 95}}
 
+  # R8, SD-128: a dotted (halftone) grid: dots on the 1-mm lattice, dashed 5-mm lines (PM-ECG-ID img_25, 45, 57, 60, 65, 97).
+  dotted_scan:       {suite_only: true, render: {grid: dotted_black, grid_style: dotted}, degrade: {jpeg_quality: 95}}
+  dotted_photo:      {suite_only: true, render: {grid: dotted_black, grid_style: dotted}, degrade: *photo}
+  dotted_6x2:        {suite_only: true, layout: "6x2", render: {grid: dotted_black, grid_style: dotted}, degrade: {jpeg_quality: 95}}
+  dotted_6x2_photo:  {suite_only: true, layout: "6x2", render: {grid: dotted_black, grid_style: dotted}, degrade: *photo}
+  dotted_12x1:       {suite_only: true, layout: "12x1", render: {grid: dotted_black, grid_style: dotted}, degrade: {jpeg_quality: 95}}
+
   # R8, SD-113: baseline drift as in real records (PM-ECG-ID found rows overlapping and LAYOUT_UNKNOWN).
   scan_wander_1:   {suite_only: true, wander_mv: 1.0, degrade: {jpeg_quality: 95}}
   scan_wander_2:   {suite_only: true, wander_mv: 2.0, degrade: {jpeg_quality: 95}}
@@ -104,6 +111,9 @@ suites:
   grid_dark:                    # SD-120: dev suite for the dark grid in the ink mask
     cases_per_slice: 8
     slices: [grid_black_scan, grid_black_photo, grid_dark_red_photo, grid_brown_photo, grid_black_6x2, grid_black_12x1]
+  dotted:                       # SD-128: dev suite for dotted (halftone) grids
+    cases_per_slice: 8
+    slices: [dotted_scan, dotted_photo, dotted_6x2, dotted_6x2_photo, dotted_12x1]
   coarse:                       # D170 acceptance: messenger copies at ~3-4 px/mm
     cases_per_slice: 6
     slices: [coarse_3x4_3ppm, coarse_3x4_4ppm, coarse_6x2_3ppm, coarse_6x2_4ppm, coarse_6x2_thermal]
