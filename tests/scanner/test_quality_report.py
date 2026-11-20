@@ -64,3 +64,15 @@ def test_the_capture_tips_exist_in_both_languages_and_in_the_app_copy():
             assert "6×2+" in d["reject.LAYOUT_UNKNOWN"] or "6×2+ritm" in d["reject.LAYOUT_UNKNOWN"]
     app_src = (root / "mobile/ecg_scanner/lib/ui/camera_screen.dart").read_text()
     assert "capture_tips" in app_src and "capture.tips_body" in app_src
+
+
+def test_one_tap_speed_and_gain_confirmation_is_an_explicit_button_in_the_app():
+    """SD-131: shown only while speed or gain is unset; sends 25 / 10 as a 'corrected' decision the doctor pressed."""
+    root = Path(__file__).resolve().parents[2]
+    src = (root / "mobile/ecg_scanner/lib/ui/confirm_screen.dart").read_text()
+    assert "confirm_defaults" in src and "_speed == null || _gain == null" in src
+    assert "paperSpeedMmS: 25, gainMmMv: 10" in src and "'corrected'" in src
+    for base in ("configs/scanner/i18n", "mobile/ecg_scanner/assets/i18n"):
+        for lang in ("ru", "uz"):
+            d = json.loads((root / base / f"{lang}.json").read_text(encoding="utf-8"))
+            assert "25" in d["app.confirm_defaults"] and "10" in d["app.confirm_defaults"]

@@ -73,6 +73,7 @@
   "app.title": "EKG-skaner",
   "capture.tips_title": "EKGni qanday suratga olish",
   "capture.tips_body": "• Varaqni tekis qo‘ying va burmalarni to‘g‘rilang: g‘ijim qog‘oz rad etishning keng tarqalgan sababi.\n• Yorug‘lik tepadan va bir tekis bo‘lsin, yaltirash va soyasiz. Chaqmoqni yoqmang.\n• Qog‘oz varaqni suratga oling, asbob ekranini emas: ekran surati o‘qilmaydi.\n• Kadrda butun varaq bo‘lsin, qatorlar boshidagi kalibrlash impulsi bilan birga. Telefon varaqqa parallel bo‘lsin.\n• To‘r juda qora yoki varaq g‘ijim bo‘lsa, uni skanerlang va siqilmagan fayl sifatida yuboring.\n• Tezlik va kuchaytirishni bilsangiz, belgilang.",
+  "app.confirm_defaults": "To‘g‘ri: 25 mm/s va 10 mm/mV",
   "app.capture": "EKGni suratga olish",
   "app.history": "Tarix",
   "app.settings": "Sozlamalar",
