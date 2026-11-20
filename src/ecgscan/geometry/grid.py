@@ -225,6 +225,15 @@ PEAK_PROMINENCE = 8.0         # spectral peaks this many medians above the floor
 MINOR_MIN = 3.0               # spectral magnitude at the 1-mm frequency, in units of the median
 SUBHARMONIC_ACCEPT = 0.5      # a divisor pitch is preferred when it scores at least this fraction
 CONF_SCALE = 3.0              # comb score (in spectral medians) that counts as full confidence
+# SD-122: on a JPEG of a grey / b/w page the chroma channel is block noise whose comb can win ("chroma first"); the
+# brightness channel's pitch overrules it when that one is confident on its own (score / CONF_SCALE at the grid floor).
+# Only on a page without colour (chroma 99th percentile below MONO_CHROMA): a coloured page's chroma is the grid.
+GRAY_OVERRULES_CHROMA = 0.3
+MONO_CHROMA = 8.0
+# ... and only when brightness itself reads a square grid: its x and y pitches agree this closely. A pale tinted grid
+# saved as JPEG (chroma 99th percentile 6) has no visible grid in brightness and a spurious comb there (core's
+# synthetic page: 36.9 / 39.2 px/mm for a true 10); a real neutral grid gives equal pitches on both axes (12.0 / 12.0).
+MONO_AGREE = 0.03
 SQUARE_TOL = 0.15             # x and y pitch may differ this much (perspective, non-square pixels)
 
 
@@ -232,7 +241,9 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
                   min_score: float = 0.2) -> GridEstimate:
     """Grid pitch along x and y; ``None`` where no lattice is found."""
     best: GridEstimate | None = None
+    chroma_est: GridEstimate | None = None
     lines = {ax: _channels(_sampled(img, ax)) for ax in (1, 0)}     # both as [lines, samples]
+    mono = "chroma" in lines[1] and float(np.percentile(lines[1]["chroma"], 99)) < MONO_CHROMA
     for name in lines[1]:
         res = []
         for axis in (1, 0):
@@ -268,10 +279,18 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
         # (a 12x1 strip's row pitch is a strong lattice in brightness). Brightness is the
         # fallback for grey grids only.
         if name == "chroma" and est.px_per_mm is not None:
+            chroma_est = est                    # SD-122: brightness is still read, it may contradict this
+            continue
+        if (chroma_est is not None and mono and est.px_per_mm is not None
+                and abs(px - py) <= MONO_AGREE * max(px, py)
+                and min(sx, sy) / CONF_SCALE >= GRAY_OVERRULES_CHROMA
+                and abs(est.px_per_mm - chroma_est.px_per_mm) > SQUARE_TOL * max(est.px_per_mm, chroma_est.px_per_mm)):
             return est
+        if chroma_est is not None:
+            return chroma_est
         if best is None or min(sx, sy) > min(best.score_x, best.score_y):
             best = est
-    return best  # type: ignore[return-value]
+    return chroma_est if chroma_est is not None else best  # type: ignore[return-value]
 
 
 WEAK_SHARE = 0.25             # anchored: the other axis near the anchor's pitch scores at least this share

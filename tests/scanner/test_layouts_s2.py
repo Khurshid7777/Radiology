@@ -61,3 +61,28 @@ def test_a_device_profile_confirms_the_layout_the_page_shows(synth_mv, monkeypat
     other = scan(_png(synth_mv, "3x4+rhythm"), hints=ScanHints(device_profile="machine-1"))
     assert other.layout.name == "3x4+rhythm" and other.layout.device_profile_id is None
 
+
+
+def test_6x2_rhythm_is_known_but_never_proposed_by_the_detector(synth_mv):
+    """SD-115: the doctor may name it; the row detector does not offer it (it took 3x4+rhythm and 6x2 pages)."""
+    spec = get_layout("6x2+1R")                       # the alias PM-ECG-ID and the client templates use
+    assert spec.name == "6x2+rhythm" and layout_name("6x2+rhythm") == "6x2+rhythm"
+    assert spec.n_trace_rows == 7 and spec.record_s == 10.0 and spec.rhythm == ("II",)
+    assert not spec.auto_detect and all(s.auto_detect for n, s in available_layouts().items() if n != "6x2+rhythm")
+    res = scan(_png(synth_mv, "6x2+rhythm"), debug=ScanDebug())          # no hint: seven rows, no layout offered
+    assert res.layout.name != "6x2+rhythm"
+    res = scan(_png(synth_mv, "6x2+rhythm"), hints=ScanHints(layout="6x2+1R", paper_speed_mm_s=25, gain_mm_mv=10))
+    assert res.layout.name == "6x2+rhythm" and res.status != "rejected"
+
+
+def test_every_layout_the_app_offers_is_known_to_the_registry():
+    """The mobile app's layout chips (widgets.dart) are the doctor's choices; each must resolve on the server (SD-129)."""
+    import re
+    from pathlib import Path
+
+    src = Path("mobile/ecg_scanner/lib/ui/widgets.dart").read_text()
+    names = re.search(r"const layoutTemplates = \[(.*?)\];", src, re.DOTALL).group(1)
+    templates = re.findall(r"'([^']+)'", names)
+    assert "6x2+rhythm" in templates and len(templates) >= 5
+    for t in templates:
+        assert layout_name(t) in available_layouts(), t

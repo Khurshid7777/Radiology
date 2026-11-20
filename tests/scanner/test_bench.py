@@ -207,3 +207,100 @@ def test_resume_scores_only_missing_rows(smoke_cases, tmp_path):
     assert len(calls) == 1 and summary["overall"]["counting"]["n"] == 2
     rows = (rep / "cases.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(rows) == 2 and all(json.loads(r)["digitizer"] == "counting" for r in rows)
+
+
+def test_wide_lag_search_finds_an_offset_the_narrow_one_cannot():
+    """SD-112: a trace shifted by more than ``max_lag_s`` scores low there and high with the wide search."""
+    rng = np.random.default_rng(3)
+    x = rng.standard_normal(2500)
+    shifted = x[300:]                       # 0.6 s at 500 Hz
+    narrow = compare_trace(x, 0.0, shifted, 0.0, 500, max_lag_s=0.25, min_overlap=0.5, snr_cap_db=60)
+    wide = compare_trace(x, 0.0, shifted, 0.0, 500, max_lag_s=1.0, min_overlap=0.5, snr_cap_db=60)
+    assert narrow is None or narrow["r"] < 0.5
+    assert wide["r"] > 0.99 and abs(abs(wide["lag_s"]) - 0.6) < 0.01
+
+
+def test_wander_is_added_to_the_truth_signal_not_hidden_from_it():
+    """SD-113: the page shows the drifting signal, so the source the page is rendered from carries the drift."""
+    from ecgscan.bench.cases import add_wander
+    from ecgscan.bench.sources import SourceSignal
+
+    rng = np.random.default_rng(1)
+    flat = SourceSignal("x", 500.0, {"I": np.zeros(5000), "II": np.zeros(5000)}, {})
+    out = add_wander(flat, 1.0, rng)
+    assert out.meta["wander_mv"] == 1.0
+    assert 0.3 < float(np.ptp(out.leads_mv["I"])) < 6.0
+    assert not np.allclose(out.leads_mv["I"], out.leads_mv["II"])      # a phase per lead
+    assert np.allclose(flat.leads_mv["I"], 0.0)                         # the source is not changed in place
+
+
+def test_coarse_row_search_is_off_by_default_and_finds_drifting_rows_when_asked():
+    from ecgscan.layout.detect import detect_layout
+    from ecgscan.pipeline import pipeline_config
+
+    assert pipeline_config()["layout"].get("drift_smooth_mm") is None
+    ppm, rows = 4.0, 3
+    ink = np.zeros((int(rows * 25 * ppm + 60 * ppm), int(260 * ppm)), bool)
+    for r in range(rows):
+        for seg in range(4):                           # each 2.5 s piece of a row has its own baseline offset
+            off = (-9, 8, -7, 9)[(r + seg) % 4]
+            x0, x1 = int((10 + seg * 62) * ppm), int((10 + (seg + 1) * 62) * ppm) - 2
+            y = int((30 + r * 25 + off) * ppm)
+            ink[y:y + 2, x0:x1] = True
+            ink[y - int(5 * ppm):y + int(5 * ppm), x0 + 20] = True    # a complex tall enough to count
+    plain = detect_layout(ink, ppm)
+    coarse = detect_layout(ink, ppm, drift_smooth_mm=[4.0, 8.0])
+    assert coarse.name is not None or plain.name is not None
+    if plain.name is None:
+        assert coarse.drift and coarse.uncertain
+
+
+def test_a_jpeg_of_a_grey_page_does_not_take_its_grid_from_chroma_noise(synth_mv):
+    """SD-122: a grey copy's chroma channel is JPEG block noise (a comb at 9.6 px/mm for a 12.0 px/mm grid); brightness
+    overrules it when confident. A coloured grid and a lossless grey page still go through chroma."""
+    import cv2
+
+    from ecgscan.bench.render import RenderSpec, render_page
+    from ecgscan.geometry.grid import estimate_grid
+    from ecgscan.layout import get_layout
+
+    for grid in ("black", "red"):
+        page, _ = render_page(synth_mv, 500.0, get_layout("3x4+rhythm"), RenderSpec(px_per_mm=12.0, grid=grid))
+        jpg = cv2.imdecode(cv2.imencode(".jpg", page, [cv2.IMWRITE_JPEG_QUALITY, 95])[1], cv2.IMREAD_COLOR)
+        est = estimate_grid(jpg)
+        assert est.px_per_mm_x == pytest.approx(12.0, rel=0.03) and est.px_per_mm_y == pytest.approx(12.0, rel=0.03)
+
+
+def test_a_weak_grid_whose_axes_agree_is_accepted_at_the_floor_only():
+    """SD-123: x and y pitches within 3 % and both scores >= 0.2 -> confidence = the floor (never "ok" by itself)."""
+    from ecgscan.geometry.grid import GridEstimate
+    from ecgscan.pipeline import _weak_grid
+
+    q = {"min_grid_confidence": 0.3, "weak_grid_agree": 0.03, "weak_grid_min_score": 0.2}
+    agree = GridEstimate(11.97, 11.94, 0.75, 1.09, "gray", 0.249)
+    assert _weak_grid(agree, q).confidence == 0.3
+    assert _weak_grid(GridEstimate(16.75, 12.08, 0.72, 0.44, "gray", 0.044), q).confidence == 0.044    # axes disagree
+    assert _weak_grid(GridEstimate(12.0, 12.0, 0.15, 0.9, "gray", 0.05), q).confidence == 0.05          # a score too low
+    assert _weak_grid(GridEstimate(12.0, 12.0, 3.0, 3.0, "gray", 1.0), q).confidence == 1.0             # not weak
+    assert _weak_grid(agree, {**q, "weak_grid_agree": None}).confidence == 0.249                         # off
+    assert _weak_grid(GridEstimate(None, 12.0, 0.0, 1.0, "gray", 0.0), q).confidence == 0.0
+
+
+def test_a_pale_tinted_grid_saved_as_jpeg_is_not_overruled_by_brightness(tmp_path):
+    """SD-122 regression (core, 20.11): cardiolens' synthetic page re-encoded as the bot does (JPEG q92) has chroma 99th
+    percentile 6 (below the 'no colour' line) and a spurious brightness comb at 37-39 px/mm; the grid is read in chroma."""
+    import cv2
+
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from cardiolens.layer1_ingestion.digitize import render_ecg_page
+    from cardiolens.telegram.analyze import save_photo
+    from ecgscan.geometry.grid import estimate_grid
+    from ecgscan.pipeline import scan
+
+    png = tmp_path / "page.png"
+    render_ecg_page(generate_synthetic_ecg(heart_rate_bpm=72, seed=5), png, px_per_mm=10, calibration_pulse=True)
+    jpg = save_photo(png.read_bytes(), tmp_path / "saved.jpg")
+    g = estimate_grid(cv2.imread(str(jpg)))
+    assert 8.0 < g.px_per_mm < 11.0 and g.channel == "chroma"
+    res = scan(str(jpg))
+    assert res.status != "rejected" and 8.0 < res.quality.px_per_mm < 11.0

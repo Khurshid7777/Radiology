@@ -63,6 +63,30 @@ slices:
   coarse_6x2_thermal: {suite_only: true, layout: "6x2", render: {grid: gray, grid_fade: 0.3, trace_gray: 40},
                        degrade: {<<: *photo, background: 0.03, low_light: 0.31, max_side_px: 1280, jpeg_quality: 70}}
 
+  # R8, SD-115: six rows x two columns and a lead-II strip (seven trace rows).
+  layout_6x2_rhythm:      {suite_only: true, layout: "6x2+rhythm", degrade: {jpeg_quality: 95}}
+  photo_6x2_rhythm:       {suite_only: true, layout: "6x2+rhythm", degrade: *photo}
+
+  # R8, SD-120: dark grids (a b/w copy, a red grid gone dark or brown on a phone): the grid is in the ink mask.
+  grid_black_scan:   {suite_only: true, render: {grid: black}, degrade: {jpeg_quality: 95}}
+  grid_black_photo:  {suite_only: true, render: {grid: black}, degrade: *photo}
+  grid_dark_red_photo: {suite_only: true, render: {grid: dark_red}, degrade: *photo}
+  grid_brown_photo:  {suite_only: true, render: {grid: brown}, degrade: *photo}
+  grid_black_6x2:    {suite_only: true, layout: "6x2", render: {grid: black}, degrade: *photo}
+  grid_black_12x1:   {suite_only: true, layout: "12x1", render: {grid: black}, degrade: {jpeg_quality: 95}}
+
+  # R8, SD-128: a dotted (halftone) grid: dots on the 1-mm lattice, dashed 5-mm lines (PM-ECG-ID img_25, 45, 57, 60, 65, 97).
+  dotted_scan:       {suite_only: true, render: {grid: dotted_black, grid_style: dotted}, degrade: {jpeg_quality: 95}}
+  dotted_photo:      {suite_only: true, render: {grid: dotted_black, grid_style: dotted}, degrade: *photo}
+  dotted_6x2:        {suite_only: true, layout: "6x2", render: {grid: dotted_black, grid_style: dotted}, degrade: {jpeg_quality: 95}}
+  dotted_6x2_photo:  {suite_only: true, layout: "6x2", render: {grid: dotted_black, grid_style: dotted}, degrade: *photo}
+  dotted_12x1:       {suite_only: true, layout: "12x1", render: {grid: dotted_black, grid_style: dotted}, degrade: {jpeg_quality: 95}}
+
+  # R8, SD-113: baseline drift as in real records (PM-ECG-ID found rows overlapping and LAYOUT_UNKNOWN).
+  scan_wander_1:   {suite_only: true, wander_mv: 1.0, degrade: {jpeg_quality: 95}}
+  scan_wander_2:   {suite_only: true, wander_mv: 2.0, degrade: {jpeg_quality: 95}}
+  photo_wander_1:  {suite_only: true, wander_mv: 1.0, degrade: *photo}
+
   # S3 (TZ 18.7): shadow removal ablation. Light paper under a shadow across the sheet.
   photo_shadow_mid:    {suite_only: true, degrade: {<<: *photo, shadow: 0.45}}
   photo_shadow_strong: {suite_only: true, degrade: {<<: *photo, shadow: 0.65, vignette: 0.3}}
@@ -78,6 +102,18 @@ suites:
   ablation_shadow:              # S3, TZ 18.7: the illumination step on / off (scripts in reports/scanner/s3-shadow)
     cases_per_slice: 8
     slices: [photo_clean, photo_shadow_mid, photo_shadow_strong, photo_low_light, faded_thermal, photo_stains]
+  layout_6x2_rhythm:            # R8, SD-115
+    cases_per_slice: 12
+    slices: [layout_6x2_rhythm, photo_6x2_rhythm]
+  wander:                       # R8, SD-113: drifting baseline
+    cases_per_slice: 12
+    slices: [scan_wander_1, scan_wander_2, photo_wander_1]
+  grid_dark:                    # SD-120: dev suite for the dark grid in the ink mask
+    cases_per_slice: 8
+    slices: [grid_black_scan, grid_black_photo, grid_dark_red_photo, grid_brown_photo, grid_black_6x2, grid_black_12x1]
+  dotted:                       # SD-128: dev suite for dotted (halftone) grids
+    cases_per_slice: 8
+    slices: [dotted_scan, dotted_photo, dotted_6x2, dotted_6x2_photo, dotted_12x1]
   coarse:                       # D170 acceptance: messenger copies at ~3-4 px/mm
     cases_per_slice: 6
     slices: [coarse_3x4_3ppm, coarse_3x4_4ppm, coarse_6x2_3ppm, coarse_6x2_4ppm, coarse_6x2_thermal]
@@ -96,6 +132,7 @@ acceptance:
 
 metrics:
   max_lag_s: 0.25               # time-origin search when aligning a trace with the truth
+  wide_lag_s: null              # R8/SD-112: if set, r is also computed after this wider search (reported apart, never the acceptance)
   min_overlap: 0.5              # fraction of the true trace that must overlap after alignment
   snr_cap_db: 60
 

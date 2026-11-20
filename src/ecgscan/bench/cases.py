@@ -78,6 +78,19 @@ def _source(cfg: dict, kind: str, rng: np.random.Generator, seed: int, i: int,
     return synthetic_signal(pick_preset(presets, rng), rng, seed % 100000, duration_s=duration_s)
 
 
+def add_wander(src: SourceSignal, wander_mv: float, rng: np.random.Generator) -> SourceSignal:
+    """R8/SD-113: slow baseline drift as in real PTB-XL records (respiration and electrode drift,
+    0.05-0.5 Hz, up to a few mV): a separate phase per lead, so the leads' drifts differ. The page
+    shows the drifting signal, so the truth is the drifting signal too."""
+    out = {}
+    for lead, x in src.leads_mv.items():
+        t = np.arange(len(x)) / src.fs
+        w = sum(a * np.sin(2 * np.pi * f * t + rng.uniform(0, 2 * np.pi))
+                for a, f in ((rng.uniform(0.4, 1.0), rng.uniform(0.05, 0.15)), (rng.uniform(0.2, 0.6), rng.uniform(0.2, 0.5))))
+        out[lead] = np.asarray(x, dtype=np.float64) + wander_mv * w
+    return SourceSignal(src.source_id, src.fs, out, {**src.meta, "wander_mv": wander_mv})
+
+
 def generate_suite(suite_name: str, out_dir: str | Path, *, cases_per_slice: int | None = None,
                    slices: list[str] | None = None) -> tuple[list[Case], dict[str, str]]:
     """Render every case of a suite; returns (cases, {slice: reason}) for skipped slices."""
@@ -100,6 +113,8 @@ def generate_suite(suite_name: str, out_dir: str | Path, *, cases_per_slice: int
             if src is None:
                 skipped[name] = f"source '{st['source']}' not available ({cfg['sources']['ptbxl_dir']} is empty)"
                 break
+            if st.get("wander_mv"):
+                src = add_wander(src, float(st["wander_mv"]), rng)
             page, truth = render_page(src.leads_mv, src.fs, layout, rspec, fs=float(cfg["fs_hz"]))
             img, info = degrade(page, dspec, seed=seed, px_per_mm=rspec.px_per_mm)
             cid = f"{name}-{i:03d}"

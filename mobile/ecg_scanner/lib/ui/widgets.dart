@@ -24,7 +24,7 @@ class ValueChips extends StatelessWidget {
 }
 
 /// The page layouts a doctor can name (the server's registry keys, TZ 18.5 templates).
-const layoutTemplates = ['3x4+rhythm', '3x4+3rhythm', '6x2', '12x1', 'single'];
+const layoutTemplates = ['3x4+rhythm', '3x4+3rhythm', '6x2', '6x2+rhythm', '12x1', 'single'];
 
 /// The layout the server found, or another one the doctor names (S2).
 class LayoutChips extends StatelessWidget {

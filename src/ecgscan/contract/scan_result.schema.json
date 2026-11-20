@@ -965,7 +965,8 @@
         "GRID_IN_TRACE",
         "SEGMENTER_FALLBACK",
         "RHYTHM_STRIP_ABSENT",
-        "PR_UNSTABLE"
+        "PR_UNSTABLE",
+        "LEAD_INCOHERENT"
       ]
     },
     "capture": {

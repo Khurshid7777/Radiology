@@ -50,6 +50,9 @@ class LayoutSpec:
     # Rows evenly spaced: the widest gap at most this times the narrowest (None: any). A 3x4 page
     # prints evenly; leftover grid lines on a b/w scan leave rows 72 and 33 mm apart (ecgdig 1462-v9).
     max_gap_ratio: float | None = None
+    # False: the layout is known to the registry (a doctor or client may name it) but the row
+    # detector never proposes it: on PM-ECG-ID it took 3x4+rhythm and 6x2 pages for itself (SD-115).
+    auto_detect: bool = True
 
     def column_offset_mm(self, c: int, speed_mm_s: float) -> float:
         """Where column ``c`` starts, in mm from the first column's start."""
@@ -100,6 +103,7 @@ def _from_dict(d: dict) -> LayoutSpec:
         row_pitch_tol=None if d.get("row_pitch_tol") is None else float(d["row_pitch_tol"]),
         clear_below=bool(d.get("clear_below", False)),
         max_gap_ratio=None if d.get("max_gap_ratio") is None else float(d["max_gap_ratio"]),
+        auto_detect=bool(d.get("auto_detect", True)),
     )
 
 

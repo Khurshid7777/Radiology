@@ -111,6 +111,17 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             unit: app.settings.lang == 'uz' ? 'mm/mV' : 'мм/мВ', onChanged: (v) => setState(() => _gain = v)),
         const SizedBox(height: 12),
         Wrap(spacing: 8, runSpacing: 8, children: [
+          // SD-131: speed and gain not set: the doctor states the usual 25 mm/s and 10 mm/mV in one tap
+          // (an explicit statement, not a default sent silently; 50 mm/s and 5 / 20 mm/mV stay on the chips).
+          if (_speed == null || _gain == null)
+            FilledButton.tonal(
+              key: const Key('confirm_defaults'),
+              onPressed: _working || pending
+                  ? null
+                  : () => _act(() => app.api.confirm(widget.scanId, 'corrected',
+                      paperSpeedMmS: 25, gainMmMv: 10, layout: layoutChanged ? _layout : null)),
+              child: Text(app.t('app.confirm_defaults')),
+            ),
           FilledButton(
             key: const Key('accept'),
             onPressed: _working || pending || changed || _speed == null || _gain == null

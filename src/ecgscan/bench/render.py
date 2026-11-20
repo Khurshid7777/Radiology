@@ -34,6 +34,8 @@ GRID_PALETTES = {
     "dark_red": ((160, 160, 205), (110, 115, 170)),
     "brown": ((155, 170, 190), (95, 115, 145)),
     "black": ((150, 150, 150), (60, 60, 60)),
+    # R8, SD-128: a halftone / dotted print (PM-ECG-ID records img_25, 45, 57, 60, 65, 97): dots on the 1-mm lattice, the 5-mm lines dashed.
+    "dotted_black": ((90, 90, 90), (40, 40, 40)),
 }
 PAPER_BGR = (247, 249, 250)
 
@@ -44,6 +46,7 @@ class RenderSpec:
     speed_mm_s: float = 25.0
     gain_mm_mv: float = 10.0
     grid: str = "red"
+    grid_style: str = "solid"       # "dotted": a dot on every 1-mm crossing, dashed 5-mm lines (SD-128)
     trace_mm: float = 0.25          # printed stroke width
     trace_gray: int = 25            # 0 = black; thermal fading raises it
     grid_fade: float = 0.0          # 0..1: grid blends towards paper
@@ -95,10 +98,43 @@ def _blend(color: tuple[int, int, int], fade: float) -> tuple[int, int, int]:
     return tuple(int(round(c + (p - c) * fade)) for c, p in zip(color, PAPER_BGR, strict=True))  # type: ignore[return-value]
 
 
-def _draw_grid(img: np.ndarray, ppm: float, palette: str, fade: float) -> None:
+def _draw_dotted_grid(img: np.ndarray, ppm: float, minor, major) -> None:
+    """Dots (0.3 mm) on the 1-mm lattice, small light dots at the cell centres, 5-mm lines of dashes (0.9 on, 0.5 off)."""
+    import cv2
+
+    h, w = img.shape[:2]
+    r = max(1, int(round(0.15 * ppm)))
+    r_small = max(1, int(round(0.08 * ppm)))
+    light = tuple(int(round((c + p) / 2)) for c, p in zip(minor, PAPER_BGR, strict=True))
+    for j in range(int(h / ppm) + 1):
+        for k in range(int(w / ppm) + 1):
+            cv2.circle(img, (int(round(k * ppm)), int(round(j * ppm))), r, minor, -1, cv2.LINE_AA)
+            # the real prints carry a second, lighter lattice of small dots at the cell centres: a 0.5-mm period along
+            # each axis, which is what the comb search took for the grid (px/mm doubled on PM-ECG-ID img_45 etc.)
+            cv2.circle(img, (int(round((k + 0.5) * ppm)), int(round((j + 0.5) * ppm))), r_small, light, -1, cv2.LINE_AA)
+    th = max(1, int(round(0.12 * ppm)))
+    on, off = 0.9 * ppm, 0.5 * ppm
+    for k in range(0, int(w / ppm) + 1, 5):
+        x = int(round(k * ppm))
+        y = 0.0
+        while y < h:
+            cv2.line(img, (x, int(y)), (x, int(min(h, y + on))), major, th, cv2.LINE_AA)
+            y += on + off
+    for j in range(0, int(h / ppm) + 1, 5):
+        y = int(round(j * ppm))
+        x = 0.0
+        while x < w:
+            cv2.line(img, (int(x), y), (int(min(w, x + on)), y), major, th, cv2.LINE_AA)
+            x += on + off
+
+
+def _draw_grid(img: np.ndarray, ppm: float, palette: str, fade: float, style: str = "solid") -> None:
     import cv2
 
     minor, major = (_blend(c, fade) for c in GRID_PALETTES[palette])
+    if style == "dotted":
+        _draw_dotted_grid(img, ppm, minor, major)
+        return
     h, w = img.shape[:2]
     major_th = max(1, int(round(0.12 * ppm)))
     for k in range(int(w / ppm) + 1):
@@ -156,7 +192,7 @@ def render_page(signals_mv: dict[str, np.ndarray], fs_in: float, layout: LayoutS
     w, h = int(np.ceil(width_mm * ppm)), int(np.ceil(height_mm * ppm))
     img = np.empty((h, w, 3), dtype=np.uint8)
     img[:] = PAPER_BGR
-    _draw_grid(img, ppm, spec.grid, spec.grid_fade)
+    _draw_grid(img, ppm, spec.grid, spec.grid_fade, spec.grid_style)
     ink = (spec.trace_gray,) * 3
     text_ink = ink if spec.text_gray is None else (spec.text_gray,) * 3
     thick = max(1, int(round(spec.trace_mm * ppm)))

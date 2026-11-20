@@ -42,6 +42,7 @@ class LayoutGuess:
     baselines: list[int]
     uncertain: bool
     repeats_open: bool = False      # 6x2 / 3x4+3rhythm left open by the repeats: only the doctor settles it
+    drift: bool = False             # SD-113: found only on a coarse projection (baselines drifting): never settled
 
 
 def _trace_below(ink: np.ndarray, base: list[int], px_per_mm: float, min_height_mm: float, bridge_mm: float,
@@ -210,13 +211,36 @@ def _by_repeats(names: list[str], ink: np.ndarray, base: list[int], px_per_mm: f
 def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
                   pulse_bottoms: list[int] | None = None, stroke_min_height_mm: float = 3.0,
                   stroke_bridge_mm: float = 0.0, exclude_boxes: list | None = None,
-                  min_gap_frac: float | None = None, min_gap_max_rows: int = 5) -> LayoutGuess:
+                  min_gap_frac: float | None = None, min_gap_max_rows: int = 5,
+                  drift_smooth_mm: tuple[float, ...] | list[float] | None = None) -> LayoutGuess:
+    """The layout from the trace rows. ``drift_smooth_mm`` (SD-113): when the page shows no layout, the
+    rows are looked for again on projections smoothed this much (mm, tried in turn): a drifting
+    baseline spreads one row's pieces over its band and the fine projection finds many peaks. A
+    layout found so is returned uncertain (``drift``): the doctor confirms it."""
+    guess = _detect(ink, px_per_mm, pitch_tol=pitch_tol, pulse_bottoms=pulse_bottoms,
+                    stroke_min_height_mm=stroke_min_height_mm, stroke_bridge_mm=stroke_bridge_mm,
+                    exclude_boxes=exclude_boxes, min_gap_frac=min_gap_frac, min_gap_max_rows=min_gap_max_rows)
+    for sm in (drift_smooth_mm or ()) if guess.name is None else ():
+        again = _detect(ink, px_per_mm, pitch_tol=pitch_tol, pulse_bottoms=pulse_bottoms,
+                        stroke_min_height_mm=stroke_min_height_mm, stroke_bridge_mm=stroke_bridge_mm,
+                        exclude_boxes=exclude_boxes, min_gap_frac=min_gap_frac, min_gap_max_rows=min_gap_max_rows,
+                        smooth_mm=float(sm))
+        if again.name is not None:
+            return LayoutGuess(again.name, min(again.confidence, 0.4), again.rows, again.pitch_mm, again.baselines,
+                               True, repeats_open=again.repeats_open, drift=True)
+    return guess
+
+
+def _detect(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
+            pulse_bottoms: list[int] | None = None, stroke_min_height_mm: float = 3.0,
+            stroke_bridge_mm: float = 0.0, exclude_boxes: list | None = None,
+            min_gap_frac: float | None = None, min_gap_max_rows: int = 5, smooth_mm: float = 0.8) -> LayoutGuess:
     # A pulse bottom near a found row is that row's pulse, even when the printer floats it a
     # few mm off the baseline (a real strip: 4.1 mm below row II, read as a 4th row and a
     # 3x4+rhythm page, SD-059): no two rows are closer than the smallest registry pitch.
-    near_mm = 0.35 * min(spec.row_pitch_mm for spec in available_layouts().values())
+    near_mm = 0.35 * min(spec.row_pitch_mm for spec in available_layouts().values() if spec.auto_detect)
     base = merge_baselines(row_baselines(ink, px_per_mm, min_height_mm=stroke_min_height_mm, bridge_mm=stroke_bridge_mm,
-                                         exclude_boxes=exclude_boxes),
+                                         exclude_boxes=exclude_boxes, smooth_mm=smooth_mm),
                            pulse_bottoms or [], px_per_mm, tol_mm=max(4.0, near_mm))
     if min_gap_frac and len(base) <= min_gap_max_rows:
         # One spurious row among a few real ones (a deep complex, a label line). Many "rows" are
@@ -228,6 +252,8 @@ def detect_layout(ink: np.ndarray, px_per_mm: float, *, pitch_tol: float = 0.1,
     by_count, by_pitch = [], []
     trace_below = None
     for spec in available_layouts().values():
+        if not spec.auto_detect:
+            continue
         if spec.max_gap_ratio and n > 2:
             gaps = np.diff(sorted(base))
             if gaps.max() > spec.max_gap_ratio * max(1, gaps.min()):

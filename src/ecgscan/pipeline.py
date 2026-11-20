@@ -67,6 +67,7 @@ from ecgscan.validate import (
     rhythm_check,
     rhythm_inconsistent,
 )
+from ecgscan.validate.coherence import coherence_by_lead
 from ecgscan.vectorize import read_panels
 
 
@@ -107,6 +108,23 @@ _QC_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ecgscan-qc")
 
 
 _BOARDS: dict[tuple[str, ...], list] = {}
+
+
+def _weak_grid(raw, q_cfg: dict):
+    """SD-123: a grid read below the confidence floor whose x and y pitches nevertheless agree is accepted at the floor.
+
+    A dark grid on a phone photo leaves the comb scores low (0.04-0.29 in confidence) while both axes still give the
+    right pitch within 2-3 %; two independent axes agreeing is not chance. The confidence is set to the floor, so
+    ``overall`` (a factor sqrt(0.3)) stays under ``ok_min_overall``: such a page is never "ok" by itself."""
+    tol, floor = q_cfg.get("weak_grid_agree"), q_cfg.get("weak_grid_min_score")
+    floor_conf = q_cfg["min_grid_confidence"]
+    if (tol is None or floor is None or raw.confidence >= floor_conf or raw.px_per_mm_x is None
+            or raw.px_per_mm_y is None):
+        return raw
+    if (abs(raw.px_per_mm_x - raw.px_per_mm_y) > tol * max(raw.px_per_mm_x, raw.px_per_mm_y)
+            or min(raw.score_x, raw.score_y) < floor):
+        return raw
+    return dataclasses.replace(raw, confidence=floor_conf)
 
 
 def _fits(works: list[np.ndarray], b_cfg: dict, *, whole_zone: bool) -> list:
@@ -540,6 +558,7 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
     else:
         on_board = _board(work, cfg, dbg)
     t = tick("board", t)
+    weak_grid = False                  # SD-123/124: the scale came from a weak grid whose x and y pitches agree
     if on_board is not None:
         rect, raw, raw_ppm = on_board
         if rect is None:
@@ -572,10 +591,12 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
             tiled = estimate_grid_tiled(work, tiles=int(g_cfg.get("grid_tiles", 3)))
             if tiled is not None and tiled.confidence > raw.confidence:
                 raw = tiled
+        accepted = _weak_grid(raw, q_cfg)
+        weak_grid, raw = accepted is not raw, accepted
         coarse = _coarse_grid(work, raw, cfg, original=img.bgr)
         if coarse is not None:
             # D170: below the floor, but the 5-mm grid gives the scale: read, never "ok".
-            raw = coarse
+            raw, weak_grid = coarse, False
             warnings.append("LOW_RESOLUTION_COARSE")
         t = tick("grid", t)
         raw_ppm = raw.px_per_mm
@@ -660,7 +681,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
     pulse_boxes = [(p.x_left - m2, p.top - m2, p.x_right + m2, p.bottom + m2) for p in pulses]
     guess = detect_layout(ink, ppm, pitch_tol=cfg["layout"]["pitch_tolerance"], pulse_bottoms=[p.bottom for p in pulses],
                           stroke_min_height_mm=stroke_h, stroke_bridge_mm=bridge, exclude_boxes=pulse_boxes,
-                          min_gap_frac=cfg["layout"].get("min_row_gap_frac"))
+                          min_gap_frac=cfg["layout"].get("min_row_gap_frac"),
+                          drift_smooth_mm=cfg["layout"].get("drift_smooth_mm"))
     gl_cfg = (cfg.get("segmentation") or {}).get("drop_grid_lines") or {}
     if guess.name is None and not hints.layout and gl_cfg.get("enabled") and grid_in_mask(ink, ppm):
         # SD-099: a black grid (b/w scan) is in the mask as dark as the trace and its lines pass
@@ -705,7 +727,7 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
                                                             exclude_boxes=pulse_boxes), ppm,
                            [p.x_right for p in pulses])
     dbg.frame = frame
-    if (frame is not None and not hints.layout and "LAYOUT_UNCERTAIN" in warnings and not guess.repeats_open
+    if (frame is not None and not hints.layout and "LAYOUT_UNCERTAIN" in warnings and not guess.repeats_open and not guess.drift
             and profile_id is None and abs(frame.pitch_px / ppm - spec.row_pitch_mm) <= cfg["layout"]["pitch_tolerance"] * spec.row_pitch_mm):
         # Rows filled/picked to the registry count at the registry pitch: the layout is settled.
         warnings.remove("LAYOUT_UNCERTAIN")
@@ -831,6 +853,14 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         # SD-106: no lead long enough to judge the rhythm (a 3x4 page without a rhythm strip: 2-4
         # beats a lead). Atlas pages so read gave atrial fibrillation on sinus rhythm: the doctor looks.
         warnings.append("RHYTHM_STRIP_ABSENT")
+    coh_floor = val.get("coherence_min")
+    if weak_grid and val.get("weak_grid_guard", True) and coh_floor is not None:
+        # SD-124: a read on a weak grid must repeat itself beat to beat on every lead that can be judged.
+        verdicts = [c for c in coherence_by_lead(leads, rhythm, fs_out).values() if c is not None]
+        if len(verdicts) < int(val.get("weak_grid_min_verdicts", 3)) or min(verdicts) < coh_floor:
+            reasons.append("GRID_NOT_FOUND")
+            return result("rejected", calibration=decision.calibration, ppm=raw_ppm, contrast=contrast,
+                          layout=Layout(name=layout_name, confidence=layout_conf, **mine))
     lead_q = float(np.median([r.quality for r in readings]))
     cons_f = 1.0 if cons.score is None else float(np.clip(0.5 + cons.score, 0.0, 1.0))
     overall = lead_q * cons_f * raw.confidence ** 0.5 * (decision.calibration.confidence if decision.established else 0.5)
@@ -868,6 +898,13 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         if pr_unstable(check, pr_ratio):
             # SD-110: the PR rests on fallback P onsets: RR, QRS and QT right, PR off by 40-60 ms.
             res.warnings = sorted({*res.warnings, "PR_UNSTABLE"})
+            res.status = "needs_confirmation"
+    coh_min = val.get("coherence_min")
+    if res.status == "ok" and coh_min is not None:
+        # SD-117: a panel lead that does not repeat its own beat is a lead that may be misread.
+        coh = coherence_by_lead(leads, rhythm, fs_out)
+        if any(c is not None and c < coh_min for c in coh.values()):
+            res.warnings = sorted({*res.warnings, "LEAD_INCOHERENT"})
             res.status = "needs_confirmation"
     t = tick("validate", t)
     if artifacts_dir is not None:

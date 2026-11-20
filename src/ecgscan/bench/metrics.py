@@ -34,6 +34,8 @@ class TraceMetrics:
     r_amp_err_mv: float | None
     lag_s: float | None
     coverage: float
+    r_wide: float | None = None       # R8/SD-112: r after a wider time-origin search (``wide_lag_s``), if configured
+    lag_wide_s: float | None = None
 
 
 @dataclass
@@ -47,6 +49,7 @@ class CaseMetrics:
     elapsed_s: float | None = None
     traces: list[TraceMetrics] = field(default_factory=list)
     r_median: float | None = None
+    r_wide_median: float | None = None
     rmse_median: float | None = None
     snr_median: float | None = None
     r_amp_err_median: float | None = None
@@ -185,9 +188,15 @@ def score_case(case: Case, digitizer: str, run, reference: dict, cfg: dict) -> C
         if c is None:
             cm.traces.append(TraceMetrics(tr.lead, tr.kind, None, None, None, None, None, 0.0))
             continue
+        wide = None
+        if mcfg.get("wide_lag_s"):
+            wide = compare_trace(tr.samples_mv, tr.start_s, out.array(), out.start_s, t.fs,
+                                 max_lag_s=mcfg["wide_lag_s"], min_overlap=mcfg["min_overlap"], snr_cap_db=mcfg["snr_cap_db"])
         cm.traces.append(TraceMetrics(tr.lead, tr.kind, c["r"], c["rmse_mv"], c["snr_db"], c["r_amp_err_mv"],
-                                      c["lag_s"], c["coverage"]))
+                                      c["lag_s"], c["coverage"], wide["r"] if wide else None,
+                                      wide["lag_s"] if wide else None))
     cm.r_median = _med([x.r for x in cm.traces])
+    cm.r_wide_median = _med([x.r_wide for x in cm.traces])
     cm.rmse_median = _med([x.rmse_mv for x in cm.traces])
     cm.snr_median = _med([x.snr_db for x in cm.traces])
     cm.r_amp_err_median = _med([x.r_amp_err_mv for x in cm.traces])

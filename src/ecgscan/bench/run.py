@@ -105,9 +105,9 @@ def _git_rev() -> str | None:
 
 def run_bench(suite: str, out_dir: str | Path, *, cases_dir: str | Path | None = None, digitizers=None,
               cases_per_slice: int | None = None, slices: list[str] | None = None,
-              cases: list[Case] | None = None, resume: bool = False, log=print) -> dict:
+              cases: list[Case] | None = None, resume: bool = False, log=print, config: dict | None = None) -> dict:
     """``cases`` (e.g. ``image_record_cases``) replaces the synthetic suite when given."""
-    cfg = bench_config()
+    cfg = config or bench_config()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()

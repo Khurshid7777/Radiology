@@ -16,6 +16,7 @@ data/ecg-arrhythmia/
 data/ecg-arrhythmia-balanced/
 data/ecg-arrhythmia-train/
 data/ptbxl/
+data/pmecgid/
 data/ptbdb/
 data/ecg-arrhythmia-pediatric/
 configs/calibrator.json

@@ -195,13 +195,33 @@ class _CameraScreenState extends State<CameraScreen> {
     super.dispose();
   }
 
+  /// How to shoot the sheet (SD-130): the reasons photos are refused, said before the shot.
+  void _showTips() {
+    final app = widget.app;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(app.t('capture.tips_title')),
+        content: SingleChildScrollView(child: Text(app.t('capture.tips_body'))),
+        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
     final cam = _cam;
     final dark = _hint == 'light' || _torch;
     return Scaffold(
-      appBar: AppBar(title: Text(app.t('app.capture'))),
+      appBar: AppBar(title: Text(app.t('app.capture')), actions: [
+        IconButton(
+          key: const Key('capture_tips'),
+          icon: const Icon(Icons.help_outline),
+          tooltip: app.t('capture.tips_title'),
+          onPressed: _showTips,
+        ),
+      ]),
       body: Column(children: [
         Expanded(
           child: _error != null
