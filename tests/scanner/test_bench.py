@@ -284,3 +284,23 @@ def test_a_weak_grid_whose_axes_agree_is_accepted_at_the_floor_only():
     assert _weak_grid(GridEstimate(12.0, 12.0, 3.0, 3.0, "gray", 1.0), q).confidence == 1.0             # not weak
     assert _weak_grid(agree, {**q, "weak_grid_agree": None}).confidence == 0.249                         # off
     assert _weak_grid(GridEstimate(None, 12.0, 0.0, 1.0, "gray", 0.0), q).confidence == 0.0
+
+
+def test_a_pale_tinted_grid_saved_as_jpeg_is_not_overruled_by_brightness(tmp_path):
+    """SD-122 regression (core, 20.11): cardiolens' synthetic page re-encoded as the bot does (JPEG q92) has chroma 99th
+    percentile 6 (below the 'no colour' line) and a spurious brightness comb at 37-39 px/mm; the grid is read in chroma."""
+    import cv2
+
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from cardiolens.layer1_ingestion.digitize import render_ecg_page
+    from cardiolens.telegram.analyze import save_photo
+    from ecgscan.geometry.grid import estimate_grid
+    from ecgscan.pipeline import scan
+
+    png = tmp_path / "page.png"
+    render_ecg_page(generate_synthetic_ecg(heart_rate_bpm=72, seed=5), png, px_per_mm=10, calibration_pulse=True)
+    jpg = save_photo(png.read_bytes(), tmp_path / "saved.jpg")
+    g = estimate_grid(cv2.imread(str(jpg)))
+    assert 8.0 < g.px_per_mm < 11.0 and g.channel == "chroma"
+    res = scan(str(jpg))
+    assert res.status != "rejected" and 8.0 < res.quality.px_per_mm < 11.0

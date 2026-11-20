@@ -230,6 +230,10 @@ CONF_SCALE = 3.0              # comb score (in spectral medians) that counts as 
 # Only on a page without colour (chroma 99th percentile below MONO_CHROMA): a coloured page's chroma is the grid.
 GRAY_OVERRULES_CHROMA = 0.3
 MONO_CHROMA = 8.0
+# ... and only when brightness itself reads a square grid: its x and y pitches agree this closely. A pale tinted grid
+# saved as JPEG (chroma 99th percentile 6) has no visible grid in brightness and a spurious comb there (core's
+# synthetic page: 36.9 / 39.2 px/mm for a true 10); a real neutral grid gives equal pitches on both axes (12.0 / 12.0).
+MONO_AGREE = 0.03
 SQUARE_TOL = 0.15             # x and y pitch may differ this much (perspective, non-square pixels)
 
 
@@ -278,6 +282,7 @@ def estimate_grid(img: np.ndarray, *, min_px_per_mm: float = 2.5, max_px_per_mm:
             chroma_est = est                    # SD-122: brightness is still read, it may contradict this
             continue
         if (chroma_est is not None and mono and est.px_per_mm is not None
+                and abs(px - py) <= MONO_AGREE * max(px, py)
                 and min(sx, sy) / CONF_SCALE >= GRAY_OVERRULES_CHROMA
                 and abs(est.px_per_mm - chroma_est.px_per_mm) > SQUARE_TOL * max(est.px_per_mm, chroma_est.px_per_mm)):
             return est
