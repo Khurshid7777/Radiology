@@ -67,7 +67,7 @@ data/ecg-arrhythmia-extra/
 # D212: owner library (copyrighted), local only
 data/books/
 data/ptbxl_st/
-data/ptbxl_st/
+data/ptbxl_mi/
 data/mitdb/
 data/incartdb/
 # D268: SVT bench (Chapman / Ningbo subset), downloaded by tools/svt_bench/fetch.py
