@@ -99,14 +99,19 @@ def _blend(color: tuple[int, int, int], fade: float) -> tuple[int, int, int]:
 
 
 def _draw_dotted_grid(img: np.ndarray, ppm: float, minor, major) -> None:
-    """Dots (0.3 mm) on the 1-mm lattice and 5-mm lines of dashes (0.9 mm on, 0.5 mm off)."""
+    """Dots (0.3 mm) on the 1-mm lattice, small light dots at the cell centres, 5-mm lines of dashes (0.9 on, 0.5 off)."""
     import cv2
 
     h, w = img.shape[:2]
     r = max(1, int(round(0.15 * ppm)))
+    r_small = max(1, int(round(0.08 * ppm)))
+    light = tuple(int(round((c + p) / 2)) for c, p in zip(minor, PAPER_BGR, strict=True))
     for j in range(int(h / ppm) + 1):
         for k in range(int(w / ppm) + 1):
             cv2.circle(img, (int(round(k * ppm)), int(round(j * ppm))), r, minor, -1, cv2.LINE_AA)
+            # the real prints carry a second, lighter lattice of small dots at the cell centres: a 0.5-mm period along
+            # each axis, which is what the comb search took for the grid (px/mm doubled on PM-ECG-ID img_45 etc.)
+            cv2.circle(img, (int(round((k + 0.5) * ppm)), int(round((j + 0.5) * ppm))), r_small, light, -1, cv2.LINE_AA)
     th = max(1, int(round(0.12 * ppm)))
     on, off = 0.9 * ppm, 0.5 * ppm
     for k in range(0, int(w / ppm) + 1, 5):
