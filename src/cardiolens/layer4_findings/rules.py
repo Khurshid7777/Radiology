@@ -1030,6 +1030,23 @@ _SECONDARY_ST_CONTEXT = {"rbbb", "lbbb", "wpw_preexcitation", "lvh"}
 _ELEVATION_MIMIC_CONTEXT = {"lbbb", "wpw_preexcitation", "lvh"}
 
 
+LBBB_SHAPE_QRS_MS = 130.0   # D335: measured QRS at/above this, with an LBBB shape, is a mimic though no block was named
+
+
+def _lbbb_shaped_wide_qrs(m: Measurements) -> bool:
+    """D335: a wide QRS shaped like LBBB — negative in V1 and V2, positive in I or V6 — whatever the block was named.
+
+    PTB-XL complete LBBB was named neither or RBBB on 22 / 156 and its V1-V3 elevation against a deep S raised STEMI. The
+    shape keeps RBBB out (its late R' makes V1 positive) — D333, which used the width alone, re-silenced STEMI under RBBB
+    and was withdrawn."""
+    qrs = m.intervals.qrs_ms
+    if qrs is None or qrs < LBBB_SHAPE_QRS_MS or m.qrs_width_from_retry:
+        return False
+    net = {st.lead: st.qrs_net_uv for st in m.morphology.st if st.qrs_net_uv is not None}
+    return (net.get("V1", 0) < 0 and net.get("V2", 0) < 0 and "V1" in net and "V2" in net
+            and (net.get("I", 0) > 0 or net.get("V6", 0) > 0))
+
+
 def _st_thresholds(norms, patient, lead: str) -> tuple[float | None, float | None]:
     """(elevation, depression) thresholds for one lead from the norm table."""
     thr = norms.get("st_uv", {})
@@ -1104,7 +1121,7 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
     # With a bundle branch block, pre-excitation or LVH the expected repolarisation
     # is discordant to the QRS; only concordant deviations count as primary.
     secondary_ctx = bool(fs.codes() & _SECONDARY_ST_CONTEXT)
-    elevation_mimic_ctx = bool(fs.codes() & _ELEVATION_MIMIC_CONTEXT)
+    elevation_mimic_ctx = bool(fs.codes() & _ELEVATION_MIMIC_CONTEXT) or _lbbb_shaped_wide_qrs(m)
     # Early repolarisation (D66, pediatric table): elevation that is small next to
     # the lead's own T wave and upsloping is the juvenile normal variant.
     er_ratio = thr.get("early_repolarisation_j_t_ratio_max")
