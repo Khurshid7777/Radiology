@@ -908,3 +908,36 @@ def test_a_shared_bot_is_the_coordinators_d340():
     assert ids == {1: ("coord", "coord_bot"), 2: ("audit", "audit_bot")}
     own = [(k, i + 10, f"b{i}") for i, k in enumerate(TOKEN_ENV)]
     assert {v[0] for v in bot_identities(own).values()} == set(TOKEN_ENV)    # a bot per role: each keeps its own
+
+
+def test_shared_bot_routes_news_choice_and_branch_approval_d340(tmp_path):
+    """Review D340: with the coordinator's bot shared, a reply to the news menu is a news choice and «да» / «пропустить»
+    for a waiting branch reaches its role; nothing else changes."""
+    pytest.importorskip("aiogram")
+    from cardiovision_agents.bot import Agents
+    from cardiovision_agents.logic import news_menu
+    from cardiovision_agents.store import Store
+
+    class FakeBot:
+        async def send_message(self, *a, **k):
+            return None
+
+    ag = Agents(FakeBot(), Store(tmp_path / "s.json"), owner_id=42)
+    menu = news_menu({1: ("данные", "x"), 3: ("ядро", "y")})
+    assert ag.shared_bot_route("да 1, 3", menu)[0] == "news"
+    assert ag.shared_bot_route("да 1, 3", "Задачи на выбор:\n1. …")[0] is None       # the coordinator's own menu
+    assert ag.shared_bot_route("да", "")[0] is None                                    # no branch waiting
+    ag.store["pending"] = {"dev": {"branch": "agents/dev-20261121-1000", "sha": "a", "review": True}}
+    act, role = ag.shared_bot_route("да", "Ветка `agents/dev-20261121-1000` готова")
+    assert (act, role.key) == ("deploy", "dev")
+    assert ag.shared_bot_route("пропустить", "")[0] == "skip"                          # the only waiting branch
+    ag.store["pending"]["scan"] = {"branch": "agents/scan-20261121-1100", "sha": "b", "review": True}
+    assert ag.shared_bot_route("да", "")[0] is None                                    # two waiting, none named
+    assert ag.shared_bot_route("да", "agents/scan-20261121-1100")[1].key == "scan"
+
+
+def test_choice_regex_is_linear_d340():
+    import time
+    t = time.time()
+    assert logic.parse_choice("да " + "1   " * 40 + "x") == []
+    assert time.time() - t < 0.5

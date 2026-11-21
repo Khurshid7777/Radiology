@@ -24,6 +24,7 @@ from . import github, runner
 from .logic import (
     CANCEL,
     LIMIT_TRIES,
+    NEWS_MENU_HEAD,
     QUEUE,
     ROLES,
     SKIP,
@@ -622,6 +623,23 @@ class Agents:
                      "«нового нет» пишет бот без запуска модели (D308).")
         return "\n".join(lines)
 
+    def shared_bot_route(self, text: str, reply_text: str) -> tuple[str | None, Role | None]:
+        """D340: what an owner's message to the coordinator's bot means when other roles speak through that bot.
+
+        A choice answering the news menu is a news choice; «да» / «пропустить» for a waiting branch goes to the role whose
+        branch it is — named in the message answered, or the only role with a branch waiting. Otherwise (None, None)."""
+        if parse_choice(text) and reply_text.startswith(NEWS_MENU_HEAD):
+            return "news", ROLES["news"]
+        skip, approve = bool(SKIP.match(text or "")), is_approval(text)
+        if not (skip or approve):
+            return None, None
+        pend = {k: p for k, p in (self.store.data.get("pending") or {}).items() if p and k in ROLES and ROLES[k].branch}
+        named = [k for k, p in pend.items() if p.get("branch") and p["branch"] in reply_text]
+        key = named[0] if len(named) == 1 else (next(iter(pend)) if len(pend) == 1 and not named else None)
+        if key is None:
+            return None, None
+        return ("skip" if skip else "deploy"), ROLES[key]
+
     def unaddressed_approval_hint(self) -> str:
         """D340: what a bare «да» sent to the whole group could have meant, and how to say it so it is acted on."""
         waiting = [ROLES[k].title for k, p in (self.store.data.get("pending") or {}).items() if p and k in ROLES]
@@ -630,7 +648,7 @@ class Agents:
         if props:
             parts.append("Раздать задачи из списка: напишите номера, например «да " + ", ".join(sorted(props, key=int)[:3]) + "».")
         if waiting:
-            parts.append("Выложить готовую ветку: ответьте «да» на сообщение агента — ждут: " + ", ".join(waiting) + ".")
+            parts.append("Выложить готовую ветку: ответьте «да» на сообщение о готовой ветке — ждут: " + ", ".join(waiting) + ".")
         if not props and not waiting:
             parts.append("Сейчас нет ни списка задач, ни ветки, которая ждёт «да».")
         return " ".join(parts)
@@ -699,6 +717,18 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
         return not idents or idents.get(bot.id, (None,))[0] == "coord"
 
     async def handle(role: Role, text: str, msg: Message) -> None:
+        if role.key == "coord":                  # D340: the coordinator's bot may also speak for roles without their own bot
+            reply_text = (msg.reply_to_message.text or msg.reply_to_message.caption or "") if msg.reply_to_message else ""
+            action, target = agents.shared_bot_route(text, reply_text)
+            if action == "news":
+                await agents.approve_news(parse_choice(text))
+                return
+            if action == "skip":
+                await agents.skip(target)
+                return
+            if action == "deploy":
+                asyncio.create_task(agents.safe(target, agents.deploy(target)))
+                return
         if role.key == "coord" and parse_choice(text):
             asyncio.create_task(agents.safe(ROLES["coord"], agents.dispatch(parse_choice(text))))
             return

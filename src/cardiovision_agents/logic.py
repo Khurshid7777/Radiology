@@ -118,7 +118,7 @@ def branch_name(stamp: str, kind: str = "dev") -> str:
 TASK_LINE = re.compile(r"^\s*(?:[-*•]\s*)?\**\s*(?:ЗАДАЧА\s+)?(\d+)\s*[.):]?\s*\**\s*\[\s*(ядро|сканер)\s*\]\s*\**\s*[:—–-]?\s*(.+?)\s*$",
                        re.IGNORECASE | re.MULTILINE)
 TARGET = {"ядро": "dev", "сканер": "scan"}
-CHOICE = re.compile(r"^\s*да\s*[,:]?\s*((?:\d+\s*(?:[,; ]|\bи\b|\band\b)\s*)*\d+)\s*[.!]*\s*$", re.IGNORECASE)   # D340: «да 1 и 3»
+CHOICE = re.compile(r"^\s*да\s*[,:]?\s*((?:\d+(?:\s*[,;]\s*|\s+(?:(?:и|and)\s+)?))*\d+)\s*[.!]*\s*$", re.IGNORECASE)   # D340: «да 1 и 3»
 STATUS = re.compile(r"^\s*(статус|/status)\s*[?.!]*\s*$", re.IGNORECASE)
 VERDICT = re.compile(r"ВЕРДИКТ\s*:\s*(можно|нельзя)", re.IGNORECASE)
 
@@ -154,9 +154,12 @@ def parse_news(text: str) -> dict[int, tuple[str, str]]:
     return {int(n): (tag.lower(), body) for n, tag, body in NEWS_LINE.findall(text or "")}
 
 
+NEWS_MENU_HEAD = "Находки на подтверждение:"
+
+
 def news_menu(items: dict[int, tuple[str, str]]) -> str:
     lines = [f"{n}. [{tag}] {t}" for n, (tag, t) in sorted(items.items())]
-    return ("Находки на подтверждение:\n" + "\n".join(lines)
+    return (NEWS_MENU_HEAD + "\n" + "\n".join(lines)
             + "\n\nОтветьте на это сообщение (reply): «да» и номера — например «да 1, 3». Подтверждённое передам координатору в список задач.")
 
 
