@@ -999,3 +999,28 @@ def test_one_queued_task_per_member_d342(tmp_path):
     assert asyncio.run(ag.enqueue(ROLES["dev"], "a", source=who)) > 0
     assert asyncio.run(ag.enqueue(ROLES["scan"], "b", source=who)) == 0      # a second one, any agent: refused
     assert asyncio.run(ag.enqueue(ROLES["scan"], "c")) > 0                   # the owner is not limited
+
+
+def test_the_answer_replies_to_the_askers_message_d343(tmp_path):
+    """D343 (owner, 21.11: «тегать юзера в группе, когда дашь ответ»): the first part of an answer is a reply to the
+    message that asked — Telegram notifies its author; a deleted message does not stop the answer."""
+    pytest.importorskip("aiogram")
+    import asyncio
+
+    from cardiovision_agents.bot import Agents
+    from cardiovision_agents.store import Store
+
+    sent = []
+
+    class FakeBot:
+        async def send_message(self, chat, text, message_thread_id=None, **kw):
+            sent.append(kw)
+
+    store = Store(tmp_path / "s.json")
+    store["chat_id"] = -100
+    ag = Agents(FakeBot(), store, owner_id=42)
+    ag.asker[7] = 555
+    assert ag._reply_kw(7) == {"reply_to": 555} and ag._reply_kw(8) == {} and ag._reply_kw(None) == {}
+    asyncio.run(ag.say(ROLES["dev"], "x" * 9000, **ag._reply_kw(7)))
+    assert sent[0] == {"reply_to_message_id": 555, "allow_sending_without_reply": True}
+    assert len(sent) > 1 and all(k == {} for k in sent[1:])          # only the first part replies

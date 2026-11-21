@@ -676,7 +676,7 @@ def run_pipeline(
     report = interpret(
         data, safety, provider=provider or default_provider(llm=cfg.llm),
         min_overall=cfg.confidence.autonomous_min_overall, quality_ok=quality_ok,
-        digitized=prov.digitized,
+        digitized=prov.digitized, screen=bool(screen),
     )
     audit.append(f"[L6] provider={report.mode} escalation={report.escalation_reason}")
 
