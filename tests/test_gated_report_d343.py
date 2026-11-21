@@ -47,15 +47,17 @@ def test_model_line_and_foreign_reasoning_stay_out_of_the_text():
     assert "Уверенность" in ru                       # a record that is not gated keeps its confidence line
 
 
-def test_pdf_draws_no_trace_for_a_gated_record(tmp_path, monkeypatch):
+def test_pdf_draws_no_trace_for_a_gated_photo_but_keeps_it_for_a_recording(tmp_path, monkeypatch):
     import cardiolens.outputs.pdf_report as P
 
     seen = []
     real = P.Image
     monkeypatch.setattr(P, "Image", lambda path, **kw: (seen.append(str(path)), real(path, **kw))[1])
-    P.write_pdf(run_pipeline(_flat(), mode="A"), str(tmp_path / "g.pdf"))
-    assert not any(p.endswith(("wave.png", "graph.png")) for p in seen)
+    rec = run_pipeline(_flat(), mode="A")                       # a recording under a gate (as VF from a monitor)
+    assert "no_ecg_signal" in rec.findings.codes()
+    P.write_pdf(rec, str(tmp_path / "rec.pdf"))
+    assert any(p.endswith("wave.png") for p in seen)           # the doctor needs the picture (review D343)
     seen.clear()
-    P.write_pdf(run_pipeline(generate_synthetic_ecg(heart_rate_bpm=70, duration_s=10.0, seed=1), mode="A"),
-                str(tmp_path / "ok.pdf"))
-    assert any(p.endswith("wave.png") for p in seen)
+    rec.signal.provenance.digitized = True                      # the same gate on a photo
+    P.write_pdf(rec, str(tmp_path / "photo.pdf"))
+    assert not any(p.endswith(("wave.png", "graph.png")) for p in seen)

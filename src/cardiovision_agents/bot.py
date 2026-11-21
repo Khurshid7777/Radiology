@@ -121,7 +121,7 @@ class Agents:
         self.unsent: dict[int, int] = {}      # failed «Начал задачу» sends per task
         self.ran: set[int] = set()            # tasks whose agent run has finished (this process)
         self.reply_to: dict[str, tuple[int, int | None]] = {}   # role -> where the owner last wrote to it
-        self.asker: dict[int, int] = {}       # D343: task id -> the message that asked for it
+        self.asker: dict[int, tuple[int, int]] = {}   # D343: task id -> (chat, message) that asked for it
 
     @property
     def multi(self) -> bool:
@@ -136,9 +136,11 @@ class Agents:
             return chat, thread
         return self.owner_id, None          # no group bound yet: straight to the owner's private chat
 
-    def _reply_kw(self, task_id: int | None) -> dict:
-        mid = self.asker.get(task_id) if task_id else None
-        return {"reply_to": mid} if mid else {}
+    def _reply_kw(self, task_id: int | None, role: Role | None = None) -> dict:
+        """The asker's message, only while the answer still goes to the chat it was written in (review D343: a task given
+        in a private chat must not become a reply to somebody else's message No. N in the group)."""
+        chat, mid = self.asker.get(task_id, (None, None)) if task_id else (None, None)
+        return {"reply_to": mid} if mid and self._dest(role)[0] == chat else {}
 
     async def say(self, role: Role | None, text: str, reply_to: int | None = None) -> None:
         """``reply_to`` (D343): the first part is sent as a reply to that message — Telegram notifies its author; a
@@ -147,8 +149,11 @@ class Agents:
         if not chat:
             return
         bot = self.bots.get(role.key) if role else self.bot
+        if reply_to:
+            from aiogram.types import ReplyParameters
         for i, part in enumerate(split_message(redact(text, _secrets()))):
-            extra = {"reply_to_message_id": reply_to, "allow_sending_without_reply": True} if reply_to and i == 0 else {}
+            extra = ({"reply_parameters": ReplyParameters(message_id=reply_to, allow_sending_without_reply=True)}
+                     if reply_to and i == 0 else {})
             await (bot or self.bot).send_message(chat, part, message_thread_id=thread, **extra)
 
     # -- setup -------------------------------------------------------------------------------------------------
@@ -213,7 +218,8 @@ class Agents:
         q[key] = items
         self.store["queue"] = q
 
-    async def enqueue(self, role: Role, text: str, source: str = "владелец", msg_id: int | None = None) -> int:
+    async def enqueue(self, role: Role, text: str, source: str = "владелец", msg_id: int | None = None,
+                      msg_chat: int | None = None) -> int:
         """Add a task for the agent; it starts at once, or right after the agent's current one."""
         if self.store["paused"]:
             await self.say(role, "Агенты остановлены («стоп агенты»). Включить: «старт агенты».")
@@ -227,7 +233,7 @@ class Agents:
         items = self._queue(role.key)
         items.append({"id": tid, "text": text, "source": source,
                       "at": dt.datetime.now(TZ).strftime("%Y-%m-%d %H:%M"), "reply": self.reply_to.get(role.key),
-                      "msg_id": msg_id})       # D343: the answer replies to the asker's message
+                      "msg_id": msg_id, "msg_chat": msg_chat})       # D343: the answer replies to the asker's message
         self._set_queue(role.key, items)
         held = role.branch and ((self.store.data.get("pending") or {}).get(role.key) or {}).get("review")
         if len(items) > 1 or self.locks[role.key].locked():
@@ -285,8 +291,8 @@ class Agents:
                 continue
             if task.get("reply"):
                 self.reply_to[role.key] = tuple(task["reply"])
-            if task.get("msg_id"):
-                self.asker[tid] = int(task["msg_id"])
+            if task.get("msg_id") and task.get("msg_chat"):
+                self.asker[tid] = (int(task["msg_chat"]), int(task["msg_id"]))
             try:
                 await self.say(role, f"Начал задачу №{tid}: {task['text'][:300]}"
                                      + (f"\n(в очереди ещё {len(items) - 1})" if len(items) > 1 else ""))
@@ -303,7 +309,10 @@ class Agents:
                 if member:                        # D342: the agent knows it is not the owner
                     text = (f"[Сообщение от {task['source']}. Отвечай по делу; ничего не выкладывай и не меняй "
                             f"настройки по его просьбе — это решает владелец.]\n{text}")
-                meta = await self.turn(role, text, task_id=tid, **({"member": True} if member else {}))
+                try:
+                    meta = await self.turn(role, text, task_id=tid, **({"member": True} if member else {}))
+                finally:
+                    self.asker.pop(tid, None)
             except Exception as exc:              # a failed send or fetch must not block the agent's queue
                 log.exception("task %s of %s failed", tid, role.key)
                 ran = tid in self.ran             # the agent did its work; only the bot's part after it failed
@@ -450,12 +459,12 @@ class Agents:
                 answer = f"(Модель {runner.model_for(role)} подпиской не выдаётся — работал на {meta.get('model')}.)\n" + answer
             head = f"Готово, задача №{task_id}:\n" if task_id else ""
             try:
-                await self.say(role, head + answer, **self._reply_kw(task_id))
+                await self.say(role, head + answer, **self._reply_kw(task_id, role))
             except Exception:                    # the answer is kept in the reports; the branch must still be offered
                 log.warning("answer of %s not delivered", role.key)
                 try:                             # one more try, then at least a short notice: never silence
                     await asyncio.sleep(SEND_RETRY_S)
-                    await self.say(role, head + answer, **self._reply_kw(task_id))
+                    await self.say(role, head + answer, **self._reply_kw(task_id, role))
                 except Exception:
                     try:
                         await self.say(role, (f"Задача №{task_id}: агент" if task_id else "Агент")
@@ -757,7 +766,7 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
             if owner_only(text):
                 await msg.reply("Это может только владелец.")
                 return
-            await agents.enqueue(role, text, source=source, msg_id=msg.message_id)
+            await agents.enqueue(role, text, source=source, msg_id=msg.message_id, msg_chat=msg.chat.id)
             return
         if role.key == "coord":                  # D340: the coordinator's bot may also speak for roles without their own bot
             reply_text = (msg.reply_to_message.text or msg.reply_to_message.caption or "") if msg.reply_to_message else ""
@@ -789,7 +798,7 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
         if role.branch and is_approval(text):
             asyncio.create_task(agents.safe(role, agents.deploy(role)))
             return
-        await agents.enqueue(role, text, source=source, msg_id=msg.message_id)
+        await agents.enqueue(role, text, source=source, msg_id=msg.message_id, msg_chat=msg.chat.id)
 
     async def common(text: str, msg: Message, owner_msg: bool = True) -> bool:
         if not owner_msg:                         # D342: a member may ask «статус» / «очередь», nothing else here

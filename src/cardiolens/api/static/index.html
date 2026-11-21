@@ -1122,11 +1122,9 @@ function render(d, redraw = false) {
   const rate = gate && (gate.evidence || []).find(e => e.feature === 'rate_released_bpm');
   if (unreliable && rate && (d.findings || []).every(f => !['no_ecg_signal', 'amplitude_implausible'].includes(f.code))) {
     $('meas').innerHTML = `<tr><td>${L('ЧСС', 'YuQS')}</td><td>${esc(rate.value)} ${L('/мин', '/daq')}</td><td colspan="2" class="muted">${L('по полосе II', 'II tasma bo\'yicha')}</td></tr>
-    <tr><td colspan="4">${L('Ось, вольтаж и интервалы не приводятся: отведения конечностей прочитаны ненадёжно. Переснимите ЭКГ.', 'O\'q, voltaj va intervallar keltirilmaydi: oyoq-qo\'l tarmoqlari ishonchsiz o\'qildi. EKGni qayta suratga oling.')}</td></tr>
-    <tr><td>${L('Уверенность', 'Ishonch')}</td><td colspan="3">${d.interpretation.confidence.value} (${L(d.interpretation.confidence.word_ru, d.interpretation.confidence.word_uz)})</td></tr>`;
+    <tr><td colspan="4">${L('Ось, вольтаж и интервалы не приводятся: отведения конечностей прочитаны ненадёжно. Переснимите ЭКГ.', 'O\'q, voltaj va intervallar keltirilmaydi: oyoq-qo\'l tarmoqlari ishonchsiz o\'qildi. EKGni qayta suratga oling.')}</td></tr>`;
   } else if (unreliable) {
-    $('meas').innerHTML = `<tr><td colspan="4">${L('Измерения не приводятся: снимок распознан ненадёжно. Переснимите ЭКГ.', 'O\'lchovlar keltirilmaydi: surat ishonchsiz o\'qildi. EKGni qayta suratga oling.')}</td></tr>
-    <tr><td>${L('Уверенность', 'Ishonch')}</td><td colspan="3">${d.interpretation.confidence.value} (${L(d.interpretation.confidence.word_ru, d.interpretation.confidence.word_uz)})</td></tr>`;
+    $('meas').innerHTML = `<tr><td colspan="4">${L('Измерения не приводятся: снимок распознан ненадёжно. Переснимите ЭКГ.', 'O\'lchovlar keltirilmaydi: surat ishonchsiz o\'qildi. EKGni qayta suratga oling.')}</td></tr>`;
   } else $('meas').innerHTML = `
     <tr><td>${L('ЧСС', 'YuQS')}</td><td>${m.heart_rate_bpm ?? '—'} ${L('/мин', '/daq')}</td>
         <td>PR</td><td>${iv.pr_ms ?? '—'} ${L('мс', 'ms')}</td></tr>
@@ -1143,8 +1141,13 @@ function render(d, redraw = false) {
     .map(f => `<span class="chip ${f.critical ? 'crit' : ''}">${esc(L(f.label_ru, f.label_uz) + leadSuffix(f))}</span>`).join('') || '<span class="muted">—</span>';
 
   if (!redraw) { $('wave').removeAttribute('src'); $('graph').removeAttribute('src'); }
-  blobUrl(`/api/analysis/${d.analysis_id}/waveform.svg`).then(u => { $('wave').src = u; }).catch(() => {});
-  blobUrl(`/api/analysis/${d.analysis_id}/graph.png`).then(u => { $('graph').src = u; }).catch(() => {});
+  // D343: a PHOTO under a reliability gate gets no drawn trace (it is not the patient's ECG); an empty graph is not shown.
+  const noTrace = unreliable && d.digitized_from_image;
+  const hasGraph = ((d.causal_graph || {}).edges || []).length > 0;
+  $('wave').parentElement.classList.toggle('hidden', !!noTrace);
+  $('graph').parentElement.classList.toggle('hidden', !hasGraph);
+  if (!noTrace) blobUrl(`/api/analysis/${d.analysis_id}/waveform.svg`).then(u => { $('wave').src = u; }).catch(() => {});
+  if (hasGraph) blobUrl(`/api/analysis/${d.analysis_id}/graph.png`).then(u => { $('graph').src = u; }).catch(() => {});
   $('concl_ru').textContent = (concLang === 'uz') ? d.conclusion_uz : d.conclusion_ru;   // D210 P2: RU | UZ switch
   $('cl_ru').setAttribute('aria-pressed', String(concLang === 'ru'));
   $('cl_uz').setAttribute('aria-pressed', String(concLang === 'uz'));
@@ -1156,7 +1159,8 @@ function render(d, redraw = false) {
   $('overlay').removeAttribute('src');
   if (d.overlay_available) blobUrl(`/api/analysis/${d.analysis_id}/overlay.jpg`)
     .then(u => { $('overlay').src = u; }).catch(() => $('overlay_box').classList.add('hidden'));
-  $('trace').innerHTML = (it.reasoning_trace || []).map(t => `<li>${esc(t)}</li>`).join('');
+  // D343: the engine's raw log (codes, model line) is for the JSON; under a gate there is no reasoning to show.
+  $('trace').innerHTML = unreliable ? '' : (it.reasoning_trace || []).filter(t => !t.startsWith('narrative by ')).map(t => `<li>${esc(t)}</li>`).join('');
   $('pdf').removeAttribute('href');
   blobUrl(`/api/analysis/${d.analysis_id}/report.pdf`).then(u => {
     $('pdf').href = u; $('pdf').download = `cardiolens_${d.analysis_id}.pdf`;

@@ -112,8 +112,8 @@ def format_conclusion(result: PipelineResult, lang: str = "ru") -> str:
             if not t.startswith(MODEL_LINE):     # D343: which model wrote it stays in the JSON (audit), not in the text
                 lines.append("  - " + t)
     else:                # D343: the model reasons in one language; its Russian lines are not printed as Uzbek
-        lines.append("  - Mulohaza til modeli yordamida tuzilgan; tafsilotlari ruscha bo‘limda. "
-                     "Har bir da'vo yozuv o'lchovlariga tayanadi.")
+        lines.append("  - Mulohaza til modeli yordamida tuzilgan (tafsilotlari rus tilida). "
+                     "Har bir da‘vo yozuv o‘lchovlariga tayanadi.")
 
     lines.append("")
     lines.append(r.disclaimer_ru if is_ru else r.disclaimer_uz)

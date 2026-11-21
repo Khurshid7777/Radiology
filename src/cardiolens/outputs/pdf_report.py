@@ -47,8 +47,8 @@ OVERLAY_NOTE_UZ = ("Manba — qog‘oz EKG surati, raqamlashtirilgan. Rangli chi
 
 
 UNRELIABLE_CODES = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_implausible"})
-NO_TRACE_RU = "Кривая не показана: запись прочитана ненадёжно, нарисованное по ней не было бы ЭКГ пациента."
-NO_TRACE_UZ = "Egri chiziq ko‘rsatilmaydi: yozuv ishonchsiz o‘qildi, undan chizilgan narsa bemor EKGsi bo‘lmas edi."
+NO_TRACE_RU = "Кривая не показана: снимок прочитан ненадёжно, нарисованное по нему не было бы ЭКГ пациента."
+NO_TRACE_UZ = "Egri chiziq ko‘rsatilmaydi: surat ishonchsiz o‘qildi, undan chizilgan narsa bemor EKGsi bo‘lmas edi."
 
 
 _SPEED_KNOWN = ("(header_ocr)", "(user)")
@@ -169,9 +169,10 @@ def write_pdf(result: PipelineResult, path: str, *, include_photo: bool = True) 
     flow.append(Paragraph(measurement_line(result, "uz"), body))
     flow.append(Spacer(1, 0.3 * cm))
 
-    if result.findings.codes() & UNRELIABLE_CODES:
-        # D343: a record under a reliability gate gets no drawn trace (as on the site, outputs.display): what was read
-        # off an unreliable photo is not the patient's ECG and must not look like one.
+    if result.signal.provenance.digitized and result.findings.codes() & UNRELIABLE_CODES:
+        # D343: a PHOTO under a reliability gate gets no drawn trace: what was read off it is not the patient's ECG and
+        # must not look like one. A recording keeps its trace (review: VF from a monitor comes with no_ecg_signal —
+        # the doctor needs the picture to tell VF from artefact).
         flow.append(Paragraph(NO_TRACE_RU, body))
         flow.append(Paragraph(NO_TRACE_UZ, body))
     else:

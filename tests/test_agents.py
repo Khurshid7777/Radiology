@@ -1019,8 +1019,11 @@ def test_the_answer_replies_to_the_askers_message_d343(tmp_path):
     store = Store(tmp_path / "s.json")
     store["chat_id"] = -100
     ag = Agents(FakeBot(), store, owner_id=42)
-    ag.asker[7] = 555
-    assert ag._reply_kw(7) == {"reply_to": 555} and ag._reply_kw(8) == {} and ag._reply_kw(None) == {}
-    asyncio.run(ag.say(ROLES["dev"], "x" * 9000, **ag._reply_kw(7)))
-    assert sent[0] == {"reply_to_message_id": 555, "allow_sending_without_reply": True}
+    ag.asker[7] = (-100, 555)
+    assert ag._reply_kw(7, ROLES["dev"]) == {"reply_to": 555} and ag._reply_kw(8, ROLES["dev"]) == {}
+    asyncio.run(ag.say(ROLES["dev"], "x" * 9000, **ag._reply_kw(7, ROLES["dev"])))
+    rp = sent[0]["reply_parameters"]
+    assert rp.message_id == 555 and rp.allow_sending_without_reply is True
     assert len(sent) > 1 and all(k == {} for k in sent[1:])          # only the first part replies
+    ag.asker[9] = (4242, 37)                                         # asked in a private chat, answered in the group
+    assert ag._reply_kw(9, ROLES["dev"]) == {}

@@ -26,7 +26,7 @@ RETAKE_PAPER = (
     ("Переснимите ЭКГ: весь лист в кадре и ближе — клетки сетки должны быть чётко видны; ровно, без бликов и теней. "
     "Отправьте как файл (не сжатое фото) и повторите анализ."),
     ("EKGni qayta suratga oling: varaq kadrga to‘liq sig‘sin va yaqinroqdan — katak chiziqlari aniq ko‘rinsin; tekis, "
-    "yaltirash va soyasiz. Fayl sifatida yuboring (siqilgan rasm emas) va tahlilni takrorlang."))
+    "yaltirashsiz va soyasiz. Fayl sifatida yuboring (siqilgan rasm emas) va tahlilni takrorlang."))
 RETAKE_SCREEN = (
     "Переснимите экран прибора: экран целиком в кадре, резко и без бликов; затем повторите анализ.",
     "Qurilma ekranini qayta suratga oling: ekran kadrga to‘liq sig‘sin, aniq va yaltirashsiz; so‘ng tahlilni takrorlang.")
