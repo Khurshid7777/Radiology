@@ -39,6 +39,12 @@ def _ids(text: str) -> set[int]:
     return out
 
 
+def miniapp_url(cfg: BotConfig, page: str) -> str | None:
+    """The address of a Mini App page on the site (SD-136); Telegram opens only ``https://`` pages."""
+    base = (os.environ.get(PUBLIC_URL_ENV) or cfg.public_url or "").rstrip("/")
+    return f"{base}/miniapp/{page}" if base.startswith("https://") else None
+
+
 @dataclass
 class BotConfig:
     api_url: str

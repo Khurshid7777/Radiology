@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from cardiolens.api.guard import RequestGuard
 from ecgscan import PIPELINE_VERSION
 from ecgscan.config import load_yaml
-from ecgscan_service.router import router
+from ecgscan_service.router import public_router, router
 
 app = FastAPI(title="ECG Scanner", version=PIPELINE_VERSION)
 # Key check and body cap before multipart parsing (D136): the upload limit (per photo, times
@@ -14,6 +14,7 @@ _up = load_yaml("service")["upload"]
 app.add_middleware(RequestGuard,
                    max_body_bytes=int(_up["max_mb"] * 1024 * 1024) * int(_up.get("max_parts", 1)) + 1024 * 1024)
 app.include_router(router)
+app.include_router(public_router)     # SD-136: the Mini App probe page, open and static
 
 
 @app.get("/health")
