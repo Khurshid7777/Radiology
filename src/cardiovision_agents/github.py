@@ -114,9 +114,12 @@ async def prepare_branch(workdir: str, branch: str, user: str = AGENT) -> str:
     return "" if code == 0 else out[-300:]
 
 
-async def checkout_main(workdir: str, user: str = AGENT) -> None:
+async def checkout_main(workdir: str, user: str = AGENT, clean: bool = False) -> None:
     await ensure_mirror()
     await agent_git(workdir, "fetch", "origin", "+refs/heads/main:refs/remotes/origin/main")
+    if clean:       # D342: a member's task leaves nothing behind for the owner's next branch
+        await agent_git(workdir, "reset", "--hard")
+        await agent_git(workdir, "clean", "-fdq")
     await agent_git(workdir, "checkout", "-B", "main", "origin/main")
 
 

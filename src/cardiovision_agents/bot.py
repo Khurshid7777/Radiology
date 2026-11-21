@@ -405,9 +405,11 @@ class Agents:
                     return {"ok": False}
             elif not role.branch:
                 await github.checkout_main(workdir, runner.AGENT_USER)
+            elif member:                          # D342: a member's task on a branch role starts from a clean main
+                await github.checkout_main(workdir, runner.AGENT_USER, clean=True)
             extra += await self._inputs(role)
             sessions = dict(self.store["sessions"])
-            prompt = build_prompt(role, text, extra, works=works)
+            prompt = build_prompt(role, text, extra, works=works, **({"sender": "участника группы (не владельца)"} if member else {}))
             model = None
             if scheduled and role.key not in LEAD_REPORTS and not (role.key == "coord" and text == DAILY_PLAN):
                 model = runner.report_model_for(role)          # D308: routine reports on the cheaper model
@@ -421,6 +423,8 @@ class Agents:
                 if scheduled:
                     await self.say(role, "Плановый отчёт пропущен: лимит подписки исчерпан.")
                 return meta
+            if member and role.branch:            # D342: whatever it changed stays out of the owner's next branch
+                await github.checkout_main(workdir, runner.AGENT_USER, clean=True)
             if task_id:
                 self.ran.add(task_id)            # the agent's run is over; what follows is the bot's part
             if not fresh:

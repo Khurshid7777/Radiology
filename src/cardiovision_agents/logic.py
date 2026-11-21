@@ -207,7 +207,7 @@ def review_ok(text: str) -> bool | None:
     return None if m is None else m.group(1).lower() == "можно"
 
 
-def build_prompt(role: Role, text: str, extra: str = "", works: bool | None = None) -> str:
+def build_prompt(role: Role, text: str, extra: str = "", works: bool | None = None, sender: str = "владельца") -> str:
     """``works``: the agent is on its own branch for a task (default: every turn of a branch role)."""
     works = role.branch if works is None else works
     head = (f"You are the «{role.title}» agent of CardioVision, running on the project's server and talking to the "
@@ -224,4 +224,4 @@ def build_prompt(role: Role, text: str, extra: str = "", works: bool | None = No
         head += (" You are on your own git branch in this clone: commit your work there (git commit), do not switch "
                  "branches, do not push (the bot pushes). Run the full test suite before you finish. End with: what "
                  "changed, the test result, and whether it is ready to deploy.")
-    return f"{head}\n\n{extra}\n\nСообщение владельца:\n{text}".replace("\n\n\n", "\n\n")
+    return f"{head}\n\n{extra}\n\nСообщение {sender}:\n{text}".replace("\n\n\n", "\n\n")
