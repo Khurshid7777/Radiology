@@ -622,6 +622,19 @@ class Agents:
                      "«нового нет» пишет бот без запуска модели (D308).")
         return "\n".join(lines)
 
+    def unaddressed_approval_hint(self) -> str:
+        """D340: what a bare «да» sent to the whole group could have meant, and how to say it so it is acted on."""
+        waiting = [ROLES[k].title for k, p in (self.store.data.get("pending") or {}).items() if p and k in ROLES]
+        props = self.store.data.get("proposals") or {}
+        parts = ["«Да» без номеров и не в ответ агенту — непонятно, кому оно, поэтому ничего не запущено."]
+        if props:
+            parts.append("Раздать задачи из списка: напишите номера, например «да " + ", ".join(sorted(props, key=int)[:3]) + "».")
+        if waiting:
+            parts.append("Выложить готовую ветку: ответьте «да» на сообщение агента — ждут: " + ", ".join(waiting) + ".")
+        if not props and not waiting:
+            parts.append("Сейчас нет ни списка задач, ни ветки, которая ждёт «да».")
+        return " ".join(parts)
+
     async def dispatch(self, numbers: list[int]) -> None:
         props = self.store.data.get("proposals") or {}
         coord = ROLES["coord"]
@@ -765,7 +778,12 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
                 others = any(addressed_to(msg.text or msg.caption or "", u, reply_from, i)[0]
                              for i, (_, u) in idents.items() if i != bot.id)
                 if primary(bot) and not others:
-                    await common(text, msg)        # «статус» / «стоп агенты» to the whole group: the coordinator answers
+                    if parse_choice(text):         # D340: «да 1, 3» to the whole group is the answer to the task menu
+                        asyncio.create_task(agents.safe(ROLES["coord"], agents.dispatch(parse_choice(text))))
+                    elif is_approval(text):        # D340: a bare «да» to nobody must not vanish
+                        await msg.reply(agents.unaddressed_approval_hint())
+                    else:
+                        await common(text, msg)    # «статус» / «стоп агенты» to the whole group: the coordinator answers
                 return
             if await common(text, msg):
                 return
@@ -790,6 +808,17 @@ TOKEN_ENV = {"audit": "AGENTS_TG_AUDIT", "coord": "AGENTS_TG_COORD", "dev": "AGE
              "sec": "AGENTS_TG_SEC", "triage": "AGENTS_TG_TRIAGE", "news": "AGENTS_TG_NEWS"}
 
 
+def bot_identities(found: list[tuple[str, int, str | None]]) -> dict[int, tuple[str, str | None]]:
+    """Bot id -> (role, username). D340: a bot shared by several roles (their own token is not set — they speak through the
+    coordinator's) is the coordinator's. Before, the last role in TOKEN_ENV order (Новости) won, so the owner's «да 1, 3»
+    to the coordinator's bot went to the news agent and no task was ever dispatched."""
+    idents: dict[int, tuple[str, str | None]] = {}
+    for key, bot_id, username in found:
+        if bot_id not in idents or key == "coord":
+            idents[bot_id] = (key, username)
+    return idents
+
+
 async def main() -> None:
     from aiogram import Bot
 
@@ -810,9 +839,11 @@ async def main() -> None:
     agents = Agents(bots, store, owner)
     idents: dict[int, tuple[str, str | None]] = {}
     if agents.multi:
+        found = []
         for k, b in bots.items():
             me = await b.get_me()
-            idents[me.id] = (k, me.username)
+            found.append((k, me.id, me.username))
+        idents = bot_identities(found)
     asyncio.create_task(agents.scheduler())
     for k in ROLES:                              # D301: tasks queued before a restart continue
         if agents._queue(k):

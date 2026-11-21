@@ -869,3 +869,42 @@ def test_a_limit_hit_pauses_planned_reports_and_queued_tasks_wait(tmp_path, monk
 def test_task_prompts_ask_for_a_closing_report_except_the_reviewers():
     assert "short report" in logic.build_prompt(ROLES["dev"], "x") and "short report" in logic.build_prompt(ROLES["sec"], "x")
     assert "short report" not in logic.build_prompt(ROLES["review"], "x")
+
+
+def test_choice_formats_d340():
+    """D340 (owner, 21.11: «писал "да, 1, 3", "да, 1, 2"… задача не пошла»): the formats the owner used are all a choice."""
+    for text, want in (("да, 1, 3", [1, 3]), ("да 1, 2", [1, 2]), ("Да 1 и 3", [1, 3]), ("да 1,2,3", [1, 2, 3]),
+                       ("да: 2.", [2]), ("да 1 3", [1, 3]), ("да 1; 3", [1, 3])):
+        assert logic.parse_choice(text) == want, text
+    assert logic.parse_choice("да") == [] and logic.parse_choice("да, но позже") == []
+    assert "можно просто в группу" in logic.task_menu({1: ("dev", "x")})
+
+
+def test_unaddressed_bare_yes_gets_a_hint_d340(tmp_path):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents.bot import Agents
+    from cardiovision_agents.store import Store
+
+    class FakeBot:
+        async def send_message(self, *a, **k):
+            return None
+
+    ag = Agents(FakeBot(), Store(tmp_path / "s.json"), owner_id=42)
+    assert "ничего не запущено" in ag.unaddressed_approval_hint() and "нет ни списка" in ag.unaddressed_approval_hint()
+    ag.store["proposals"] = {"1": ["dev", "a"], "3": ["scan", "b"]}
+    ag.store["pending"] = {"dev": {"branch": "agents/dev-1", "sha": "x", "review": True}}
+    h = ag.unaddressed_approval_hint()
+    assert "да 1, 3" in h and "Программист" in h
+
+
+def test_a_shared_bot_is_the_coordinators_d340():
+    """D340: only the coordinator's and the controller's tokens are set on the server; the other six roles share the
+    coordinator's bot. That bot must answer as the coordinator (before: as «Новости», the last role sharing it)."""
+    pytest.importorskip("aiogram")
+    from cardiovision_agents.bot import TOKEN_ENV, bot_identities
+
+    found = [(k, 2 if k == "audit" else 1, "audit_bot" if k == "audit" else "coord_bot") for k in TOKEN_ENV]
+    ids = bot_identities(found)
+    assert ids == {1: ("coord", "coord_bot"), 2: ("audit", "audit_bot")}
+    own = [(k, i + 10, f"b{i}") for i, k in enumerate(TOKEN_ENV)]
+    assert {v[0] for v in bot_identities(own).values()} == set(TOKEN_ENV)    # a bot per role: each keeps its own

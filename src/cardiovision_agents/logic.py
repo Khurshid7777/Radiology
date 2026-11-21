@@ -118,7 +118,7 @@ def branch_name(stamp: str, kind: str = "dev") -> str:
 TASK_LINE = re.compile(r"^\s*(?:[-*•]\s*)?\**\s*(?:ЗАДАЧА\s+)?(\d+)\s*[.):]?\s*\**\s*\[\s*(ядро|сканер)\s*\]\s*\**\s*[:—–-]?\s*(.+?)\s*$",
                        re.IGNORECASE | re.MULTILINE)
 TARGET = {"ядро": "dev", "сканер": "scan"}
-CHOICE = re.compile(r"^\s*да\s*[,:]?\s*((?:\d+\s*[, ]\s*)*\d+)\s*[.!]*\s*$", re.IGNORECASE)
+CHOICE = re.compile(r"^\s*да\s*[,:]?\s*((?:\d+\s*(?:[,; ]|\bи\b|\band\b)\s*)*\d+)\s*[.!]*\s*$", re.IGNORECASE)   # D340: «да 1 и 3»
 STATUS = re.compile(r"^\s*(статус|/status)\s*[?.!]*\s*$", re.IGNORECASE)
 VERDICT = re.compile(r"ВЕРДИКТ\s*:\s*(можно|нельзя)", re.IGNORECASE)
 
@@ -157,13 +157,13 @@ def parse_news(text: str) -> dict[int, tuple[str, str]]:
 def news_menu(items: dict[int, tuple[str, str]]) -> str:
     lines = [f"{n}. [{tag}] {t}" for n, (tag, t) in sorted(items.items())]
     return ("Находки на подтверждение:\n" + "\n".join(lines)
-            + "\n\nОтветьте мне: «да» и номера — например «да 1, 3». Подтверждённое передам координатору в список задач.")
+            + "\n\nОтветьте на это сообщение (reply): «да» и номера — например «да 1, 3». Подтверждённое передам координатору в список задач.")
 
 
 def task_menu(tasks: dict[int, tuple[str, str]]) -> str:
     """The clean numbered list the bot shows the owner (D300)."""
     lines = [f"{n}. [{ROLES[r].title}] {t}" for n, (r, t) in sorted(tasks.items())]
-    return "Задачи на выбор:\n" + "\n".join(lines) + "\n\nОтветьте мне: «да» и номера — например «да 1, 3»."
+    return "Задачи на выбор:\n" + "\n".join(lines) + "\n\nНапишите «да» и номера — например «да 1, 3» (можно просто в группу)."
 
 
 def parse_choice(text: str | None) -> list[int]:
