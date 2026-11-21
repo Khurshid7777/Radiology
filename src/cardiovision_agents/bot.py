@@ -628,15 +628,20 @@ class Agents:
 
         A choice answering the news menu is a news choice; «да» / «пропустить» for a waiting branch goes to the role whose
         branch it is — named in the message answered, or the only role with a branch waiting. Otherwise (None, None)."""
-        if parse_choice(text) and reply_text.startswith(NEWS_MENU_HEAD):
+        shared = self.bots["coord"]
+        if parse_choice(text) and reply_text.startswith(NEWS_MENU_HEAD) and self.bots["news"] is shared:
             return "news", ROLES["news"]
         skip, approve = bool(SKIP.match(text or "")), is_approval(text)
         if not (skip or approve):
             return None, None
-        pend = {k: p for k, p in (self.store.data.get("pending") or {}).items() if p and k in ROLES and ROLES[k].branch}
+        pend = {k: p for k, p in (self.store.data.get("pending") or {}).items()
+                if p and k in ROLES and ROLES[k].branch and self.bots[k] is shared}
         named = [k for k, p in pend.items() if p.get("branch") and p["branch"] in reply_text]
-        key = named[0] if len(named) == 1 else (next(iter(pend)) if len(pend) == 1 and not named else None)
-        if key is None:
+        if len(named) == 1:
+            key = named[0]
+        elif skip and not named and len(pend) == 1:
+            key = next(iter(pend))      # «пропустить» is harmless (the branch stays); a deploy needs the branch named
+        else:
             return None, None
         return ("skip" if skip else "deploy"), ROLES[key]
 

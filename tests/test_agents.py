@@ -930,7 +930,9 @@ def test_shared_bot_routes_news_choice_and_branch_approval_d340(tmp_path):
     ag.store["pending"] = {"dev": {"branch": "agents/dev-20261121-1000", "sha": "a", "review": True}}
     act, role = ag.shared_bot_route("да", "Ветка `agents/dev-20261121-1000` готова")
     assert (act, role.key) == ("deploy", "dev")
-    assert ag.shared_bot_route("пропустить", "")[0] == "skip"                          # the only waiting branch
+    assert ag.shared_bot_route("да", "")[0] is None                                    # a deploy needs the branch named
+    assert ag.shared_bot_route("Да!", "Вечерняя сводка: всё спокойно")[0] is None      # «да» to something else
+    assert ag.shared_bot_route("пропустить", "")[0] == "skip"                          # harmless: the only waiting branch
     ag.store["pending"]["scan"] = {"branch": "agents/scan-20261121-1100", "sha": "b", "review": True}
     assert ag.shared_bot_route("да", "")[0] is None                                    # two waiting, none named
     assert ag.shared_bot_route("да", "agents/scan-20261121-1100")[1].key == "scan"
@@ -941,3 +943,21 @@ def test_choice_regex_is_linear_d340():
     t = time.time()
     assert logic.parse_choice("да " + "1   " * 40 + "x") == []
     assert time.time() - t < 0.5
+
+
+def test_route_only_for_roles_behind_the_coordinators_bot_d340(tmp_path):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents.bot import Agents
+    from cardiovision_agents.logic import news_menu
+    from cardiovision_agents.store import Store
+
+    class FakeBot:
+        async def send_message(self, *a, **k):
+            return None
+
+    shared, own = FakeBot(), FakeBot()
+    bots = {k: (own if k in ("dev", "news") else shared) for k in ROLES}
+    ag = Agents(bots, Store(tmp_path / "s.json"), owner_id=42)
+    ag.store["pending"] = {"dev": {"branch": "agents/dev-1", "sha": "a", "review": True}}
+    assert ag.shared_bot_route("да", "agents/dev-1")[0] is None          # dev has its own bot: answer it there
+    assert ag.shared_bot_route("да 1", news_menu({1: ("данные", "x")}))[0] is None
