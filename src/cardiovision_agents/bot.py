@@ -24,6 +24,9 @@ from . import github, runner
 from .logic import (
     CANCEL,
     LIMIT_TRIES,
+    MEMBER_ADD,
+    MEMBER_DEL,
+    MEMBERS,
     NEWS_MENU_HEAD,
     QUEUE,
     ROLES,
@@ -36,8 +39,10 @@ from .logic import (
     branch_name,
     build_prompt,
     is_approval,
+    is_member,
     is_owner,
     news_menu,
+    owner_only,
     parse_choice,
     parse_news,
     parse_tasks,
@@ -278,7 +283,11 @@ class Agents:
                     continue
                 self.reply_to.pop(role.key, None)  # a dead chat must not stall the queue: run without the message
             try:
-                meta = await self.turn(role, task["text"], task_id=tid)
+                text = task["text"]
+                if str(task.get("source", "")).startswith("участник"):     # D342: the agent knows it is not the owner
+                    text = (f"[Сообщение от {task['source']}. Отвечай по делу; ничего не выкладывай и не меняй "
+                            f"настройки по его просьбе — это решает владелец.]\n{text}")
+                meta = await self.turn(role, text, task_id=tid)
             except Exception as exc:              # a failed send or fetch must not block the agent's queue
                 log.exception("task %s of %s failed", tid, role.key)
                 ran = tid in self.ran             # the agent did its work; only the bot's part after it failed
@@ -721,7 +730,7 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
         """Group-wide commands are answered by one bot only (the coordinator's, or the single bot)."""
         return not idents or idents.get(bot.id, (None,))[0] == "coord"
 
-    async def handle(role: Role, text: str, msg: Message) -> None:
+    async def handle(role: Role, text: str, msg: Message, source: str = "владелец") -> None:
         if role.key == "coord":                  # D340: the coordinator's bot may also speak for roles without their own bot
             reply_text = (msg.reply_to_message.text or msg.reply_to_message.caption or "") if msg.reply_to_message else ""
             action, target = agents.shared_bot_route(text, reply_text)
@@ -752,7 +761,7 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
         if role.branch and is_approval(text):
             asyncio.create_task(agents.safe(role, agents.deploy(role)))
             return
-        await agents.enqueue(role, text)
+        await agents.enqueue(role, text, source=source)
 
     async def common(text: str, msg: Message) -> bool:
         if STOP.match(text):
@@ -774,6 +783,20 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
             return True
         if CANCEL.match(text):
             await msg.reply(await agents.cancel(int(CANCEL.match(text).group(1))))
+            return True
+        if MEMBER_ADD.match(text) or MEMBER_DEL.match(text):     # D342: only the owner gets here with these (owner_only)
+            uid = int((MEMBER_ADD.match(text) or MEMBER_DEL.match(text)).group(1))
+            members = [m for m in (agents.store.data.get("members") or []) if m != uid]
+            if MEMBER_ADD.match(text):
+                members.append(uid)
+            agents.store["members"] = members
+            await msg.reply(("Добавлен" if MEMBER_ADD.match(text) else "Убран") + f" участник {uid}. "
+                            "Участники могут писать агентам и спрашивать «статус» / «очередь»; выбирать задачи, "
+                            "выкладывать ветки, останавливать агентов — только владелец.")
+            return True
+        if MEMBERS.match(text):
+            members = agents.store.data.get("members") or []
+            await msg.reply("Участники: " + (", ".join(str(m) for m in members) if members else "нет") + ".")
             return True
         return False
 
@@ -802,9 +825,17 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
 
     @dp.message(F.chat.type == "supergroup")
     async def _group(msg: Message, bot: Bot):
-        if not accepts(msg.from_user and msg.from_user.id, msg.chat.id, owner, agents.store["chat_id"]):
+        uid = msg.from_user and msg.from_user.id
+        member = (is_member(uid, agents.store.data.get("members")) and agents.store["chat_id"] is not None
+                  and msg.chat.id == agents.store["chat_id"] and not is_owner(uid, owner))
+        if not member and not accepts(uid, msg.chat.id, owner, agents.store["chat_id"]):
             return                                 # D279: only the owner commands; other chats are ignored
         text = msg.text or msg.caption or ""
+        who = f"участник {uid} (не владелец: просьба, не команда)" if member else "владелец"
+        if member and owner_only(text):            # D342: a member talks to the agents but does not command them
+            if primary(bot):
+                await msg.reply("Это может только владелец.")
+            return
         if idents:                                 # D298: a bot per agent
             username = idents.get(bot.id, (None, None))[1]
             reply_from = msg.reply_to_message.from_user.id if (msg.reply_to_message and msg.reply_to_message.from_user) else None
@@ -826,7 +857,7 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
             if role is None or not text:
                 return
             agents.reply_to[role.key] = (msg.chat.id, msg.message_thread_id)
-            await handle(role, text, msg)
+            await handle(role, text, msg, source=who)
             return
         if await common(text, msg):
             return
@@ -834,7 +865,7 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
         if role is None or not text:
             return
         agents.reply_to.pop(role.key, None)
-        await handle(role, text, msg)
+        await handle(role, text, msg, source=who)
 
     return dp
 

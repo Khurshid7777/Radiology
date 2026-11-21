@@ -131,7 +131,7 @@ def test_group_messages_count_only_from_the_owner_in_the_bound_group():
 
 def test_the_bot_module_wires_the_owner_check():
     src = (ROOT / "src/cardiovision_agents/bot.py").read_text()
-    assert "accepts(msg.from_user" in src
+    assert "accepts(uid, msg.chat.id, owner" in src and "owner_only(text)" in src     # D342: members talk, owner commands
     assert src.count("is_owner(msg.from_user") >= 3      # /setup, /unbind, private chat
 
 
@@ -961,3 +961,15 @@ def test_route_only_for_roles_behind_the_coordinators_bot_d340(tmp_path):
     ag.store["pending"] = {"dev": {"branch": "agents/dev-1", "sha": "a", "review": True}}
     assert ag.shared_bot_route("да", "agents/dev-1")[0] is None          # dev has its own bot: answer it there
     assert ag.shared_bot_route("да 1", news_menu({1: ("данные", "x")}))[0] is None
+
+
+def test_members_talk_but_do_not_command_d342():
+    """D342 (owner, 21.11: «этот id я добавил в группу, пусть агенты отвечают и ему»): a member may ask and give tasks;
+    stop / start / cancel, choosing tasks or news, «да» to a branch, «пропустить», adding members — the owner only."""
+    assert logic.is_member(3325815, [3325815]) and not logic.is_member(1, [3325815]) and not logic.is_member(None, [])
+    for t in ("стоп агенты", "старт агенты", "отмена 5", "да 1, 3", "да", "@cv_coord_bot да", "пропустить",
+              "добавить участника 123456", "убрать участника 123456", "/setup"):
+        assert logic.owner_only(t), t
+    for t in ("статус", "очередь", "что сделано за день?", "проверь сканер на фото", "участники"):
+        assert not logic.owner_only(t), t
+    assert logic.MEMBER_ADD.match("добавить участника 3325815").group(1) == "3325815"

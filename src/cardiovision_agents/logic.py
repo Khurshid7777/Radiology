@@ -72,6 +72,26 @@ def role_for_thread(topics: dict[str, int], thread_id: int | None) -> Role | Non
     return None
 
 
+MEMBER_ADD = re.compile(r"^\s*добавить\s+участника\s+(\d{3,15})\s*[.!]*\s*$", re.IGNORECASE)    # D342
+MEMBER_DEL = re.compile(r"^\s*убрать\s+участника\s+(\d{3,15})\s*[.!]*\s*$", re.IGNORECASE)
+MEMBERS = re.compile(r"^\s*участники\s*[?.!]*\s*$", re.IGNORECASE)
+_MENTION = re.compile(r"^\s*@\w+\s*")
+
+
+def is_member(user_id: int | None, members) -> bool:
+    """D342: people the owner added to the group — they may talk to the agents, not command them."""
+    return bool(user_id) and user_id in set(members or [])
+
+
+def owner_only(text: str | None) -> bool:
+    """D342: what only the owner may say — stop / start / cancel, choosing tasks or news, «да» to a branch, «пропустить»,
+    adding or removing members. Anything else from a member is a question or a task for an agent."""
+    t = _MENTION.sub("", text or "")
+    return bool(STOP.match(t) or START.match(t) or re.match(r"^\s*отмена\s+\d+", t, re.IGNORECASE)
+                or CHOICE.match(t) or APPROVE.match(t) or SKIP.match(t)
+                or MEMBER_ADD.match(t) or MEMBER_DEL.match(t) or t.strip().startswith("/setup") or t.strip().startswith("/unbind"))
+
+
 def is_approval(text: str | None) -> bool:
     return bool(text and APPROVE.match(text))
 
