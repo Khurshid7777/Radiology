@@ -69,6 +69,7 @@ data/ecg-arrhythmia-extra/
 data/books/
 data/ptbxl_st/
 data/ptbxl_mi/
+data/ptbxl_isch/
 data/mitdb/
 data/incartdb/
 # D268: SVT bench (Chapman / Ningbo subset), downloaded by tools/svt_bench/fetch.py
