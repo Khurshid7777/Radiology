@@ -9,9 +9,3 @@
 	reverse_proxy cardiolens:8000
 }
 
-# D341 (owner, 21.11): the bare domain points here too (A record 149.202.70.147) but had no certificate, so browsers
-# got ERR_SSL_PROTOCOL_ERROR. Caddy gets its own certificate and sends visitors on to the site. www.vision-ai.uz is not
-# listed until its DNS record exists (a name without DNS makes Caddy retry the certificate forever).
-vision-ai.uz {
-	redir https://{$DOMAIN}{uri} permanent
-}
