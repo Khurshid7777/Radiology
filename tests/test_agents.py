@@ -973,3 +973,29 @@ def test_members_talk_but_do_not_command_d342():
     for t in ("статус", "очередь", "что сделано за день?", "проверь сканер на фото", "участники"):
         assert not logic.owner_only(t), t
     assert logic.MEMBER_ADD.match("добавить участника 3325815").group(1) == "3325815"
+
+
+def test_member_bypasses_found_in_review_are_closed_d342():
+    for t in ("да @cv_dev_bot", "@cv_dev_bot @cv_dev_bot да", "да\n@cv_dev_bot", "пропустить @cv_dev_bot",
+              "да 1 @cv_coord_bot", "стоп агенты @cv_coord_bot", "добавить участника 777 @cv_coord_bot", "/new"):
+        assert logic.owner_only(t), t
+    assert not logic.owner_only("статус @cv_coord_bot") and not logic.owner_only("напиши на a@b.uz")
+
+
+def test_one_queued_task_per_member_d342(tmp_path):
+    pytest.importorskip("aiogram")
+    import asyncio
+
+    from cardiovision_agents.bot import Agents
+    from cardiovision_agents.store import Store
+
+    class FakeBot:
+        async def send_message(self, *a, **k):
+            return None
+
+    ag = Agents(FakeBot(), Store(tmp_path / "s.json"), owner_id=42)
+    ag.kick = lambda role: None                          # no worker: tasks stay queued
+    who = "участник 3325815 (не владелец: просьба, не команда)"
+    assert asyncio.run(ag.enqueue(ROLES["dev"], "a", source=who)) > 0
+    assert asyncio.run(ag.enqueue(ROLES["scan"], "b", source=who)) == 0      # a second one, any agent: refused
+    assert asyncio.run(ag.enqueue(ROLES["scan"], "c")) > 0                   # the owner is not limited
