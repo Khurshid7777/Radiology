@@ -130,6 +130,11 @@ jobs:
           ssh server "cd $APP_DIR && $SUDO bash deploy/server_setup.sh && \
             $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env $PROFILES up -d --build --remove-orphans && \
             $SUDO docker image prune -f"
+          # D341: the Caddyfile is a bind-mounted file — a changed one is not seen until Caddy restarts (compose does not
+          # recreate the container for it). Restart only when the running copy differs (a second of HTTPS downtime).
+          ssh server "cd $APP_DIR && if ! $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env \
+            exec -T caddy cat /etc/caddy/Caddyfile | cmp -s - deploy/Caddyfile; then echo 'Caddyfile changed: restarting caddy'; \
+            $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env restart caddy; fi"
 
       # D279: the agents container in its own step, after the site is up: if its build fails, the site and the
       # bot are already updated and running; the deploy is marked, not stopped. Only when the agents bot token and
