@@ -170,11 +170,13 @@ def features_config(who: str = Depends(actor)) -> dict:
 @router.get("/config/capture-qc")
 def capture_qc_config(who: str = Depends(actor)) -> dict:
     """Frame-check thresholds and hint texts for the camera screen (TZ §6.1, SD-014)."""
-    from ecgscan.capture_qc import HINTS, config
+    from ecgscan.capture_qc import FRAME_ADVICE, HINTS, config
     from ecgscan.i18n import strings
 
     return {"config": config(), "hints": {lang: {h: strings(lang)[f"qc.{h}"] for h in (*HINTS, "ready")}
-                                          for lang in LANGS}}
+                                          for lang in LANGS},
+            # SD-133: a more exact text for the "frame" hint, by FrameQC.frame_advice
+            "frame_advice": {lang: {a: strings(lang)[f"qc.frame_{a}"] for a in FRAME_ADVICE} for lang in LANGS}}
 
 
 @router.get("/{scan_id}")

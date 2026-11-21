@@ -54,6 +54,7 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _taking = false;
   bool _torch = false;
   String _hint = 'frame';
+  String? _advice; // SD-133: where to move the phone, as seen on the preview
   double? _speed;
   double? _gain;
   FrameQc? _lastQc;
@@ -118,6 +119,7 @@ class _CameraScreenState extends State<CameraScreen> {
       final s = _auto.update(qc, cameraTiltDeg: tilt);
       setState(() {
         _hint = s.hint;
+        _advice = turnAdvice(qc.frameAdvice, orientation);
         _lastQc = qc;
         _lastHints = _auto.hintsFor(qc, tilt);
         _quad = previewQuad(qc.corners, image.width.toDouble(), image.height.toDouble(), orientation);
@@ -240,7 +242,7 @@ class _CameraScreenState extends State<CameraScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             color: Colors.black54,
-                            child: Text(app.t('qc.$_hint'),
+                            child: Text(app.t(_hint == 'frame' && _advice != null ? 'qc.frame_$_advice' : 'qc.$_hint'),
                                 textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 18)),
                           ),
                         ),

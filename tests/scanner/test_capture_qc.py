@@ -8,6 +8,7 @@ the app runs the same frames against the same JSON (mobile/ecg_scanner/test).
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from ecgscan.capture_qc import check_frame, config
@@ -102,3 +103,46 @@ def test_server_path_gives_the_same_light_metrics():
     for key in ("brightness", "glare", "sharpness"):
         assert getattr(light, key) == pytest.approx(getattr(full, key), rel=1e-4, abs=1e-5), key
     assert light.period_px is None and light.tilt_deg is None
+
+
+def test_frame_advice_rule_table():
+    """SD-133: top, bottom, left, right sheet blocks on the frame's outer lines against the edge threshold (the same
+    table as mobile/ecg_scanner/test/frame_advice_test.dart)."""
+    from ecgscan.capture_qc import frame_advice
+
+    assert frame_advice([0, 0, 0, 0], 3) is None and frame_advice([2, 2, 2, 2], 3) is None
+    assert frame_advice([5, 0, 0, 0], 3) == "up" and frame_advice([0, 4, 0, 0], 3) == "down"
+    assert frame_advice([0, 0, 2, 9], 3) == "right" and frame_advice([4, 0, 7, 0], 3) == "left"
+    assert frame_advice([5, 4, 0, 0], 3) == "farther" and frame_advice([0, 0, 3, 3], 3) == "farther"
+
+
+def test_a_sheet_leaving_the_frame_says_where_to_move_the_phone():
+    """SD-133: the whole sheet gives no advice; cut at an edge, the advice names that side; cut at two opposite edges,
+    "farther". The hint list keeps its one "frame" entry (older clients)."""
+    from ecgscan.bench.qc_frames import make_frame
+
+    f = make_frame("good", 500)
+    rgb, k = f.rgb, f.scale_to_capture
+    h, w = rgb.shape[:2]
+    q = check_frame(rgb, scale_to_capture=k)
+    assert q.hints == [] and q.sheet_whole is True and q.frame_advice is None
+    cuts = {"left": rgb[:, int(0.3 * w):], "right": rgb[:, :int(0.7 * w)], "up": rgb[int(0.3 * h):], "down": rgb[:int(0.7 * h)],
+            "farther": rgb[:, int(0.3 * w):int(0.7 * w)]}
+    for want, part in cuts.items():
+        q = check_frame(np.ascontiguousarray(part), scale_to_capture=k)
+        assert q.frame_advice == want and q.hints == ["frame"] and q.sheet_whole is False, want
+    assert check_frame(np.ascontiguousarray(rgb[int(0.3 * h):int(0.7 * h)]), scale_to_capture=k).frame_advice == "farther"
+
+
+def test_config_endpoint_serves_the_frame_advice_texts(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from ecgscan_service.app import app
+    from ecgscan_service.router import KEYS_ENV
+
+    monkeypatch.setenv(KEYS_ENV, "app:k1")
+    body = TestClient(app).get("/scans/config/capture-qc", headers={"X-API-Key": "k1"}).json()
+    for lang in ("ru", "uz"):
+        assert set(body["frame_advice"][lang]) == {"farther", "up", "down", "left", "right"}
+        assert all(body["frame_advice"][lang].values())
+    assert body["frame_advice"]["ru"]["left"].startswith("Сдвиньте телефон влево")

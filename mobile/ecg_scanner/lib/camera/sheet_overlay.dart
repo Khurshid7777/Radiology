@@ -19,6 +19,18 @@ Offset turnNormalized(Offset p, int sensorOrientation) {
   }
 }
 
+/// SD-133: the frame-coordinate advice ('up' / 'down' / 'left' / 'right') as the user sees it on the upright preview:
+/// the middle of that frame edge is turned like the corners. 'farther' has no direction.
+String? turnAdvice(String? advice, int sensorOrientation) {
+  const edge = {'up': Offset(0.5, 0), 'down': Offset(0.5, 1), 'left': Offset(0, 0.5), 'right': Offset(1, 0.5)};
+  final p = edge[advice];
+  if (p == null) return advice;
+  final t = turnNormalized(p, sensorOrientation);
+  if (t.dx < 0.25) return 'left';
+  if (t.dx > 0.75) return 'right';
+  return t.dy < 0.25 ? 'up' : 'down';
+}
+
 /// The sheet corners (captured-frame px) as normalised preview points, TL TR BR BL order kept.
 List<Offset>? previewQuad(List<List<double>>? corners, double frameWidth, double frameHeight, int sensorOrientation) {
   if (corners == null || frameWidth <= 0 || frameHeight <= 0) return null;

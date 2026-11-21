@@ -10,6 +10,18 @@ import 'dart:typed_data';
 
 const hintOrder = ['closer', 'glare', 'steady', 'level', 'light', 'bright', 'shadow', 'frame'];
 
+/// SD-133: where to move the phone when the sheet leaves the frame, in frame coordinates. `on`: sheet blocks on the
+/// frame's top, bottom, left and right outer lines. Two opposite edges touched: 'farther'; else the most touched edge.
+String? frameAdvice(List<int> on, int edgeBlocks) {
+  final top = on[0] >= edgeBlocks, bottom = on[1] >= edgeBlocks, left = on[2] >= edgeBlocks, right = on[3] >= edgeBlocks;
+  if ((top && bottom) || (left && right)) return 'farther';
+  var best = 0;
+  for (var i = 1; i < 4; i++) {
+    if (on[i] > on[best]) best = i;
+  }
+  return on[best] >= edgeBlocks ? const ['up', 'down', 'left', 'right'][best] : null;
+}
+
 class FrameQc {
   FrameQc({
     required this.width,
@@ -26,6 +38,7 @@ class FrameQc {
     this.shadow,
     this.corners,
     this.sheetWhole,
+    this.frameAdvice,
     this.sheetArea = 0.0,
     this.sheetBrightness,
   });
@@ -44,6 +57,7 @@ class FrameQc {
   final double? shadow; // brightness spread over 4 x 4 zones of the sheet
   final List<List<double>>? corners; // sheet TL, TR, BR, BL in captured-photo px
   final bool? sheetWhole; // the sheet does not run along an edge of the frame
+  final String? frameAdvice; // SD-133: farther / up / down / left / right, in frame coordinates
   final double sheetArea; // share of the frame the sheet covers (step 9)
   final double? sheetBrightness; // mean grey of the sheet (step 10)
 
@@ -476,6 +490,7 @@ FrameQc checkFrame(Uint8List rgb, int width, int height, Map<String, dynamic> co
   final cw = sheetCorners(group, blk);
   final corners = cw?.map((p) => [_round1(p[0] * k * scaleToCapture), _round1(p[1] * k * scaleToCapture)]).toList();
   bool? whole;
+  String? advice;
   var area = 0.0;
   if (group.isNotEmpty) {
     final hb = rows.length, wb = rows[0].length, e = ((a['edge_blocks'] as num?) ?? 1).toInt();
@@ -487,6 +502,7 @@ FrameQc checkFrame(Uint8List rgb, int width, int height, Map<String, dynamic> co
     ];
     whole = on.reduce(math.max) < e;
     area = group.length / (hb * wb);
+    advice = frameAdvice(on, e);
   }
   final shadow = shadowSpread(w, group, blk);
   final roi = sheetBrightness(w, group, blk);
@@ -516,6 +532,7 @@ FrameQc checkFrame(Uint8List rgb, int width, int height, Map<String, dynamic> co
     shadow: shadow,
     corners: corners,
     sheetWhole: whole,
+    frameAdvice: advice,
     sheetArea: area,
     sheetBrightness: roi,
   );
