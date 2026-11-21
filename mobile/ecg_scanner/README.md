@@ -2,6 +2,9 @@
 
 Cardiolens ECG Scanner client
 
+> **Frozen (SD-134, 2026-11-21).** The capture client is the Telegram Mini App (a web page inside Telegram).
+> No new features go into this app; the code is kept. See `docs/scanner/DECISIONS.md`, SD-134.
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
