@@ -516,6 +516,8 @@ class Agents:
                               if pend and pend.get("review") else ""))
             return {}
         async with self.locks[role.key], self.slots:
+            if self.store["paused"]:
+                return {}                        # D346: «стоп агенты» came while this run waited for its turn
             started = dt.datetime.now(TZ)
             workdir = runner.workdir_for(role)
             await github.ensure_clone(workdir, runner.AGENT_USER)
@@ -539,6 +541,8 @@ class Agents:
             if scheduled and role.key not in LEAD_REPORTS and not (role.key == "coord" and text == DAILY_PLAN):
                 model = runner.report_model_for(role)          # D308: routine reports on the cheaper model
             # a planned report is a fresh conversation: it must not resume (or replace) the agent's working session
+            if self.store["paused"]:
+                return {}                        # D346: … or while the branch was being prepared
             fresh = scheduled or member           # D342: a member's task never resumes / replaces the owner's session
             answer, sid, meta = await runner.run(role, prompt, None if fresh else sessions.get(role.key), workdir,
                                                  model=model)
@@ -603,6 +607,7 @@ class Agents:
                 try:
                     await self._offer(role, workdir, branch)
                 except Stopped:
+                    self.ran.discard(task_id)    # the task is not over: it stays in the queue
                     return {}
             return meta
 
@@ -699,6 +704,8 @@ class Agents:
     async def _review(self, author: Role, branch: str) -> bool | None:
         """The reviewer reads the branch against main with fresh eyes (runs inside the author's turn and lock)."""
         rv = ROLES["review"]
+        if self.store["paused"]:
+            raise Stopped                         # D346: «стоп агенты» came before the check started
         prompt = build_prompt(rv, (f"Проверь ветку `{branch}` агента «{author.title}» перед выкладкой: `git diff origin/main...{branch}` "
                                    f"и `git log origin/main..{branch}`. Повтори ключевые проверки сам (тесты затронутых частей). "
                                    "Последней строкой напиши ровно «ВЕРДИКТ: можно» или «ВЕРДИКТ: нельзя»."), SERVER_NOTE)

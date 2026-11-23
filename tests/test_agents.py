@@ -1049,6 +1049,10 @@ def test_routes_and_task_references_parse_d346():
                                         ("scan", "а"), ("news", "б")]                     # an unknown tag is no route; four at most
     assert logic.parse_tasks(text) == {1: ("dev", "моя идея — ждёт «да»")}                # the numbered list still needs «да»
     assert logic.parse_routes("ответ без стрелок") == []
+    # review, round 3: every arrow form, with and without a list bullet and bold
+    for line in ("-> [сканер] — текст", "- -> [сканер] текст", "=> [сканер]: текст", "→[сканер] текст", "• → **[сканер]** — текст",
+                 "* **-> [Сканер]** текст"):
+        assert logic.parse_routes(line) == [("scan", "текст")], line
     assert logic.task_ref("задача 12: поправь шрифт") == (12, "поправь шрифт")
     assert logic.task_ref("По задаче №7 — не то, переделай") == (7, "не то, переделай")
     assert logic.task_ref("переделай", "Готово, задача №5:\nсделал; см. также задача №9") == (5, "переделай")
@@ -1290,3 +1294,39 @@ def test_a_part_that_ends_before_the_hand_out_is_written_is_not_lost_d346(tmp_pa
     asyncio.run(go())
     summary = next(p for k, p in calls if k == "coord")
     assert ag.store["groups"] == {} and "ответ sec" in summary and "ответ news" in summary
+
+
+def test_nothing_starts_after_stop_d346(tmp_path, monkeypatch):
+    """Review, round 3: a run that waited for a free place, or whose branch was still being prepared or pushed, started
+    after «стоп агенты» and finished the task on pause (the reviewer too)."""
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import github
+    ag, _, calls = _team(tmp_path, monkeypatch)
+
+    async def stop_while_preparing(*a, **k):
+        ag.store["paused"] = True
+        return ""
+
+    async def go():
+        monkeypatch.setattr(github, "prepare_branch", stop_while_preparing)
+        a = await ag.enqueue(ROLES["dev"], "правка")
+        await ag.workers["dev"]
+        assert not calls and [it["id"] for it in ag._queue("dev")] == [a]          # stopped before the model ran
+        ag.store["paused"] = False
+
+        async def nothing(*x, **k):
+            return ""
+
+        async def stop_while_pushing(workdir, branch):
+            ag.store["paused"] = True
+            return True, "abc1234def", ""
+        monkeypatch.setattr(github, "prepare_branch", nothing)
+        monkeypatch.setattr(github, "push", stop_while_pushing)
+        ag.kick(ROLES["dev"])
+        await ag.workers["dev"]
+        return a
+    a = asyncio.run(go())
+    assert [c[0] for c in calls] == ["dev"]                                         # the reviewer never started
+    assert [it["id"] for it in ag._queue("dev")] == [a] and not ag.store["pending"] and a not in ag.ran
+    ag.store["paused"] = True
+    assert asyncio.run(ag.turn(ROLES["sec"], "задача")) == {} and [c[0] for c in calls] == ["dev"]

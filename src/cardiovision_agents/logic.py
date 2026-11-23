@@ -154,7 +154,9 @@ def parse_routes(text: str) -> list[tuple[str, str]]:
     for line in (text or "").splitlines():       # plain string work, linear: a regex here once took a minute on one line
         if len(line) > ROUTE_LINE_MAX:
             continue
-        rest = line.strip().lstrip("-*• \t")
+        rest = line.strip()
+        while rest and rest[0] in "-*• \t" and not rest.startswith(ARROWS):     # list bullets, but not the «->» arrow itself
+            rest = rest[1:]
         arrow = next((a for a in ARROWS if rest.startswith(a)), None)
         if arrow is None:
             continue
