@@ -65,12 +65,16 @@ class BotConfig:
     report_hour: int = 9
     report_tz: str = "Asia/Tashkent"
     report_days: int = 7
+    miniapp_ticket_minutes: float = 10.0     # SD-137
+    miniapp_poll_s: float = 2.0
+    miniapp_max_buttons: int = 5
 
     @classmethod
     def load(cls) -> BotConfig:
         c = load_yaml("bot")
         g = c.get("group") or {}
         rep = c.get("report") or {}
+        mini = c.get("miniapp") or {}
         allowed = _ids(os.environ.get(ALLOWED_ENV, ""))
         return cls(api_url=os.environ.get(API_URL_ENV, c["api_url"]).rstrip("/"), max_mb=float(c["max_mb"]),
                    poll_interval_s=float(c["poll_interval_s"]), poll_timeout_s=float(c["poll_timeout_s"]),
@@ -84,7 +88,10 @@ class BotConfig:
                    group_max_per_hour=int(g.get("max_per_hour", 60)),
                    report_weekly=bool(rep.get("weekly", True)), report_weekday=int(rep.get("weekday", 0)),
                    report_hour=int(rep.get("hour", 9)), report_tz=str(rep.get("tz", "Asia/Tashkent")),
-                   report_days=int(rep.get("days", 7)))
+                   report_days=int(rep.get("days", 7)),
+                   miniapp_ticket_minutes=float(mini.get("ticket_minutes", 10)),
+                   miniapp_poll_s=float(mini.get("poll_s", 2.0)),
+                   miniapp_max_buttons=int(mini.get("max_buttons", 5)))
 
 
 # The photo's caption names the patient: "54 м", "ж 7", "erkak 63" (D161).
@@ -332,6 +339,45 @@ def intake(cfg: BotConfig, *, kind: str, mime: str | None, size: int | None, lan
     if size is not None and size > cfg.max_mb * 1024 * 1024:
         return t("bot.too_large", lang, max_mb=int(cfg.max_mb))
     return None
+
+
+def miniapp_button_url(cfg: BotConfig, lang: str, now: float | None = None) -> tuple[str, str, int] | None:
+    """SD-137: (the capture page's address with a fresh one-time ticket, the ticket's id, its expiry);
+    None without an ``https://`` site address or the bot's API key."""
+    from ecgscan_service.miniapp import issue_ticket
+
+    base = miniapp_url(cfg, "capture")
+    if base is None or not cfg.api_key:
+        return None
+    ticket, tid, expiry = issue_ticket(cfg.api_key, cfg.miniapp_ticket_minutes, now)
+    return f"{base}?lang={lang}&t={ticket}", tid, expiry
+
+
+def miniapp_take(api, ticket_id: str) -> bytes | None | bool:
+    """Ask the server for the photo of a ticket: bytes; None: not there yet (or the server did not
+    answer: try again); False: it was already taken."""
+    try:
+        r = api.http.get(f"/scans/miniapp/inbox/{ticket_id}", headers=api.headers)
+    except Exception:
+        return None
+    if r.status_code == 200:
+        return r.content
+    return False if r.status_code == 404 else None
+
+
+def photo_name(data: bytes) -> str:
+    """A file name by what the bytes are (the analysis tells formats apart by the name too)."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "ecg.jpg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "ecg.png"
+    if data[:4] in (b"II*\x00", b"MM\x00*"):
+        return "ecg.tiff"
+    if data[4:12] in (b"ftypheic", b"ftypheix", b"ftypmif1", b"ftyphevc"):
+        return "ecg.heic"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "ecg.webp"
+    return "ecg.jpg"
 
 
 class ScanApi:

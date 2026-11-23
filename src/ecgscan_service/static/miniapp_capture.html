@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ECG</title>
+<!--
+  The Mini App capture page (SD-137). The chosen photo goes to this site as the file the phone made
+  (POST upload), so Telegram never compresses it; the bot then takes it and answers in the chat.
+  The page talks to its own two addresses only (upload, send): no outside script, no storage, and
+  Telegram's signed user data is never read. The texts and the ticket are put in by the server.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 17px/1.4 system-ui, sans-serif; margin: 0; padding: 14px; max-width: 640px; }
+  h1 { font-size: 20px; margin: 4px 0 8px; }
+  p { margin: 6px 0; }
+  .note { font-size: 14px; opacity: .8; }
+  button, label.btn { display: block; width: 100%; box-sizing: border-box; margin: 10px 0; padding: 15px;
+    font: inherit; border-radius: 12px; border: 1px solid #5b7c99; background: #2f6ea3; color: #fff; text-align: center; }
+  .alt { background: transparent !important; color: inherit !important; }
+  input[type=file] { display: none; }
+  #status { margin: 14px 0 6px; font-weight: 600; min-height: 1.4em; }
+  #bar { height: 6px; border-radius: 3px; background: #2f6ea3; width: 0; transition: width .2s; }
+  ul { margin: 6px 0; padding-left: 20px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<h1 id="title"></h1>
+<p id="lead"></p>
+<p id="tips" class="note"></p>
+
+<div id="pickers">
+  <label class="btn" for="f_cam" id="l_cam"></label>
+  <input id="f_cam" type="file" accept="image/*" capture="environment">
+  <label class="btn alt" for="f_gal" id="l_gal"></label>
+  <input id="f_gal" type="file" accept="image/*">
+</div>
+
+<div id="bar"></div>
+<p id="status"></p>
+<p id="size" class="note"></p>
+<p id="hints_title" hidden></p>
+<ul id="hints"></ul>
+<button id="b_send" hidden></button>
+<button id="b_retry" class="alt" hidden></button>
+
+<script>
+'use strict';
+const PAGE = /*__PAGE__*/{};          // {texts, max_mb, lang}: put in by the server
+const T = PAGE.texts || {};
+const $ = id => document.getElementById(id);
+const ticket = new URLSearchParams(location.search).get('t');
+let lastFile = null, busy = false;
+
+function text(key, vars) {
+  return (T[key] || key).replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? String(vars[k]) : m));
+}
+function status(s) { $('status').textContent = s; }
+function progress(share) { $('bar').style.width = Math.round(100 * share) + '%'; }
+function show(id, on) { $(id).hidden = !on; }
+function tgEvent(name) {
+  try { if (window.TelegramWebviewProxy) window.TelegramWebviewProxy.postEvent(name, '{}'); } catch (e) { /* not Telegram */ }
+}
+function clearResult() {
+  $('size').textContent = ''; $('hints').replaceChildren(); show('hints_title', false); show('b_send', false); show('b_retry', false);
+}
+function post(path, body, onProgress) {
+  return new Promise(resolve => {
+    const x = new XMLHttpRequest();
+    x.open('POST', path + '?lang=' + encodeURIComponent(PAGE.lang || 'ru'));
+    x.setRequestHeader('X-Miniapp-Ticket', ticket || '');
+    if (body) x.setRequestHeader('Content-Type', 'application/octet-stream');
+    if (onProgress) x.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    x.onload = () => { let d = null; try { d = JSON.parse(x.responseText); } catch (e) { /* not JSON */ } resolve({ status: x.status, body: d }); };
+    x.onerror = x.ontimeout = x.onabort = () => resolve({ status: 0, body: null });
+    x.send(body || null);
+  });
+}
+function failure(code) {
+  progress(0);
+  if (code === 401) { status(text('miniapp.expired')); show('pickers', false); return; }
+  if (code === 413) { status(text('miniapp.too_big', { mb: PAGE.max_mb })); return; }
+  if (code === 415) { status(text('miniapp.bad_format')); return; }
+  if (code === 429) { status(text('miniapp.busy')); show('b_retry', !!lastFile); return; }
+  status(text('miniapp.failed')); show('b_retry', !!lastFile);
+}
+async function upload(file) {
+  if (busy || !file) return;
+  lastFile = file; clearResult();
+  if (file.size > PAGE.max_mb * 1024 * 1024) { failure(413); return; }
+  busy = true;
+  status(text('miniapp.uploading', { percent: 0 }));
+  const r = await post('upload', file, share => {
+    progress(share);
+    status(share < 1 ? text('miniapp.uploading', { percent: Math.round(100 * share) }) : text('miniapp.checking'));
+  });
+  busy = false;
+  if (r.status !== 200 || !r.body) { failure(r.status); return; }
+  const d = r.body;
+  if (d.width && d.height) $('size').textContent = text('miniapp.size', { width: d.width, height: d.height, mb: (file.size / 1048576).toFixed(1) });
+  if (!d.hints || !d.hints.length) { await send(); return; }
+  progress(0); status('');
+  $('hints_title').textContent = text('miniapp.hints_title'); show('hints_title', true);
+  for (const h of d.hints) { const li = document.createElement('li'); li.textContent = h; $('hints').appendChild(li); }
+  $('l_cam').textContent = text('miniapp.retake');
+  show('b_send', true);
+}
+async function send() {
+  if (busy) return;
+  busy = true; show('b_send', false); show('b_retry', false);
+  const r = await post('send', null, null);
+  busy = false;
+  if (r.status !== 200) { failure(r.status); if (r.status !== 401) show('b_send', true); return; }
+  progress(1); clearResult(); show('pickers', false);
+  status(text('miniapp.sent'));
+  setTimeout(() => tgEvent('web_app_close'), 2500);
+}
+function start() {
+  document.documentElement.lang = PAGE.lang || 'ru';
+  document.title = text('miniapp.title');
+  $('title').textContent = text('miniapp.title');
+  $('lead').textContent = text('miniapp.lead');
+  $('tips').textContent = text('miniapp.tips');
+  $('l_cam').textContent = text('miniapp.shoot');
+  $('l_gal').textContent = text('miniapp.pick');
+  $('b_send').textContent = text('miniapp.send_anyway');
+  $('b_retry').textContent = text('miniapp.retry');
+  for (const id of ['f_cam', 'f_gal']) {
+    $(id).addEventListener('change', ev => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; upload(f); });
+  }
+  $('b_send').addEventListener('click', send);
+  $('b_retry').addEventListener('click', () => upload(lastFile));
+  if (!ticket) { status(text('miniapp.no_ticket')); show('pickers', false); }
+  tgEvent('web_app_ready'); tgEvent('web_app_expand');
+}
+start();
+</script>
+</body>
+</html>

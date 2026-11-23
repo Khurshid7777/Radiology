@@ -24,3 +24,8 @@ report:                            # SD-109: the real-use summary (counts only) 
   hour: 9
   tz: Asia/Tashkent
   days: 7                          # the period a report covers
+
+miniapp:                           # SD-137: /scan opens the capture page inside Telegram; the photo goes to the server as the original
+  ticket_minutes: 10               # how long the button works (and how long the bot waits for the photo); the server refuses more than its miniapp.max_ticket_minutes
+  max_buttons: 5                   # live buttons per chat; one more /scan retires the oldest
+  poll_s: 2.0                      # how often the bot asks the server for the photo
