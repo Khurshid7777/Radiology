@@ -13,6 +13,14 @@ _T = {
                  "Kod mos emas yoki bekor qilingan. Administrator bilan tekshiring."),
     "group": ("Бот работает только в личном чате: в группе ответ увидят все участники.",
               "Bot faqat shaxsiy chatda ishlaydi."),
+    "probe": (("Замер камеры: откройте страницу кнопкой ниже, наведите телефон на любой лист (пациент не нужен), "
+               "пройдите шаги 1–3 и пришлите скопированный отчёт. Страница ничего не отправляет: в отчёте только числа."),
+              ("Kamera o'lchovi: quyidagi tugma bilan sahifani oching, telefonni istalgan varaqqa qarating (bemor kerak "
+               "emas), 1–3 qadamlarni bajaring va nusxalangan hisobotni yuboring. Sahifa hech narsa yubormaydi: "
+               "hisobotda faqat raqamlar.")),
+    "probe_btn": ("Открыть замер камеры", "Kamera o'lchovini ochish"),
+    "probe_off": ("Страница замера не настроена: у бота нет публичного адреса сайта.",
+                  "O'lchov sahifasi sozlanmagan: botda saytning ochiq manzili yo'q."),
     "admin_only": ("Команда только для администратора.", "Faqat administrator uchun."),
     "invite": ("Новый код: {code} (метка: {label})\nСсылка для входа: {link}\nОтозвать: /revoke {code}",
                "Yangi kod: {code} ({label})\nKirish havolasi: {link}\nBekor qilish: /revoke {code}"),

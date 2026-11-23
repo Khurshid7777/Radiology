@@ -12,10 +12,11 @@ from __future__ import annotations
 import hmac
 import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from ecgscan.i18n import LANGS, t
@@ -26,6 +27,26 @@ from ecgscan_service.store import ScanRow
 KEYS_ENV = "ECGSCAN_API_KEYS"
 
 router = APIRouter(prefix="/scans", tags=["scanner"])
+# SD-136: pages Telegram opens as a Mini App. Telegram has no clinic key, so these are open; they are
+# static, read nothing from the server and (by the headers below) cannot reach any network.
+public_router = APIRouter(prefix="/miniapp", tags=["miniapp"])
+_STATIC = Path(__file__).parent / "static"
+# Inline script and style only, the page's own camera, nothing else: no connection, no form, no outside file.
+PROBE_HEADERS = {
+    "Content-Security-Policy": ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                                "img-src blob:; media-src blob: mediastream:; connect-src 'none'; "
+                                "form-action 'none'; base-uri 'none'"),
+    "Permissions-Policy": "camera=(self), microphone=(), geolocation=()",
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
+@public_router.get("/probe", response_class=HTMLResponse)
+def miniapp_probe() -> HTMLResponse:
+    """The phone probe (SD-134): what a page inside Telegram gets from the camera, as numbers on the screen."""
+    return HTMLResponse((_STATIC / "miniapp_probe.html").read_text(encoding="utf-8"), headers=PROBE_HEADERS)
 
 
 @lru_cache(maxsize=1)
@@ -170,11 +191,13 @@ def features_config(who: str = Depends(actor)) -> dict:
 @router.get("/config/capture-qc")
 def capture_qc_config(who: str = Depends(actor)) -> dict:
     """Frame-check thresholds and hint texts for the camera screen (TZ §6.1, SD-014)."""
-    from ecgscan.capture_qc import HINTS, config
+    from ecgscan.capture_qc import FRAME_ADVICE, HINTS, config
     from ecgscan.i18n import strings
 
     return {"config": config(), "hints": {lang: {h: strings(lang)[f"qc.{h}"] for h in (*HINTS, "ready")}
-                                          for lang in LANGS}}
+                                          for lang in LANGS},
+            # SD-133: a more exact text for the "frame" hint, by FrameQC.frame_advice
+            "frame_advice": {lang: {a: strings(lang)[f"qc.frame_{a}"] for a in FRAME_ADVICE} for lang in LANGS}}
 
 
 @router.get("/{scan_id}")

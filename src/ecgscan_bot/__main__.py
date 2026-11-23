@@ -37,6 +37,7 @@ from ecgscan_bot.logic import (
     is_admin,
     lang_of,
     message_link,
+    miniapp_url,
     next_weekly,
     parse_caption,
     parse_feedback,
@@ -85,6 +86,7 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
         InlineKeyboardButton,
         InlineKeyboardMarkup,
         Message,
+        WebAppInfo,
     )
 
     dp = Dispatcher()
@@ -432,6 +434,20 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
             return
         lang = guard(message)
         await message.answer(t("bot.welcome", lang) if lang else not_allowed(message))
+
+    @dp.message(Command("probe"))
+    async def probe(message: Message) -> None:
+        """SD-136: the phone probe page as a Mini App."""
+        lang = guard(message)             # None outside a private chat too (in a group the bot is silent, SD-107)
+        if lang is None:
+            await message.answer(not_allowed(message))
+            return
+        url = miniapp_url(cfg, "probe")
+        if url is None:
+            await message.answer(tr("probe_off", lang))
+            return
+        await message.answer(tr("probe", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=tr("probe_btn", lang), web_app=WebAppInfo(url=url))]]))
 
     @dp.message(Command("code"))
     async def code(message: Message, command: CommandObject) -> None:

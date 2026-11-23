@@ -81,6 +81,17 @@ import numpy as np
 from ecgscan.config import load_yaml
 
 HINTS = ("closer", "glare", "steady", "level", "light", "bright", "shadow", "frame")
+FRAME_ADVICE = ("farther", "up", "down", "left", "right")     # SD-133: where to move the phone when the sheet leaves the frame
+
+
+def frame_advice(on: list[int], edge_blocks: int) -> str | None:
+    """``on``: sheet blocks on the frame's top, bottom, left and right outer lines. Two opposite edges touched: the sheet
+    is larger than the frame ("farther"); else the most touched edge names the side to move the phone to."""
+    top, bottom, left, right = (c >= edge_blocks for c in on)
+    if (top and bottom) or (left and right):
+        return "farther"
+    best = max(range(4), key=lambda i: on[i])
+    return ("up", "down", "left", "right")[best] if on[best] >= edge_blocks else None
 
 
 @dataclass
@@ -100,6 +111,7 @@ class FrameQC:
     shadow: float | None = None      # brightness spread over 4 x 4 zones of the sheet
     corners: list[list[float]] | None = None   # sheet TL, TR, BR, BL in captured-photo px
     sheet_whole: bool | None = None  # the sheet does not run along an edge of the frame
+    frame_advice: str | None = None  # SD-133: "farther" / "up" / "down" / "left" / "right" when it does (frame coordinates)
     sheet_area: float = 0.0          # share of the frame the sheet covers (step 9)
     sheet_brightness: float | None = None   # mean grey of the sheet (step 10)
 
@@ -350,13 +362,14 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
     corners_w = sheet_corners(group, blk)
     corners = None if corners_w is None else [[round(x * k * scale_to_capture, 1), round(y * k * scale_to_capture, 1)]
                                               for x, y in corners_w]
-    whole, area = None, 0.0
+    whole, area, advice = None, 0.0, None
     if group:
         hb, wb, e = len(rows), len(rows[0]), int(a.get("edge_blocks", 1))
         on = [sum(1 for by, _ in group if by == 0), sum(1 for by, _ in group if by == hb - 1),
               sum(1 for _, bx in group if bx == 0), sum(1 for _, bx in group if bx == wb - 1)]
         whole = max(on) < e
         area = len(group) / (hb * wb)
+        advice = frame_advice(on, e)
     shadow = shadow_spread(w, group, blk)
     roi = sheet_brightness(w, group, blk)
     hints = []
@@ -382,5 +395,5 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
                    period_px=None if period is None else round(period, 3),
                    px_per_mm=None if ppm is None else round(ppm, 3), sheet=round(sheet, 4), hints=hints,
                    ok=not hints, shadow=None if shadow is None else round(shadow, 4), corners=corners,
-                   sheet_whole=whole, sheet_area=round(area, 4),
+                   sheet_whole=whole, frame_advice=advice, sheet_area=round(area, 4),
                    sheet_brightness=None if roi is None else round(roi, 3))

@@ -62,6 +62,7 @@ from cardiolens.outputs import (
 )
 from ecgscan.config import load_yaml
 from ecgscan_service.router import actor
+from ecgscan_service.router import public_router as miniapp_router
 from ecgscan_service.router import router as scans_router
 
 app = FastAPI(title="CardioVision", version="0.1.0")
@@ -73,6 +74,8 @@ _SCANS_MAX_BYTES = int(_scan_upload["max_mb"] * 1024 * 1024) * int(_scan_upload.
 app.add_middleware(RequestGuard, max_body_bytes=max(service.MAX_UPLOAD_BYTES, _SCANS_MAX_BYTES) + 1024 * 1024)
 # ECG scanner (photo/scan input, TZ scanner §4, SD-004): /scans, own API-key auth.
 app.include_router(scans_router)
+# D345: the Mini App probe page (SD-136): open and static, reads nothing, its headers forbid any connection.
+app.include_router(miniapp_router)
 
 _STATIC = Path(__file__).parent / "static"
 

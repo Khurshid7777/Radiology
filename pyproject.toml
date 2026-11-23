@@ -48,6 +48,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 ecgscan = ["contract/*.json"]
 cardiolens = ["api/static/*.html", "api/static/fonts/*"]
+ecgscan_service = ["static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

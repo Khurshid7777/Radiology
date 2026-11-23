@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Замер камеры в Telegram</title>
+<!--
+  Phone probe for the Telegram Mini App capture (SD-134). It measures what a page inside Telegram can
+  get from the camera and shows numbers only. Nothing is sent anywhere: the page has no network code,
+  the photos stay in the phone's memory and are dropped when the page closes. No script is loaded from
+  outside either: Telegram's version and platform are read from the launch parameters Telegram puts
+  after '#' in the address (only those two: the signed user data there is never read or shown).
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.4 system-ui, sans-serif; margin: 0; padding: 12px; max-width: 640px; }
+  h1 { font-size: 19px; margin: 4px 0 8px; }
+  p { margin: 6px 0; }
+  button, label.btn { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; padding: 13px;
+    font-size: 16px; border-radius: 10px; border: 1px solid #5b7c99; background: #2f6ea3; color: #fff; text-align: center; }
+  button.alt { background: transparent; color: inherit; }
+  input[type=file] { display: none; }
+  video { width: 100%; max-height: 45vh; background: #000; border-radius: 8px; display: none; }
+  textarea { width: 100%; box-sizing: border-box; height: 260px; font: 13px/1.35 ui-monospace, monospace; }
+  .note { font-size: 14px; opacity: .8; }
+</style>
+</head>
+<body>
+<h1>Замер камеры в Telegram</h1>
+<p class="note">Наведите телефон на любой лист (пациент не нужен). Пройдите шаги 1–3, затем нажмите
+«Скопировать отчёт» и пришлите текст. Страница ничего не отправляет: в отчёте только числа.</p>
+
+<button id="b_cam">1. Камера прямо в странице</button>
+<video id="video" playsinline muted></video>
+<button id="b_shot" class="alt" style="display:none">Снять кадр и измерить</button>
+
+<label class="btn" for="f_cam">2. Камера телефона (снимок)</label>
+<input id="f_cam" type="file" accept="image/*" capture="environment">
+
+<label class="btn" for="f_gal">3. Фото из галереи</label>
+<input id="f_gal" type="file" accept="image/*">
+
+<p><b>Отчёт</b></p>
+<textarea id="out" readonly></textarea>
+<button id="b_copy" class="alt">Скопировать отчёт</button>
+<p id="copied" class="note"></p>
+
+<script>
+'use strict';
+const A4_LONG_MM = 297;        // an A4 sheet filling the long side of the photo
+const FULL_READ_PX_MM = 7;     // the scanner's full reading needs this much (below: rate and rhythm only)
+const lines = [];
+const $ = id => document.getElementById(id);
+function say(s) { lines.push(s); $('out').value = lines.join('\n'); }
+function pxmm(w, h) {
+  const v = Math.max(w, h) / A4_LONG_MM;
+  return `${v.toFixed(1)} px/мм на листе A4 (${v >= FULL_READ_PX_MM ? 'хватает' : 'НЕ хватает'} для полного чтения)`;
+}
+function shape(w, h) { return w >= h ? 'горизонтальный' : 'вертикальный'; }
+
+// Telegram passes launch parameters after '#': tgWebAppPlatform, tgWebAppVersion (and signed user
+// data, which this page does not touch).
+function launchParams() {
+  const q = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+  return { platform: q.get('tgWebAppPlatform'), version: q.get('tgWebAppVersion') };
+}
+function tgEvent(name) {     // ask the client to finish loading and open the page full height
+  try { if (window.TelegramWebviewProxy) window.TelegramWebviewProxy.postEvent(name, '{}'); } catch (e) { /* not Telegram */ }
+}
+function header() {
+  const tg = launchParams();
+  say('== Замер камеры, ' + new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC ==');
+  if (tg.platform || tg.version) {
+    const v = parseFloat(tg.version || '0');
+    say(`Telegram: мини-приложение, платформа ${tg.platform || '?'}, версия интерфейса ${tg.version || '?'}`);
+    say(`  блокировка ориентации, полный экран и датчик наклона (с версии 8.0): ${v >= 8 ? 'есть' : 'нет'}`);
+    tgEvent('web_app_ready'); tgEvent('web_app_expand');
+  } else {
+    say('Telegram: страница открыта не как мини-приложение (обычный браузер или встроенный просмотр)');
+  }
+  say('Браузер: ' + navigator.userAgent.replace(/\s+/g, ' ').slice(0, 160));
+  say(`Экран: ${screen.width}×${screen.height}, плотность ${window.devicePixelRatio || 1}, ` +
+      `ориентация ${(screen.orientation && screen.orientation.type) || 'неизвестна'}`);
+  say(`Доступ к камере из страницы: ${navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? 'есть' : 'НЕТ'}; ` +
+      `полноразмерный снимок (ImageCapture): ${'ImageCapture' in window ? 'есть' : 'нет'}`);
+}
+
+let stream = null;
+async function camOpen() {
+  say('-- 1. Камера в странице --');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { say('  недоступна в этом окне'); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 3072 } } });
+  } catch (e) { say('  отказ: ' + e.name + (e.message ? ' (' + e.message.slice(0, 80) + ')' : '')); return; }
+  const v = $('video');
+  v.srcObject = stream; v.style.display = 'block';
+  await v.play().catch(() => {});
+  await new Promise(r => (v.videoWidth ? r() : v.addEventListener('loadedmetadata', r, { once: true })));
+  const st = stream.getVideoTracks()[0].getSettings();
+  say(`  живой кадр: ${v.videoWidth}×${v.videoHeight} (${shape(v.videoWidth, v.videoHeight)}), ${pxmm(v.videoWidth, v.videoHeight)}`);
+  say(`  камера: ${st.facingMode || 'сторона неизвестна'}, частота ${st.frameRate ? Math.round(st.frameRate) : '?'} к/с`);
+  $('b_shot').style.display = 'block';
+}
+async function camShot() {
+  if (!stream) return;
+  const v = $('video'), track = stream.getVideoTracks()[0];
+  say(`  кадр в момент съёмки: ${v.videoWidth}×${v.videoHeight} (${shape(v.videoWidth, v.videoHeight)}), ` +
+      `экран ${(screen.orientation && screen.orientation.type) || '?'}`);
+  if ('ImageCapture' in window) {
+    try {
+      const ic = new ImageCapture(track);
+      const caps = await ic.getPhotoCapabilities();
+      const mw = caps.imageWidth && caps.imageWidth.max, mh = caps.imageHeight && caps.imageHeight.max;
+      say(`  полноразмерный снимок, заявлено до: ${mw || '?'}×${mh || '?'}`);
+      const blob = await ic.takePhoto(mw && mh ? { imageWidth: mw, imageHeight: mh } : undefined);
+      await measure('  полноразмерный снимок', blob);
+    } catch (e) { say('  полноразмерный снимок не получился: ' + e.name); }
+  } else {
+    say('  полноразмерного снимка нет: страница может взять только живой кадр');
+  }
+  stream.getTracks().forEach(t => t.stop()); stream = null;
+  $('video').style.display = 'none'; $('b_shot').style.display = 'none';
+}
+async function measure(title, blob) {
+  const kb = Math.round(blob.size / 1024);
+  try {
+    const bmp = await createImageBitmap(blob);
+    say(`${title}: ${bmp.width}×${bmp.height} (${shape(bmp.width, bmp.height)}), ${kb} КБ, ${blob.type || 'тип неизвестен'}, ${pxmm(bmp.width, bmp.height)}`);
+    bmp.close();
+  } catch (e) {
+    say(`${title}: ${kb} КБ, ${blob.type || 'тип неизвестен'}, размер в точках страница прочитать не смогла`);
+  }
+}
+function fileStep(id, title) {
+  $(id).addEventListener('change', async ev => {
+    say('-- ' + title + ' --');
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) { say('  файл не выбран'); return; }
+    await measure('  снимок', f);
+    ev.target.value = '';
+  });
+}
+$('b_cam').addEventListener('click', camOpen);
+$('b_shot').addEventListener('click', camShot);
+fileStep('f_cam', '2. Камера телефона (открылась камера или галерея? допишите словами)');
+fileStep('f_gal', '3. Фото из галереи');
+$('b_copy').addEventListener('click', async () => {
+  const ta = $('out');
+  try { await navigator.clipboard.writeText(ta.value); $('copied').textContent = 'Скопировано.'; }
+  catch (e) { ta.focus(); ta.select(); $('copied').textContent = 'Выделено: скопируйте вручную.'; }
+});
+header();
+</script>
+</body>
+</html>
