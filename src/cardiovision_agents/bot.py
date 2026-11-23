@@ -272,8 +272,8 @@ class Agents:
         known = dict(self.store.data.get("tasks") or {})             # D346: a later «задача №N» finds its agent
         sec = bool(role.branch and not member and (security or is_security_fix(text)
                                                    or (self.store.data.get("sec_open") or {}).get(role.key)))
-        if sec:                                  # D347: until a re-checked branch is deployed (or skipped), every next
-            self.store["sec_open"] = {**(self.store.data.get("sec_open") or {}), role.key: True}   # branch is re-checked too
+        if sec:                                  # D347: until a re-checked branch is deployed, every next branch of
+            self.store["sec_open"] = {**(self.store.data.get("sec_open") or {}), role.key: True}   # the agent is re-checked too
         known[str(tid)] = {"role": role.key, "text": text[:300], **({"parent": parent} if parent else {}),
                            **({"sec": True} if sec else {})}
         self.store["tasks"] = {k: known[k] for k in sorted(known, key=int)[-TASKS_KEPT:]}
@@ -592,8 +592,7 @@ class Agents:
         """«пропустить»: the approved branch is not deployed; the agent goes on with its queue."""
         pend = dict(self.store.data.get("pending") or {})
         p = pend.pop(role.key, None)
-        self.store["pending"] = pend
-        self.store["sec_open"] = {k: v for k, v in (self.store.data.get("sec_open") or {}).items() if k != role.key}
+        self.store["pending"] = pend              # D347: «пропустить» never lifts an owed security re-check
         await self.say(role, f"Ветка `{p['branch']}` не выкладывается (осталась в репозитории)." if p
                              else "Готовой ветки нет.")
         self.kick(role)
@@ -876,8 +875,9 @@ class Agents:
             await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, проверяющий: можно, но Безопасность исправление "
                                  + ("не подтвердила — см. тему «Безопасность»" if rec["sec"] is False
                                     else "не проверила (лимит подписки)")
-                                 + ". Выкладка заблокирована. Напишите, что исправить — следующая ветка снова пойдёт на "
-                                   "перепроверку; «пропустить» — оставить эту ветку и снять перепроверку.")
+                                 + ". Выкладка заблокирована. Напишите, что исправить, — или «пропустить», чтобы оставить эту "
+                                   "ветку. Пока исправление не подтверждено и не выложено, каждая следующая ветка агента "
+                                   "тоже идёт на перепроверку Безопасности.")
             return
         if verdict:
             await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, проверяющий: можно. CI проверяет. Чтобы "

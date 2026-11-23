@@ -1355,7 +1355,10 @@ def test_lessons_are_parsed_and_only_known_agents_count_d347():
     assert time.perf_counter() - t0 < 1.0
     assert logic.owner_only("уроки") and logic.owner_only("убрать урок 3") and not logic.owner_only("какие уроки извлечь?")
     assert logic.bot_check(["src/a.py", "docs/x.md"]) and not logic.bot_check(["src/a.py", "tests/test_a.py"])
-    assert not logic.bot_check(["docs/x.md", "src/page.html"]) and not logic.bot_check([])
+    assert logic.bot_check(["docs/x.md", "src/page.html"]) and not logic.bot_check(["docs/x.md"]) and not logic.bot_check([])
+    from cardiovision_agents import github
+    assert github.index_plain("H src/a.py\nH tests/t.py\n") and not github.index_plain("H src/a.py\nS src/b.py\n")
+    assert not github.index_plain("h src/a.py\n") and not asyncio.run(github.pin("/nonexistent", "--help"))
     assert logic.is_security_fix("Безопасность: закрыть порт 8000") and logic.is_security_fix("[безопасность]: права 600")
     for form in ("**Безопасность**: x", "**[ядро]** **Безопасность**: закрыть", "Безопасность — x", "Безопасность (находка 2): x",
                  "Срочно. Безопасность: x", "- [ядро] безопасность: x", "→ [ядро] Безопасность: x"):
@@ -1517,14 +1520,38 @@ def test_a_security_fix_is_deployed_only_with_the_security_agents_yes_d347(tmp_p
     asyncio.run(go("порт всё ещё открыт в compose, закрой"))
     assert [c[0] for c in calls] == ["dev", "review", "sec"] and ag.store["pending"]["dev"]["sec"] is True
     assert deployed == ["abc1234def"]
-    # a plain task while the re-check is still owed (the deploy above did not finish) is re-checked too; «пропустить» lifts it
+    # review, round 2: two «нельзя» in a row with «пропустить» between them (the only way to move the queue) —
+    # the third branch is re-checked all the same; «пропустить» never lifts an owed re-check
     calls.clear()
-    ag.store["sec_open"] = {"dev": True}
-    ag.store["pending"] = {"dev": {"branch": "b", "sha": "abc1234def", "review": True, "sec": False, "task": 1}}
+    verdicts["sec"] = ["нет\nВЕРДИКТ: нельзя", "нет\nВЕРДИКТ: нельзя", "да\nВЕРДИКТ: можно"]
+    ag.store["pending"], ag.store["sec_open"], deployed[:] = {}, {}, []
+    asyncio.run(go("Безопасность: закрыть порт 8000"))
     asyncio.run(ag.skip(ROLES["dev"]))
+    asyncio.run(go("первое исправление обычным текстом"))
+    asyncio.run(ag.skip(ROLES["dev"]))
+    assert ag.store["sec_open"] == {"dev": True} and deployed == []
+    asyncio.run(go("второе исправление обычным текстом"))
+    assert [c[0] for c in calls] == ["dev", "review", "sec"] * 3 and deployed == ["abc1234def"]
+    asyncio.run(ag.skip(ROLES["sec"]))                                          # nothing pending there: lifts nothing
+    assert ag.store["sec_open"] == {"dev": True}
+    # only a re-checked branch that is really deployed makes the next branches ordinary again
+    async def ff_ok(sha):
+        return ""
+    monkeypatch.setattr(github, "fast_forward_and_deploy", ff_ok)
+
+    async def last(*a):
+        return "completed", "success", "url"
+    monkeypatch.setattr(github, "last_deploy", last)
+
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(asyncio, "sleep", lambda s: real_sleep(0))
+    asyncio.run(ag.deploy(ROLES["dev"]))
+    monkeypatch.setattr(asyncio, "sleep", real_sleep)
     assert ag.store["sec_open"] == {} and ag.store["pending"] == {}
+    calls.clear()
     asyncio.run(go("обычная правка отчёта"))
-    assert [c[0] for c in calls] == ["dev", "review"] and "sec" not in ag.store["pending"]["dev"]
+    last_task = ag.store["tasks"][str(max(int(i) for i in ag.store["tasks"]))]
+    assert [c[0] for c in calls] == ["dev", "review"] and "sec" not in last_task
 
 
 def test_the_reviewer_and_the_security_check_get_their_lessons_and_a_limit_keeps_the_work_d347(tmp_path, monkeypatch):

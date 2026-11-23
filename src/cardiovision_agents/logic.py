@@ -355,7 +355,7 @@ def outcome_text(h: dict) -> str:
 
 
 def bot_check(files: list[str]) -> str | None:
-    """D347: the first «a mistake became a check» — code under src/ changed and no test did."""
-    src = [f for f in files if f.startswith("src/") and f.endswith(".py")]
+    """D347: the first «a mistake became a check» — something under src/ changed and no test did."""
+    src = [f for f in files if f.startswith("src/")]
     tests = [f for f in files if f.startswith("tests/") and f.endswith(".py")]
     return "ветка меняет код в src/, но не меняет ни одного теста в tests/" if src and not tests else None

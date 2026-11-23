@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import os
+import re
 
 import httpx
 
@@ -149,9 +150,17 @@ async def branch_files(workdir: str, rev: str = "HEAD") -> list[str]:
 async def pin(workdir: str, sha: str) -> bool:
     """D347: the clone shows exactly the pushed commit — no uncommitted edits, no leftovers of the reviewer's run —
     before the security agent reads it."""
+    if not re.fullmatch(r"[0-9a-f]{7,64}", sha or ""):
+        return False
     code, _ = await agent_git(workdir, "reset", "--hard", "--quiet", sha)
     code2, _ = await agent_git(workdir, "clean", "-fdq")
-    return code == 0 and code2 == 0
+    code3, flags = await agent_git(workdir, "ls-files", "-v")
+    return code == 0 and code2 == 0 and code3 == 0 and index_plain(flags)
+
+
+def index_plain(ls_files_v: str) -> bool:
+    """No file is hidden from the checkout (skip-worktree / assume-unchanged): `git ls-files -v` marks every file «H»."""
+    return all(line.startswith("H ") for line in ls_files_v.splitlines() if line.strip())
 
 
 def _client() -> httpx.AsyncClient:
