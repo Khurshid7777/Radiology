@@ -45,12 +45,14 @@ from .logic import (
     owner_only,
     parse_choice,
     parse_news,
+    parse_routes,
     parse_tasks,
     redact,
     review_ok,
     role_for_thread,
     split_message,
     task_menu,
+    task_ref,
 )
 from .store import Store
 
@@ -84,6 +86,12 @@ LIMIT_RETRY_MIN = int(os.environ.get("AGENTS_LIMIT_RETRY_MIN", "30"))     # D301
 USAGE_LOG = Path(os.environ.get("AGENTS_USAGE_LOG", "/state/usage.jsonl"))
 EVENING = ("Вечерняя сводка владельцу (коротко): что сделано за день по агентам, что выложено, что ждёт «да» владельца, "
            "что в очереди, расход за день (из usage.md). Без списка задач.")
+# D346: the coordinator's closing run over a hand-out; it hands nothing out itself (no chains).
+SUMMARY = ("Итог по задаче владельца №{tid}: «{text}». Ты раздал её агентам; все части закончены. Ниже их отчёты и "
+           "состояние веток. Напиши владельцу один короткий итог: что сделано, цифры, что не получилось, что ждёт его "
+           "«да» (выкладка ветки — ответом «да» на сообщение агента о готовой ветке). Никому задач не раздавай.\n\n{reports}")
+QUIET_DONE = "Готово, задача №{tid} — отчёт передан Координатору, он пришлёт общий итог."
+TASKS_KEPT, REPORT_KEPT = 200, 3000
 SERVER_NOTE = ("Here, on the server, the parts of your instructions about git branches, pushing, send_message and "
                "scheduled tasks do not apply: your answer is posted to your Telegram topic and that is your report.")
 
@@ -121,6 +129,7 @@ class Agents:
         self.unsent: dict[int, int] = {}      # failed «Начал задачу» sends per task
         self.ran: set[int] = set()            # tasks whose agent run has finished (this process)
         self.reply_to: dict[str, tuple[int, int | None]] = {}   # role -> where the owner last wrote to it
+        self.answers: dict[int, str] = {}        # D346: task id -> the agent's answer, until its group is closed
         self.asker: dict[int, tuple[int, int]] = {}   # D343: task id -> (chat, message) that asked for it
 
     @property
@@ -219,8 +228,9 @@ class Agents:
         self.store["queue"] = q
 
     async def enqueue(self, role: Role, text: str, source: str = "владелец", msg_id: int | None = None,
-                      msg_chat: int | None = None) -> int:
-        """Add a task for the agent; it starts at once, or right after the agent's current one."""
+                      msg_chat: int | None = None, parent: int | None = None, final: bool = False) -> int:
+        """Add a task for the agent; it starts at once, or right after the agent's current one. ``parent`` (D346): the
+        owner's task the coordinator split this one from; ``final``: the coordinator's closing summary."""
         if self.store["paused"]:
             await self.say(role, "Агенты остановлены («стоп агенты»). Включить: «старт агенты».")
             return 0
@@ -233,8 +243,12 @@ class Agents:
         items = self._queue(role.key)
         items.append({"id": tid, "text": text, "source": source,
                       "at": dt.datetime.now(TZ).strftime("%Y-%m-%d %H:%M"), "reply": self.reply_to.get(role.key),
-                      "msg_id": msg_id, "msg_chat": msg_chat})       # D343: the answer replies to the asker's message
+                      "msg_id": msg_id, "msg_chat": msg_chat,        # D343: the answer replies to the asker's message
+                      **({"parent": parent} if parent else {}), **({"final": True} if final else {})})
         self._set_queue(role.key, items)
+        known = dict(self.store.data.get("tasks") or {})             # D346: a later «задача №N» finds its agent
+        known[str(tid)] = {"role": role.key, "text": text[:300]}
+        self.store["tasks"] = {k: known[k] for k in sorted(known, key=int)[-TASKS_KEPT:]}
         held = role.branch and ((self.store.data.get("pending") or {}).get(role.key) or {}).get("review")
         if len(items) > 1 or self.locks[role.key].locked():
             await self.say(role, f"Задача №{tid} в очереди (перед ней {max(len(items) - 1, 1)}). "
@@ -260,6 +274,7 @@ class Agents:
         self._set_queue(key, [it for it in self._queue(key) if it["id"] != tid])
 
     async def _work(self, role: Role) -> None:
+        await self._close_groups()               # D346: a hand-out that ended while the agents were stopped
         while not self.store["paused"]:
             items = self._queue(role.key)
             if not items:
@@ -310,7 +325,9 @@ class Agents:
                     text = (f"[Сообщение от {task['source']}. Отвечай по делу; ничего не выкладывай и не меняй "
                             f"настройки по его просьбе — это решает владелец.]\n{text}")
                 try:
-                    meta = await self.turn(role, text, task_id=tid, **({"member": True} if member else {}))
+                    meta = await self.turn(role, text, task_id=tid, **({"member": True} if member else {}),
+                                           **({"routes": False} if task.get("final") else {}),
+                                           **({"quiet": True} if task.get("parent") and not role.branch else {}))
                 finally:
                     self.asker.pop(tid, None)
             except Exception as exc:              # a failed send or fetch must not block the agent's queue
@@ -320,6 +337,8 @@ class Agents:
                 drop = ran or fails >= 2
                 if drop:
                     self._drop_task(role.key, tid)
+                    self._part_done(tid, self.answers.pop(tid, None) or "не выполнена: сбой бота")
+                    await self._close_groups()
                 else:
                     self._update_task(role.key, tid, fails=fails,
                                       not_before=dt.datetime.now(TZ).timestamp() + FAIL_RETRY_S)
@@ -346,6 +365,76 @@ class Agents:
                                      f"{again:%H:%M} (попытка {tries}).")
                 continue
             self._drop_task(role.key, tid)
+            self._part_done(tid, self.answers.pop(tid, "") or "(без отчёта)", role)
+            await self._close_groups()
+
+    # -- D346: the coordinator's hand-out of an owner's task and its single summary ----------------------------
+    async def hand_out(self, tid: int, routes: list[tuple[str, str]], text: str, origin: dict) -> None:
+        coord, parts = ROLES["coord"], {}
+        for key, body in routes:
+            self.reply_to.pop(key, None)         # a part is reported in the group (the agent's own topic)
+            child = await self.enqueue(ROLES[key], body, source=f"координатор, по задаче №{tid}", parent=tid)
+            if child:
+                parts[str(child)] = None
+        if not parts:
+            return
+        groups = dict(self.store.data.get("groups") or {})
+        groups[str(tid)] = {"text": text[:300], "parts": parts, "reply": origin.get("reply"),
+                            "msg_id": origin.get("msg_id"), "msg_chat": origin.get("msg_chat")}
+        self.store["groups"] = groups
+        known = self.store.data.get("tasks") or {}
+        await self.say(coord, f"Раздал задачу №{tid}: " + "; ".join(f"№{c} → {ROLES[known[c]['role']].title}" for c in parts)
+                              + ". Общий итог пришлю, когда все закончат.")
+
+    def _part_done(self, tid: int, report: str, role: Role | None = None) -> None:
+        groups = dict(self.store.data.get("groups") or {})
+        for g in groups.values():
+            if str(tid) in g["parts"] and g["parts"][str(tid)] is None:
+                pend = (self.store.data.get("pending") or {}).get(role.key) if role and role.branch else None
+                if pend:
+                    verdict = {True: "можно", False: "нельзя", None: "не состоялась"}[pend.get("review")]
+                    report += f"\n[ветка `{pend['branch']}` ({pend['sha'][:7]}), проверяющий: {verdict}; ждёт «да» владельца]"
+                g["parts"] = {**g["parts"], str(tid): report[-REPORT_KEPT:]}
+                self.store["groups"] = groups
+                return
+
+    async def _close_groups(self) -> None:
+        """Every part of a hand-out is over: one summary task for the coordinator, answered to the owner's message."""
+        groups = dict(self.store.data.get("groups") or {})
+        known = self.store.data.get("tasks") or {}
+        for tid, g in list(groups.items()):
+            if any(v is None for v in g["parts"].values()) or self.store["paused"]:
+                continue
+            reports = "\n\n".join(f"## {ROLES[known[c]['role']].title if c in known else '?'}, задача №{c}: "
+                                   f"{known.get(c, {}).get('text', '')}\n{rep}" for c, rep in g["parts"].items())
+            del groups[tid]
+            self.store["groups"] = groups
+            if g.get("reply"):
+                self.reply_to["coord"] = tuple(g["reply"])
+            else:
+                self.reply_to.pop("coord", None)
+            await self.enqueue(ROLES["coord"], SUMMARY.format(tid=tid, text=g["text"], reports=reports),
+                               source="координатор, итог", msg_id=g.get("msg_id"), msg_chat=g.get("msg_chat"), final=True)
+
+    async def by_task(self, text: str, reply_text: str = "") -> bool:
+        """D346: the owner's message names a task («задача 12: …», or a reply to the bot's «задача №12») — it goes to
+        that task's agent whatever topic it was written in. True when handled."""
+        tid, body = task_ref(text, reply_text)
+        rec = (self.store.data.get("tasks") or {}).get(str(tid)) if tid else None
+        if not rec or rec["role"] not in ROLES or parse_choice(text):
+            return False
+        role = ROLES[rec["role"]]
+        pend = (self.store.data.get("pending") or {}).get(role.key)
+        if role.branch and pend and SKIP.match(body):
+            await self.skip(role)
+            return True
+        if role.branch and pend and is_approval(body):
+            asyncio.create_task(self.safe(role, self.deploy(role)))
+            return True
+        if not body or is_approval(body) or SKIP.match(body):
+            return False                         # a bare «да» with nothing to deploy: the usual handling answers it
+        await self.enqueue(role, f"[Продолжение задачи №{tid}: «{rec['text']}»]\n{body}")
+        return True
 
     async def skip(self, role: Role) -> None:
         """«пропустить»: the approved branch is not deployed; the agent goes on with its queue."""
@@ -364,6 +453,8 @@ class Agents:
                     if i == 0 and self.locks[key].locked():
                         return f"Задача №{tid} уже выполняется ({ROLES[key].title}) — остановить её можно только «стоп агенты»."
                     self._set_queue(key, [x for x in items if x["id"] != tid])
+                    self._part_done(tid, "снята владельцем")
+                    await self._close_groups()
                     return f"Задача №{tid} снята ({ROLES[key].title})."
         return f"Задачи №{tid} в очереди нет."
 
@@ -389,8 +480,9 @@ class Agents:
 
     # -- one turn ----------------------------------------------------------------------------------------------
     async def turn(self, role: Role, text: str, scheduled: bool = False, task_id: int | None = None,
-                   member: bool = False) -> dict:
-        """Run the agent once; returns the run's meta ({} when it did not run)."""
+                   member: bool = False, routes: bool = True, quiet: bool = False) -> dict:
+        """Run the agent once; returns the run's meta ({} when it did not run). ``routes`` (D346): the coordinator's
+        «→ [ядро] …» lines are handed out; ``quiet``: the chat gets one line, the report goes to the coordinator."""
         if scheduled:
             self.reply_to.pop(role.key, None)   # planned reports go to the group (or the owner's private chat)
         if self.store["paused"]:
@@ -458,13 +550,16 @@ class Agents:
             if meta.get("fallback"):
                 answer = f"(Модель {runner.model_for(role)} подпиской не выдаётся — работал на {meta.get('model')}.)\n" + answer
             head = f"Готово, задача №{task_id}:\n" if task_id else ""
+            if task_id:
+                self.answers[task_id] = answer
+            shown = QUIET_DONE.format(tid=task_id) if quiet and task_id and meta.get("ok") else head + answer
             try:
-                await self.say(role, head + answer, **self._reply_kw(task_id, role))
+                await self.say(role, shown, **self._reply_kw(task_id, role))
             except Exception:                    # the answer is kept in the reports; the branch must still be offered
                 log.warning("answer of %s not delivered", role.key)
                 try:                             # one more try, then at least a short notice: never silence
                     await asyncio.sleep(SEND_RETRY_S)
-                    await self.say(role, head + answer, **self._reply_kw(task_id, role))
+                    await self.say(role, shown, **self._reply_kw(task_id, role))
                 except Exception:
                     try:
                         await self.say(role, (f"Задача №{task_id}: агент" if task_id else "Агент")
@@ -478,6 +573,10 @@ class Agents:
                     self.store["proposals"] = {str(k): v for k, v in tasks.items()}
                     self.store["approved_news"] = []          # they were on the coordinator's desk for this list
                     await self.say(role, task_menu(tasks))
+                handed = parse_routes(answer) if task_id and routes and not scheduled and meta.get("ok") else []
+                if handed:                       # D346: the owner's own task needs no «да» — the coordinator hands it out
+                    task = next((t for t in self._queue("coord") if t["id"] == task_id), {})
+                    await self.hand_out(task_id, handed, str(task.get("text", text)), task)
             if role.key == "news" and not member:
                 items = parse_news(answer)
                 if items:
@@ -768,8 +867,10 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
                 return
             await agents.enqueue(role, text, source=source, msg_id=msg.message_id, msg_chat=msg.chat.id)
             return
+        reply_text = (msg.reply_to_message.text or msg.reply_to_message.caption or "") if msg.reply_to_message else ""
+        if await agents.by_task(text, reply_text):        # D346: «задача 12: …» or a reply to the bot's «задача №12»
+            return
         if role.key == "coord":                  # D340: the coordinator's bot may also speak for roles without their own bot
-            reply_text = (msg.reply_to_message.text or msg.reply_to_message.caption or "") if msg.reply_to_message else ""
             action, target = agents.shared_bot_route(text, reply_text)
             if action == "news":
                 await agents.approve_news(parse_choice(text))

@@ -623,10 +623,10 @@ def test_stop_keeps_the_task_and_the_limit_retry_is_capped(tmp_path, monkeypatch
     from cardiovision_agents.logic import LIMIT_TRIES
     ag2, sent2, calls2 = _team(tmp_path, monkeypatch, metas={"dev": [{"ok": False, "limit": True} for _ in range(LIMIT_TRIES + 5)]})
 
-    async def go2():
+    async def go():
         await ag2.enqueue(ROLES["dev"], "под лимитом")
         await ag2.workers["dev"]
-    asyncio.run(go2())
+    asyncio.run(go())
     assert len(calls2) == LIMIT_TRIES and len(ag2._queue("dev")) == 1
     assert any("больше не повторяю" in t for _, t in sent2)
     assert any("продолжу в " in t and ":" in t.split("продолжу в ")[1][:5] for _, t in sent2)
@@ -754,10 +754,10 @@ def test_limit_then_bot_failure_still_retries_and_a_lost_answer_still_offers_the
     monkeypatch.setattr(ag2, "say", say)
     monkeypatch.setattr(ag2, "_offer", offer)
 
-    async def go2():
+    async def go():
         await ag2.enqueue(ROLES["dev"], "правка")
         await ag2.workers["dev"]
-    asyncio.run(go2())
+    asyncio.run(go())
     assert len(offered) == 1 and ag2._queue("dev") == []
 
 
@@ -1027,3 +1027,132 @@ def test_the_answer_replies_to_the_askers_message_d343(tmp_path):
     assert len(sent) > 1 and all(k == {} for k in sent[1:])          # only the first part replies
     ag.asker[9] = (4242, 37)                                         # asked in a private chat, answered in the group
     assert ag._reply_kw(9, ROLES["dev"]) == {}
+
+
+def test_an_agent_works_up_to_six_hours_d346(monkeypatch):
+    """D346 (owner, 23.11: «выполняли задачу до завершения … потолок 6 часов оставь»)."""
+    monkeypatch.delenv("AGENTS_TIMEOUT_S", raising=False)
+    import importlib
+    r = importlib.reload(runner)
+    try:
+        assert r.TIMEOUT_S == 6 * 3600 and r.limit_text() == "6 ч" and r.limit_text(2700) == "45 мин"
+    finally:
+        importlib.reload(runner)
+    assert "AGENTS_TIMEOUT_S" not in (ROOT / "deploy" / "docker-compose.yml").read_text()   # nothing shortens it on the server
+
+
+def test_routes_and_task_references_parse_d346():
+    text = ("Понял так: нужна правка и проверка доступа.\n→ [ядро] убрать строку X из PDF; тест на отчёт\n"
+            "- **→ [Безопасность]** проверить права на /state\n1. [ядро] моя идея — ждёт «да»\n"
+            "→ [выкладка] выложить\n→ [сканер] а\n→ [новости] б\n→ [ошибки] лишняя пятая")
+    assert logic.parse_routes(text) == [("dev", "убрать строку X из PDF; тест на отчёт"), ("sec", "проверить права на /state"),
+                                        ("scan", "а"), ("news", "б")]                     # an unknown tag is no route; four at most
+    assert logic.parse_tasks(text) == {1: ("dev", "моя идея — ждёт «да»")}                # the numbered list still needs «да»
+    assert logic.parse_routes("ответ без стрелок") == []
+    assert logic.task_ref("задача 12: поправь шрифт") == (12, "поправь шрифт")
+    assert logic.task_ref("№7 — не то, переделай") == (7, "не то, переделай")
+    assert logic.task_ref("переделай", "Готово, задача №5:\nсделал; см. также задача №9") == (5, "переделай")
+    for plain in ("задачи 3 и 4 отмени", "Задача: сделай 5 вещей", "да 1, 3", "12 отведений"):
+        assert logic.task_ref(plain) == (None, plain)
+    assert logic.task_ref("да", "Задачи на выбор:\n1. [Программист] …") == (None, "да")
+
+
+def test_an_answer_about_a_task_goes_to_that_tasks_agent_d346(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, _, calls = _team(tmp_path, monkeypatch)
+    deployed, skipped = [], []
+
+    async def fake_deploy(role):
+        deployed.append(role.key)
+
+    async def fake_skip(role):
+        skipped.append(role.key)
+
+    async def go():
+        a = await ag.enqueue(ROLES["sec"], "проверь права")
+        b = await ag.enqueue(ROLES["dev"], "убери строку")
+        await asyncio.gather(ag.workers["sec"], ag.workers["dev"])
+        calls.clear()
+        assert await ag.by_task("а ещё /work посмотри", f"Готово, задача №{a}:\nответ sec")       # a reply in any topic
+        assert await ag.by_task(f"задача {b}: не ту строку убрал")
+        await asyncio.gather(ag.workers["sec"], ag.workers["dev"])
+        assert not await ag.by_task("привет", "сообщение без номера") and not await ag.by_task("задача 999: что-то")
+        assert not await ag.by_task("да 1, 3", f"Готово, задача №{b}:")                          # the menu answer is not a task reply
+        assert not await ag.by_task("да", f"Готово, задача №{b}:")                               # no branch waits: nothing to deploy
+        assert not await ag.by_task("да", f"Готово, задача №{a}:")
+        monkeypatch.setattr(ag, "deploy", fake_deploy)
+        monkeypatch.setattr(ag, "skip", fake_skip)
+        ag.store["pending"] = {"dev": {"branch": "agents/dev-x", "sha": "abc1234", "review": True}}
+        assert await ag.by_task("да", f"Готово, задача №{b}:") and await ag.by_task("пропустить", f"Задача №{b} ждёт: ветка")
+        assert not await ag.by_task("да", f"Готово, задача №{a}:")                               # sec has no branch
+        await asyncio.sleep(0.02)
+        return a, b
+    a, b = asyncio.run(go())
+    by = {k: p for k, p in calls}
+    assert f"[Продолжение задачи №{a}: «проверь права»]" in by["sec"] and "а ещё /work посмотри" in by["sec"]
+    assert f"[Продолжение задачи №{b}: «убери строку»]" in by["dev"] and "не ту строку убрал" in by["dev"]
+    assert deployed == ["dev"] and skipped == ["dev"]
+
+
+def test_the_coordinator_hands_the_owners_task_out_and_sums_up_once_d346(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    plan = "Понял: правка и проверка.\n→ [ядро] убрать строку; тест\n→ [безопасность] проверить права"
+    answers = {"coord": plan, "dev": "убрал, тесты зелёные", "sec": "права в порядке: 0 нарушений"}
+    ag, sent, calls = _team(tmp_path, monkeypatch, answers=answers)
+
+    async def go():
+        t = await ag.enqueue(ROLES["coord"], "убери строку и проверь права", msg_id=77, msg_chat=-100)
+        for _ in range(400):
+            await asyncio.sleep(0.01)
+            if len([c for c in calls if c[0] == "coord"]) == 2 and not any(ag._queue(k) for k in ROLES):
+                break
+        return t
+    t = asyncio.run(go())
+    assert [c[0] for c in calls].count("coord") == 2 and {c[0] for c in calls} == {"coord", "dev", "sec"}
+    coord = [x for k, x in sent if k == "coord"]
+    handed = next(x for x in coord if x.startswith(f"Раздал задачу №{t}:"))
+    assert "Программист" in handed and "Безопасность" in handed
+    summary = [p for k, p in calls if k == "coord"][1]
+    assert f"Итог по задаче владельца №{t}" in summary and "убрал, тесты зелёные" in summary and "0 нарушений" in summary
+    assert "Никому задач не раздавай" in summary
+    # the summary run answers with the same «→» lines (the fake) and must hand nothing out: no chain
+    assert len([x for x in coord if x.startswith("Раздал задачу")]) == 1 and ag.store["groups"] == {}
+    sec = [x for k, x in sent if k == "sec"]
+    assert any("отчёт передан Координатору" in x for x in sec) and not any("0 нарушений" in x for x in sec)
+    assert any("убрал, тесты зелёные" in x for k, x in sent if k == "dev")     # the branch role's report stays in full
+    assert ag.store["tasks"][str(max(int(i) for i in ag.store["tasks"]))]["role"] == "coord"     # the last task: the summary
+
+
+def test_no_hand_out_from_a_member_a_report_or_a_plain_answer_d346(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    plan = "→ [ядро] сделать что-то"
+    ag, sent, calls = _team(tmp_path, monkeypatch, answers={"coord": plan})
+
+    async def go():
+        await ag.enqueue(ROLES["coord"], "сделай что-то", source="участник 7 (не владелец: просьба, не команда)")
+        await ag.workers["coord"]
+        await ag.turn(ROLES["coord"], "плановый отчёт", scheduled=True)
+        await asyncio.sleep(0.05)
+    asyncio.run(go())
+    assert {c[0] for c in calls} == {"coord"} and not any("Раздал" in x for _, x in sent) and ag.store["groups"] == {}
+
+
+def test_a_cancelled_or_failed_part_still_closes_the_hand_out_d346(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, _, calls = _team(tmp_path, monkeypatch, answers={"coord": "итог"})
+
+    async def go():
+        tid = int(ag.store["next_id"])
+        items = [{"id": tid, "text": "проверить", "source": "координатор, по задаче №5", "parent": 5}]
+        ag.store["next_id"] = tid + 1
+        ag.store["tasks"] = {str(tid): {"role": "sec", "text": "проверить"}}
+        ag._set_queue("sec", items)
+        ag.store["groups"] = {"5": {"text": "задача владельца", "parts": {str(tid): None}, "reply": None,
+                                    "msg_id": None, "msg_chat": None}}
+        msg = await ag.cancel(tid)
+        await ag.workers["coord"]
+        return msg
+    msg = asyncio.run(go())
+    assert "снята" in msg and ag.store["groups"] == {}
+    summary = next(p for k, p in calls if k == "coord")
+    assert "снята владельцем" in summary and "Итог по задаче владельца №5" in summary

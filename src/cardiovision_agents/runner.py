@@ -28,7 +28,13 @@ WORK_BASE = os.environ.get("AGENTS_WORK_BASE", "/work")
 def workdir_for(role: Role) -> str:
     """D300: every agent has its own clone, so several can work at the same time."""
     return f"{WORK_BASE}/{role.key}/repo"
-TIMEOUT_S = int(os.environ.get("AGENTS_TIMEOUT_S", "2700"))
+# D346 (owner, 23.11): an agent works until the task is done; six hours is only a guard against a hung run.
+TIMEOUT_S = int(os.environ.get("AGENTS_TIMEOUT_S", "21600"))
+
+
+def limit_text(seconds: int | None = None) -> str:
+    seconds = TIMEOUT_S if seconds is None else seconds
+    return f"{seconds // 3600} ч" if seconds >= 3600 and seconds % 3600 == 0 else f"{seconds // 60} мин"
 CLEAN_ENV = {"HOME": f"/home/{AGENT_USER}", "PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8",
              "OMP_NUM_THREADS": "2"}
 
@@ -102,7 +108,7 @@ async def run(role: Role, prompt: str, session: str | None = None, cwd: str | No
         code, res, tail = await _once(role, prompt, None, cwd, model)
         bad = code != 0 or not res.get("result")
     if tail == "timeout":
-        return f"Агент не уложился в {TIMEOUT_S // 60} мин и остановлен.", session, _meta(res, model, ok=False, **extra)
+        return f"Агент не уложился в {limit_text()} и остановлен.", session, _meta(res, model, ok=False, **extra)
     if bad:
         if LIMIT_HINT.search(tail):
             return "Лимит подписки исчерпан.", session, _meta(res, model, ok=False, limit=True, **extra)

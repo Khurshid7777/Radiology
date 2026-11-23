@@ -138,6 +138,28 @@ def branch_name(stamp: str, kind: str = "dev") -> str:
 TASK_LINE = re.compile(r"^\s*(?:[-*•]\s*)?\**\s*(?:ЗАДАЧА\s+)?(\d+)\s*[.):]?\s*\**\s*\[\s*(ядро|сканер)\s*\]\s*\**\s*[:—–-]?\s*(.+?)\s*$",
                        re.IGNORECASE | re.MULTILINE)
 TARGET = {"ядро": "dev", "сканер": "scan"}
+# D346: the coordinator hands the owner's task out itself, one line per part: «→ [ядро] что сделать и как проверить».
+ROUTE_TARGET = {**TARGET, "проверка": "review", "безопасность": "sec", "ошибки": "triage", "новости": "news"}
+ROUTE_LINE = re.compile(r"^[ \t]*(?:[-*•][ \t]*)?\**[ \t]*(?:→|->|=>)[ \t]*\**[ \t]*\[[ \t]*(" + "|".join(ROUTE_TARGET)
+                        + r")[ \t]*\][ \t]*\**[ \t]*[:—–-]?[ \t]*(\S.*?)[ \t]*$", re.IGNORECASE | re.MULTILINE)
+MAX_ROUTES = 4
+TASK_IN_REPLY = re.compile(r"задач[а-я]*\s+№\s*(\d+)", re.IGNORECASE)            # the bot's own «задача №N» wording
+TASK_IN_TEXT = re.compile(r"^\s*(?:задач[а-я]*\s*№?|№)\s*(\d+)\s*[:—–,-]\s*(.+)$", re.IGNORECASE | re.DOTALL)
+
+
+def parse_routes(text: str) -> list[tuple[str, str]]:
+    """[(role key, task)] from the coordinator's «→ [ядро] …» lines, at most MAX_ROUTES (D346)."""
+    return [(ROUTE_TARGET[t.lower()], body) for t, body in ROUTE_LINE.findall(text or "")][:MAX_ROUTES]
+
+
+def task_ref(text: str | None, reply_text: str | None = None) -> tuple[int | None, str]:
+    """D346: which task the owner's message is about — «задача 12: …» / «№12: …» in the text itself, else the first
+    «задача №N» of the bot message it replies to. Returns (task id or None, the message without the reference)."""
+    m = TASK_IN_TEXT.match(text or "")
+    if m:
+        return int(m.group(1)), m.group(2).strip()
+    m = TASK_IN_REPLY.search(reply_text or "")
+    return (int(m.group(1)), (text or "").strip()) if m else (None, (text or "").strip())
 CHOICE = re.compile(r"^\s*да\s*[,:]?\s*((?:\d+(?:\s*[,;]\s*|\s+(?:(?:и|and)\s+)?))*\d+)\s*[.!]*\s*$", re.IGNORECASE)   # D340: «да 1 и 3»
 STATUS = re.compile(r"^\s*(статус|/status)\s*[?.!]*\s*$", re.IGNORECASE)
 VERDICT = re.compile(r"ВЕРДИКТ\s*:\s*(можно|нельзя)", re.IGNORECASE)
