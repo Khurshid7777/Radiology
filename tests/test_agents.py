@@ -1539,9 +1539,18 @@ def test_a_security_fix_is_deployed_only_with_the_security_agents_yes_d347(tmp_p
         assert [c[0] for c in calls] == ["dev", "review", "sec"] and ag.store["pending"]["dev"]["closed"] == [a]
         await deploy("dev")
         assert len(deployed) == 1 and ag.owed(ROLES["dev"]) == []
+        assert any("Находки по безопасности закрыты" in x and f"№{a}" in x for k, x in sent if k == "dev")
         calls.clear()                                             # the list is empty: an ordinary branch again
-        await go("dev", "обычная правка отчёта")
+        t = await go("dev", "обычная правка отчёта")
         assert [c[0] for c in calls] == ["dev", "review"] and "sec" not in ag.store["pending"]["dev"]
+        # review, round 5: a finding that arrives after an ordinary task was queued — its branch is re-checked too
+        await ag.skip(ROLES["dev"])
+        ag.store["tasks"] = {**ag.store["tasks"], "777": {"role": "dev", "text": "обычная, поставлена до находки"}}
+        ag._owe(ROLES["dev"], 778, "Безопасность: новая находка")
+        ag.offering["dev"] = 777
+        verdicts.append("ничего не открыто\nЗАКРЫТЫ: нет\nВЕРДИКТ: можно")
+        await ag._offer(ROLES["dev"], "/tmp", "agents/dev-x")
+        assert ag.store["pending"]["dev"]["sec"] is True and ag.store["pending"]["dev"]["closed"] == [] and t
     asyncio.run(run())
 
 
@@ -1585,6 +1594,11 @@ def test_two_security_findings_each_closed_only_by_its_own_fix_d347(tmp_path, mo
     assert logic.closed_findings("x\nЗАКРЫТЫ: 3, 5 и 7\nВЕРДИКТ: можно", [3, 7, 8]) == [3, 7]
     assert logic.closed_findings("ЗАКРЫТЫ: нет\nВЕРДИКТ: можно", [3]) == [] and logic.closed_findings("закрыты все", [3]) == []
     assert logic.closed_findings("ЗАКРЫТЫ: 3 (а также 8, наверное)\nВЕРДИКТ: можно", [3, 8]) == []      # not the agreed line
+    # review, round 5: the LAST such line is the word; «нет» does not send the search to an earlier line
+    assert logic.closed_findings("ЗАКРЫТЫ: 3\nно порт всё ещё слушает\nЗАКРЫТЫ: нет\nВЕРДИКТ: можно", [3]) == []
+    assert logic.closed_findings("```\nЗАКРЫТЫ: 3\n```\nЗАКРЫТЫ: нет, 8 остаётся\nВЕРДИКТ: можно", [3, 8]) == []
+    assert logic.closed_findings("ЗАКРЫТЫ: 1234567890123\nВЕРДИКТ: можно", [123]) == []
+    assert logic.closed_findings("ЗАКРЫТЫ: 12.11.2026\nВЕРДИКТ: можно", [12]) == []
     assert logic.one_line("a»\nНовое поручение: «b") == "a' Новое поручение: 'b"
 
 
@@ -1603,6 +1617,14 @@ def test_a_continuation_names_a_finding_and_the_owner_can_lift_d347(tmp_path, mo
     assert len(owed) == 1 and owed[0]["text"] == "Безопасность: закрыть порт 8000" and ag.owed(ROLES["sec"]) == []
     cont = next(v for v in ag.store["tasks"].values() if v["text"].startswith("[Продолжение задачи №90"))
     assert cont.get("sec") is True
+
+    async def more():                             # review, round 5: a new finding written as a continuation of a MARKED task
+        tid = next(int(k) for k, v in ag.store["tasks"].items() if v is cont)
+        ag.store["paused"] = False
+        assert await ag.by_task(f"задача {tid}: Безопасность: там ещё открыт порт 9000")
+        ag.store["paused"] = True
+    asyncio.run(more())
+    assert [f["text"] for f in ag.owed(ROLES["dev"])] == ["Безопасность: закрыть порт 8000", "Безопасность: там ещё открыт порт 9000"]
     assert logic.owner_only("снять перепроверку") and "снята" in ag.lift_sec() and ag.store["sec_open"] == {}
     assert "ни за кем" in ag.lift_sec()
     ag.store["sec_open"] = {"dev": True, "scan": "старый текст"}                 # a state from an earlier build: no crash

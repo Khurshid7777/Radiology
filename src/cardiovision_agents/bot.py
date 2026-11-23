@@ -510,7 +510,7 @@ class Agents:
 
     def _owe(self, role: Role, tid: int, text: str) -> None:
         items = [*self.owed(role), {"n": tid, "text": one_line(redact(text, _secrets()))}]
-        self.store["sec_open"] = {**(self.store.data.get("sec_open") or {}), role.key: items[-30:]}
+        self.store["sec_open"] = {**(self.store.data.get("sec_open") or {}), role.key: items}   # never dropped silently
 
     def lift_sec(self) -> str:
         """«снять перепроверку» (the owner only): the findings are taken off the lists, the queued tasks become
@@ -619,7 +619,7 @@ class Agents:
             return True
         self._hist(tid, redo=1)                  # D347: the owner came back to this task
         await self.enqueue(role, f"[Продолжение задачи №{tid}: «{rec['text']}»]\n{body}", security=bool(rec.get("sec")),
-                           finding=body if is_security_fix(body) and not rec.get("sec") else "")
+                           finding=body if is_security_fix(body) else "")     # a new finding, whatever it continues
         return True
 
     async def skip(self, role: Role) -> None:
@@ -897,7 +897,8 @@ class Agents:
         if verdict is not None:
             self._hist(tid, review=verdict)       # D347
         rec = {"branch": branch, "sha": sha, "review": verdict, "task": tid}
-        if ((self.store.data.get("tasks") or {}).get(str(tid)) or {}).get("sec"):
+        if ((self.store.data.get("tasks") or {}).get(str(tid)) or {}).get("sec") or self.owed(role):
+            # the task's own mark, or findings owed right now (they may have come while this task ran or waited)
             # D347: the finder re-checks the fix — after the reviewer's «можно»; without it the branch is blocked anyway
             rec["sec"], rec["closed"] = await self._sec_check(role, branch, workdir, sha) if verdict else (None, [])
         pend = dict(self.store.data.get("pending") or {})
@@ -1008,10 +1009,16 @@ class Agents:
         if pend.get(role.key) == p:
             pend.pop(role.key)
         self.store["pending"] = pend
+        gone: list[dict] = []
         if p.get("sec") is True and p.get("closed"):      # only the findings the security agent named for THIS branch
+            gone = [f for f in self.owed(role) if f["n"] in set(p["closed"])]
             left = [f for f in self.owed(role) if f["n"] not in set(p["closed"])]
             self.store["sec_open"] = {**(self.store.data.get("sec_open") or {}), role.key: left}
-        await self.say(role, f"CI зелёный, main перемотан на {p['sha'][:7]}, выкладка запущена.")
+        await self.say(role, f"CI зелёный, main перемотан на {p['sha'][:7]}, выкладка запущена."
+                       + (" Находки по безопасности закрыты (по слову Безопасности): "
+                          + "; ".join(f"№{f['n']} «{f['text'][:80]}»" for f in gone) + "." if gone else "")
+                       + (f" За агентом остаются находки: {', '.join('№' + str(f['n']) for f in self.owed(role))}."
+                          if "sec" in p and self.owed(role) else ""))
         self.kick(role)
         await asyncio.sleep(60)
         for _ in range(60):

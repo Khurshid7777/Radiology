@@ -362,16 +362,21 @@ def bot_check(files: list[str]) -> str | None:
     return "ветка меняет код в src/, но не меняет ни одного теста в tests/" if src and not tests else None
 
 
-CLOSED_LINE = re.compile(r"^[\s*_]*ЗАКРЫТ[ЫАО]?[\s*_]*:([\s№\d,;и*_.]*)$", re.IGNORECASE)
+CLOSED_HEAD = re.compile(r"^[\s*_>`-]*ЗАКРЫТ[ЫАО]?[\s*_]*:", re.IGNORECASE)
 
 
 def closed_findings(answer: str, known: list[int]) -> list[int]:
-    """D347: the finding numbers the security agent names as closed in its «ЗАКРЫТЫ: 12, 15» line (the last such line
-    of the answer's tail); only numbers that are really on the list count."""
+    """D347: the finding numbers the security agent names as closed in its «ЗАКРЫТЫ: 12, 15» line. Only the LAST such
+    line of the answer's tail counts, whatever it says: «ЗАКРЫТЫ: нет» (or anything that is not a plain list of
+    numbers) closes nothing and an earlier line is not looked at. Only numbers really on the list count."""
     for line in reversed((answer or "").splitlines()[-12:]):
-        m = CLOSED_LINE.match(line[:200])
-        if m:
-            return sorted({int(x) for x in re.findall(r"\d{1,9}", m.group(1))} & set(known))
+        m = CLOSED_HEAD.match(line[:300])
+        if not m:
+            continue
+        tokens = [t.strip("*_`.№ ") for t in re.split(r"[,;\s]+|\bи\b", line[m.end():300]) if t.strip("*_`.№ ")]
+        if not tokens or not all(t.isdigit() and len(t) <= 9 for t in tokens):
+            return []
+        return sorted({int(t) for t in tokens} & set(known))
     return []
 
 
