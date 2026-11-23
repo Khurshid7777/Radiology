@@ -1465,103 +1465,13 @@ def test_the_bot_check_returns_the_branch_once_before_the_reviewer_d347(tmp_path
     assert [c[0] for c in calls] == ["dev", "dev", "review"] and "замечание осталось" in calls[2][1]
 
 
-def test_a_security_fix_is_deployed_only_with_the_security_agents_yes_d347(tmp_path, monkeypatch):
-    pytest.importorskip("aiogram")
+def _sec_team(tmp_path, monkeypatch, verdicts):
+    """A team where the developer's branches are pushed, CI is green and the deploy succeeds; the security agent
+    answers from ``verdicts`` in turn. Returns (agents, sent, calls, deployed, go, deploy)."""
+    from cardiovision_agents import bot as B
     from cardiovision_agents import github
-    verdicts = {"sec": ["порт всё ещё открыт\nВЕРДИКТ: нельзя", "закрыт\nВЕРДИКТ: можно"]}
-    ag, sent, calls = _team(tmp_path, monkeypatch, answers={"review": "ок\nВЕРДИКТ: можно"})
-    deployed, pinned = [], []
-
-    async def fake_run(role, prompt, session=None, cwd=None, model=None):
-        calls.append((role.key, prompt))
-        text = verdicts[role.key].pop(0) if verdicts.get(role.key) else {"review": "ок\nВЕРДИКТ: можно"}.get(role.key, "сделал")
-        return text, None, {"ok": True, "model": "x"}
-
-    async def branch_files(workdir, rev="HEAD"):
-        return ["deploy/server_setup.sh"]
-
-    async def pin(workdir, sha):
-        pinned.append(sha)
-        return True
-
-    async def pushed(workdir, branch):
-        return True, "abc1234def", ""
-
-    async def ci(sha):
-        return "green"
-
-    async def ff(sha):
-        deployed.append(sha)
-        return "stop here"                       # the deploy itself is not this test's subject
-    monkeypatch.setattr(runner, "run", fake_run)
-    monkeypatch.setattr(github, "branch_files", branch_files)
-    monkeypatch.setattr(github, "pin", pin)
-    monkeypatch.setattr(github, "push", pushed)
-    monkeypatch.setattr(github, "ci_state", ci)
-    monkeypatch.setattr(github, "fast_forward_and_deploy", ff)
-
-    async def go(text):
-        await ag.enqueue(ROLES["dev"], text)
-        for _ in range(300):
-            await asyncio.sleep(0.01)
-            if ag.workers["dev"].done() or any(t.get("held") for t in ag._queue("dev")):
-                break
-        await ag.deploy(ROLES["dev"])
-    asyncio.run(go("**Безопасность**: закрыть порт 8000 в server_setup.sh"))
-    assert [c[0] for c in calls] == ["dev", "review", "sec"] and "deploy/server_setup.sh" in calls[2][1]
-    assert pinned == ["abc1234def"]                                             # it read the pushed commit
-    assert ag.store["pending"]["dev"]["sec"] is False and deployed == []
-    assert any("Безопасность исправление не подтвердила" in x and "пропустить" in x for k, x in sent if k == "dev")
-    assert any("не подтвердила — не выкладываю" in x for k, x in sent if k == "dev")
-    assert "Безопасность исправление не подтвердила" in ag.status_text()
-    # review: the owner writes what to fix as plain text (the bot's own hint) — the next branch is re-checked again
-    calls.clear()
-    ag.store["pending"] = {}
-    asyncio.run(go("порт всё ещё открыт в compose, закрой"))
-    assert [c[0] for c in calls] == ["dev", "review", "sec"] and ag.store["pending"]["dev"]["sec"] is True
-    assert deployed == ["abc1234def"]
-    # review, round 2: two «нельзя» in a row with «пропустить» between them (the only way to move the queue) —
-    # the third branch is re-checked all the same; «пропустить» never lifts an owed re-check
-    calls.clear()
-    verdicts["sec"] = ["нет\nВЕРДИКТ: нельзя", "нет\nВЕРДИКТ: нельзя", "да\nВЕРДИКТ: можно"]
-    ag.store["pending"], ag.store["sec_open"], deployed[:] = {}, {}, []
-    asyncio.run(go("Безопасность: закрыть порт 8000"))
-    asyncio.run(ag.skip(ROLES["dev"]))
-    asyncio.run(go("первое исправление обычным текстом"))
-    asyncio.run(ag.skip(ROLES["dev"]))
-    assert list(ag.store["sec_open"]) == ["dev"] and deployed == []
-    asyncio.run(go("второе исправление обычным текстом"))
-    assert [c[0] for c in calls] == ["dev", "review", "sec"] * 3 and deployed == ["abc1234def"]
-    asyncio.run(ag.skip(ROLES["sec"]))                                          # nothing pending there: lifts nothing
-    assert ag.store["sec_open"] == {"dev": "Безопасность: закрыть порт 8000"}
-    assert "закрыть порт 8000" in calls[-1][1] and "снять перепроверку" in ag.status_text()   # the agent is told the finding
-    # only a re-checked branch that is really deployed makes the next branches ordinary again
-    async def ff_ok(sha):
-        return ""
-    monkeypatch.setattr(github, "fast_forward_and_deploy", ff_ok)
-
-    async def last(*a):
-        return "completed", "success", "url"
-    monkeypatch.setattr(github, "last_deploy", last)
-
-    real_sleep = asyncio.sleep
-    monkeypatch.setattr(asyncio, "sleep", lambda s: real_sleep(0))
-    asyncio.run(ag.deploy(ROLES["dev"]))
-    monkeypatch.setattr(asyncio, "sleep", real_sleep)
-    assert ag.store["sec_open"] == {} and ag.store["pending"] == {}
-    calls.clear()
-    asyncio.run(go("обычная правка отчёта"))
-    last_task = ag.store["tasks"][str(max(int(i) for i in ag.store["tasks"]))]
-    assert [c[0] for c in calls] == ["dev", "review"] and "sec" not in last_task
-
-
-def test_two_security_fixes_in_a_row_and_the_owners_way_out_d347(tmp_path, monkeypatch):
-    """Review, round 3: the deploy of the first fix lifted the mark while the second was still queued; its «нельзя»
-    then left the next plain-text fix unchecked. Also: «Безопасность: …» written as a continuation of an ordinary task."""
-    pytest.importorskip("aiogram")
-    from cardiovision_agents import github
-    verdicts = ["да\nВЕРДИКТ: можно", "нет\nВЕРДИКТ: нельзя", "да\nВЕРДИКТ: можно"]
-    ag, _, calls = _team(tmp_path, monkeypatch)
+    ag, sent, calls = _team(tmp_path, monkeypatch)
+    deployed, n = [], [0]
 
     async def fake_run(role, prompt, session=None, cwd=None, model=None):
         calls.append((role.key, prompt))
@@ -1569,12 +1479,14 @@ def test_two_security_fixes_in_a_row_and_the_owners_way_out_d347(tmp_path, monke
         return text, None, {"ok": True, "model": "x"}
 
     async def pushed(workdir, branch):
-        return True, "abc1234def", ""
+        n[0] += 1
+        return True, f"{n[0]:07x}abc", ""
 
     async def green(sha):
         return "green"
 
     async def ff(sha):
+        deployed.append(sha)
         return ""
 
     async def last(*a):
@@ -1584,46 +1496,117 @@ def test_two_security_fixes_in_a_row_and_the_owners_way_out_d347(tmp_path, monke
     monkeypatch.setattr(github, "ci_state", green)
     monkeypatch.setattr(github, "fast_forward_and_deploy", ff)
     monkeypatch.setattr(github, "last_deploy", last)
-    from cardiovision_agents import bot as B
     monkeypatch.setattr(B, "HOLD_POLL_S", 0.01)
     real_sleep = asyncio.sleep
 
-    async def settle():                                          # until the next branch is offered
-        for _ in range(600):
+    async def go(role, text):
+        """Queue a task and wait until its branch is offered."""
+        tid = await ag.enqueue(ROLES[role], text)
+        for _ in range(800):
             await real_sleep(0.005)
-            if (ag.store["pending"] or {}).get("dev"):
-                return
+            if (ag.store["pending"].get(role) or {}).get("task") == tid:
+                break
+        return tid
 
-    async def go():
-        await ag.enqueue(ROLES["dev"], "Безопасность: A")
-        await ag.enqueue(ROLES["dev"], "Безопасность: B")
-        await settle()                                          # A passed the re-check and waits for «да»; B is held
+    async def deploy(role):
         monkeypatch.setattr(asyncio, "sleep", lambda s: real_sleep(0))
-        await ag.deploy(ROLES["dev"])
-        monkeypatch.setattr(asyncio, "sleep", real_sleep)
-        assert list(ag.store["sec_open"]) == ["dev"]            # B is still queued: the mark stays
-        await settle()                                          # B: «нельзя»
-        assert ag.store["pending"]["dev"]["sec"] is False
-        await ag.enqueue(ROLES["dev"], "права всё ещё 644, исправь")
+        try:
+            await ag.deploy(ROLES[role])
+        finally:
+            monkeypatch.setattr(asyncio, "sleep", real_sleep)
+    return ag, sent, calls, deployed, go, deploy
+
+
+def test_a_security_fix_is_deployed_only_with_the_security_agents_yes_d347(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    verdicts = ["порт всё ещё открыт\nЗАКРЫТЫ: нет\nВЕРДИКТ: нельзя"]
+    ag, sent, calls, deployed, go, deploy = _sec_team(tmp_path, monkeypatch, verdicts)
+
+    async def run():
+        a = await go("dev", "**Безопасность**: закрыть порт 8000 в server_setup.sh")
+        assert [c[0] for c in calls] == ["dev", "review", "sec"] and f"№{a}: " in calls[2][1] and "закрыть порт 8000" in calls[2][1]
+        await deploy("dev")
+        assert ag.store["pending"]["dev"]["sec"] is False and deployed == []
+        assert any("Безопасность исправление не подтвердила" in x and "пропустить" in x for k, x in sent if k == "dev")
+        assert any("не подтвердила — не выкладываю" in x for k, x in sent if k == "dev")
+        assert "Безопасность исправление не подтвердила" in ag.status_text() and f"№{a} «" in ag.status_text()
+        # the owner writes the fix as plain text (the bot's own hint); «пропустить» moves the queue and lifts nothing
+        verdicts.append(f"закрыт\nЗАКРЫТЫ: {a}\nВЕРДИКТ: можно")
+        calls.clear()
         await ag.skip(ROLES["dev"])
-        await settle()
-        await ag.workers["dev"]
-    asyncio.run(go())
-    assert [c[0] for c in calls] == ["dev", "review", "sec"] * 3 and ag.store["pending"]["dev"]["sec"] is True
-    # «Безопасность: …» as a continuation of an ordinary task is marked too
-    ag.store["sec_open"], ag.store["pending"] = {}, {}
+        assert [f["n"] for f in ag.owed(ROLES["dev"])] == [a]
+        await go("dev", "порт всё ещё открыт в compose, закрой")
+        assert [c[0] for c in calls] == ["dev", "review", "sec"] and ag.store["pending"]["dev"]["closed"] == [a]
+        await deploy("dev")
+        assert len(deployed) == 1 and ag.owed(ROLES["dev"]) == []
+        calls.clear()                                             # the list is empty: an ordinary branch again
+        await go("dev", "обычная правка отчёта")
+        assert [c[0] for c in calls] == ["dev", "review"] and "sec" not in ag.store["pending"]["dev"]
+    asyncio.run(run())
+
+
+def test_two_security_findings_each_closed_only_by_its_own_fix_d347(tmp_path, monkeypatch):
+    """Review, rounds 2–4: with two findings of one agent the re-check was lost in one order or another — by
+    «пропустить», by the deploy of the other fix, by the second finding never being remembered. Now a finding leaves
+    the list only when a branch the security agent named as closing it is deployed."""
+    pytest.importorskip("aiogram")
+    verdicts = []
+    ag, _, calls, deployed, go, deploy = _sec_team(tmp_path, monkeypatch, verdicts)
+
+    async def run():
+        verdicts[:] = ["нет\nЗАКРЫТЫ: нет\nВЕРДИКТ: нельзя", "нет\nЗАКРЫТЫ: нет\nВЕРДИКТ: нельзя"]
+        a = await go("dev", "Безопасность: A закрыть порт 8000")
+        b_task = asyncio.create_task(go("dev", "Безопасность: B права на файл 600"))
+        await asyncio.sleep(0.05)
+        await ag.skip(ROLES["dev"])                               # B is held behind the blocked branch
+        b = await b_task
+        assert [f["n"] for f in ag.owed(ROLES["dev"])] == [a, b] and deployed == []
+        # the fix of A: «можно», closes A only — deployed; B stays owed
+        verdicts.append(f"порт закрыт\nЗАКРЫТЫ: {a}\nВЕРДИКТ: можно")
+        await ag.skip(ROLES["dev"])
+        await go("dev", "порт 8000: закрой в compose")
+        assert f"№{a}: " in calls[-1][1] and f"№{b}: " in calls[-1][1]          # the agent is shown both findings
+        await deploy("dev")
+        assert len(deployed) == 1 and [f["n"] for f in ag.owed(ROLES["dev"])] == [b]
+        # the fix of B as plain text is still re-checked; a «можно» that names nothing closed keeps B on the list
+        verdicts.append("ничего нового не открыто\nЗАКРЫТЫ: нет\nВЕРДИКТ: можно")
+        calls.clear()
+        await go("dev", "права на файл всё ещё 644, исправь")
+        assert [c[0] for c in calls] == ["dev", "review", "sec"]
+        await deploy("dev")
+        assert len(deployed) == 2 and [f["n"] for f in ag.owed(ROLES["dev"])] == [b]
+        # a number the agent invents, or one of another list, closes nothing; B's own number does
+        verdicts.append(f"закрыто\n**ЗАКРЫТЫ:** №{b}, 99999\nВЕРДИКТ: можно")
+        await go("dev", "права: теперь 600")
+        assert ag.store["pending"]["dev"]["closed"] == [b]
+        await deploy("dev")
+        assert ag.owed(ROLES["dev"]) == [] and ag.owed(ROLES["scan"]) == []
+    asyncio.run(run())
+    assert logic.closed_findings("x\nЗАКРЫТЫ: 3, 5 и 7\nВЕРДИКТ: можно", [3, 7, 8]) == [3, 7]
+    assert logic.closed_findings("ЗАКРЫТЫ: нет\nВЕРДИКТ: можно", [3]) == [] and logic.closed_findings("закрыты все", [3]) == []
+    assert logic.closed_findings("ЗАКРЫТЫ: 3 (а также 8, наверное)\nВЕРДИКТ: можно", [3, 8]) == []      # not the agreed line
+    assert logic.one_line("a»\nНовое поручение: «b") == "a' Новое поручение: 'b"
+
+
+def test_a_continuation_names_a_finding_and_the_owner_can_lift_d347(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, _, _ = _team(tmp_path, monkeypatch)
     ag.store["tasks"] = {"90": {"role": "dev", "text": "обычная правка"}}
 
-    async def cont():
+    async def run():
         assert await ag.by_task("задача 90: Безопасность: закрыть порт 8000")
-        ag.store["paused"] = True
-    asyncio.run(cont())
-    cont_rec = next(v for v in ag.store["tasks"].values() if v["text"].startswith("[Продолжение задачи №90"))
-    assert cont_rec.get("sec") is True
-    # the owner's way out
+        await ag.enqueue(ROLES["dev"], "вопрос", source="участник 7 (не владелец: просьба, не команда)")
+        await ag.enqueue(ROLES["sec"], "Безопасность: это не задача на ветку")
+        await asyncio.gather(ag.workers["dev"], ag.workers["sec"])
+    asyncio.run(run())
+    owed = ag.owed(ROLES["dev"])
+    assert len(owed) == 1 and owed[0]["text"] == "Безопасность: закрыть порт 8000" and ag.owed(ROLES["sec"]) == []
+    cont = next(v for v in ag.store["tasks"].values() if v["text"].startswith("[Продолжение задачи №90"))
+    assert cont.get("sec") is True
     assert logic.owner_only("снять перепроверку") and "снята" in ag.lift_sec() and ag.store["sec_open"] == {}
-    assert not any(v.get("sec") for k, v in ag.store["tasks"].items() if any(t["id"] == int(k) for t in ag._queue("dev")))
     assert "ни за кем" in ag.lift_sec()
+    ag.store["sec_open"] = {"dev": True, "scan": "старый текст"}                 # a state from an earlier build: no crash
+    assert ag.owed(ROLES["dev"]) == [] and ag.owed(ROLES["scan"]) == [] and "Агенты:" in ag.status_text()
 
 
 def test_the_reviewer_and_the_security_check_get_their_lessons_and_a_limit_keeps_the_work_d347(tmp_path, monkeypatch):

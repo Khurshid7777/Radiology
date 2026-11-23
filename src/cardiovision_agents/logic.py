@@ -360,3 +360,21 @@ def bot_check(files: list[str]) -> str | None:
     src = [f for f in files if f.startswith("src/")]
     tests = [f for f in files if f.startswith("tests/") and f.endswith(".py")]
     return "ветка меняет код в src/, но не меняет ни одного теста в tests/" if src and not tests else None
+
+
+CLOSED_LINE = re.compile(r"^[\s*_]*ЗАКРЫТ[ЫАО]?[\s*_]*:([\s№\d,;и*_.]*)$", re.IGNORECASE)
+
+
+def closed_findings(answer: str, known: list[int]) -> list[int]:
+    """D347: the finding numbers the security agent names as closed in its «ЗАКРЫТЫ: 12, 15» line (the last such line
+    of the answer's tail); only numbers that are really on the list count."""
+    for line in reversed((answer or "").splitlines()[-12:]):
+        m = CLOSED_LINE.match(line[:200])
+        if m:
+            return sorted({int(x) for x in re.findall(r"\d{1,9}", m.group(1))} & set(known))
+    return []
+
+
+def one_line(text: str, limit: int = 300) -> str:
+    """A task text as data inside a prompt: one line, no guillemets to close the quote with."""
+    return " ".join((text or "").replace("«", "'").replace("»", "'").split())[:limit]
