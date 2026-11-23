@@ -57,12 +57,14 @@ def command(role: Role, prompt: str, session: str | None, model: str | None = No
     return cmd
 
 
+KILLED: set = set()           # runs «стоп агенты» killed: never retried, never reported as the agent's answer
 RUNNING: set = set()          # D346: the agents' live runs, so «стоп агенты» really stops a run that may last hours
 
 
 def stop_all() -> int:
     n = 0
     for proc in list(RUNNING):
+        KILLED.add(proc)
         try:
             proc.kill()
             n += 1
@@ -82,6 +84,9 @@ async def _once(role: Role, prompt: str, session: str | None, cwd: str, model: s
         return -9, {}, "timeout"
     finally:
         RUNNING.discard(proc)
+    if proc in KILLED:
+        KILLED.discard(proc)
+        return -9, {}, "stopped"
     try:
         res = json.loads(out.decode() or "{}")
     except json.JSONDecodeError:
@@ -114,16 +119,19 @@ async def run(role: Role, prompt: str, session: str | None = None, cwd: str | No
     extra: dict = {}
     code, res, tail = await _once(role, prompt, session, cwd, model)
     bad = code != 0 or not res.get("result")
-    if bad and model != FALLBACK_MODEL and (MODEL_HINT.search(tail) or MODEL_LIMIT_HINT.search(tail)):
+    # D346: a run the owner stopped («стоп агенты») is not tried again in any form
+    if bad and tail != "stopped" and model != FALLBACK_MODEL and (MODEL_HINT.search(tail) or MODEL_LIMIT_HINT.search(tail)):
         # the subscription does not serve this model, or this model's own limit is spent: the work goes on on Opus
         model, extra["fallback"] = FALLBACK_MODEL, True
         code, res, tail = await _once(role, prompt, session, cwd, model)
         bad = code != 0 or not res.get("result")
-    if bad and session and tail != "timeout" and not LIMIT_HINT.search(tail):
+    if bad and session and tail not in ("timeout", "stopped") and not LIMIT_HINT.search(tail):
         # a session kept from another working directory (or expired) cannot be resumed: start a new conversation
         session = None
         code, res, tail = await _once(role, prompt, None, cwd, model)
         bad = code != 0 or not res.get("result")
+    if tail == "stopped":
+        return "Запуск прерван: «стоп агенты».", session, _meta(res, model, ok=False, stopped=True, **extra)
     if tail == "timeout":
         return f"Агент не уложился в {limit_text()} и остановлен.", session, _meta(res, model, ok=False, **extra)
     if bad:

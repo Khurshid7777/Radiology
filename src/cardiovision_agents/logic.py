@@ -140,22 +140,31 @@ TASK_LINE = re.compile(r"^\s*(?:[-*•]\s*)?\**\s*(?:ЗАДАЧА\s+)?(\d+)\s*[.
 TARGET = {"ядро": "dev", "сканер": "scan"}
 # D346: the coordinator hands the owner's task out itself, one line per part: «→ [ядро] что сделать и как проверить».
 ROUTE_TARGET = {**TARGET, "проверка": "review", "безопасность": "sec", "ошибки": "triage", "новости": "news"}
-ROUTE_LINE = re.compile(r"^[ \t]*(?:[-*•][ \t]*)?\**[ \t]*(?:→|->|=>)[ \t]*\**[ \t]*\[[ \t]*(" + "|".join(ROUTE_TARGET)
-                        + r")[ \t]*\][ \t]*\**[ \t]*[:—–-]?[ \t]*(\S.*?)[ \t]*$", re.IGNORECASE | re.MULTILINE)
 MAX_ROUTES = 4
 # D346 (+review): only the bot's own task headers count — a task number quoted somewhere in a text names nothing.
 TASK_IN_REPLY = re.compile(r"^\s*(?:Готово, задача|Начал задачу|Раздал задачу|Задача)\s+№\s*(\d+)")
-TASK_IN_TEXT = re.compile(r"^\s*(?:по\s+)?задач[аеу]\s*№?\s*(\d+)\s*[:—–-]\s*(\S.*)$", re.IGNORECASE | re.DOTALL)
+TASK_IN_TEXT = re.compile(r"^\s*(?:по\s+)?задач[аеу]\s*№?\s*(\d+)(?:\s*:|\s+[—–-](?=\s))\s*(\S.*)$", re.IGNORECASE | re.DOTALL)
 ROUTE_LINE_MAX = 2000
+ARROWS = ("→", "->", "=>")
 
 
 def parse_routes(text: str) -> list[tuple[str, str]]:
     """[(role key, task)] from the coordinator's «→ [ядро] …» lines, at most MAX_ROUTES (D346)."""
     out = []
-    for line in (text or "").splitlines():
-        m = ROUTE_LINE.match(line) if len(line) <= ROUTE_LINE_MAX else None      # a huge line is never a route (and never a slow match)
-        if m:
-            out.append((ROUTE_TARGET[m.group(1).lower()], m.group(2)))
+    for line in (text or "").splitlines():       # plain string work, linear: a regex here once took a minute on one line
+        if len(line) > ROUTE_LINE_MAX:
+            continue
+        rest = line.strip().lstrip("-*• \t")
+        arrow = next((a for a in ARROWS if rest.startswith(a)), None)
+        if arrow is None:
+            continue
+        rest = rest[len(arrow):].lstrip("* \t")
+        if not rest.startswith("[") or "]" not in rest:
+            continue
+        tag, _, body = rest[1:].partition("]")
+        body = body.strip().lstrip("*").lstrip().lstrip(":—–-").strip()
+        if tag.strip().lower() in ROUTE_TARGET and body:
+            out.append((ROUTE_TARGET[tag.strip().lower()], body))
     return out[:MAX_ROUTES]
 
 

@@ -116,6 +116,10 @@ def _secrets() -> tuple[str, ...]:
     return tuple(os.environ.get(k, "") for k in ("AGENTS_TG_TOKEN", "AGENTS_GH_TOKEN", "AGENTS_SUMMARY_KEY"))
 
 
+class Stopped(Exception):
+    """«стоп агенты» killed the reviewer's run (D346)."""
+
+
 class Agents:
     def __init__(self, bot, store: Store, owner_id: int):
         # ``bot``: one bot for every agent (D279) or {role key: bot} (D298, a bot per agent).
@@ -130,6 +134,7 @@ class Agents:
         self.ran: set[int] = set()            # tasks whose agent run has finished (this process)
         self.reply_to: dict[str, tuple[int, int | None]] = {}   # role -> where the owner last wrote to it
         self.offering: dict[str, int | None] = {}
+        self.early: dict[int, str] = {}          # D346: a part that ended before its hand-out was written down
         self.answers: dict[int, str] = {}        # D346: task id -> the agent's answer, until its group is closed
         self.asker: dict[int, tuple[int, int]] = {}   # D343: task id -> (chat, message) that asked for it
 
@@ -249,7 +254,7 @@ class Agents:
                       **({"parent": parent} if parent else {}), **({"final": True} if final else {})})
         self._set_queue(role.key, items)
         known = dict(self.store.data.get("tasks") or {})             # D346: a later «задача №N» finds its agent
-        known[str(tid)] = {"role": role.key, "text": text[:300]}
+        known[str(tid)] = {"role": role.key, "text": text[:300], **({"parent": parent} if parent else {})}
         self.store["tasks"] = {k: known[k] for k in sorted(known, key=int)[-TASKS_KEPT:]}
         held = role.branch and ((self.store.data.get("pending") or {}).get(role.key) or {}).get("review")
         if len(items) > 1 or self.locks[role.key].locked():
@@ -384,6 +389,9 @@ class Agents:
         groups[str(tid)] = {"text": text[:300], "parts": parts, "reply": origin.get("reply"),
                             "msg_id": origin.get("msg_id"), "msg_chat": origin.get("msg_chat")}
         self.store["groups"] = groups
+        for c in parts:                          # a part may be over already (a fast failure while the others were queued)
+            if int(c) in self.early:
+                self._part_done(int(c), self.early.pop(int(c)))
         known = self.store.data.get("tasks") or {}
         await self.say(coord, f"Раздал задачу №{tid}: " + "; ".join(f"№{c} → {ROLES[known[c]['role']].title}" for c in parts)
                               + ". Общий итог пришлю, когда все закончат.")
@@ -399,6 +407,8 @@ class Agents:
                 g["parts"] = {**g["parts"], str(tid): report[-REPORT_KEPT:]}
                 self.store["groups"] = groups
                 return
+        if str((self.store.data.get("tasks") or {}).get(str(tid), {}).get("parent", "")):
+            self.early[tid] = report[-REPORT_KEPT:]
 
     async def _close_groups(self) -> None:
         """Every part of a hand-out is over: one summary task for the coordinator, answered to the owner's message.
@@ -533,7 +543,7 @@ class Agents:
             answer, sid, meta = await runner.run(role, prompt, None if fresh else sessions.get(role.key), workdir,
                                                  model=model)
             self._log_usage(role, "report" if scheduled else "task", meta, started, task_id)
-            if self.store["paused"] and not meta.get("ok"):
+            if meta.get("stopped"):
                 return {}                        # D346: «стоп агенты» killed the run — the task stays in the queue
             if meta.get("limit"):
                 self.set_limit()
@@ -590,7 +600,10 @@ class Agents:
                     await self.say(role, news_menu(items))
             if branch and meta.get("ok"):
                 self.offering[role.key] = task_id        # D346: the offered branch remembers its task
-                await self._offer(role, workdir, branch)
+                try:
+                    await self._offer(role, workdir, branch)
+                except Stopped:
+                    return {}
             return meta
 
     async def approve_news(self, numbers: list[int]) -> None:
@@ -692,6 +705,8 @@ class Agents:
         started = dt.datetime.now(TZ)
         answer, _, meta = await runner.run(rv, prompt, None, runner.workdir_for(author))
         self._log_usage(rv, "review", meta, started)
+        if meta.get("stopped"):
+            raise Stopped                         # D346: not a verdict — the author's task stays in the queue
         if meta.get("limit"):
             self.set_limit()
             return None                           # not a verdict: the branch stays blocked, the owner is told why

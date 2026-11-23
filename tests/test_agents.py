@@ -1063,7 +1063,11 @@ def test_routes_and_task_references_parse_d346():
     t0 = time.perf_counter()
     assert logic.parse_routes("→ [ядро]" + " " * 60000 + "\n→ [ядро] короткая") == [("dev", "короткая")]
     logic.task_ref("задача 5:" + " " * 60000)
+    for evil in ("→ [ядро]" + " " * 1990, "→ [ядро]" + "\t" * 1990, "→ [ядро" + " " * 990 + "]" + " " * 990, "→ " * 900):
+        assert logic.parse_routes("\n".join([evil] * 30)) == []                           # review: these took minutes
     assert time.perf_counter() - t0 < 1.0
+    for plain in ("задача 2-3 дня займёт?", "задача 1—2: объедини"):
+        assert logic.task_ref(plain) == (None, plain)
     assert logic.task_ref("да", "Задачи на выбор:\n1. [Программист] …") == (None, "да")
 
 
@@ -1175,7 +1179,7 @@ def test_a_cancelled_or_failed_part_still_closes_the_hand_out_d346(tmp_path, mon
 def test_stop_kills_the_run_keeps_the_task_and_start_closes_a_finished_hand_out_d346(tmp_path, monkeypatch):
     pytest.importorskip("aiogram")
     ag, _, calls = _team(tmp_path, monkeypatch, answers={"coord": "итог"},
-                            metas={"sec": [{"ok": False, "model": "x"}, {"ok": True, "model": "x"}]})
+                            metas={"sec": [{"ok": False, "stopped": True, "model": "x"}]})
     killed = []
 
     class Proc:
@@ -1199,9 +1203,8 @@ def test_stop_kills_the_run_keeps_the_task_and_start_closes_a_finished_hand_out_
             assert runner.stop_all() == 1 and killed == [1]
         finally:
             runner.RUNNING.clear()
-        # a run that «стоп агенты» killed (not ok while paused) leaves its task in the queue
+        # a run that «стоп агенты» killed leaves its task in the queue — even if «старт агенты» came at once (review, D)
         tid = await ag.enqueue(ROLES["sec"], "долгая проверка")
-        ag.store["paused"] = True
         await ag.workers["sec"]
         return tid
     tid = asyncio.run(go())
@@ -1240,3 +1243,50 @@ def test_the_branch_offer_remembers_its_task_d346(tmp_path, monkeypatch):
         return tid
     tid = asyncio.run(go())
     assert ag.store["pending"]["dev"]["task"] == tid and ag.store["pending"]["dev"]["review"] is True
+
+
+def test_a_stopped_run_is_never_retried_or_passed_off_as_an_answer_d346(tmp_path, monkeypatch):
+    """Review: after the kill the runner started the same prompt again on a new session (any agent that had worked
+    before), and a killed reviewer was reported as «не пропустил»."""
+    seen = _fake_once(monkeypatch, lambda m, s: (-9, {}, "stopped"))
+    text, sid, meta = asyncio.run(runner.run(ROLES["dev"], "p", "old-session", "/tmp"))
+    assert len(seen) == 1 and meta.get("stopped") and not meta["ok"] and sid == "old-session" and "прерван" in text
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import github
+    ag, sent, _ = _team(tmp_path, monkeypatch, metas={"review": [{"ok": False, "stopped": True, "model": "x"}]})
+
+    async def pushed(workdir, branch):
+        return True, "abc1234def", ""
+    monkeypatch.setattr(github, "push", pushed)
+
+    async def go():
+        tid = await ag.enqueue(ROLES["dev"], "правка")
+        ag.store["paused"] = True               # so the kept task is not started again inside this test
+        await ag.workers["dev"]
+        return tid
+    tid = asyncio.run(go())
+    assert [it["id"] for it in ag._queue("dev")] == [tid] and not ag.store["pending"]      # no verdict was written
+    assert not any("не пропустил" in x or "проверяющий: можно" in x for _, x in sent)
+
+
+def test_a_part_that_ends_before_the_hand_out_is_written_is_not_lost_d346(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, _, calls = _team(tmp_path, monkeypatch, answers={"coord": "итог"})
+
+    async def go():
+        real = ag.enqueue
+
+        async def slow(role, text, **kw):
+            tid = await real(role, text, **kw)
+            if kw.get("parent"):
+                await ag.workers[role.key]       # the part is over before hand_out gets control back
+            return tid
+        monkeypatch.setattr(ag, "enqueue", slow)
+        await ag.hand_out(5, [("sec", "проверить"), ("news", "найти")], "задача владельца", {})
+        monkeypatch.setattr(ag, "enqueue", real)
+        assert all(v is not None for v in ag.store["groups"]["5"]["parts"].values()) and ag.early == {}
+        await ag._close_groups()
+        await ag.workers["coord"]
+    asyncio.run(go())
+    summary = next(p for k, p in calls if k == "coord")
+    assert ag.store["groups"] == {} and "ответ sec" in summary and "ответ news" in summary
