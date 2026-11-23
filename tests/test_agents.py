@@ -1529,11 +1529,12 @@ def test_a_security_fix_is_deployed_only_with_the_security_agents_yes_d347(tmp_p
     asyncio.run(ag.skip(ROLES["dev"]))
     asyncio.run(go("первое исправление обычным текстом"))
     asyncio.run(ag.skip(ROLES["dev"]))
-    assert ag.store["sec_open"] == {"dev": True} and deployed == []
+    assert list(ag.store["sec_open"]) == ["dev"] and deployed == []
     asyncio.run(go("второе исправление обычным текстом"))
     assert [c[0] for c in calls] == ["dev", "review", "sec"] * 3 and deployed == ["abc1234def"]
     asyncio.run(ag.skip(ROLES["sec"]))                                          # nothing pending there: lifts nothing
-    assert ag.store["sec_open"] == {"dev": True}
+    assert ag.store["sec_open"] == {"dev": "Безопасность: закрыть порт 8000"}
+    assert "закрыть порт 8000" in calls[-1][1] and "снять перепроверку" in ag.status_text()   # the agent is told the finding
     # only a re-checked branch that is really deployed makes the next branches ordinary again
     async def ff_ok(sha):
         return ""
@@ -1552,6 +1553,77 @@ def test_a_security_fix_is_deployed_only_with_the_security_agents_yes_d347(tmp_p
     asyncio.run(go("обычная правка отчёта"))
     last_task = ag.store["tasks"][str(max(int(i) for i in ag.store["tasks"]))]
     assert [c[0] for c in calls] == ["dev", "review"] and "sec" not in last_task
+
+
+def test_two_security_fixes_in_a_row_and_the_owners_way_out_d347(tmp_path, monkeypatch):
+    """Review, round 3: the deploy of the first fix lifted the mark while the second was still queued; its «нельзя»
+    then left the next plain-text fix unchecked. Also: «Безопасность: …» written as a continuation of an ordinary task."""
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import github
+    verdicts = ["да\nВЕРДИКТ: можно", "нет\nВЕРДИКТ: нельзя", "да\nВЕРДИКТ: можно"]
+    ag, _, calls = _team(tmp_path, monkeypatch)
+
+    async def fake_run(role, prompt, session=None, cwd=None, model=None):
+        calls.append((role.key, prompt))
+        text = verdicts.pop(0) if role.key == "sec" else "ок\nВЕРДИКТ: можно" if role.key == "review" else "сделал"
+        return text, None, {"ok": True, "model": "x"}
+
+    async def pushed(workdir, branch):
+        return True, "abc1234def", ""
+
+    async def green(sha):
+        return "green"
+
+    async def ff(sha):
+        return ""
+
+    async def last(*a):
+        return "completed", "success", "url"
+    monkeypatch.setattr(runner, "run", fake_run)
+    monkeypatch.setattr(github, "push", pushed)
+    monkeypatch.setattr(github, "ci_state", green)
+    monkeypatch.setattr(github, "fast_forward_and_deploy", ff)
+    monkeypatch.setattr(github, "last_deploy", last)
+    from cardiovision_agents import bot as B
+    monkeypatch.setattr(B, "HOLD_POLL_S", 0.01)
+    real_sleep = asyncio.sleep
+
+    async def settle():                                          # until the next branch is offered
+        for _ in range(600):
+            await real_sleep(0.005)
+            if (ag.store["pending"] or {}).get("dev"):
+                return
+
+    async def go():
+        await ag.enqueue(ROLES["dev"], "Безопасность: A")
+        await ag.enqueue(ROLES["dev"], "Безопасность: B")
+        await settle()                                          # A passed the re-check and waits for «да»; B is held
+        monkeypatch.setattr(asyncio, "sleep", lambda s: real_sleep(0))
+        await ag.deploy(ROLES["dev"])
+        monkeypatch.setattr(asyncio, "sleep", real_sleep)
+        assert list(ag.store["sec_open"]) == ["dev"]            # B is still queued: the mark stays
+        await settle()                                          # B: «нельзя»
+        assert ag.store["pending"]["dev"]["sec"] is False
+        await ag.enqueue(ROLES["dev"], "права всё ещё 644, исправь")
+        await ag.skip(ROLES["dev"])
+        await settle()
+        await ag.workers["dev"]
+    asyncio.run(go())
+    assert [c[0] for c in calls] == ["dev", "review", "sec"] * 3 and ag.store["pending"]["dev"]["sec"] is True
+    # «Безопасность: …» as a continuation of an ordinary task is marked too
+    ag.store["sec_open"], ag.store["pending"] = {}, {}
+    ag.store["tasks"] = {"90": {"role": "dev", "text": "обычная правка"}}
+
+    async def cont():
+        assert await ag.by_task("задача 90: Безопасность: закрыть порт 8000")
+        ag.store["paused"] = True
+    asyncio.run(cont())
+    cont_rec = next(v for v in ag.store["tasks"].values() if v["text"].startswith("[Продолжение задачи №90"))
+    assert cont_rec.get("sec") is True
+    # the owner's way out
+    assert logic.owner_only("снять перепроверку") and "снята" in ag.lift_sec() and ag.store["sec_open"] == {}
+    assert not any(v.get("sec") for k, v in ag.store["tasks"].items() if any(t["id"] == int(k) for t in ag._queue("dev")))
+    assert "ни за кем" in ag.lift_sec()
 
 
 def test_the_reviewer_and_the_security_check_get_their_lessons_and_a_limit_keeps_the_work_d347(tmp_path, monkeypatch):

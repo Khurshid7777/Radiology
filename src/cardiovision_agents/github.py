@@ -152,7 +152,7 @@ async def pin(workdir: str, sha: str) -> bool:
     before the security agent reads it."""
     if not re.fullmatch(r"[0-9a-f]{7,64}", sha or ""):
         return False
-    code, _ = await agent_git(workdir, "reset", "--hard", "--quiet", sha)
+    code, _ = await agent_git(workdir, "--no-replace-objects", "reset", "--hard", "--quiet", sha)
     code2, _ = await agent_git(workdir, "clean", "-fdq")
     code3, flags = await agent_git(workdir, "ls-files", "-v")
     return code == 0 and code2 == 0 and code3 == 0 and index_plain(flags)

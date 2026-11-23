@@ -76,6 +76,7 @@ MEMBER_ADD = re.compile(r"^\s*добавить\s+участника\s+(\d{3,15})
 MEMBER_DEL = re.compile(r"^\s*убрать\s+участника\s+(\d{3,15})\s*[.!]*\s*$", re.IGNORECASE)
 LESSONS = re.compile(r"^\s*уроки\s*[?.!]*\s*$", re.IGNORECASE)                             # D347
 LESSON_DEL = re.compile(r"^\s*убрать\s+урок\s+(\d{1,4})\s*[.!]*\s*$", re.IGNORECASE)
+SEC_LIFT = re.compile(r"^\s*снять\s+перепроверку\s*[.!]*\s*$", re.IGNORECASE)          # D347: the owner's way out
 MEMBERS = re.compile(r"^\s*участники\s*[?.!]*\s*$", re.IGNORECASE)
 
 
@@ -90,7 +91,7 @@ def owner_only(text: str | None) -> bool:
     t = re.sub(r"@\w+", " ", text or "")       # review D342: a mention anywhere (end, twice, new line) is stripped
     return bool(STOP.match(t) or START.match(t) or re.match(r"^\s*отмена\s+\d+", t, re.IGNORECASE)
                 or CHOICE.match(t) or APPROVE.match(t) or SKIP.match(t)
-                or MEMBER_ADD.match(t) or MEMBER_DEL.match(t) or LESSONS.match(t) or LESSON_DEL.match(t)
+                or MEMBER_ADD.match(t) or MEMBER_DEL.match(t) or LESSONS.match(t) or LESSON_DEL.match(t) or SEC_LIFT.match(t)
                 or any(t.strip().startswith(c) for c in ("/setup", "/unbind", "/new")))
 
 
