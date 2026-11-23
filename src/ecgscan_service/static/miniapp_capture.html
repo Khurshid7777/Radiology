@@ -9,6 +9,8 @@
   (POST upload), so Telegram never compresses it; the bot then takes it and answers in the chat.
   The page talks to its own two addresses only (upload, send): no outside script, no storage, and
   Telegram's signed user data is never read. The texts and the ticket are put in by the server.
+  A sheet that stands on end (SD-138): the doctor picks the upright one of two small turned copies drawn
+  here from the chosen file; the turn itself is made by the server.
 -->
 <style>
   :root { color-scheme: light dark; }
@@ -23,6 +25,9 @@
   #status { margin: 14px 0 6px; font-weight: 600; min-height: 1.4em; }
   #bar { height: 6px; border-radius: 3px; background: #2f6ea3; width: 0; transition: width .2s; }
   ul { margin: 6px 0; padding-left: 20px; }
+  #turn_title { font-weight: 600; }
+  #turn_row button { padding: 6px; }      /* one under the other: large enough to read the lead labels */
+  canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 6px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -41,6 +46,15 @@
 <div id="bar"></div>
 <p id="status"></p>
 <p id="size" class="note"></p>
+<div id="turnbox" hidden>
+  <p id="turn_title"></p>
+  <p id="turn_lead" class="note"></p>
+  <div id="turn_row">
+    <button id="b_ccw" class="alt"><canvas id="c_ccw"></canvas><span id="s_ccw"></span></button>
+    <button id="b_cw" class="alt"><canvas id="c_cw"></canvas><span id="s_cw"></span></button>
+  </div>
+  <button id="b_keep" class="alt"></button>
+</div>
 <p id="hints_title" hidden></p>
 <ul id="hints"></ul>
 <button id="b_send" hidden></button>
@@ -52,7 +66,8 @@ const PAGE = /*__PAGE__*/{};          // {texts, max_mb, lang}: put in by the se
 const T = PAGE.texts || {};
 const $ = id => document.getElementById(id);
 const ticket = new URLSearchParams(location.search).get('t');
-let lastFile = null, busy = false;
+const TG_WEB = PAGE.telegram_web;
+let lastFile = null, busy = false, rotate = 0, answer = null;
 
 function text(key, vars) {
   return (T[key] || key).replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? String(vars[k]) : m));
@@ -61,15 +76,20 @@ function status(s) { $('status').textContent = s; }
 function progress(share) { $('bar').style.width = Math.round(100 * share) + '%'; }
 function show(id, on) { $(id).hidden = !on; }
 function tgEvent(name) {
-  try { if (window.TelegramWebviewProxy) window.TelegramWebviewProxy.postEvent(name, '{}'); } catch (e) { /* not Telegram */ }
+  try {
+    if (window.TelegramWebviewProxy) window.TelegramWebviewProxy.postEvent(name, '{}');
+    // Telegram Web shows the page in a frame and listens to messages from it; to that site only.
+    else if (window.parent !== window) window.parent.postMessage(JSON.stringify({ eventType: name, eventData: {} }), TG_WEB);
+  } catch (e) { /* not Telegram */ }
 }
 function clearResult() {
   $('size').textContent = ''; $('hints').replaceChildren(); show('hints_title', false); show('b_send', false); show('b_retry', false);
+  show('turnbox', false);
 }
-function post(path, body, onProgress) {
+function post(path, body, onProgress, query) {
   return new Promise(resolve => {
     const x = new XMLHttpRequest();
-    x.open('POST', path + '?lang=' + encodeURIComponent(PAGE.lang || 'ru'));
+    x.open('POST', path + '?lang=' + encodeURIComponent(PAGE.lang || 'ru') + (query || ''));
     x.setRequestHeader('X-Miniapp-Ticket', ticket || '');
     if (body) x.setRequestHeader('Content-Type', 'application/octet-stream');
     if (onProgress) x.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
@@ -88,7 +108,7 @@ function failure(code) {
 }
 async function upload(file) {
   if (busy || !file) return;
-  lastFile = file; clearResult();
+  lastFile = file; rotate = 0; answer = null; clearResult();
   if (file.size > PAGE.max_mb * 1024 * 1024) { failure(413); return; }
   busy = true;
   status(text('miniapp.uploading', { percent: 0 }));
@@ -100,9 +120,40 @@ async function upload(file) {
   if (r.status !== 200 || !r.body) { failure(r.status); return; }
   const d = r.body;
   if (d.width && d.height) $('size').textContent = text('miniapp.size', { width: d.width, height: d.height, mb: (file.size / 1048576).toFixed(1) });
+  answer = d;
+  if (d.turn) { await askTurn(file); return; }
+  await proceed();
+}
+// SD-138: the sheet seems to stand on end. Which way is up only the doctor can tell: two small turned
+// copies to pick from, or "leave as it is".
+async function askTurn(file) {
+  progress(0); status('');
+  let drawn = false;
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 720 / Math.max(bmp.width, bmp.height));
+    for (const [id, deg] of [['c_cw', 90], ['c_ccw', 270]]) {
+      const c = $(id); c.width = Math.round(bmp.height * k); c.height = Math.round(bmp.width * k);
+      const g = c.getContext('2d');
+      g.translate(c.width / 2, c.height / 2); g.rotate(deg * Math.PI / 180);
+      g.drawImage(bmp, -bmp.width * k / 2, -bmp.height * k / 2, bmp.width * k, bmp.height * k);
+    }
+    bmp.close(); drawn = true;
+  } catch (e) { /* a picture the browser cannot draw: the buttons say which way they turn */ }
+  for (const side of ['cw', 'ccw']) { show('c_' + side, drawn); show('s_' + side, !drawn); }
+  show('turnbox', true);
+}
+async function turned(deg) {
+  rotate = deg; show('turnbox', false);
+  await proceed();
+}
+async function proceed() {
+  const d = answer;
+  if (!d) return;
   if (!d.hints || !d.hints.length) { await send(); return; }
   progress(0); status('');
   $('hints_title').textContent = text('miniapp.hints_title'); show('hints_title', true);
+  $('hints').replaceChildren();
   for (const h of d.hints) { const li = document.createElement('li'); li.textContent = h; $('hints').appendChild(li); }
   $('l_cam').textContent = text('miniapp.retake');
   show('b_send', true);
@@ -110,7 +161,7 @@ async function upload(file) {
 async function send() {
   if (busy) return;
   busy = true; show('b_send', false); show('b_retry', false);
-  const r = await post('send', null, null);
+  const r = await post('send', null, null, '&rotate=' + rotate);
   busy = false;
   if (r.status !== 200) { failure(r.status); if (r.status !== 401) show('b_send', true); return; }
   progress(1); clearResult(); show('pickers', false);
@@ -127,6 +178,14 @@ function start() {
   $('l_gal').textContent = text('miniapp.pick');
   $('b_send').textContent = text('miniapp.send_anyway');
   $('b_retry').textContent = text('miniapp.retry');
+  $('turn_title').textContent = text('miniapp.turn_title');
+  $('turn_lead').textContent = text('miniapp.turn_lead');
+  $('b_keep').textContent = text('miniapp.turn_keep');
+  $('s_ccw').textContent = text('miniapp.turn_left'); $('b_ccw').setAttribute('aria-label', text('miniapp.turn_left'));
+  $('s_cw').textContent = text('miniapp.turn_right'); $('b_cw').setAttribute('aria-label', text('miniapp.turn_right'));
+  $('b_cw').addEventListener('click', () => turned(90));
+  $('b_ccw').addEventListener('click', () => turned(270));
+  $('b_keep').addEventListener('click', () => turned(0));
   for (const id of ['f_cam', 'f_gal']) {
     $(id).addEventListener('change', ev => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; upload(f); });
   }

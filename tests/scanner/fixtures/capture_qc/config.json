@@ -23,7 +23,8 @@
   "max_brightness": 240.0,
   "max_shadow": 0.25,
   "require_whole_sheet": true,
-  "max_camera_tilt_deg": 10.0
+  "max_camera_tilt_deg": 10.0,
+  "sideways_ratio": 1.15
  },
  "auto_capture": {
   "consecutive_frames": 5,

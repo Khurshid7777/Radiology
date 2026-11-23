@@ -73,6 +73,31 @@ def image_kind(data: bytes) -> str | None:
     return None
 
 
+TURNS = (0, 90, 180, 270)
+
+
+def turn_photo(data: bytes, rotate_deg: int, quality: int, max_bytes: int) -> bytes:
+    """The photo turned ``rotate_deg`` clockwise (SD-138), as a JPEG: decoded as the doctor saw it
+    (EXIF applied), turned, encoded at ``quality`` (lower if it would not fit ``max_bytes``).
+    Raises ValueError when it cannot be done."""
+    import cv2
+    import numpy as np
+
+    if rotate_deg not in TURNS:
+        raise ValueError(f"not a quarter turn: {rotate_deg}")
+    if rotate_deg == 0:
+        return data
+    bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise ValueError("not a picture")
+    bgr = np.ascontiguousarray(np.rot90(bgr, k=-rotate_deg // 90))
+    for q in range(int(quality), 49, -10):
+        ok, out = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, q])
+        if ok and out.size <= max_bytes:
+            return out.tobytes()
+    raise ValueError("the turned photo does not fit the upload limit")
+
+
 class InboxFull(Exception):
     pass
 
@@ -83,6 +108,7 @@ class _Item:
     owner: str
     expiry: int
     ready: bool = False
+    rotate: int = 0     # the doctor's quarter turn, clockwise (SD-138); applied when the bot takes the file
 
 
 class Inbox:
@@ -125,19 +151,19 @@ class Inbox:
                 raise InboxFull
             self._items[ticket.id] = _Item(data, ticket.owner, ticket.expiry)
 
-    def send(self, ticket: Ticket, now: float | None = None) -> bool:
-        """Mark the ticket's file ready for the bot; False when nothing is waiting."""
+    def send(self, ticket: Ticket, now: float | None = None, rotate: int = 0) -> bool:
+        """Mark the ticket's file ready for the bot, with the doctor's turn; False when nothing is waiting."""
         with self._lock:
             self._purge(time.time() if now is None else now)
             item = self._items.get(ticket.id)
             if item is None:
                 return False
-            item.ready = True
+            item.ready, item.rotate = True, rotate
             return True
 
-    def take(self, tid: str, owner: str, now: float | None = None) -> bytes | None | bool:
-        """The ready file of the ticket, once: bytes; None: nothing ready yet; False: already taken.
-        Only the key that signed the ticket gets it."""
+    def take(self, tid: str, owner: str, now: float | None = None, *, with_turn: bool = False):
+        """The ready file of the ticket, once: bytes (with ``with_turn``: bytes and the doctor's turn);
+        None: nothing ready yet; False: already taken. Only the key that signed the ticket gets it."""
         with self._lock:
             self._purge(time.time() if now is None else now)
             if tid in self._used:
@@ -147,7 +173,7 @@ class Inbox:
                 return None
             del self._items[tid]
             self._used[tid] = item.expiry
-            return item.data
+            return (item.data, item.rotate) if with_turn else item.data
 
     def __len__(self) -> int:
         with self._lock:

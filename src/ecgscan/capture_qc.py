@@ -114,6 +114,7 @@ class FrameQC:
     frame_advice: str | None = None  # SD-133: "farther" / "up" / "down" / "left" / "right" when it does (frame coordinates)
     sheet_area: float = 0.0          # share of the frame the sheet covers (step 9)
     sheet_brightness: float | None = None   # mean grey of the sheet (step 10)
+    sideways: bool | None = None     # SD-138: the sheet stands on end in the frame (by its corners); None: no sheet found
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -290,6 +291,17 @@ def sheet_corners(group: list[tuple[int, int]], block: int) -> list[tuple[float,
     return best  # type: ignore[return-value]
 
 
+def sheet_sideways(corners: list[tuple[float, float]] | None, ratio: float | None) -> bool | None:
+    """SD-138: the sheet's mean vertical side is at least ``ratio`` times its mean horizontal one.
+    Geometry only: which way to turn it back the picture does not say (SD-074, SD-135)."""
+    if corners is None or ratio is None:
+        return None
+    tl, tr, br, bl = corners
+    tall = math.dist(tl, bl) + math.dist(tr, br)
+    wide = math.dist(tl, tr) + math.dist(bl, br)
+    return wide > 0 and tall >= ratio * wide
+
+
 def sheet_brightness(w: np.ndarray, group: list[tuple[int, int]], block: int) -> float | None:
     """Step 10: the mean of the sheet's block levels."""
     if not group:
@@ -396,4 +408,5 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
                    px_per_mm=None if ppm is None else round(ppm, 3), sheet=round(sheet, 4), hints=hints,
                    ok=not hints, shadow=None if shadow is None else round(shadow, 4), corners=corners,
                    sheet_whole=whole, frame_advice=advice, sheet_area=round(area, 4),
-                   sheet_brightness=None if roi is None else round(roi, 3))
+                   sheet_brightness=None if roi is None else round(roi, 3),
+                   sideways=sheet_sideways(corners_w, t.get("sideways_ratio")))

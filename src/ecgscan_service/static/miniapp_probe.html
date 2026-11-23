@@ -65,7 +65,11 @@ function launchParams() {
   return { platform: q.get('tgWebAppPlatform'), version: q.get('tgWebAppVersion') };
 }
 function tgEvent(name) {     // ask the client to finish loading and open the page full height
-  try { if (window.TelegramWebviewProxy) window.TelegramWebviewProxy.postEvent(name, '{}'); } catch (e) { /* not Telegram */ }
+  try {
+    if (window.TelegramWebviewProxy) window.TelegramWebviewProxy.postEvent(name, '{}');
+    // Telegram Web shows the page in a frame and listens to messages from it; to that site only.
+    else if (window.parent !== window) window.parent.postMessage(JSON.stringify({ eventType: name, eventData: {} }), 'https://web.telegram.org');
+  } catch (e) { /* not Telegram */ }
 }
 function header() {
   const tg = launchParams();

@@ -27,6 +27,7 @@ miniapp:                           # SD-137: capture on the Telegram Mini App pa
   max_uploads_per_ticket: 10       # retakes on one button; after that the ticket is refused (a new /scan gives a new one)
   check_width: 1280                # the frame check runs on a copy this wide (as the site's camera preview)
   small_side_px: 2000              # no grid found and the long side below this: say the photo is small
+  turn_jpeg_quality: 95            # SD-138: the doctor's quarter turn is made on a copy saved as JPEG at this quality (as the site's, D194)
 
 public_url: null                   # base URL for result links in the bot, e.g. https://clinic.example/
 

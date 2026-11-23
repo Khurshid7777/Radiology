@@ -19,6 +19,7 @@ from ecgscan_service.miniapp import (
     Ticket,
     image_kind,
     issue_ticket,
+    turn_photo,
     verify_ticket,
 )
 
@@ -191,7 +192,7 @@ def test_a_poor_photo_gets_the_frame_checks_words_in_the_pages_language(client):
     assert any("мелкий" in h for h in body["hints"]), body
     head, _ = ticket_headers()
     assert client.post("/miniapp/upload?lang=xx", content=b"\xff\xd8\xff not a picture after all", headers=head).json() == {
-        "checked": False, "width": None, "height": None, "px_per_mm": None, "hints": []}
+        "checked": False, "width": None, "height": None, "px_per_mm": None, "hints": [], "turn": False}
 
 
 def test_a_sheet_running_off_the_frame_is_told_which_way_to_move(client):
@@ -215,6 +216,7 @@ def test_the_page_talks_to_its_own_two_addresses_only():
     for word in FORBIDDEN:
         assert word not in src, word
     assert not re.search(r"https?://|//[a-z]", src.replace("// ", "").replace("/*", ""))        # no outside address
+    assert "PAGE.telegram_web" in src and src.count("postMessage(") == 1                        # Telegram Web's frame, by the server's word
     assert "<script src" not in src
     assert set(re.findall(r"post\('([^']+)'", src)) == {"upload", "send"}
     assert src.count("XMLHttpRequest") == 1 and src.count(".open(") == 1
@@ -228,11 +230,15 @@ def test_the_page_is_served_open_with_its_texts_and_may_connect_to_itself_only(c
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
     csp = r.headers["content-security-policy"]
     assert "default-src 'none'" in csp and "connect-src 'self'" in csp and "form-action 'none'" in csp
-    assert "http" not in csp and "*" not in csp
+    assert csp.endswith("frame-ancestors https://web.telegram.org")     # only Telegram Web may frame the page
+    assert "http" not in csp.replace("https://web.telegram.org", "") and "*" not in csp
+    assert "img-src" not in csp and "media-src" not in csp              # nothing the page does not use
+    head = client.head(f"/miniapp/capture?lang={lang}")
+    assert head.status_code == 200 and head.headers["content-security-policy"] == csp
     assert r.headers["cache-control"] == "no-store" and r.headers["referrer-policy"] == "no-referrer"
     page = json.loads(re.search(r"const PAGE = (\{.*\});", r.text).group(1))
     s = strings(lang)
-    assert page["lang"] == lang and page["max_mb"] == 25
+    assert page["lang"] == lang and page["max_mb"] == 25 and page["telegram_web"] == "https://web.telegram.org"
     assert page["texts"]["miniapp.shoot"] == s["miniapp.shoot"] and page["texts"]["miniapp.sent"] == s["miniapp.sent"]
     used = set(re.findall(r"text\('(miniapp\.[a-z_]+)'", PAGE.read_text(encoding="utf-8")))
     assert used and used <= set(page["texts"])                         # every text the page asks for is given
@@ -320,3 +326,104 @@ def test_a_restart_loses_the_waiting_photo_but_not_the_button(client):
     assert client.post("/miniapp/upload", content=photo, headers=head).status_code == 200
     assert client.post("/miniapp/send", headers=head).json() == {"sent": True}
     assert client.get(f"/scans/miniapp/inbox/{tid}", headers={"X-API-Key": "k-bot"}).content == photo
+
+
+# --- SD-138: a sheet that stands on end ---------------------------------------------------------------
+
+def marked(w: int = 600, h: int = 400) -> bytes:
+    """A light picture with a dark square in its top left corner."""
+    import numpy as np
+
+    img = np.full((h, w, 3), 230, np.uint8)
+    img[: h // 4, : w // 4] = 20
+    return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 95])[1].tobytes()
+
+
+def dark_corner(data: bytes) -> tuple[str, tuple[int, int]]:
+    """Which corner of the picture is dark, and its (width, height)."""
+    import numpy as np
+
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_GRAYSCALE)
+    h, w = img.shape
+    q = {"top-left": img[: h // 8, : w // 8], "top-right": img[: h // 8, -w // 8:],
+         "bottom-left": img[-h // 8:, : w // 8], "bottom-right": img[-h // 8:, -w // 8:]}
+    return min(q, key=lambda k: q[k].mean()), (w, h)
+
+
+def test_the_upload_says_when_to_ask_the_doctor_which_way_is_up(client):
+    import numpy as np
+
+    good = good_photo()
+    assert client.post("/miniapp/upload", content=good, headers=ticket_headers()[0]).json()["turn"] is False
+    img = cv2.imdecode(np.frombuffer(good, np.uint8), cv2.IMREAD_COLOR)
+    for k in (1, 3):                                                  # the same sheet standing on end, either way
+        side = cv2.imencode(".jpg", np.ascontiguousarray(np.rot90(img, k)), [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tobytes()
+        body = client.post("/miniapp/upload", content=side, headers=ticket_headers()[0]).json()
+        assert body["turn"] is True and body["checked"], k
+    # no sheet found: the photo's own shape decides (the core's portrait check, D171)
+    assert client.post("/miniapp/upload", content=marked(400, 600), headers=ticket_headers()[0]).json()["turn"] is True
+    assert client.post("/miniapp/upload", content=marked(600, 400), headers=ticket_headers()[0]).json()["turn"] is False
+    assert client.post("/miniapp/upload", content=marked(600, 600), headers=ticket_headers()[0]).json()["turn"] is False
+
+
+@pytest.mark.parametrize("rotate, corner, size", [(90, "top-right", (400, 600)), (180, "bottom-right", (600, 400)),
+                                                  (270, "bottom-left", (400, 600))])
+def test_the_doctors_turn_reaches_the_bot_as_a_turned_picture(client, rotate, corner, size):
+    head, tid = ticket_headers()
+    assert client.post("/miniapp/upload", content=marked(), headers=head).status_code == 200
+    assert client.post(f"/miniapp/send?rotate={rotate}", headers=head).json() == {"sent": True}
+    assert client.post(f"/miniapp/send?rotate={rotate}", headers=head).json() == {"sent": True}   # a repeat does not turn twice
+    got = client.get(f"/scans/miniapp/inbox/{tid}", headers={"X-API-Key": "k-bot"})
+    assert got.status_code == 200 and got.content[:3] == b"\xff\xd8\xff"
+    assert dark_corner(got.content) == (corner, size)
+
+
+def test_a_turn_that_is_not_a_quarter_is_refused_and_no_turn_leaves_the_original(client):
+    head, tid = ticket_headers()
+    photo = marked()
+    assert client.post("/miniapp/upload", content=photo, headers=head).status_code == 200
+    for bad in ("45", "-90", "360", "left"):
+        assert client.post(f"/miniapp/send?rotate={bad}", headers=head).status_code == 422, bad
+    assert client.get(f"/scans/miniapp/inbox/{tid}", headers={"X-API-Key": "k-bot"}).status_code == 204   # nothing was sent
+    assert client.post("/miniapp/send?rotate=0", headers=head).json() == {"sent": True}
+    assert client.get(f"/scans/miniapp/inbox/{tid}", headers={"X-API-Key": "k-bot"}).content == photo
+
+
+def test_turning_a_photo():
+    photo = marked()
+    assert turn_photo(photo, 0, 95, 10**7) is photo
+    assert dark_corner(turn_photo(photo, 90, 95, 10**7)) == ("top-right", (400, 600))
+    for bad in (45, -90, 360):
+        with pytest.raises(ValueError):
+            turn_photo(photo, bad, 95, 10**7)
+    with pytest.raises(ValueError):
+        turn_photo(b"\xff\xd8\xff not a picture", 90, 95, 10**7)
+    big = len(turn_photo(photo, 90, 95, 10**7))
+    small = turn_photo(photo, 90, 95, big - 1)                        # does not fit: a lower quality is taken
+    assert len(small) < big and dark_corner(small)[0] == "top-right"
+    with pytest.raises(ValueError):
+        turn_photo(photo, 90, 95, 100)
+
+
+def test_a_photo_is_turned_from_the_way_the_doctor_saw_it():
+    """A phone held upright writes the turn into EXIF; the page's small copies and the server both apply it."""
+    import io
+
+    import numpy as np
+    pil = pytest.importorskip("PIL.Image")
+
+    img = cv2.cvtColor(cv2.imdecode(np.frombuffer(marked(), np.uint8), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+    buf = io.BytesIO()
+    exif = pil.Exif()
+    exif[0x0112] = 6                                                  # shown turned a quarter clockwise
+    pil.fromarray(img).save(buf, format="JPEG", quality=95, exif=exif)
+    assert dark_corner(buf.getvalue()) == ("top-right", (400, 600))   # as shown: the mark is top right
+    assert dark_corner(turn_photo(buf.getvalue(), 90, 95, 10**7)) == ("bottom-right", (600, 400))
+
+
+def test_the_turn_choice_is_on_the_page():
+    src = PAGE.read_text(encoding="utf-8")
+    for part in ('id="turnbox"', 'id="b_cw"', 'id="b_ccw"', 'id="b_keep"', "createImageBitmap(", "turned(90)", "turned(270)",
+                 "turned(0)", "'&rotate=' + rotate"):
+        assert part in src, part
+    assert "toBlob" not in src and "toDataURL" not in src            # the page shows the turn, the server makes it
