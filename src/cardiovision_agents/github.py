@@ -140,6 +140,12 @@ async def push(workdir: str, branch: str) -> tuple[bool, str, str]:
     return code == 0, sha.strip(), out[-300:]
 
 
+async def branch_files(workdir: str) -> list[str]:
+    """D347: the files the agent's branch changes against main (names only), read as the agent in its clone."""
+    code, out = await agent_git(workdir, "diff", "--name-only", "origin/main...HEAD")
+    return [x.strip() for x in out.splitlines() if x.strip()] if code == 0 else []
+
+
 def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url=API, timeout=30, headers={
         "Authorization": f"Bearer {_token()}", "Accept": "application/vnd.github+json"})

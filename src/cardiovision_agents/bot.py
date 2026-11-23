@@ -23,7 +23,11 @@ import httpx
 from . import github, runner
 from .logic import (
     CANCEL,
+    LESSON_DEL,
+    LESSON_MENU_HEAD,
+    LESSONS,
     LIMIT_TRIES,
+    MAX_LESSONS,
     MEMBER_ADD,
     MEMBER_DEL,
     MEMBERS,
@@ -36,20 +40,26 @@ from .logic import (
     STOP,
     Role,
     accepts,
+    bot_check,
     branch_name,
     build_prompt,
     is_approval,
     is_member,
     is_owner,
+    is_security_fix,
+    lesson_menu,
     news_menu,
+    outcome_text,
     owner_only,
     parse_choice,
+    parse_lessons,
     parse_news,
     parse_routes,
     parse_tasks,
     redact,
     review_ok,
     role_for_thread,
+    similar_tasks,
     split_message,
     task_menu,
     task_ref,
@@ -90,6 +100,10 @@ EVENING = ("Вечерняя сводка владельцу (коротко): �
 SUMMARY = ("Итог по задаче владельца №{tid}: «{text}». Ты раздал её агентам; все части закончены. Ниже их отчёты и "
            "состояние веток. Напиши владельцу один короткий итог: что сделано, цифры, что не получилось, что ждёт его "
            "«да» (выкладка ветки — ответом «да» на сообщение агента о готовой ветке). Никому задач не раздавай.\n\n{reports}")
+# D347: the bot's own check sends the work back to its author once, in the same branch
+CHECK_FIX = ("Проверка бота до проверяющего: {why}. Это правило проекта (ошибка, ставшая проверкой). Исправь в этой же "
+             "ветке: добавь или обнови тесты на своё изменение, закоммить, прогони тесты и заверши тем же отчётом.")
+HISTORY_KEPT, RESTART_POLL_S = 300, 1.0
 QUIET_DONE = "Готово, задача №{tid} — отчёт передан Координатору, он пришлёт общий итог."
 TASKS_KEPT, REPORT_KEPT = 200, 3000
 SERVER_NOTE = ("Here, on the server, the parts of your instructions about git branches, pushing, send_message and "
@@ -134,6 +148,8 @@ class Agents:
         self.ran: set[int] = set()            # tasks whose agent run has finished (this process)
         self.reply_to: dict[str, tuple[int, int | None]] = {}   # role -> where the owner last wrote to it
         self.offering: dict[str, int | None] = {}
+        self.restarts: dict[int, int] = {}
+        self.check_note: dict[str, str] = {}     # D347: what the bot's check still sees, for the reviewer
         self.early: dict[int, str] = {}          # D346: a part that ended before its hand-out was written down
         self.answers: dict[int, str] = {}        # D346: task id -> the agent's answer, until its group is closed
         self.asker: dict[int, tuple[int, int]] = {}   # D343: task id -> (chat, message) that asked for it
@@ -256,6 +272,11 @@ class Agents:
         known = dict(self.store.data.get("tasks") or {})             # D346: a later «задача №N» finds its agent
         known[str(tid)] = {"role": role.key, "text": text[:300], **({"parent": parent} if parent else {})}
         self.store["tasks"] = {k: known[k] for k in sorted(known, key=int)[-TASKS_KEPT:]}
+        if not member and not final:                                 # D347: the outcome record (no members' tasks)
+            hist = list(self.store.data.get("history") or [])
+            hist.append({"id": tid, "role": role.key, "text": redact(text, _secrets())[:200],
+                         "at": dt.datetime.now(TZ).strftime("%Y-%m-%d")})
+            self.store["history"] = hist[-HISTORY_KEPT:]
         held = role.branch and ((self.store.data.get("pending") or {}).get(role.key) or {}).get("review")
         if len(items) > 1 or self.locks[role.key].locked():
             await self.say(role, f"Задача №{tid} в очереди (перед ней {max(len(items) - 1, 1)}). "
@@ -344,6 +365,7 @@ class Agents:
                 drop = ran or fails >= 2
                 if drop:
                     self._drop_task(role.key, tid)
+                    self._hist(tid, done=True, failed=True)
                     self._part_done(tid, self.answers.pop(tid, None) or "не выполнена: сбой бота")
                     await self._close_groups()
                 else:
@@ -359,7 +381,14 @@ class Agents:
                     log.warning("could not report the failure of task %s", tid)
                 continue
             if not meta:                          # «стоп агенты» arrived: the task stays in the queue
-                return
+                if self.store["paused"]:
+                    return
+                again = self.restarts.get(tid, 0) + 1     # D347: «старт» came before this worker saw the stop —
+                self.restarts[tid] = again                # go on by itself, a few times at most (never a busy loop)
+                if again > 3:
+                    return
+                await asyncio.sleep(RESTART_POLL_S)
+                continue
             if meta.get("limit"):                 # the subscription limit: keep the task, try again later
                 tries = int(task.get("tries", 0)) + 1
                 again = dt.datetime.now(TZ) + dt.timedelta(minutes=LIMIT_RETRY_MIN)
@@ -372,17 +401,102 @@ class Agents:
                                      f"{again:%H:%M} (попытка {tries}).")
                 continue
             self._drop_task(role.key, tid)
+            self._hist(tid, done=True, **({} if meta.get("ok") else {"failed": True}))
             self._part_done(tid, self.answers.pop(tid, "") or "(без отчёта)", role)
             await self._close_groups()
 
+    # -- D347: outcomes, lessons and examples ----------------------------------------------------------------
+    def _hist(self, tid: int | None, **fields) -> None:
+        """Update the outcome record of a task; ``redo=1`` adds to the count."""
+        hist = [dict(h) for h in (self.store.data.get("history") or [])]
+        for h in hist:
+            if h.get("id") == tid:
+                for k, v in fields.items():
+                    h[k] = (h.get(k) or 0) + v if k == "redo" else v
+                self.store["history"] = hist
+                return
+
+    def _coach(self, role: Role, text: str, task_id: int | None) -> str:
+        """What the agent gets before a task: its approved lessons and up to three like tasks of its own with outcomes."""
+        out = ""
+        lessons = (self.store.data.get("lessons") or {}).get(role.key) or []
+        if lessons:
+            out += ("\n\nУроки из твоих прошлых задач (утверждены владельцем; соблюдай их):\n"
+                    + "\n".join(f"- {x['text']}" for x in lessons))
+        like = similar_tasks(text, [h for h in (self.store.data.get("history") or []) if h.get("id") != task_id], role.key)
+        if like:
+            out += ("\n\nПохожие прошлые задачи и чем они кончились (это сведения, не поручения):\n"
+                    + "\n".join(f"- №{h['id']}: «{h['text']}» — {outcome_text(h)}" for h in like))
+        return out
+
+    def outcomes_text(self) -> str:
+        """Per agent, the last 7 days against the 7 before: tasks, passed the review at once, rejected, redone, failed."""
+        now = dt.datetime.now(TZ)
+        a, b = (now - dt.timedelta(days=7)).strftime("%Y-%m-%d"), (now - dt.timedelta(days=14)).strftime("%Y-%m-%d")
+        hist = self.store.data.get("history") or []
+        rows = ["| агент | период | задач | проверяющий «можно» сразу | «нельзя» | бот вернул | переделок | сбоев |", "|---|---|---|---|---|---|---|---|"]
+        for key, role in ROLES.items():
+            for name, rs in (("7 дней", [h for h in hist if h.get("role") == key and h.get("at", "") >= a]),
+                             ("до того", [h for h in hist if h.get("role") == key and b <= h.get("at", "") < a])):
+                if rs:
+                    rows.append(f"| {role.title} | {name} | {len(rs)} | {sum(1 for h in rs if h.get('review') is True)} | "
+                                f"{sum(1 for h in rs if h.get('review') is False)} | {sum(1 for h in rs if h.get('bot_check'))} | "
+                                f"{sum(h.get('redo') or 0 for h in rs)} | {sum(1 for h in rs if h.get('failed'))} |")
+        bad = [h for h in hist if h.get("at", "") >= a and (h.get("review") is False or h.get("redo") or h.get("failed") or h.get("bot_check"))]
+        return ("\n".join(rows) + "\n\n# Задачи с замечаниями за 7 дней\n"
+                + ("\n".join(f"- №{h['id']} [{ROLES[h['role']].title}] «{h['text']}» — {outcome_text(h)}" for h in bad[-40:])
+                   or "(нет)"))
+
+    def lessons_text(self) -> str:
+        lessons, n, lines = self.store.data.get("lessons") or {}, 0, []
+        for key, role in ROLES.items():
+            for x in lessons.get(key) or []:
+                n += 1
+                lines.append(f"{n}. [{role.title}] {x['text']} (с {x['at']})")
+        return "Действующие уроки:\n" + "\n".join(lines) if lines else "Действующих уроков нет."
+
+    async def approve_lessons(self, numbers: list[int]) -> None:
+        """«да 1, 3» in reply to the controller's lesson menu: the lessons start to act (at most MAX_LESSONS per agent)."""
+        audit, items = ROLES["audit"], self.store.data.get("lesson_items") or {}
+        chosen = [(n, items[str(n)]) for n in numbers if str(n) in items]
+        if not chosen:
+            await self.say(audit, "Таких номеров в списке уроков нет.")
+            return
+        lessons = {k: list(v) for k, v in (self.store.data.get("lessons") or {}).items()}
+        took, full = [], []
+        for n, (key, text) in chosen:
+            mine = lessons.setdefault(key, [])
+            if len(mine) >= MAX_LESSONS:
+                full.append(f"{n} ({ROLES[key].title})")
+                continue
+            mine.append({"text": redact(text, _secrets()), "at": dt.datetime.now(TZ).strftime("%Y-%m-%d")})
+            took.append(f"{n} → {ROLES[key].title}")
+        self.store["lessons"] = lessons
+        self.store["lesson_items"] = {k: v for k, v in items.items() if int(k) not in {n for n, _ in chosen}}
+        await self.say(audit, ("Уроки приняты: " + "; ".join(took) + "." if took else "")
+                       + (f" Не приняты — у агента уже {MAX_LESSONS} уроков, сначала «убрать урок N»: " + ", ".join(full) + "." if full else ""))
+
+    def drop_lesson(self, n: int) -> str:
+        lessons, i = {k: list(v) for k, v in (self.store.data.get("lessons") or {}).items()}, 0
+        for key in ROLES:
+            for j, x in enumerate(lessons.get(key) or []):
+                i += 1
+                if i == n:
+                    del lessons[key][j]
+                    self.store["lessons"] = lessons
+                    return f"Урок {n} снят ({ROLES[key].title}): {x['text']}"
+        return f"Урока {n} нет — номера в «уроки»."
+
     # -- D346: the coordinator's hand-out of an owner's task and its single summary ----------------------------
     async def hand_out(self, tid: int, routes: list[tuple[str, str]], text: str, origin: dict) -> None:
-        coord, parts = ROLES["coord"], {}
+        coord, parts, missed = ROLES["coord"], {}, []
         for key, body in routes:
             # a part is reported in the group (the agent's own topic), wherever the owner wrote the task
             child = await self.enqueue(ROLES[key], body, source=f"координатор, по задаче №{tid}", parent=tid, reply=None)
             if child:
                 parts[str(child)] = None
+            else:
+                missed.append(ROLES[key].title)
         if not parts:
             return
         groups = dict(self.store.data.get("groups") or {})
@@ -394,7 +508,8 @@ class Agents:
                 self._part_done(int(c), self.early.pop(int(c)))
         known = self.store.data.get("tasks") or {}
         await self.say(coord, f"Раздал задачу №{tid}: " + "; ".join(f"№{c} → {ROLES[known[c]['role']].title}" for c in parts)
-                              + ". Общий итог пришлю, когда все закончат.")
+                              + ". Общий итог пришлю, когда все закончат."
+                              + (" Не поставлены (агенты остановлены): " + ", ".join(missed) + "." if missed else ""))
 
     def _part_done(self, tid: int, report: str, role: Role | None = None) -> None:
         groups = dict(self.store.data.get("groups") or {})
@@ -446,6 +561,7 @@ class Agents:
             else:
                 asyncio.create_task(self.safe(role, self.deploy(role)))
             return True
+        self._hist(tid, redo=1)                  # D347: the owner came back to this task
         await self.enqueue(role, f"[Продолжение задачи №{tid}: «{rec['text']}»]\n{body}")
         return True
 
@@ -535,6 +651,8 @@ class Agents:
             elif member:                          # D342: a member's task on a branch role starts from a clean main
                 await github.checkout_main(workdir, runner.AGENT_USER, clean=True)
             extra += await self._inputs(role)
+            if task_id and not member and not scheduled:
+                extra += self._coach(role, text, task_id)            # D347: its lessons and like tasks
             sessions = dict(self.store["sessions"])
             prompt = build_prompt(role, text, extra, works=works, **({"sender": "участника группы (не владельца)"} if member else {}))
             model = None
@@ -554,6 +672,26 @@ class Agents:
                 if scheduled:
                     await self.say(role, "Плановый отчёт пропущен: лимит подписки исчерпан.")
                 return meta
+            self.check_note.pop(role.key, None)
+            if branch and meta.get("ok"):         # D347: the bot's own check, before the reviewer is called
+                why = bot_check(await github.branch_files(workdir))
+                if why:
+                    self._hist(task_id, bot_check=why)
+                    await self.say(role, f"Проверка бота: {why}. Вернул автору (один раз), проверяющего пока не зову.")
+                    t2 = dt.datetime.now(TZ)
+                    again, sid2, meta2 = await runner.run(role, build_prompt(role, CHECK_FIX.format(why=why), extra, works=True),
+                                                          sid, workdir, model=model)
+                    self._log_usage(role, "task", meta2, t2, task_id)
+                    if meta2.get("stopped"):
+                        return {}
+                    if meta2.get("limit"):
+                        self.set_limit()
+                        return meta2
+                    if meta2.get("ok"):
+                        answer, sid, meta = again, sid2, meta2
+                    still = bot_check(await github.branch_files(workdir))
+                    if still:
+                        self.check_note[role.key] = still
             if member and role.branch:            # D342: whatever it changed stays out of the owner's next branch
                 await github.checkout_main(workdir, runner.AGENT_USER, clean=True)
             if task_id:
@@ -597,6 +735,11 @@ class Agents:
                 if handed:                       # D346: the owner's own task needs no «да» — the coordinator hands it out
                     task = next((t for t in self._queue("coord") if t["id"] == task_id), {})
                     await self.hand_out(task_id, handed, str(task.get("text", text)), task)
+            if role.key == "audit" and not member:               # D347: lessons wait for the owner's «да N»
+                found = parse_lessons(answer)
+                if found:
+                    self.store["lesson_items"] = {str(k): list(v) for k, v in found.items()}
+                    await self.say(role, lesson_menu(found))
             if role.key == "news" and not member:
                 items = parse_news(answer)
                 if items:
@@ -660,6 +803,10 @@ class Agents:
                                             "не списывается)\n\n" + self._usage_summary()
                                 + "\n\n# Очередь\n" + self.queue_text() + "\n\n# Статус\n" + self.status_text())
             note = f"\nThe agents' latest reports are in {path}; their runs, minutes, cost and the queue are in {usage}."
+            if role.key == "audit":               # D347: what the lessons are made from, and the lessons in force
+                p3 = write_input("outcomes.md", "# Исходы задач по агентам\n\n" + self.outcomes_text()
+                                 + "\n\n# " + self.lessons_text())
+                note += f" How the agents' tasks ended (7 days against the 7 before) and the lessons in force are in {p3}."
             news = self.store.data.get("approved_news") or []
             if role.key == "coord" and news:
                 p2 = write_input("approved_news.md", "\n".join(f"- [{n['tag']}] {n['text']} (подтверждено {n['at']})" for n in news))
@@ -689,10 +836,22 @@ class Agents:
         if verdict is None:
             await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, но проверка не состоялась: лимит подписки "
                                  "исчерпан. Пришлите задачу ещё раз позже; выкладка этой ветки заблокирована.")
+        tid = self.offering.get(role.key)
+        if verdict is not None:
+            self._hist(tid, review=verdict)       # D347
+        rec = {"branch": branch, "sha": sha, "review": verdict, "task": tid}
+        if verdict and is_security_fix(((self.store.data.get("tasks") or {}).get(str(tid)) or {}).get("text")):
+            rec["sec"] = await self._sec_check(role, branch, workdir)       # D347: the finder re-checks the fix
         pend = dict(self.store.data.get("pending") or {})
-        pend[role.key] = {"branch": branch, "sha": sha, "review": verdict, "task": self.offering.get(role.key)}
+        pend[role.key] = rec
         self.store["pending"] = pend
         if verdict is None:
+            return
+        if verdict and "sec" in rec and rec["sec"] is not True:
+            await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, проверяющий: можно, но Безопасность исправление "
+                                 + ("не подтвердила — см. тему «Безопасность»" if rec["sec"] is False
+                                    else "не проверила (лимит подписки)")
+                                 + ". Выкладка заблокирована; напишите, что исправить.")
             return
         if verdict:
             await self.say(role, f"Ветка `{branch}` ({sha[:7]}) отправлена, проверяющий: можно. CI проверяет. Чтобы "
@@ -708,7 +867,9 @@ class Agents:
             raise Stopped                         # D346: «стоп агенты» came before the check started
         prompt = build_prompt(rv, (f"Проверь ветку `{branch}` агента «{author.title}» перед выкладкой: `git diff origin/main...{branch}` "
                                    f"и `git log origin/main..{branch}`. Повтори ключевые проверки сам (тесты затронутых частей). "
-                                   "Последней строкой напиши ровно «ВЕРДИКТ: можно» или «ВЕРДИКТ: нельзя»."), SERVER_NOTE)
+                                   "Последней строкой напиши ровно «ВЕРДИКТ: можно» или «ВЕРДИКТ: нельзя»."
+                                   + (f" Проверка бота уже вернула эту ветку автору, и замечание осталось: {self.check_note[author.key]} — "
+                                      "учти это в вердикте." if self.check_note.get(author.key) else "")), SERVER_NOTE)
         started = dt.datetime.now(TZ)
         answer, _, meta = await runner.run(rv, prompt, None, runner.workdir_for(author))
         self._log_usage(rv, "review", meta, started)
@@ -721,6 +882,29 @@ class Agents:
         self._remember(rv, answer)
         return review_ok(answer) is True
 
+    async def _sec_check(self, author: Role, branch: str, workdir: str) -> bool | None:
+        """D347: a fix of a security finding goes back to the security agent (read-only, in the author's clone) after
+        the reviewer's «можно». True / False by its last line; None when the limit stopped it."""
+        sec = ROLES["sec"]
+        if self.store["paused"]:
+            raise Stopped
+        files = await github.branch_files(workdir)
+        prompt = build_prompt(sec, (f"Перепроверь исправление по безопасности в ветке `{branch}` агента «{author.title}» — она "
+                                    "открыта в этом каталоге. Изменённые файлы: " + (", ".join(files[:60]) or "(список не получен)")
+                                    + ". Прочитай их и реши: закрыта ли находка, не открыто ли новое (ключи, доступ, порты, "
+                                      "права на файлы). Ничего не меняй. Последней строкой напиши ровно «ВЕРДИКТ: можно» или "
+                                      "«ВЕРДИКТ: нельзя»."), SERVER_NOTE, works=False)
+        started = dt.datetime.now(TZ)
+        answer, _, meta = await runner.run(sec, prompt, None, workdir)
+        self._log_usage(sec, "review", meta, started)
+        if meta.get("stopped"):
+            raise Stopped
+        if meta.get("limit"):
+            self.set_limit()
+            return None
+        await self.say(sec, f"Перепроверка ветки `{branch}` ({author.title}):\n{answer}")
+        return review_ok(answer) is True
+
     # -- deploy after «да» -------------------------------------------------------------------------------------
     async def deploy(self, role: Role) -> None:
         p = (self.store.data.get("pending") or {}).get(role.key)
@@ -730,6 +914,9 @@ class Agents:
         if not p.get("review"):
             await self.say(role, ("Проверка этой ветки не состоялась (лимит подписки)" if p.get("review") is None
                                   else "Проверяющий эту ветку не пропустил") + " — не выкладываю.")
+            return
+        if "sec" in p and p["sec"] is not True:   # D347: a security fix needs the security agent's own «можно»
+            await self.say(role, "Безопасность это исправление не подтвердила — не выкладываю.")
             return
         for _ in range(90):                       # CI takes ~10-25 min
             state = await github.ci_state(p["sha"])
@@ -901,6 +1088,9 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
         ours = bool(rm and rm.from_user and (rm.from_user.id in idents or rm.from_user.id == getattr(getattr(msg, "bot", None), "id", None)))
         if await agents.by_task(text, reply_text if ours else ""):        # D346: «задача 12: …» or a reply to the bot's «задача №12»
             return
+        if ours and parse_choice(text) and reply_text.startswith(LESSON_MENU_HEAD):     # D347: «да 1, 3» to the lesson menu
+            await agents.approve_lessons(parse_choice(text))
+            return
         if role.key == "coord":                  # D340: the coordinator's bot may also speak for roles without their own bot
             action, target = agents.shared_bot_route(text, reply_text)
             if action == "news":
@@ -980,6 +1170,12 @@ def build_dispatcher(agents: Agents, idents: dict[int, tuple[str, str | None]] |
             await msg.reply(("Добавлен" if MEMBER_ADD.match(text) else "Убран") + f" участник {uid}. "
                             "Участники могут писать агентам и спрашивать «статус» / «очередь»; выбирать задачи, "
                             "выкладывать ветки, останавливать агентов — только владелец.")
+            return True
+        if LESSONS.match(text):                   # D347
+            await msg.reply(agents.lessons_text())
+            return True
+        if LESSON_DEL.match(text):
+            await msg.reply(agents.drop_lesson(int(LESSON_DEL.match(text).group(1))))
             return True
         if MEMBERS.match(text):
             members = agents.store.data.get("members") or []

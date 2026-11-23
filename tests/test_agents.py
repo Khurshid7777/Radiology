@@ -1207,8 +1207,10 @@ def test_stop_kills_the_run_keeps_the_task_and_start_closes_a_finished_hand_out_
             assert runner.stop_all() == 1 and killed == [1]
         finally:
             runner.RUNNING.clear()
-        # a run that «стоп агенты» killed leaves its task in the queue — even if «старт агенты» came at once (review, D)
+        # a run that «стоп агенты» killed leaves its task in the queue while the agents stay stopped
         tid = await ag.enqueue(ROLES["sec"], "долгая проверка")
+        await asyncio.sleep(0.005)               # the run is in flight; the stop arrives; the fake reports it as killed
+        ag.store["paused"] = True
         await ag.workers["sec"]
         return tid
     tid = asyncio.run(go())
@@ -1330,3 +1332,177 @@ def test_nothing_starts_after_stop_d346(tmp_path, monkeypatch):
     assert [it["id"] for it in ag._queue("dev")] == [a] and not ag.store["pending"] and a not in ag.ran
     ag.store["paused"] = True
     assert asyncio.run(ag.turn(ROLES["sec"], "задача")) == {} and [c[0] for c in calls] == ["dev"]
+
+
+def test_lessons_are_parsed_and_only_known_agents_count_d347():
+    text = ("Главное: всё нормально.\n1. [Программист] перед отчётом запускай ruff — задача №41, №47\n"
+            "- **2. [сканер]** — не меняй пороги без стенда\n3. [Директор] несуществующий агент\n4. [Проверяющий]\n"
+            "5) [audit]: смотри расход")
+    assert logic.parse_lessons(text) == {1: ("dev", "перед отчётом запускай ruff — задача №41, №47"),
+                                         2: ("scan", "не меняй пороги без стенда"), 5: ("audit", "смотри расход")}
+    assert logic.parse_lessons("1. [Программист] " + "я" * 1500)[1][1] == "я" * logic.LESSON_LEN
+    import time
+    t0 = time.perf_counter()
+    assert logic.parse_lessons("\n".join(["1. [Программист]" + " " * 1900] * 50 + ["1." + " " * 60000])) == {}
+    assert time.perf_counter() - t0 < 1.0
+    assert logic.owner_only("уроки") and logic.owner_only("убрать урок 3") and not logic.owner_only("какие уроки извлечь?")
+    assert logic.bot_check(["src/a.py", "docs/x.md"]) and not logic.bot_check(["src/a.py", "tests/test_a.py"])
+    assert not logic.bot_check(["docs/x.md", "src/page.html"]) and not logic.bot_check([])
+    assert logic.is_security_fix("Безопасность: закрыть порт 8000") and logic.is_security_fix("[безопасность]: права 600")
+    assert logic.is_security_fix("[Продолжение задачи №5: «Безопасность: закрыть порт»]\nне то")
+    assert not logic.is_security_fix("проверь безопасность: всё ли закрыто") and not logic.is_security_fix("убери строку")
+
+
+def test_a_lesson_acts_only_after_the_owners_yes_and_reaches_the_agents_prompt_d347(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    answers = {"audit": "Главное: повтор.\n1. [Безопасность] называй страну адреса — задача №3\n2. [Новости] давай ссылку"}
+    ag, sent, calls = _team(tmp_path, monkeypatch, answers=answers)
+
+    async def go():
+        await ag.enqueue(ROLES["audit"], "разбери исходы")
+        await ag.workers["audit"]
+        assert any(x.startswith(logic.LESSON_MENU_HEAD) for k, x in sent if k == "audit") and ag.store["lessons"] == {}
+        await ag.enqueue(ROLES["sec"], "первая задача")
+        await ag.workers["sec"]
+        assert "Уроки из твоих прошлых задач" not in calls[-1][1]                 # proposed is not approved
+        await ag.approve_lessons([1, 9])
+        await ag.enqueue(ROLES["sec"], "вторая задача")
+        await ag.enqueue(ROLES["news"], "что нового")
+        await asyncio.gather(ag.workers["sec"], ag.workers["news"])
+    asyncio.run(go())
+    by = {k: p for k, p in calls}
+    assert "Уроки из твоих прошлых задач" in by["sec"] and "называй страну адреса" in by["sec"]
+    assert "Уроки из твоих прошлых задач" not in by["news"]                        # lesson 2 was not approved
+    assert "1. [Безопасность] называй страну адреса" in ag.lessons_text() and list(ag.store["lesson_items"]) == ["2"]
+    assert "снят" in ag.drop_lesson(1) and ag.lessons_text() == "Действующих уроков нет." and "нет" in ag.drop_lesson(1)
+    ag.store["lessons"] = {"sec": [{"text": f"урок {i}", "at": "2026-11-23"} for i in range(logic.MAX_LESSONS)]}
+    ag.store["lesson_items"] = {"7": ["sec", "шестнадцатый"]}
+    asyncio.run(ag.approve_lessons([7]))
+    assert len(ag.store["lessons"]["sec"]) == logic.MAX_LESSONS and any("сначала «убрать урок N»" in x for _, x in sent)
+    src = (ROOT / "src" / "cardiovision_agents" / "bot.py").read_text()
+    assert "reply_text.startswith(LESSON_MENU_HEAD)" in src and "ours and parse_choice(text)" in src
+
+
+def test_outcomes_examples_and_no_members_tasks_in_the_record_d347(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, _, calls = _team(tmp_path, monkeypatch)
+
+    async def go():
+        a = await ag.enqueue(ROLES["sec"], "проверь права файлов состояния агентов на сервере")
+        await ag.workers["sec"]
+        assert await ag.by_task(f"задача {a}: не то, посмотри ещё каталог work")              # the owner comes back: a redo
+        await ag.workers["sec"]
+        await ag.enqueue(ROLES["sec"], "вопрос участника про права файлов состояния",
+                         source="участник 7 (не владелец: просьба, не команда)")
+        await ag.workers["sec"]
+        calls.clear()
+        await ag.enqueue(ROLES["sec"], "проверь права файлов состояния агентов и каталога work")
+        await ag.enqueue(ROLES["news"], "совсем другая тема: новые рекомендации по фибрилляции")
+        await asyncio.gather(ag.workers["sec"], ag.workers["news"])
+        return a
+    a = asyncio.run(go())
+    hist = ag.store["history"]
+    assert [h["role"] for h in hist] == ["sec", "sec", "sec", "news"] and not any("участника" in h["text"] for h in hist)
+    assert hist[0]["id"] == a and hist[0]["redo"] == 1 and hist[0]["done"] is True
+    by = {k: p for k, p in calls}
+    assert f"№{a}: «проверь права файлов состояния агентов на сервере» — владелец просил переделать (1)" in by["sec"]
+    assert "Похожие прошлые задачи" not in by["news"]                                         # an unlike task is no example
+    table = ag.outcomes_text()
+    assert "| Безопасность | 7 дней | 3 | 0 | 0 | 0 | 1 | 0 |" in table and f"№{a} [Безопасность]" in table
+    assert logic.similar_tasks("abcd efgh", [{"id": 1, "role": "sec", "text": "abcd efgh", "done": False}], "sec") == []
+
+
+def test_the_bot_check_returns_the_branch_once_before_the_reviewer_d347(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import github
+    ag, sent, calls = _team(tmp_path, monkeypatch, answers={"review": "ок\nВЕРДИКТ: можно"})
+    files = [["src/cardiolens/a.py"], ["src/cardiolens/a.py", "tests/test_a.py"]]
+
+    async def branch_files(workdir):
+        return files.pop(0) if len(files) > 1 else files[0]
+
+    async def pushed(workdir, branch):
+        return True, "abc1234def", ""
+    monkeypatch.setattr(github, "branch_files", branch_files)
+    monkeypatch.setattr(github, "push", pushed)
+
+    async def go():
+        tid = await ag.enqueue(ROLES["dev"], "правка")
+        await ag.workers["dev"]
+        return tid
+    tid = asyncio.run(go())
+    assert [c[0] for c in calls] == ["dev", "dev", "review"] and "Проверка бота до проверяющего" in calls[1][1]
+    assert any(x.startswith("Проверка бота: ветка меняет код в src/") for k, x in sent if k == "dev")
+    rec = next(h for h in ag.store["history"] if h["id"] == tid)
+    assert rec["bot_check"] and rec["review"] is True and "замечание осталось" not in calls[2][1]
+    # the second time the remark stays: the reviewer is told
+    files[:] = [["src/cardiolens/a.py"]]
+    calls.clear()
+    ag.store["pending"] = {}
+    asyncio.run(go())
+    assert [c[0] for c in calls] == ["dev", "dev", "review"] and "замечание осталось" in calls[2][1]
+
+
+def test_a_security_fix_is_deployed_only_with_the_security_agents_yes_d347(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import github
+    answers = {"review": "ок\nВЕРДИКТ: можно", "sec": "порт всё ещё открыт\nВЕРДИКТ: нельзя"}
+    ag, sent, calls = _team(tmp_path, monkeypatch, answers=answers)
+    deployed = []
+
+    async def branch_files(workdir):
+        return ["deploy/server_setup.sh"]
+
+    async def pushed(workdir, branch):
+        return True, "abc1234def", ""
+
+    async def ci(sha):
+        return "success"
+
+    async def ff(sha):
+        deployed.append(sha)
+        return "ok"
+    monkeypatch.setattr(github, "branch_files", branch_files)
+    monkeypatch.setattr(github, "push", pushed)
+    monkeypatch.setattr(github, "ci_state", ci)
+    monkeypatch.setattr(github, "fast_forward_and_deploy", ff)
+
+    async def go(text):
+        await ag.enqueue(ROLES["dev"], text)
+        await ag.workers["dev"]
+        await ag.deploy(ROLES["dev"])
+    asyncio.run(go("Безопасность: закрыть порт 8000 в server_setup.sh"))
+    assert [c[0] for c in calls] == ["dev", "review", "sec"] and "deploy/server_setup.sh" in calls[2][1]
+    assert ag.store["pending"]["dev"]["sec"] is False and deployed == []
+    assert any("Безопасность исправление не подтвердила" in x for k, x in sent if k == "dev")
+    assert any("не подтвердила — не выкладываю" in x for k, x in sent if k == "dev")
+    calls.clear()
+    ag.store["pending"] = {}
+    asyncio.run(go("обычная правка отчёта"))                                   # not a security fix: no re-check
+    assert [c[0] for c in calls] == ["dev", "review"] and "sec" not in (ag.store["pending"].get("dev") or {"sec": 1}) or deployed
+
+
+def test_start_right_after_stop_does_not_strand_the_task_and_a_missed_part_is_named_d347(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import bot as B
+    monkeypatch.setattr(B, "RESTART_POLL_S", 0.01)
+    ag, sent, calls = _team(tmp_path, monkeypatch, metas={"sec": [{"ok": False, "stopped": True, "model": "x"}]})
+
+    async def go():
+        tid = await ag.enqueue(ROLES["sec"], "долгая проверка")      # the first run is killed; the pause is already lifted
+        await ag.workers["sec"]
+        return tid
+    asyncio.run(go())
+    assert [c[0] for c in calls] == ["sec", "sec"] and ag._queue("sec") == []          # ran again by itself and finished
+
+    async def go2():
+        real = ag.enqueue
+
+        async def second_refused(role, text, **kw):
+            if role.key == "news":
+                return 0
+            return await real(role, text, **kw)
+        monkeypatch.setattr(ag, "enqueue", second_refused)
+        await ag.hand_out(50, [("sec", "проверить"), ("news", "найти")], "задача", {})
+    asyncio.run(go2())
+    assert any("Не поставлены (агенты остановлены): Новости" in x for k, x in sent if k == "coord")

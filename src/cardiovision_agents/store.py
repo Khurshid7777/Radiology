@@ -13,7 +13,8 @@ class Store:
                            "proposals": {}, "last_reports": {}, "queue": {}, "next_id": 1,
                            "news_items": {}, "approved_news": [],
                            "fingerprints": {}, "limit_until": 0,
-                           "tasks": {}, "groups": {}}      # D346: who had which task; the coordinator's hand-outs
+                           "tasks": {}, "groups": {},
+                           "history": [], "lessons": {}, "lesson_items": {}}     # D347      # D346: who had which task; the coordinator's hand-outs
         if self.path.exists():
             self.data.update(json.loads(self.path.read_text()))
 

@@ -74,6 +74,8 @@ def role_for_thread(topics: dict[str, int], thread_id: int | None) -> Role | Non
 
 MEMBER_ADD = re.compile(r"^\s*добавить\s+участника\s+(\d{3,15})\s*[.!]*\s*$", re.IGNORECASE)    # D342
 MEMBER_DEL = re.compile(r"^\s*убрать\s+участника\s+(\d{3,15})\s*[.!]*\s*$", re.IGNORECASE)
+LESSONS = re.compile(r"^\s*уроки\s*[?.!]*\s*$", re.IGNORECASE)                             # D347
+LESSON_DEL = re.compile(r"^\s*убрать\s+урок\s+(\d{1,4})\s*[.!]*\s*$", re.IGNORECASE)
 MEMBERS = re.compile(r"^\s*участники\s*[?.!]*\s*$", re.IGNORECASE)
 
 
@@ -88,7 +90,7 @@ def owner_only(text: str | None) -> bool:
     t = re.sub(r"@\w+", " ", text or "")       # review D342: a mention anywhere (end, twice, new line) is stripped
     return bool(STOP.match(t) or START.match(t) or re.match(r"^\s*отмена\s+\d+", t, re.IGNORECASE)
                 or CHOICE.match(t) or APPROVE.match(t) or SKIP.match(t)
-                or MEMBER_ADD.match(t) or MEMBER_DEL.match(t)
+                or MEMBER_ADD.match(t) or MEMBER_DEL.match(t) or LESSONS.match(t) or LESSON_DEL.match(t)
                 or any(t.strip().startswith(c) for c in ("/setup", "/unbind", "/new")))
 
 
@@ -267,3 +269,86 @@ def build_prompt(role: Role, text: str, extra: str = "", works: bool | None = No
                  "branches, do not push (the bot pushes). Run the full test suite before you finish. End with: what "
                  "changed, the test result, and whether it is ready to deploy.")
     return f"{head}\n\n{extra}\n\nСообщение {sender}:\n{text}".replace("\n\n\n", "\n\n")
+
+
+# -- D347: lessons, examples and the bot's own check -------------------------------------------------------------
+LESSON_MENU_HEAD = "Уроки на подтверждение:"
+MAX_LESSONS, LESSON_LEN = 15, 300
+SECURITY_FIX = re.compile(r"(?:^|«)\s*\[?\s*безопасность\s*\]?\s*:", re.IGNORECASE)    # a fix of a security finding
+
+
+def is_security_fix(text: str | None) -> bool:
+    """The task (or the task a continuation quotes) starts with «Безопасность:»."""
+    return bool(SECURITY_FIX.search((text or "")[:120]))
+
+
+def _role_by_title(tag: str) -> str | None:
+    tag = tag.strip().lower()
+    return next((k for k, r in ROLES.items() if tag in (k, r.title.lower())), None)
+
+
+def parse_lessons(text: str) -> dict[int, tuple[str, str]]:
+    """{n: (role key, lesson)} from the controller's «1. [Программист] что делать иначе — задача №K» lines. Plain
+    string work (no regex over the model's text); an unknown agent in the brackets is not a lesson."""
+    out: dict[int, tuple[str, str]] = {}
+    for line in (text or "").splitlines():
+        rest = line.strip().lstrip("-*• \t")
+        digits = rest[:len(rest[:4]) - len(rest[:4].lstrip("0123456789"))]
+        if not digits or len(line) > 2000:
+            continue
+        rest = rest[len(digits):].lstrip(".):* \t")
+        if not rest.startswith("[") or "]" not in rest:
+            continue
+        tag, _, body = rest[1:].partition("]")
+        key, body = _role_by_title(tag), body.strip().lstrip("*").lstrip().lstrip(":—–-").strip()
+        if key and body:
+            out[int(digits)] = (key, body[:LESSON_LEN])
+    return out
+
+
+def lesson_menu(items: dict[int, tuple[str, str]]) -> str:
+    lines = [f"{n}. [{ROLES[r].title}] {t}" for n, (r, t) in sorted(items.items())]
+    return (LESSON_MENU_HEAD + "\n" + "\n".join(lines)
+            + "\n\nОтветьте на это сообщение (reply): «да» и номера — например «да 1, 3». Урок начнёт действовать "
+              "со следующей задачи агента. Показать действующие: «уроки»; снять: «убрать урок N».")
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-zа-яё0-9_]{4,}", (text or "").lower()[:2000])}
+
+
+def similar_tasks(text: str, history: list[dict], role: str, limit: int = 3, floor: float = 0.2) -> list[dict]:
+    """Up to ``limit`` finished tasks of the same role most like ``text`` (shared words / all words), not below
+    ``floor`` — an unlike task is no example."""
+    mine = _words(text)
+    scored = []
+    for h in history:
+        if h.get("role") != role or not h.get("done"):
+            continue
+        other = _words(h.get("text", ""))
+        score = len(mine & other) / len(mine | other) if mine and other else 0.0
+        if score >= floor:
+            scored.append((score, h.get("id", 0), h))
+    return [h for _, _, h in sorted(scored, key=lambda x: (-x[0], -x[1]))[:limit]]
+
+
+def outcome_text(h: dict) -> str:
+    bits = []
+    if h.get("review") is True:
+        bits.append("проверяющий: можно")
+    elif h.get("review") is False:
+        bits.append("проверяющий: нельзя")
+    if h.get("bot_check"):
+        bits.append("бот вернул: " + str(h["bot_check"]))
+    if h.get("redo"):
+        bits.append(f"владелец просил переделать ({h['redo']})")
+    if h.get("failed"):
+        bits.append("сбой")
+    return "; ".join(bits) or "без замечаний"
+
+
+def bot_check(files: list[str]) -> str | None:
+    """D347: the first «a mistake became a check» — code under src/ changed and no test did."""
+    src = [f for f in files if f.startswith("src/") and f.endswith(".py")]
+    tests = [f for f in files if f.startswith("tests/")]
+    return "ветка меняет код в src/, но не меняет ни одного теста в tests/" if src and not tests else None
