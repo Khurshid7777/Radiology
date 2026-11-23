@@ -57,14 +57,31 @@ def command(role: Role, prompt: str, session: str | None, model: str | None = No
     return cmd
 
 
+RUNNING: set = set()          # D346: the agents' live runs, so «стоп агенты» really stops a run that may last hours
+
+
+def stop_all() -> int:
+    n = 0
+    for proc in list(RUNNING):
+        try:
+            proc.kill()
+            n += 1
+        except ProcessLookupError:
+            pass
+    return n
+
+
 async def _once(role: Role, prompt: str, session: str | None, cwd: str, model: str | None = None) -> tuple[int, dict, str]:
     proc = await asyncio.create_subprocess_exec(*command(role, prompt, session, model), cwd=cwd, env=CLEAN_ENV,
                                                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    RUNNING.add(proc)
     try:
         out, err = await asyncio.wait_for(proc.communicate(), TIMEOUT_S)
     except TimeoutError:
         proc.kill()
         return -9, {}, "timeout"
+    finally:
+        RUNNING.discard(proc)
     try:
         res = json.loads(out.decode() or "{}")
     except json.JSONDecodeError:

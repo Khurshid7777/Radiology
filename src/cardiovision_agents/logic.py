@@ -143,22 +143,31 @@ ROUTE_TARGET = {**TARGET, "проверка": "review", "безопасност�
 ROUTE_LINE = re.compile(r"^[ \t]*(?:[-*•][ \t]*)?\**[ \t]*(?:→|->|=>)[ \t]*\**[ \t]*\[[ \t]*(" + "|".join(ROUTE_TARGET)
                         + r")[ \t]*\][ \t]*\**[ \t]*[:—–-]?[ \t]*(\S.*?)[ \t]*$", re.IGNORECASE | re.MULTILINE)
 MAX_ROUTES = 4
-TASK_IN_REPLY = re.compile(r"задач[а-я]*\s+№\s*(\d+)", re.IGNORECASE)            # the bot's own «задача №N» wording
-TASK_IN_TEXT = re.compile(r"^\s*(?:задач[а-я]*\s*№?|№)\s*(\d+)\s*[:—–,-]\s*(.+)$", re.IGNORECASE | re.DOTALL)
+# D346 (+review): only the bot's own task headers count — a task number quoted somewhere in a text names nothing.
+TASK_IN_REPLY = re.compile(r"^\s*(?:Готово, задача|Начал задачу|Раздал задачу|Задача)\s+№\s*(\d+)")
+TASK_IN_TEXT = re.compile(r"^\s*(?:по\s+)?задач[аеу]\s*№?\s*(\d+)\s*[:—–-]\s*(\S.*)$", re.IGNORECASE | re.DOTALL)
+ROUTE_LINE_MAX = 2000
 
 
 def parse_routes(text: str) -> list[tuple[str, str]]:
     """[(role key, task)] from the coordinator's «→ [ядро] …» lines, at most MAX_ROUTES (D346)."""
-    return [(ROUTE_TARGET[t.lower()], body) for t, body in ROUTE_LINE.findall(text or "")][:MAX_ROUTES]
+    out = []
+    for line in (text or "").splitlines():
+        m = ROUTE_LINE.match(line) if len(line) <= ROUTE_LINE_MAX else None      # a huge line is never a route (and never a slow match)
+        if m:
+            out.append((ROUTE_TARGET[m.group(1).lower()], m.group(2)))
+    return out[:MAX_ROUTES]
 
 
 def task_ref(text: str | None, reply_text: str | None = None) -> tuple[int | None, str]:
-    """D346: which task the owner's message is about — «задача 12: …» / «№12: …» in the text itself, else the first
-    «задача №N» of the bot message it replies to. Returns (task id or None, the message without the reference)."""
-    m = TASK_IN_TEXT.match(text or "")
+    """D346: which task the owner's message is about — «задача 12: …» in the text itself, else the header of the
+    bot's task message it replies to («Готово, задача №N», «Начал задачу №N», «Задача №N …», «Раздал задачу №N»).
+    Returns (task id or None, the message without the reference). The caller passes ``reply_text`` only for a
+    message one of our bots wrote."""
+    m = TASK_IN_TEXT.match((text or "")[:4000])
     if m:
-        return int(m.group(1)), m.group(2).strip()
-    m = TASK_IN_REPLY.search(reply_text or "")
+        return int(m.group(1)), (text or "")[m.start(2):].strip()
+    m = TASK_IN_REPLY.match(reply_text or "")
     return (int(m.group(1)), (text or "").strip()) if m else (None, (text or "").strip())
 CHOICE = re.compile(r"^\s*да\s*[,:]?\s*((?:\d+(?:\s*[,;]\s*|\s+(?:(?:и|and)\s+)?))*\d+)\s*[.!]*\s*$", re.IGNORECASE)   # D340: «да 1 и 3»
 STATUS = re.compile(r"^\s*(статус|/status)\s*[?.!]*\s*$", re.IGNORECASE)

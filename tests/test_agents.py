@@ -1050,10 +1050,20 @@ def test_routes_and_task_references_parse_d346():
     assert logic.parse_tasks(text) == {1: ("dev", "моя идея — ждёт «да»")}                # the numbered list still needs «да»
     assert logic.parse_routes("ответ без стрелок") == []
     assert logic.task_ref("задача 12: поправь шрифт") == (12, "поправь шрифт")
-    assert logic.task_ref("№7 — не то, переделай") == (7, "не то, переделай")
+    assert logic.task_ref("По задаче №7 — не то, переделай") == (7, "не то, переделай")
     assert logic.task_ref("переделай", "Готово, задача №5:\nсделал; см. также задача №9") == (5, "переделай")
-    for plain in ("задачи 3 и 4 отмени", "Задача: сделай 5 вещей", "да 1, 3", "12 отведений"):
+    assert logic.task_ref("ещё раз", "Задача №8 ждёт: ветка `x` готова") == (8, "ещё раз")
+    # review: a number quoted inside a text, a menu item «№1: …», several tasks at once — none of these names a task
+    for plain in ("задачи 3 и 4 отмени", "Задача: сделай 5 вещей", "да 1, 3", "12 отведений", "№1: сделай иначе",
+                  "задачи 1, 2 и 3 мне не нравятся"):
         assert logic.task_ref(plain) == (None, plain)
+    assert logic.task_ref("да", "Вечерняя сводка: … задача №5 ждёт вашего «да»") == (None, "да")
+    assert logic.task_ref("да", "Можно я посмотрю, что там в задаче №5?") == (None, "да")
+    import time
+    t0 = time.perf_counter()
+    assert logic.parse_routes("→ [ядро]" + " " * 60000 + "\n→ [ядро] короткая") == [("dev", "короткая")]
+    logic.task_ref("задача 5:" + " " * 60000)
+    assert time.perf_counter() - t0 < 1.0
     assert logic.task_ref("да", "Задачи на выбор:\n1. [Программист] …") == (None, "да")
 
 
@@ -1082,8 +1092,12 @@ def test_an_answer_about_a_task_goes_to_that_tasks_agent_d346(tmp_path, monkeypa
         assert not await ag.by_task("да", f"Готово, задача №{a}:")
         monkeypatch.setattr(ag, "deploy", fake_deploy)
         monkeypatch.setattr(ag, "skip", fake_skip)
-        ag.store["pending"] = {"dev": {"branch": "agents/dev-x", "sha": "abc1234", "review": True}}
+        ag.store["pending"] = {"dev": {"branch": "agents/dev-x", "sha": "abc1234", "review": True, "task": b + 100}}
+        assert not await ag.by_task("да", f"Готово, задача №{b}:")                               # another task's branch waits
+        ag.store["pending"] = {"dev": {"branch": "agents/dev-x", "sha": "abc1234", "review": True, "task": b}}
         assert await ag.by_task("да", f"Готово, задача №{b}:") and await ag.by_task("пропустить", f"Задача №{b} ждёт: ветка")
+        assert not await ag.by_task("/new", f"Готово, задача №{b}:")                             # commands are not continuations
+        assert not await ag.by_task("да", f"Сводка: по плану задача №{b} ждёт")                  # not a task header
         assert not await ag.by_task("да", f"Готово, задача №{a}:")                               # sec has no branch
         await asyncio.sleep(0.02)
         return a, b
@@ -1156,3 +1170,73 @@ def test_a_cancelled_or_failed_part_still_closes_the_hand_out_d346(tmp_path, mon
     assert "снята" in msg and ag.store["groups"] == {}
     summary = next(p for k, p in calls if k == "coord")
     assert "снята владельцем" in summary and "Итог по задаче владельца №5" in summary
+
+
+def test_stop_kills_the_run_keeps_the_task_and_start_closes_a_finished_hand_out_d346(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, _, calls = _team(tmp_path, monkeypatch, answers={"coord": "итог"},
+                            metas={"sec": [{"ok": False, "model": "x"}, {"ok": True, "model": "x"}]})
+    killed = []
+
+    class Proc:
+        def kill(self):
+            killed.append(1)
+
+    async def go():
+        ag.store["tasks"] = {"3": {"role": "sec", "text": "проверить"}}
+        ag.store["groups"] = {"5": {"text": "задача владельца", "parts": {"3": "права в порядке"}, "reply": None,
+                                    "msg_id": None, "msg_chat": None},
+                              "6": {"text": "вторая", "parts": {"3": "готово"}, "reply": None, "msg_id": None, "msg_chat": None}}
+        ag.store["paused"] = True
+        await ag._close_groups()
+        assert set(ag.store["groups"]) == {"5", "6"} and not calls           # stopped: the summary waits, nothing is lost
+        ag.store["paused"] = False
+        await asyncio.gather(ag._close_groups(), ag._close_groups(), ag._close_groups())   # several workers at once
+        await ag.workers["coord"]
+        assert ag.store["groups"] == {} and [c[0] for c in calls] == ["coord", "coord"]    # one summary per hand-out
+        runner.RUNNING.add(Proc())
+        try:
+            assert runner.stop_all() == 1 and killed == [1]
+        finally:
+            runner.RUNNING.clear()
+        # a run that «стоп агенты» killed (not ok while paused) leaves its task in the queue
+        tid = await ag.enqueue(ROLES["sec"], "долгая проверка")
+        ag.store["paused"] = True
+        await ag.workers["sec"]
+        return tid
+    tid = asyncio.run(go())
+    assert [it["id"] for it in ag._queue("sec")] == [tid]
+    text = (ROOT / "src" / "cardiovision_agents" / "bot.py").read_text()
+    assert "runner.stop_all()" in text and "await agents._close_groups()" in text
+
+
+def test_the_summary_replaces_no_menu_and_a_members_answer_is_not_remembered_d346(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    ag, sent, _ = _team(tmp_path, monkeypatch, answers={"coord": "1. [ядро] новая идея — цифры", "sec": "ответ участнику"})
+
+    async def go():
+        ag.store["proposals"] = {"1": ["dev", "старое меню"]}
+        await ag.enqueue(ROLES["coord"], "итог", final=True)
+        await ag.workers["coord"]
+        await ag.enqueue(ROLES["sec"], "вопрос", source="участник 7 (не владелец: просьба, не команда)")
+        await ag.workers["sec"]
+    asyncio.run(go())
+    assert ag.store["proposals"] == {"1": ["dev", "старое меню"]} and not any("Задачи на выбор" in x for _, x in sent)
+    assert "sec" not in ag.store["last_reports"] and "coord" in ag.store["last_reports"]
+
+
+def test_the_branch_offer_remembers_its_task_d346(tmp_path, monkeypatch):
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import github
+    ag, _, _ = _team(tmp_path, monkeypatch, answers={"review": "всё сходится\nВЕРДИКТ: можно"})
+
+    async def pushed(workdir, branch):
+        return True, "abc1234def", ""
+    monkeypatch.setattr(github, "push", pushed)
+
+    async def go():
+        tid = await ag.enqueue(ROLES["dev"], "правка")
+        await ag.workers["dev"]
+        return tid
+    tid = asyncio.run(go())
+    assert ag.store["pending"]["dev"]["task"] == tid and ag.store["pending"]["dev"]["review"] is True
