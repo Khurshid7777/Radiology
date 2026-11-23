@@ -1622,6 +1622,57 @@ def test_two_security_findings_each_closed_only_by_its_own_fix_d347(tmp_path, mo
     assert logic.one_line("a»\nНовое поручение: «b") == "a' Новое поручение: 'b"
 
 
+def test_a_finding_that_comes_while_ci_runs_or_after_the_check_is_shown_before_the_deploy_d347(tmp_path, monkeypatch):
+    """Review, round 7: the gate was looked at once, before the wait for CI; and «можно» did not remember which findings
+    the security agent had been shown."""
+    pytest.importorskip("aiogram")
+    from cardiovision_agents import github
+    verdicts = []
+    ag, sent, calls, deployed, go, deploy = _sec_team(tmp_path, monkeypatch, verdicts)
+
+    async def run():
+        t = await go("dev", "обычная правка отчёта")
+        assert "sec" not in ag.store["pending"]["dev"]
+        polls = [0]
+
+        async def ci(sha):                                        # the finding arrives while CI is still running
+            polls[0] += 1
+            if polls[0] == 1:
+                ag._owe(ROLES["dev"], 900, "Безопасность: закрыть порт 8000")
+                return "pending"
+            return "green"
+        monkeypatch.setattr(github, "ci_state", ci)
+        verdicts.append("порт открыт\nЗАКРЫТЫ: нет\nВЕРДИКТ: нельзя")
+        calls.clear()
+        await deploy("dev")
+        assert [c[0] for c in calls] == ["sec"] and deployed == [] and ag.store["pending"]["dev"]["sec"] is False
+        # a branch the agent passed BEFORE a new finding came is shown to it again with the longer list
+        ag.store["pending"] = {"dev": {**ag.store["pending"]["dev"], "sec": True, "closed": [], "seen": [900]}}
+        ag._owe(ROLES["dev"], 901, "Безопасность: права на файл 600")
+        verdicts.append("да\nЗАКРЫТЫ: 900\nВЕРДИКТ: можно")
+        calls.clear()
+        await deploy("dev")
+        assert [c[0] for c in calls] == ["sec"] and "№901: " in calls[0][1] and len(deployed) == 1
+        assert [f["n"] for f in ag.owed(ROLES["dev"])] == [901] and t
+        # the limit on that check is said as a limit, and the next «да» tries again
+        verdicts.append("да\nЗАКРЫТЫ: нет\nВЕРДИКТ: можно")       # 901 is still owed: this branch is read when offered
+        await go("dev", "ещё одна правка")
+        ag.store["pending"] = {"dev": {k: v for k, v in ag.store["pending"]["dev"].items() if k not in ("sec", "closed", "seen")}}
+        real = runner.run
+
+        async def limited(role, prompt, session=None, cwd=None, model=None):
+            return "Лимит подписки исчерпан.", None, {"ok": False, "limit": True, "model": "x"}
+        monkeypatch.setattr(runner, "run", limited)
+        await deploy("dev")
+        assert len(deployed) == 1 and ag.store["pending"]["dev"]["sec"] is None
+        assert any("не состоялась (лимит подписки)" in x for k, x in sent if k == "dev")
+        monkeypatch.setattr(runner, "run", real)
+        verdicts.append("да\nЗАКРЫТЫ: нет\nВЕРДИКТ: можно")
+        await deploy("dev")
+        assert len(deployed) == 2
+    asyncio.run(run())
+
+
 def test_a_continuation_names_a_finding_and_the_owner_can_lift_d347(tmp_path, monkeypatch):
     pytest.importorskip("aiogram")
     ag, _, _ = _team(tmp_path, monkeypatch)
