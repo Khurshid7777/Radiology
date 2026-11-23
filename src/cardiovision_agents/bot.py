@@ -687,7 +687,7 @@ class Agents:
                            + (f" В очереди задач: {len(queue)} — " + "; ".join(f"№{t['id']} {t['text'][:80]}" for t in queue)
                               if queue else " Задач в очереди нет.")
                            + (f" Напоминаю: ветка `{pend['branch']}` ждёт вашего «да» или «пропустить»."
-                              if pend and pend.get("review") else ""))
+                              if pend and pend.get("review") and pend.get("sec", True) is True else ""))
             return {}
         async with self.locks[role.key], self.slots:
             if self.store["paused"]:
@@ -987,8 +987,26 @@ class Agents:
             await self.say(role, ("Проверка этой ветки не состоялась (лимит подписки)" if p.get("review") is None
                                   else "Проверяющий эту ветку не пропустил") + " — не выкладываю.")
             return
+        if "sec" not in p and self.owed(role):    # D347 (review, round 6): the branch was checked before the finding
+            # came — «каждая ветка идёт на перепроверку» holds for it too: the security agent reads it now
+            await self.say(role, f"За агентом числятся находки по безопасности, а ветка `{p['branch']}` проверялась до них — "
+                                 "сначала её посмотрит Безопасность.")
+            try:
+                async with self.locks[role.key]:
+                    verdict, closed = await self._sec_check(role, p["branch"], runner.workdir_for(role), p["sha"])
+            except Stopped:
+                await self.say(role, "Перепроверка прервана («стоп агенты») — не выкладываю; повторите «да» после «старт агенты».")
+                return
+            pend = dict(self.store.data.get("pending") or {})
+            if pend.get(role.key) != p:
+                await self.say(role, f"Выкладка `{p['branch']}` не продолжается: ветка уже выложена или снята.")
+                return
+            p = {**p, "sec": verdict, "closed": closed}
+            pend[role.key] = p
+            self.store["pending"] = pend
         if "sec" in p and p["sec"] is not True:   # D347: a security fix needs the security agent's own «можно»
-            await self.say(role, "Безопасность это исправление не подтвердила — не выкладываю.")
+            await self.say(role, "Безопасность эту ветку не подтвердила — не выкладываю. «пропустить» — оставить её; "
+                                 "что за агентом числится — в «статус».")
             return
         for _ in range(90):                       # CI takes ~10-25 min
             state = await github.ci_state(p["sha"])

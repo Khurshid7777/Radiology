@@ -362,19 +362,31 @@ def bot_check(files: list[str]) -> str | None:
     return "ветка меняет код в src/, но не меняет ни одного теста в tests/" if src and not tests else None
 
 
-CLOSED_HEAD = re.compile(r"^[\s*_>`-]*ЗАКРЫТ[ЫАО]?[\s*_]*:", re.IGNORECASE)
+CLOSED_HEAD = re.compile(r"^ {0,3}(?:[-*•] )?[*_]*ЗАКРЫТ[ЫАО]?[\s*_]*:", re.IGNORECASE)
 
 
 def closed_findings(answer: str, known: list[int]) -> list[int]:
     """D347: the finding numbers the security agent names as closed in its «ЗАКРЫТЫ: 12, 15» line. Only the LAST such
     line of the answer's tail counts, whatever it says: «ЗАКРЫТЫ: нет» (or anything that is not a plain list of
-    numbers) closes nothing and an earlier line is not looked at. Only numbers really on the list count."""
-    for line in reversed((answer or "").splitlines()[-12:]):
-        m = CLOSED_HEAD.match(line[:300])
+    numbers) closes nothing and an earlier line is not looked at. A quoted line («> …»), a line inside a code block
+    or an over-long one is not the agent's word. Only numbers really on the list count."""
+    lines = (answer or "").splitlines()
+    fenced, inside = set(), False
+    for i, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            inside = not inside
+            fenced.add(i)
+        elif inside:
+            fenced.add(i)
+    for i in range(len(lines) - 1, max(len(lines) - 13, -1), -1):
+        line = lines[i]
+        m = None if i in fenced else CLOSED_HEAD.match(line[:300])
         if not m:
             continue
-        tokens = [t.strip("*_`.№ ") for t in re.split(r"[,;\s]+|\bи\b", line[m.end():300]) if t.strip("*_`.№ ")]
-        if not tokens or not all(t.isdigit() and len(t) <= 9 for t in tokens):
+        if len(line) > 300:
+            return []
+        tokens = [t.strip("*_.№ ") for t in re.split(r"[,;\s]+|\bи\b", line[m.end():]) if t.strip("*_.№ ")]
+        if not tokens or not all(t.isascii() and t.isdigit() and len(t) <= 9 for t in tokens):
             return []
         return sorted({int(t) for t in tokens} & set(known))
     return []
