@@ -140,10 +140,18 @@ async def push(workdir: str, branch: str) -> tuple[bool, str, str]:
     return code == 0, sha.strip(), out[-300:]
 
 
-async def branch_files(workdir: str) -> list[str]:
+async def branch_files(workdir: str, rev: str = "HEAD") -> list[str]:
     """D347: the files the agent's branch changes against main (names only), read as the agent in its clone."""
-    code, out = await agent_git(workdir, "diff", "--name-only", "origin/main...HEAD")
+    code, out = await agent_git(workdir, "diff", "--name-only", f"origin/main...{rev}")
     return [x.strip() for x in out.splitlines() if x.strip()] if code == 0 else []
+
+
+async def pin(workdir: str, sha: str) -> bool:
+    """D347: the clone shows exactly the pushed commit — no uncommitted edits, no leftovers of the reviewer's run —
+    before the security agent reads it."""
+    code, _ = await agent_git(workdir, "reset", "--hard", "--quiet", sha)
+    code2, _ = await agent_git(workdir, "clean", "-fdq")
+    return code == 0 and code2 == 0
 
 
 def _client() -> httpx.AsyncClient:

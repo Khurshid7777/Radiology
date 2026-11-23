@@ -274,12 +274,19 @@ def build_prompt(role: Role, text: str, extra: str = "", works: bool | None = No
 # -- D347: lessons, examples and the bot's own check -------------------------------------------------------------
 LESSON_MENU_HEAD = "Уроки на подтверждение:"
 MAX_LESSONS, LESSON_LEN = 15, 300
-SECURITY_FIX = re.compile(r"(?:^|«)\s*\[?\s*безопасность\s*\]?\s*:", re.IGNORECASE)    # a fix of a security finding
+MENU_LESSONS = 3                                  # the controller proposes at most three at a time
+SECURITY_FIX = re.compile(r"(?:срочно[\s.!:,]{1,4})?безопасность\s*(?:\([^)]{0,40}\))?\s*[:—–-]", re.IGNORECASE)
 
 
 def is_security_fix(text: str | None) -> bool:
-    """The task (or the task a continuation quotes) starts with «Безопасность:»."""
-    return bool(SECURITY_FIX.search((text or "")[:120]))
+    """The task is a fix of a security finding: it starts with «Безопасность:» (bold, brackets, an arrow and a tag
+    before it, «Срочно.», a dash instead of the colon are all the same word to the bot)."""
+    head = (text or "")[:160]
+    for ch in "*_`→>":
+        head = head.replace(ch, " ")
+    head = re.sub(r"^\s*(?:[-=]\s*)?(?:\[[^\]]{0,20}\]\s*)*", "", head)        # «[ядро]» / «[безопасность]» tags in front
+    head = head.replace("[", " ").replace("]", " ").lstrip(" -=")
+    return bool(SECURITY_FIX.match(head)) or bool(re.match(r"^\s*[*_ ]*\[\s*безопасность\s*\]", (text or "")[:60], re.IGNORECASE))
 
 
 def _role_by_title(tag: str) -> str | None:
@@ -303,7 +310,7 @@ def parse_lessons(text: str) -> dict[int, tuple[str, str]]:
         key, body = _role_by_title(tag), body.strip().lstrip("*").lstrip().lstrip(":—–-").strip()
         if key and body:
             out[int(digits)] = (key, body[:LESSON_LEN])
-    return out
+    return dict(sorted(out.items())[:MENU_LESSONS])
 
 
 def lesson_menu(items: dict[int, tuple[str, str]]) -> str:
@@ -350,5 +357,5 @@ def outcome_text(h: dict) -> str:
 def bot_check(files: list[str]) -> str | None:
     """D347: the first «a mistake became a check» — code under src/ changed and no test did."""
     src = [f for f in files if f.startswith("src/") and f.endswith(".py")]
-    tests = [f for f in files if f.startswith("tests/")]
+    tests = [f for f in files if f.startswith("tests/") and f.endswith(".py")]
     return "ветка меняет код в src/, но не меняет ни одного теста в tests/" if src and not tests else None
