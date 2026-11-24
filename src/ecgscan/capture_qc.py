@@ -240,28 +240,55 @@ def phase_line(profiles: np.ndarray, period: float, *, band: int, origin: float 
     return float(a % period), float(s)
 
 
-def refine_period(profiles: np.ndarray, period: float, *, span: float = 0.03, steps: int = 61) -> float:
-    """SD-143: the period to a fraction of a pixel, where the bands' first harmonics are strongest. An error of 0.1 px a
-    period is 2.5 px across 25 periods: a phase drawn from the centre would drift off the lines at the frame's edges."""
+def clip_spikes(profiles: np.ndarray, k: float = 4.0) -> np.ndarray:
+    """SD-143: each band's profile limited to k times its median absolute value. The sheet's edge against the desk is
+    one step many times the grid's lines; left as it is, it outweighs them and pulls the period and the phase."""
+    lim = k * np.median(np.abs(profiles), axis=1, keepdims=True) + 1e-9
+    return np.clip(profiles, -lim, lim)
+
+
+def refine_period(profiles: np.ndarray, period: float, *, max_share: float = 0.6) -> float:
+    """SD-143: the period to a fraction of a pixel from the autocorrelation's peaks at its multiples h * P: a peak found to
+    a third of a pixel at h = 10 gives the period to 0.03 px. The estimate of the farthest multiples that still have a
+    clear peak (within ``max_share`` of the profile) is taken; the sheet's edges, the traces and the spectral leakage
+    that pulled a whole-width peak up by 0.5-0.9 % (the core's check, D344) do not move these peaks."""
     n = profiles.shape[1]
-    x = np.arange(n)
-    cand = period * (1 + np.linspace(-span, span, steps))
-    score = [float(np.abs(profiles @ np.exp(-2j * np.pi * x / c)).sum()) for c in cand]
-    i = int(np.argmax(score))
-    if 0 < i < steps - 1:
-        return float(cand[i] + (cand[1] - cand[0]) * _parabola(score[i - 1], score[i], score[i + 1]))
-    return float(cand[i])
+    top = int(max_share * n)
+    if profiles.size == 0 or top < 3 * period:
+        return float(period)
+    spec = np.fft.rfft(profiles, 2 * n, axis=1)                    # the bands' autocorrelations at once, by FFT
+    a = np.fft.irfft((spec * spec.conj()).real.sum(axis=0), 2 * n)[: top + 2] / (n - np.arange(top + 2))
+    if a[0] <= 0:
+        return float(period)
+    ests, wts = [], []
+    half = max(1, int(period // 4))
+    for h in range(2, int(top / period)):
+        c = int(round(h * period))
+        lo, hi = c - half, min(c + half, top)
+        if lo < 1 or hi <= lo:
+            continue
+        m = lo + int(np.argmax(a[lo:hi + 1]))
+        if m <= lo or m >= hi or a[m] <= 0.05 * a[0]:
+            continue
+        ests.append((m + _parabola(a[m - 1], a[m], a[m + 1])) / h)
+        wts.append(h * float(a[m]))
+    if len(ests) < 2:
+        return float(period)
+    order = np.argsort(ests)
+    cum = np.cumsum(np.array(wts)[order])
+    return float(np.array(ests)[order][int(np.searchsorted(cum, cum[-1] / 2))])
 
 
 def grid_geometry(q: np.ndarray, period: float | None, *, band: int, detrend: int, smooth: int, tol: float,
-                  min_share: float = 0.25) -> dict | None:
-    """SD-143: the grid's period (refined), phase and slope in both axes (working px) and how many 3 x 3 zones agree."""
+                  min_share: float = 0.25, prof_x: np.ndarray | None = None) -> dict | None:
+    """SD-143: the grid's period (refined), phase and slope in both axes (working px) and how many 3 x 3 zones agree.
+    ``prof_x``: the band profiles already made for the period (the same ``q``), reused. A zone's phases are read from
+    the frame's own profiles, cut to the zone (no profiles are made again)."""
     if period is None:
         return None
-    prof_x = band_profiles(q, band=band, detrend=detrend, smooth=smooth)
-    prof_y = band_profiles(q.T, band=band, detrend=detrend, smooth=smooth)
-    period = refine_period(np.vstack([prof_x[:, : min(prof_x.shape[1], prof_y.shape[1])],
-                                      prof_y[:, : min(prof_x.shape[1], prof_y.shape[1])]]), period)
+    prof_x = clip_spikes(band_profiles(q, band=band, detrend=detrend, smooth=smooth) if prof_x is None else prof_x)
+    prof_y = clip_spikes(band_profiles(q.T, band=band, detrend=detrend, smooth=smooth))
+    period = float(np.median([refine_period(prof_x, period), refine_period(prof_y, period)]))
     lx, ly = phase_line(prof_x, period, band=band), phase_line(prof_y, period, band=band)
     if lx is None or ly is None:
         return None
@@ -271,20 +298,23 @@ def grid_geometry(q: np.ndarray, period: float | None, *, band: int, detrend: in
     for i in range(3):
         for j in range(3):
             y0, y1, x0, x1 = i * h // 3, (i + 1) * h // 3, j * w // 3, (j + 1) * w // 3
-            zone = q[y0:y1, x0:x1]
             ok = []
-            for sub, line, off_a, off_b in ((zone, lx, x0, y0), (zone.T, ly, y0, x0)):
-                pr = band_profiles(sub, band=band, detrend=detrend, smooth=smooth)
-                if pr.shape[0] < 2:
+            # vertical lines: the bands (rows) inside the zone, their profiles cut to its columns; horizontal likewise
+            for prof, line, a0, a1, b0, b1 in ((prof_x, lx, x0, x1, y0, y1), (prof_y, ly, y0, y1, x0, x1)):
+                rows = np.arange(prof.shape[0])
+                centres = band * (rows + 0.5)
+                sel = (centres >= b0) & (centres < b1)
+                if sel.sum() < 2 or a1 - a0 < 2 * period:
                     ok.append(None)
                     continue
-                ph, wt = band_phases(pr, period)
+                pr = prof[sel, a0:a1]
+                z = pr @ np.exp(-2j * np.pi * np.arange(a0, a1) / period)       # phases in frame coordinates
+                ph, wt = np.mod(-np.angle(z) * period / (2 * np.pi), period), np.abs(z) / (a1 - a0)
                 good = wt >= min_share * ref
                 if good.sum() < max(2, len(wt) // 3):
                     ok.append(None)
                     continue
-                c = off_b + band * (np.arange(len(ph)) + 0.5)
-                res = _wrap((ph + off_a) - (line[0] + line[1] * c), period)[good]
+                res = _wrap(ph - (line[0] + line[1] * centres[sel]), period)[good]
                 ok.append(float(np.median(np.abs(res))) <= tol * period)
             if None in ok:
                 continue
@@ -474,7 +504,7 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
             break
     tilt = None if period is None else tilt_deg(prof, period, band=a["band"])
     geo = grid_geometry(q, period, band=a["band"], detrend=a["detrend"], smooth=a["smooth"],
-                        tol=float(a.get("zone_phase_tol", 0.15))) if grid else None
+                        tol=float(a.get("zone_phase_tol", 0.15)), prof_x=prof) if grid else None
     ppm = None if period is None else period * k * scale_to_capture / 5.0
     rows, blk = paper_blocks(q, period, tilt, block=a["block"], ratio=a["paper_ratio"])
     n_blocks = sum(len(r) for r in rows)
