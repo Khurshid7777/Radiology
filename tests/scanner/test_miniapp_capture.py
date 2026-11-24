@@ -119,7 +119,7 @@ def test_the_original_reaches_the_bot_byte_for_byte_once_and_never_touches_the_d
     assert client.post("/miniapp/upload", content=photo, headers=head).status_code == 401     # the ticket is spent
     assert client.post("/miniapp/send", headers=head).status_code == 401
     assert not any(p.is_file() for p in tmp_path.rglob("*"))                                  # memory only
-    said = "\n".join(r.getMessage() for r in caplog.records if r.name != "httpx")            # httpx: this test's own client
+    said = "\n".join(r.getMessage() for r in caplog.records if not r.name.startswith("httpx"))            # httpx: this test's own client
     assert tid not in said and head[TICKET_HEADER] not in said                                # ... and no trace in the logs
 
 
