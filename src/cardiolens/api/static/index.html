@@ -607,6 +607,9 @@ const UZ = {
   '↺ Повернуть влево': '↺ Chapga burish',
   '↻ Повернуть вправо': '↻ O\'ngga burish',
   'Строки уже идут слева направо': 'Qatorlar allaqachon chapdan o\'ngga boradi',
+  'Вход через Telegram — ключ не нужен.': 'Telegram orqali kirish — kalit kerak emas.',
+  'Нет доступа: откройте приложение из бота, где вам дан доступ.':
+    'Ruxsat yo\'q: ilovani sizga ruxsat berilgan bot orqali oching.',
   'Ссылка содержит другой ключ клиники. Заменить сохранённый ключ?':
     'Havolada boshqa klinika kaliti bor. Saqlangan kalit almashtirilsinmi?',
   'Введите ключ клиники один раз — он сохранится в Telegram на этом устройстве.':
@@ -736,7 +739,14 @@ $('apikey').addEventListener('change', () => {
   try { localStorage.setItem(KEY, $('apikey').value.trim()); } catch (e) {}
   keyStatus();
 });
+function tgInitData() {
+  try { return new URLSearchParams((location.hash || '').replace(/^#/, '')).get('tgWebAppData') || null; } catch (e) { return null; }
+}
 function keyStatus() {
+  if (!$('apikey').value.trim() && tgInitData()) {       // D350: signed in by Telegram, no key needed
+    $('keyhint').textContent = t('Вход через Telegram — ключ не нужен.');
+    return;
+  }
   const has = !!$('apikey').value.trim();
   const inTg = /[#&]tgWebApp(Platform|Version)=/.test(location.hash);
   $('keyhint').textContent = t(has ? 'Ключ сохранён в этом браузере.'
@@ -746,7 +756,11 @@ function keyStatus() {
 function authed(url, opts = {}) {
   // D272: no request leaves the page before the terms are accepted.
   if (typeof termsAccepted === 'function' && !termsAccepted()) { showConsent(); return Promise.reject(new Error('terms not accepted')); }
-  return fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-API-Key': $('apikey').value.trim() } });
+  // D350: inside Telegram without a key the doctor signs in with Telegram's signed launch data — sent to this server
+  // only, in a header only (never in an address, a log, a link or the history).
+  const key = $('apikey').value.trim(), init = key ? null : tgInitData();
+  const auth = key ? { 'X-API-Key': key } : init ? { 'X-Telegram-Init-Data': init } : { 'X-API-Key': '' };
+  return fetch(url, { ...opts, headers: { ...(opts.headers || {}), ...auth } });
 }
 async function blobUrl(url) {
   const r = await authed(url);
@@ -896,7 +910,8 @@ async function camCheck() {
     fd.append('parts', $('campartsbox').checked ? 'true' : 'false');
     const r = await authed('/api/capture/check', { method: 'POST', body: fd });
     if (!r.ok) { $('camhint').textContent = r.status === 401 || r.status === 403
-        ? 'Нужен ключ клиники (раздел «Служебное»).' : t('Проверка кадра недоступна — можно снять вручную.'); return; }
+        ? (tgInitData() && !$('apikey').value.trim() ? t('Нет доступа: откройте приложение из бота, где вам дан доступ.')
+           : 'Нужен ключ клиники (раздел «Служебное»).') : t('Проверка кадра недоступна — можно снять вручную.'); return; }
     const d = await r.json();
     camDraw(d, c.width, c.height);
     // D177: what is in view is told apart on the server; a sheet too big to take whole
@@ -1107,7 +1122,10 @@ $('run').addEventListener('click', async () => {
   let ok = false;
   try {
     const r = await authed('/api/analyze', { method: 'POST', body: fd });
-    if (r.status === 401) { $('svc').open = true; throw new Error(t('ключ клиники не подходит — проверьте его в разделе «Служебное»')); }
+    if (r.status === 401) {
+      if (!$('apikey').value.trim() && tgInitData()) throw new Error(t('Нет доступа: откройте приложение из бота, где вам дан доступ.'));
+      $('svc').open = true; throw new Error(t('ключ клиники не подходит — проверьте его в разделе «Служебное»'));
+    }
     if (!r.ok) {
       let detail = r.statusText;
       try { detail = (await r.json()).detail || detail; } catch (e) {}
@@ -1602,7 +1620,7 @@ if (tgApp) {
   document.body.classList.add('tg');
   tgEvent('web_app_ready');
   tgEvent('web_app_expand');
-  if (!$('apikey').value.trim()) { $('svc').open = true; keyStatus(); }
+  keyStatus();                                   // D350: no key panel needed — Telegram signs the doctor in
 }
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }

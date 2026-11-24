@@ -27,6 +27,10 @@ services:
       ECGSCAN_SERVICE_DIR: /data/scanner_service
       CARDIOLENS_FEEDBACK_PATH: /data/feedback/feedback.jsonl
       CARDIOLENS_QUALITY_PATH: /data/feedback/quality.jsonl
+      # D350: Mini App sign-in by Telegram — the check secret (not the bot token), the bot's admins and its access file
+      ECGSCAN_WEBAPP_SECRET: ${ECGSCAN_WEBAPP_SECRET:-}
+      ECGSCAN_BOT_ALLOWED: ${ECGSCAN_BOT_ALLOWED:-}
+      ECGSCAN_BOT_STORE: /data/bot/access.json
     volumes:
       - appdata:/data
     expose:

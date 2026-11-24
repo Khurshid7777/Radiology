@@ -43,6 +43,8 @@ if [ ! -t 0 ]; then
     case "$name" in
       ANTHROPIC_API_KEY)    set_var ANTHROPIC_API_KEY "$value" ;;
       TELEGRAM_BOT_TOKEN)   set_var ECGSCAN_BOT_TOKEN "$value"
+                            # D350: the site checks Mini App sign-ins with a secret derived from the token, never the token
+                            set_var ECGSCAN_WEBAPP_SECRET "$(printf '%s' "$value" | openssl dgst -sha256 -hmac WebAppData -hex | sed 's/^.*= *//')"
                             set_var ECGSCAN_BOT_API_KEY "$(sed -n 's/^ECGSCAN_API_KEYS=[^:]*:\([^,]*\).*/\1/p' .env)" ;;
       TELEGRAM_BOT_ALLOWED) set_var ECGSCAN_BOT_ALLOWED "$value" ;;
       AGENTS_API_KEY)       # letters, digits, - and _ only: the key goes through sed and the "name:key,name:key" list

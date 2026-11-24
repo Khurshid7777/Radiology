@@ -37,7 +37,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.background import BackgroundTask
 
@@ -160,6 +160,20 @@ def health() -> dict:
 CAPTURE_FRAME_MAX_BYTES = 2_000_000
 
 
+def site_actor(x_api_key: str | None = Header(default=None),
+               x_telegram_init_data: str | None = Header(default=None)) -> str:
+    """D350: the clinic key, or — for the site opened from the bot as a Telegram Mini App, without a key — the doctor's
+    signed Telegram launch data (only the bot's own users). The quality summary and calibration stay key-only."""
+    if x_api_key is not None or x_telegram_init_data is None:
+        return actor(x_api_key)
+    from cardiolens.api.tg_auth import telegram_actor
+
+    who = telegram_actor(x_telegram_init_data)
+    if who is None:
+        raise HTTPException(401, "Telegram sign-in refused: open the app from the bot, with access given there")
+    return who
+
+
 GRID_SURE = 0.15        # D344: period_strength from which the frame check's px/mm is trusted (SD-141 aggregates)
 GRID_AGREE = 0.9        # D344 part 2: the 3 x 3 zones agree with one grid (SD-143: flat 32/32, perspective <= 0.6 44/44)
 GRID_MIN_ZONES = 4      # D344 part 2: «hold the phone parallel» only when the grid is seen over enough of the frame
@@ -167,7 +181,7 @@ GRID_MIN_ZONES = 4      # D344 part 2: «hold the phone parallel» only when the
 
 @app.post("/api/capture/check")
 async def capture_check(frame: UploadFile = File(...), capture_width: int = Form(default=0),
-                        parts: bool = Form(default=False), who: str = Depends(actor)) -> dict:
+                        parts: bool = Form(default=False), who: str = Depends(site_actor)) -> dict:
     """One preview frame from the page's camera, checked as the phone app checks it (the
     scanner's ``capture_qc``, SD-014/SD-070), with what is in view told apart (D177): a
     device screen (no paper grid to check — light, glare and blur only), a sheet or a strip
@@ -447,7 +461,7 @@ async def analyze(
     paper_speed_mm_s: float | None = Form(default=None),   # D179: printed on the strip, given by the user
     gain_mm_mv: float | None = Form(default=None),
     files: list[UploadFile] = File(default=[]),
-    who: str = Depends(actor),
+    who: str = Depends(site_actor),
 ) -> JSONResponse:
     try:
         if files:
@@ -533,7 +547,7 @@ def _share_target(token: str) -> str | None:
 
 
 @app.post("/api/analysis/{analysis_id}/share")
-def share(analysis_id: str, who: str = Depends(actor)) -> JSONResponse:
+def share(analysis_id: str, who: str = Depends(site_actor)) -> JSONResponse:
     _require(analysis_id, who)                  # only the owner's analysis
     exp = int(time.time()) + SHARE_DAYS * 86400
     return JSONResponse({"url": f"/s/{share_token(analysis_id, exp)}", "expires_at": exp})
@@ -557,7 +571,7 @@ def shared_pdf(token: str):
 
 
 @app.get("/api/analysis/{analysis_id}/report.pdf")
-def report_pdf(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
+def report_pdf(analysis_id: str, who: str = Depends(site_actor)) -> FileResponse:
     result = _require(analysis_id, who)
     tmp = tempfile.mkdtemp()
     path = str(Path(tmp) / f"{analysis_id}.pdf")
@@ -568,7 +582,7 @@ def report_pdf(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/overlay.jpg")
-def overlay_jpg(analysis_id: str, who: str = Depends(actor)) -> Response:
+def overlay_jpg(analysis_id: str, who: str = Depends(site_actor)) -> Response:
     """The scanner's confirmation overlay of a photo (D163): the traces it read, drawn over
     the page, patient header blanked. 404 for a signal file, a synthetic case, or a photo
     the CardioLens readers read instead of the scanner."""
@@ -580,7 +594,7 @@ def overlay_jpg(analysis_id: str, who: str = Depends(actor)) -> Response:
 
 
 @app.get("/api/analysis/{analysis_id}/waveform.svg")
-def waveform_svg(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
+def waveform_svg(analysis_id: str, who: str = Depends(site_actor)) -> FileResponse:
     result = _require(analysis_id, who)
     tmp = tempfile.mkdtemp()
     path = str(Path(tmp) / f"{analysis_id}.svg")
@@ -589,7 +603,7 @@ def waveform_svg(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/waveform.json")
-def waveform_json(analysis_id: str, who: str = Depends(actor)) -> JSONResponse:
+def waveform_json(analysis_id: str, who: str = Depends(site_actor)) -> JSONResponse:
     """D210 UI P3: the waveform SVG's samples for the page's viewer (crosshair, ruler); none under a gate."""
     from cardiolens.outputs.display import waveform_samples
 
@@ -597,7 +611,7 @@ def waveform_json(analysis_id: str, who: str = Depends(actor)) -> JSONResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/graph.png")
-def graph_png(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
+def graph_png(analysis_id: str, who: str = Depends(site_actor)) -> FileResponse:
     result = _require(analysis_id, who)
     tmp = tempfile.mkdtemp()
     path = str(Path(tmp) / f"{analysis_id}.png")
@@ -606,13 +620,13 @@ def graph_png(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/conclusion", response_class=PlainTextResponse)
-def conclusion(analysis_id: str, lang: str = "ru", who: str = Depends(actor)) -> str:
+def conclusion(analysis_id: str, lang: str = "ru", who: str = Depends(site_actor)) -> str:
     result = _require(analysis_id, who)
     return format_conclusion(result, "uz" if lang == "uz" else "ru")
 
 
 @app.post("/api/analysis/{analysis_id}/feedback")
-def submit_feedback(analysis_id: str, fb: Feedback, who: str = Depends(actor)) -> dict:
+def submit_feedback(analysis_id: str, fb: Feedback, who: str = Depends(site_actor)) -> dict:
     """Capture physician corrections for future fine-tuning/calibration (TZ §13)."""
     fb.analysis_id = analysis_id
     result = _require(analysis_id, who)
