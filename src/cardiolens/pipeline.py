@@ -627,6 +627,7 @@ def run_pipeline(
     # alerts (recall first, TZ §10) and says so (scanner branch D97, now D135).
     hard_gate = no_ecg or bad_photo or bad_units
     _approximate_long_qt(sig, findings, audit)
+    _photos_not_all_used(sig, findings, audit)
     _pr_unstable(sig, findings, audit)
     safety = scan_critical(findings, Measurements() if hard_gate else m)
     if not quality_ok and not hard_gate:
@@ -860,6 +861,26 @@ def _pr_unstable(sig, findings: FindingSet, audit: list[str]) -> None:
                  "baholanmaydi",
         confidence=0.9))
     audit.append(f"[L4] PR_UNSTABLE from the scanner: withheld {dropped} (D263)")
+
+
+def _photos_not_all_used(sig, findings: FindingSet, audit: list[str]) -> None:
+    """D351: of several photos sent as one ECG, not all went into the record (the same leads at another time are not
+    joined yet) — the doctor is told, not left to think all of them were read."""
+    import re
+
+    note = next((n for n in (sig.provenance.notes or []) if n.startswith("photos used: ")), None)
+    m = re.fullmatch(r"photos used: (\d+) of (\d+)", note or "")
+    if not m or int(m.group(1)) >= int(m.group(2)):
+        return
+    k, n = int(m.group(1)), int(m.group(2))
+    findings.findings.append(Finding(
+        code="photos_not_all_used", group="other",
+        label_ru=f"Разобрано {k} фото из {n}: остальные повторяют те же отведения в другое время — длинная запись "
+                 "по времени пока не склеивается; разбор сделан по первому прочитанному фото",
+        label_uz=f"{n} ta suratdan {k} tasi tahlil qilindi: qolganlari o'sha tarmoqlarni boshqa vaqtda takrorlaydi — "
+                 "uzun yozuv vaqt bo'yicha hali birlashtirilmaydi; tahlil birinchi o'qilgan surat bo'yicha",
+        evidence=[Evidence(feature="photos_used", value=f"{k}/{n}")], confidence=1.0))
+    audit.append(f"[L4] photos used {k} of {n} (D351)")
 
 
 def _approximate_long_qt(sig, findings: FindingSet, audit: list[str]) -> None:

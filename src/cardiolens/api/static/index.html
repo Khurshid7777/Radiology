@@ -275,6 +275,7 @@
   h3 { font-size:14px; margin:14px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
   @media (min-width:1024px) { .card .stepnav { display:none; } }   /* both cards side by side: no step buttons */
   ::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--dur-base); }
+.linkbtn { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 6px; font-size: 1em; }   /* D351 */
 </style>
 </head>
 <body data-step="1">
@@ -610,6 +611,9 @@ const UZ = {
   'Вход через Telegram — ключ не нужен.': 'Telegram orqali kirish — kalit kerak emas.',
   'Нет доступа: откройте приложение из бота, где вам дан доступ.':
     'Ruxsat yo\'q: ilovani sizga ruxsat berilgan bot orqali oching.',
+  'Выбрано: ': 'Tanlandi: ',
+  'нажмите ещё раз, чтобы добавить фото': 'yana surat qo\'shish uchun yana bosing',
+  'Убрать': 'Olib tashlash',
   'Ссылка содержит другой ключ клиники. Заменить сохранённый ключ?':
     'Havolada boshqa klinika kaliti bor. Saqlangan kalit almashtirilsinmi?',
   'Введите ключ клиники один раз — он сохранится в Telegram на этом устройстве.':
@@ -770,9 +774,33 @@ async function blobUrl(url) {
 
 // Step 1: the file picker and the drop zone.
 const drop = $('drop'), files = $('files');
+// D351: the photos of one ECG are gathered — a new choice ADDS to the earlier ones (Telegram's file window gives one
+// at a time), the same file is not added twice, any one can be removed. The input always holds the whole set.
+let kept = [];
+const sameFile = (a, b) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+function syncFiles() {
+  const dt = new DataTransfer(); kept.forEach(f => dt.items.add(f)); files.files = dt.files; showChosen();
+}
+function addFiles(list) {
+  for (const f of list) if (!kept.some(k => sameFile(k, f))) kept.push(f);
+  syncFiles();
+}
 function showChosen() {
   const names = [...files.files].map(f => f.name);
-  $('chosen').textContent = names.length ? '✓ ' + names.join(', ') : '';
+  const box = $('chosen'); box.textContent = '';
+  if (names.length) {
+    const head = document.createElement('div');
+    head.textContent = t('Выбрано: ') + names.length + (names.length > 1 ? '' : ' · ' + t('нажмите ещё раз, чтобы добавить фото'));
+    box.appendChild(head);
+    kept.forEach((f, i) => {
+      const row = document.createElement('div');
+      row.textContent = '✓ ' + f.name + ' ';
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'linkbtn'; x.textContent = '✕'; x.setAttribute('aria-label', t('Убрать'));
+      x.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); kept.splice(i, 1); syncFiles(); });
+      row.appendChild(x); box.appendChild(row);
+    });
+  }
   if (names.length) $('case').value = '';
   // D210 (UI P1): rate and units matter for a CSV record only.
   $('csvrow').classList.toggle('hidden', !names.some(n => /\.(csv|txt)$/i.test(n)));
@@ -819,8 +847,7 @@ async function rotateBy(deg) {
     if (!blob) throw new Error('no blob');
     const f = new File([blob], rot.file.name.replace(/\.[^.]+$/, '') + '_rotated.jpg', { type: 'image/jpeg' });
     rot.file = f;
-    const dt = new DataTransfer(); dt.items.add(f); files.files = dt.files;
-    $('chosen').textContent = '✓ ' + f.name;
+    kept = [f]; syncFiles();
     showRotPreview(f);
     rot.pending = c.height > 1.15 * c.width;
     // The upside-down page reads too, with mirrored QRS (SD-074): the user checks it.
@@ -979,9 +1006,7 @@ async function camShot() {
 }
 function camDone() {
   if (cam.shots.length) {
-    const dt = new DataTransfer();
-    cam.shots.forEach(f => dt.items.add(f));
-    files.files = dt.files; showChosen();
+    addFiles(cam.shots);                      // D351: the camera's shots join the chosen photos
   }
   camClose();
 }
@@ -990,10 +1015,10 @@ $('camopen').addEventListener('click', camOpen);
 $('camclose').addEventListener('click', camClose);
 $('camshot').addEventListener('click', camShot);
 $('camdone').addEventListener('click', camDone);
-files.addEventListener('change', showChosen);
+files.addEventListener('change', () => addFiles([...files.files]));   // D351: added to, not replaced
 ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
-drop.addEventListener('drop', e => { files.files = e.dataTransfer.files; showChosen(); });
+drop.addEventListener('drop', e => { addFiles(e.dataTransfer.files); });
 
 // D210 P4: speed and gain segments write the hidden selects the form reads (D179).
 document.querySelectorAll('.seg4').forEach(grp => {
@@ -1423,7 +1448,7 @@ for (const [id, other] of [['tab_res', 'tab_lab'], ['tab_lab', 'tab_res']])
 // D210 P2: "re-take" keeps the patient (and says so, so the data never drift to another patient);
 // "new patient" clears the form and the result. The clinic key, the language and the mode stay.
 function clearFile() {
-  files.value = ''; $('chosen').textContent = ''; $('filewarn').textContent = '';
+  kept = []; files.value = ''; $('chosen').textContent = ''; $('filewarn').textContent = '';
   rot.pending = false; $('rotbox').classList.add('hidden'); $('csvrow').classList.add('hidden');
   $('results').classList.add('hidden'); $('err').textContent = ''; lastData = null; lastId = null;
 }

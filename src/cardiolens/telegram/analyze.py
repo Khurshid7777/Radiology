@@ -423,6 +423,47 @@ def digitize_photos(paths: list[str | Path], *, paper_speed_mm_s: float | None =
             sigs.append(digitize_photo(p, **scale))
         except Exception as e:
             errors.append((Path(p).name, error_text(e)))
+    out = _combine(sigs, combine_screen_signals)
+    if out is not None and len(paths) > 1:
+        _note_used(out, sigs, len(paths))
+        return out
+    # One reason for all the photos is said once (D142: three parts of one strip
+    # repeated the same refusal three times).
+    reasons = {t.split(_PPM_NOTE)[0] for _, t in errors}
+    if len(reasons) == 1:
+        ppm = sorted({t.split(_PPM_NOTE)[1].split()[0] for _, t in errors if _PPM_NOTE in t})
+        raise ValueError(reasons.pop() + (f"{_PPM_NOTE}{'–'.join(ppm[::max(1, len(ppm) - 1)])} точки на мм."
+                                          if ppm else ""))
+    raise ValueError("; ".join(f"{name}: {t}" for name, t in errors))
+
+
+PHOTOS_USED_NOTE = "photos used: "     # D351: «photos used: K of N»
+
+
+def _leads(s) -> set[str]:
+    return set((s.provenance.lead_windows or {}).keys()) or set(s.lead_names or [])
+
+
+def _note_used(out, sigs, total: int) -> None:
+    """D351: how many of the photos sent went into the record — one read photo, or the pages of a combined record that
+    brought new leads (D123, D125); photos that could not be read count as not used."""
+    if any(out is s for s in sigs):
+        used = 1
+    else:
+        seen: set[str] = set()
+        used = 0
+        mine = _leads(out)
+        for s in sigs:
+            new = _leads(s) - seen
+            if new and new <= mine:
+                used += 1
+                seen |= _leads(s)
+        used = max(1, used)
+    out.provenance.notes = [*(out.provenance.notes or []), f"{PHOTOS_USED_NOTE}{min(used, total)} of {total}"]
+
+
+def _combine(sigs, combine_screen_signals):
+    """The record from several read photos (D123, D125), or the first read one; None when none was read."""
     screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]
     strips = [s for s in sigs if any(n.startswith(("three-channel strip photo", "3x4+rhythm strip photo"))
                                      for n in s.provenance.notes)]
@@ -433,16 +474,7 @@ def digitize_photos(paths: list[str | Path], *, paper_speed_mm_s: float | None =
             return combine_screen_signals(strips, drop_repeats=True)
     except ValueError:            # the pages repeat leads: two photos of the same page
         return sigs[0]
-    if sigs:
-        return sigs[0]
-    # One reason for all the photos is said once (D142: three parts of one strip
-    # repeated the same refusal three times).
-    reasons = {t.split(_PPM_NOTE)[0] for _, t in errors}
-    if len(reasons) == 1:
-        ppm = sorted({t.split(_PPM_NOTE)[1].split()[0] for _, t in errors if _PPM_NOTE in t})
-        raise ValueError(reasons.pop() + (f"{_PPM_NOTE}{'–'.join(ppm[::max(1, len(ppm) - 1)])} точки на мм."
-                                          if ppm else ""))
-    raise ValueError("; ".join(f"{name}: {t}" for name, t in errors))
+    return sigs[0] if sigs else None
 
 
 def analyse_photos(paths: list[str | Path], *, mode: str = "A",
