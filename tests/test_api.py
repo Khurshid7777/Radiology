@@ -443,6 +443,7 @@ def test_capture_check_says_how_much_closer_only_when_the_scale_is_sure_d344(tmp
 
     from ecgscan import capture_qc as cq
     page = cv2.imread(str(_page_png(tmp_path, px_per_mm=4)))
+    page = cv2.copyMakeBorder(page, 60, 60, 80, 80, cv2.BORDER_CONSTANT, value=(60, 50, 40))   # the sheet on a desk, whole
     buf = cv2.imencode(".jpg", page)[1].tobytes()
     real = cq.check_frame
 
@@ -459,6 +460,7 @@ def test_capture_check_says_how_much_closer_only_when_the_scale_is_sure_d344(tmp
     dist = d["distance"]
     assert dist["sure"] and dist["need"] == 8.0 and 40 <= dist["closer_pct"] <= 60 and "ближе" in dist["ru"].lower()
     assert "%" in dist["uz"] and d["ok"] is False and "sheet_whole" in d
+    assert "closer" not in {h["code"] for h in d["hints"]}           # review: no «Приблизьтесь» beside the numbered line
     # a weak grid: no number, no auto-capture, a plain advice
     monkeypatch.setattr(cq, "check_frame", with_strength(0.05))
     d = client.post("/api/capture/check", data={"capture_width": str(page.shape[1]), "parts": "true"},

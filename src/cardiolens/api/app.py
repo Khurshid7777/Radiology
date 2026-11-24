@@ -255,19 +255,25 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
     # D344: how far from the sheet — a number only when the scale is sure (the board, or a grid that clearly repeats:
     # period_strength >= 0.15, SD-141); a doubled period otherwise hides a needed «closer».
     distance = None
-    if ppm is not None and not suggest_parts:
+    # review: a sheet wider than the frame AND too coarse — «farther» and «closer» at once; no number then
+    if ppm is not None and not suggest_parts and not (qc.frame_advice == "farther" and ppm < min_ppm):
         sure = board or (qc.period_strength is not None and qc.period_strength >= GRID_SURE)
         if sure:
             pct = max(1, round((1 - ppm / min_ppm) * 100)) if ppm < min_ppm else 0
+            far = pct > 75                     # review: «94 % closer» reads as a misreading — say «much closer»
             distance = {"px_per_mm": round(ppm, 1), "need": min_ppm, "closer_pct": pct, "sure": True,
-                        "ru": (f"Ближе: сейчас {ppm:.1f} точек/мм, нужно {min_ppm:g} — подойдите примерно на {pct} % ближе."
+                        "ru": (f"Подойдите намного ближе: сейчас {ppm:.1f} точек/мм, нужно {min_ppm:g}." if far else
+                               f"Ближе: сейчас {ppm:.1f} точек/мм, нужно {min_ppm:g} — подойдите примерно на {pct} % ближе."
                                if pct else f"Расстояние хорошее: {ppm:.1f} точек/мм."),
-                        "uz": (f"Yaqinroq: hozir {ppm:.1f} nuqta/mm, {min_ppm:g} kerak — taxminan {pct} % yaqinroq keling."
+                        "uz": (f"Ancha yaqinroq keling: hozir {ppm:.1f} nuqta/mm, {min_ppm:g} kerak." if far else
+                               f"Yaqinroq: hozir {ppm:.1f} nuqta/mm, {min_ppm:g} kerak — taxminan {pct} % yaqinroq keling."
                                if pct else f"Masofa yaxshi: {ppm:.1f} nuqta/mm.")}
+            if pct:                            # review: the numbered line replaces the plain «closer» text
+                texts = [item for item in texts if item["code"] != "closer"]
         else:
             distance = {"px_per_mm": None, "need": min_ppm, "closer_pct": None, "sure": False,
                         "ru": "Сетка видна нечётко — держите телефон ровно над листом, без тени.",
-                        "uz": "To'r aniq ko'rinmayapti — telefonni varaq ustida tekis, soyasiz tuting."}
+                        "uz": "To‘r aniq ko‘rinmayapti — telefonni varaq ustida tekis, soyasiz tuting."}
             hints.append("grid_unsure")   # no auto-capture on an unsure scale; a manual shot is still possible
     if "parts" in hints:
         texts.append({"code": "parts", "ru": "Лист большой: снимите его частями, каждая часть с перекрытием "
