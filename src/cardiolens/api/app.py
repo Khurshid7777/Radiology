@@ -160,6 +160,9 @@ def health() -> dict:
 CAPTURE_FRAME_MAX_BYTES = 2_000_000
 
 
+GRID_SURE = 0.15        # D344: period_strength from which the frame check's px/mm is trusted (SD-141 aggregates)
+
+
 @app.post("/api/capture/check")
 async def capture_check(frame: UploadFile = File(...), capture_width: int = Form(default=0),
                         parts: bool = Form(default=False), who: str = Depends(actor)) -> dict:
@@ -243,6 +246,29 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
         if sheet_mm[0] > max(zw, zh) + 2 or sheet_mm[1] > min(zw, zh) + 2:
             hints.append("board_small")
             texts.append({"code": "board_small", "ru": _board_advice(sheet_mm, fit.spec.name)})
+    # D344: where to move the phone when the sheet runs off the frame (the scanner's frame_advice, SD-133).
+    if qc.frame_advice:
+        for item in texts:                # («h» is the frame's height here)
+            if item["code"] == "frame":
+                item["ru"] = ru.get(f"qc.frame_{qc.frame_advice}", item["ru"])
+                item["uz"] = uz.get(f"qc.frame_{qc.frame_advice}", item["uz"])
+    # D344: how far from the sheet — a number only when the scale is sure (the board, or a grid that clearly repeats:
+    # period_strength >= 0.15, SD-141); a doubled period otherwise hides a needed «closer».
+    distance = None
+    if ppm is not None and not suggest_parts:
+        sure = board or (qc.period_strength is not None and qc.period_strength >= GRID_SURE)
+        if sure:
+            pct = max(1, round((1 - ppm / min_ppm) * 100)) if ppm < min_ppm else 0
+            distance = {"px_per_mm": round(ppm, 1), "need": min_ppm, "closer_pct": pct, "sure": True,
+                        "ru": (f"Ближе: сейчас {ppm:.1f} точек/мм, нужно {min_ppm:g} — подойдите примерно на {pct} % ближе."
+                               if pct else f"Расстояние хорошее: {ppm:.1f} точек/мм."),
+                        "uz": (f"Yaqinroq: hozir {ppm:.1f} nuqta/mm, {min_ppm:g} kerak — taxminan {pct} % yaqinroq keling."
+                               if pct else f"Masofa yaxshi: {ppm:.1f} nuqta/mm.")}
+        else:
+            distance = {"px_per_mm": None, "need": min_ppm, "closer_pct": None, "sure": False,
+                        "ru": "Сетка видна нечётко — держите телефон ровно над листом, без тени.",
+                        "uz": "To'r aniq ko'rinmayapti — telefonni varaq ustida tekis, soyasiz tuting."}
+            hints.append("grid_unsure")   # no auto-capture on an unsure scale; a manual shot is still possible
     if "parts" in hints:
         texts.append({"code": "parts", "ru": "Лист большой: снимите его частями, каждая часть с перекрытием "
                                            "соседней — режим «частями» включён.",
@@ -262,6 +288,8 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
         "board": board,
         "suggest_parts": suggest_parts,
         "frame": [w, h],
+        "distance": distance,                 # D344
+        "sheet_whole": qc.sheet_whole,        # D344: the page draws the sheet's outline only when it is whole
     }
 
 

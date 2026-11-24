@@ -912,6 +912,10 @@ async function camCheck() {
       cam.okRun = 0; hint.classList.remove('ok');
       hint.textContent = d.hints.map(h => L(h.ru, h.uz || h.ru)).join(' ');
     }
+    if (d.distance && !d.ok) {                 // D344: how far from the sheet, in numbers when the scale is sure
+      const dl = L(d.distance.ru, d.distance.uz || d.distance.ru);
+      if (!hint.textContent.includes(dl)) hint.textContent = (hint.textContent + ' ' + dl).trim();
+    }
   } catch (e) { /* a lost frame: the next one tries again */ }
   finally { cam.busy = false; }
 }
@@ -930,7 +934,7 @@ function camDraw(d, fw, fh) {
   for (const [x, y, sx, sy] of [[gx, gy, 1, 1], [gx + gw, gy, -1, 1], [gx, gy + gh, 1, -1], [gx + gw, gy + gh, -1, -1]]) {
     g.beginPath(); g.moveTo(x, y + sy * c); g.lineTo(x, y); g.lineTo(x + sx * c, y); g.stroke();
   }
-  if (d.corners) {
+  if (d.corners && d.sheet_whole !== false) {     // D344: an outline of a sheet that is not whole misled the owner
     g.strokeStyle = d.ok ? '#4caf50' : '#ffb300'; g.lineWidth = 4; g.beginPath();
     d.corners.forEach(([x, y], i) => (i ? g.lineTo : g.moveTo).call(g, ox + x * k, oy + y * k));
     g.closePath(); g.stroke();

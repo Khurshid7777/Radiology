@@ -434,3 +434,48 @@ def test_assumed_paper_speed_is_said_and_a_given_one_is_not(tmp_path):
     assumed = note()
     assert assumed is None or "25 мм/с" in assumed
     assert note(paper_speed_mm_s="25") is None
+
+
+# --- D344: how far from the sheet, the sheet's outline, where to move the phone -------------------------------------
+
+def test_capture_check_says_how_much_closer_only_when_the_scale_is_sure_d344(tmp_path, monkeypatch):
+    import cv2
+
+    from ecgscan import capture_qc as cq
+    page = cv2.imread(str(_page_png(tmp_path, px_per_mm=4)))
+    buf = cv2.imencode(".jpg", page)[1].tobytes()
+    real = cq.check_frame
+
+    def with_strength(strength):
+        def fake(*a, **k):
+            qc = real(*a, **k)
+            qc.period_strength = strength
+            return qc
+        return fake
+    # a clearly repeating grid at 4 px/mm, the parts mode off: the number and the percentage are said
+    monkeypatch.setattr(cq, "check_frame", with_strength(0.4))
+    d = client.post("/api/capture/check", data={"capture_width": str(page.shape[1]), "parts": "true"},
+                    files={"frame": ("f.jpg", buf, "image/jpeg")}).json()
+    dist = d["distance"]
+    assert dist["sure"] and dist["need"] == 8.0 and 40 <= dist["closer_pct"] <= 60 and "ближе" in dist["ru"].lower()
+    assert "%" in dist["uz"] and d["ok"] is False and "sheet_whole" in d
+    # a weak grid: no number, no auto-capture, a plain advice
+    monkeypatch.setattr(cq, "check_frame", with_strength(0.05))
+    d = client.post("/api/capture/check", data={"capture_width": str(page.shape[1]), "parts": "true"},
+                    files={"frame": ("f.jpg", buf, "image/jpeg")}).json()
+    assert d["distance"]["sure"] is False and d["distance"]["px_per_mm"] is None and d["ok"] is False
+    assert "нечётко" in d["distance"]["ru"]
+    # the same frame 3x wider on the photo: the distance is good
+    monkeypatch.setattr(cq, "check_frame", with_strength(0.4))
+    d = client.post("/api/capture/check", data={"capture_width": str(3 * page.shape[1]), "parts": "true"},
+                    files={"frame": ("f.jpg", buf, "image/jpeg")}).json()
+    assert d["distance"]["closer_pct"] == 0 and "хорошее" in d["distance"]["ru"]
+
+
+def test_the_sheet_outline_only_when_whole_and_frame_advice_d344():
+    from pathlib import Path
+
+    page = (Path(__file__).resolve().parents[1] / "src" / "cardiolens" / "api" / "static" / "index.html").read_text()
+    assert "d.corners && d.sheet_whole !== false" in page
+    src = (Path(__file__).resolve().parents[1] / "src" / "cardiolens" / "api" / "app.py").read_text()
+    assert 'f"qc.frame_{qc.frame_advice}"' in src
