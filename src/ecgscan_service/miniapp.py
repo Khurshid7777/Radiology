@@ -45,7 +45,7 @@ class Ticket:
 
 
 def verify_ticket(ticket: str | None, keys: dict[str, str], *, max_minutes: float,
-                  now: float | None = None) -> Ticket | None:
+                  now: float | None = None, refused_prefix: str | None = "agent") -> Ticket | None:
     """The live ticket signed with one of ``keys`` (key -> name), or None. A ticket valid for longer
     than ``max_minutes`` from now is refused too: a signer cannot mint a ticket for ever."""
     m = _TICKET.match(ticket or "")
@@ -57,6 +57,8 @@ def verify_ticket(ticket: str | None, keys: dict[str, str], *, max_minutes: floa
     for key, name in keys.items():       # every key compared: no early exit on a match
         if hmac.compare_digest(_sign(key, tid, expiry), sig):
             owner = name
+    if owner is not None and refused_prefix and owner.startswith(refused_prefix):
+        owner = None                     # D348: an agent's read-only key (D260) cannot sign a capture ticket
     if owner is None or expiry <= now or expiry > now + max_minutes * 60:
         return None
     return Ticket(tid, owner, expiry)
@@ -76,6 +78,20 @@ def image_kind(data: bytes) -> str | None:
 TURNS = (0, 90, 180, 270)
 
 
+def size_refusal(data: bytes) -> None:
+    """D348 (core review): the size the file header declares is checked BEFORE any decoding, with the scanner's own
+    limits (D136: a 1-MB PNG can declare 32000 x 32000 px and decode to gigabytes). Raises ValueError with the
+    reason; returns when the picture may be decoded."""
+    from ecgscan.config import load_yaml
+    from ecgscan.io import ImageRefused, check_image
+
+    q = load_yaml("pipeline")["quality"]
+    try:
+        check_image(data, max_megapixels=float(q["max_megapixels"]), min_side_px=int(q["min_side_px"]))
+    except ImageRefused as exc:
+        raise ValueError(str(exc)) from exc
+
+
 def turn_photo(data: bytes, rotate_deg: int, quality: int, max_bytes: int) -> bytes:
     """The photo turned ``rotate_deg`` clockwise (SD-138), as a JPEG: decoded as the doctor saw it
     (EXIF applied), turned, encoded at ``quality`` (lower if it would not fit ``max_bytes``).
@@ -87,7 +103,11 @@ def turn_photo(data: bytes, rotate_deg: int, quality: int, max_bytes: int) -> by
         raise ValueError(f"not a quarter turn: {rotate_deg}")
     if rotate_deg == 0:
         return data
-    bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    size_refusal(data)                     # D348: never decode a picture that declares too many pixels
+    try:
+        bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    except cv2.error as exc:
+        raise ValueError("not a picture") from exc
     if bgr is None:
         raise ValueError("not a picture")
     bgr = np.ascontiguousarray(np.rot90(bgr, k=-rotate_deg // 90))

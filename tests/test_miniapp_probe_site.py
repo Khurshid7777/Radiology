@@ -1,4 +1,5 @@
 """D345: the site serves the Mini App probe page (SD-136) without a key and keeps everything else closed."""
+import pytest
 from fastapi.testclient import TestClient
 
 from cardiolens.api.app import app
@@ -58,3 +59,39 @@ def test_the_ticket_never_reaches_the_access_log_d348():
                               ("1.2.3.4:5", "GET", "/api/x?days=7", "1.1", 200), None)
     assert f.filter(other) and "days=7" in other.getMessage()
     assert any(isinstance(x, MiniappQueryFilter) for x in logging.getLogger("uvicorn.access").filters)
+
+
+def _declared_png(w: int, h: int) -> bytes:
+    """A tiny PNG whose header declares ``w`` x ``h`` px (the pixel data is a stub: only the header is read)."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"\x00" * 64)) + chunk(b"IEND", b""))
+
+
+def test_a_decompression_bomb_is_refused_before_decoding_and_agent_keys_sign_no_ticket_d348(monkeypatch):
+    """D348 review: a sub-MB PNG declaring 30000 x 30000 px decoded to ~5 GB in the upload's frame check; the agents'
+    read-only key (D260) could sign a capture ticket."""
+    monkeypatch.setenv("CARDIOLENS_API_KEYS", "clinic:secret,agents:agentsecret")
+    monkeypatch.setenv("ECGSCAN_API_KEYS", "clinic:secret,agents:agentsecret")
+    import cv2
+
+    from ecgscan_service.miniapp import issue_ticket, turn_photo
+    decoded = []
+    real = cv2.imdecode
+    monkeypatch.setattr(cv2, "imdecode", lambda *a, **k: decoded.append(1) or real(*a, **k))
+    c = TestClient(app)
+    bomb = _declared_png(30000, 30000)
+    assert len(bomb) < 1000
+    ticket, _, _ = issue_ticket("secret", 5)
+    r = c.post("/miniapp/upload", content=bomb, headers={"X-Miniapp-Ticket": ticket})
+    assert r.status_code == 413 and not decoded
+    with pytest.raises(ValueError):
+        turn_photo(bomb, 90, 95, 25 * 1024 * 1024)
+    assert not decoded
+    agent_ticket, _, _ = issue_ticket("agentsecret", 5)
+    assert c.post("/miniapp/upload", content=bomb, headers={"X-Miniapp-Ticket": agent_ticket}).status_code == 401
+    assert c.post("/miniapp/send", headers={"X-Miniapp-Ticket": agent_ticket}).status_code == 401

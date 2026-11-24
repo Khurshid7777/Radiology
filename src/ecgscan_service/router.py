@@ -30,6 +30,7 @@ from ecgscan_service.miniapp import (
     InboxFull,
     Ticket,
     image_kind,
+    size_refusal,
     turn_photo,
     verify_ticket,
 )
@@ -93,7 +94,10 @@ def photo_hints(data: bytes, lang: str) -> dict:
     from ecgscan.capture_qc import check_frame, config
 
     c = load_yaml("service")["miniapp"]
-    bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    try:
+        bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    except cv2.error:                     # D348: a picture OpenCV refuses to decode
+        bgr = None
     if bgr is None:                       # a format OpenCV does not read: the analysis decides
         return {"checked": False, "width": None, "height": None, "px_per_mm": None, "hints": [], "turn": False}
     h, w = bgr.shape[:2]
@@ -155,6 +159,10 @@ async def miniapp_upload(request: Request, lang: str = "ru") -> dict:
         raise HTTPException(400, "empty file")
     if not known:
         raise HTTPException(415, "not a photo the scanner reads")
+    try:
+        size_refusal(data)                # D348: the declared size before any decoding (D136)
+    except ValueError as exc:
+        raise HTTPException(413, f"picture refused: {exc}") from None
     info = await asyncio.get_running_loop().run_in_executor(None, photo_hints, data, _lang(lang))
     try:
         get_inbox().put(tk, data)
