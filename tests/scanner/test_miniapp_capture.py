@@ -119,8 +119,7 @@ def test_the_original_reaches_the_bot_byte_for_byte_once_and_never_touches_the_d
     assert client.post("/miniapp/upload", content=photo, headers=head).status_code == 401     # the ticket is spent
     assert client.post("/miniapp/send", headers=head).status_code == 401
     assert not any(p.is_file() for p in tmp_path.rglob("*"))                                  # memory only
-    # this test's own client logs as «httpx» or, with a newer Starlette, «httpx2» (core, D348)
-    said = "\n".join(r.getMessage() for r in caplog.records if not r.name.startswith("httpx"))
+    said = "\n".join(r.getMessage() for r in caplog.records if not r.name.startswith("httpx"))            # httpx: this test's own client
     assert tid not in said and head[TICKET_HEADER] not in said                                # ... and no trace in the logs
 
 
@@ -184,8 +183,7 @@ def test_a_poor_photo_gets_the_frame_checks_words_in_the_pages_language(client):
         assert strings(lang)["qc.light"] in body["hints"], body
         # A poor photo is still the doctor's to send as it is.
         assert client.post("/miniapp/send", headers=head).status_code == 200
-    # A small picture with no grid in it is called small; bytes whose size cannot be read are refused before any
-    # decoding (core D348: a palette TIFF without a colour map decoded to gigabytes).
+    # A small picture with no grid in it is called small; bytes that are no picture are let through unchecked.
     head, _ = ticket_headers()
     import numpy as np
 
@@ -193,6 +191,7 @@ def test_a_poor_photo_gets_the_frame_checks_words_in_the_pages_language(client):
     body = client.post("/miniapp/upload?lang=ru", content=blank, headers=head).json()
     assert any("мелкий" in h for h in body["hints"]), body
     head, _ = ticket_headers()
+    # bytes that start like a JPEG but have no readable header are refused before any decoder sees them
     assert client.post("/miniapp/upload?lang=xx", content=b"\xff\xd8\xff not a picture after all", headers=head).status_code == 415
 
 
@@ -428,3 +427,71 @@ def test_the_turn_choice_is_on_the_page():
                  "turned(0)", "'&rotate=' + rotate"):
         assert part in src, part
     assert "toBlob" not in src and "toDataURL" not in src            # the page shows the turn, the server makes it
+
+
+# --- the core's review of SD-137/138: a declared size costs memory, a read-only key signs nothing -------
+
+def png_declaring(w: int, h: int) -> bytes:
+    """A tiny PNG whose header declares w x h px (the decoder would allocate that much)."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(b"\x00" * 16)) + chunk(b"IEND", b"")
+
+
+def test_a_picture_declaring_a_huge_size_is_refused_before_it_is_decoded(client, monkeypatch):
+    from ecgscan_service.miniapp import size_refusal
+
+    bomb = png_declaring(30000, 30000)
+    assert len(bomb) < 1000 and size_refusal(bomb) == "IMAGE_TOO_LARGE"
+    assert size_refusal(png_declaring(50, 50)) == "LOW_RESOLUTION" and size_refusal(good_photo()) is None
+    decoded = []
+    real = cv2.imdecode
+    monkeypatch.setattr(cv2, "imdecode", lambda *a, **k: decoded.append(1) or real(*a, **k))
+    head, _ = ticket_headers()
+    assert client.post("/miniapp/upload", content=bomb, headers=head).status_code == 413
+    assert client.post("/miniapp/send", headers=head).status_code == 409                     # nothing was kept
+    assert not decoded                                                                       # never decoded
+    with pytest.raises(ValueError):
+        turn_photo(bomb, 90, 95, 10**7)
+    assert not decoded
+
+
+def test_a_read_only_key_never_signs_a_ticket(monkeypatch, client):
+    monkeypatch.setenv("ECGSCAN_API_KEYS", "bot:k-bot,agents:k-agents")
+    head, _ = ticket_headers("k-agents")
+    assert client.post("/miniapp/upload", content=b"\xff\xd8\xff", headers=head).status_code == 401
+    assert client.post("/miniapp/send", headers=head).status_code == 401
+    ticket, _, _ = issue_ticket("k-agents", 5)
+    keys = {"k-bot": "bot", "k-agents": "agents"}
+    assert verify_ticket(ticket, keys, max_minutes=10) is not None                           # signed by a known key ...
+    assert verify_ticket(ticket, keys, max_minutes=10, refused_prefix="agent") is None       # ... but not by a read-only one
+    assert verify_ticket(issue_ticket("k-bot", 5)[0], keys, max_minutes=10, refused_prefix="agent") is not None
+
+
+def test_a_header_the_reader_does_not_know_is_refused_before_decoding(client, monkeypatch):
+    """Some TIFF headers PIL cannot read (a palette without a ColorMap...) still expand to gigabytes in OpenCV."""
+    from ecgscan_service.miniapp import size_refusal
+
+    tiff = b"II*\x00\x08\x00\x00\x00" + b"\x00" * 32
+    assert size_refusal(tiff) == "UNREADABLE_HEADER" and size_refusal(b"\xff\xd8\xff nothing") == "UNREADABLE_HEADER"
+    decoded = []
+    real = cv2.imdecode
+    monkeypatch.setattr(cv2, "imdecode", lambda *a, **k: decoded.append(1) or real(*a, **k))
+    head, _ = ticket_headers()
+    assert client.post("/miniapp/upload", content=tiff, headers=head).status_code == 415
+    assert client.post("/miniapp/send", headers=head).status_code == 409
+    with pytest.raises(ValueError):
+        turn_photo(tiff, 90, 95, 10**7)
+    assert not decoded
+
+
+def test_frame_checks_run_on_their_own_two_workers():
+    from ecgscan_service import router
+
+    pool = router._hint_pool()
+    assert pool is router._hint_pool() and pool._max_workers == 2

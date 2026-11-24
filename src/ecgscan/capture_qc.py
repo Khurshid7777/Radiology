@@ -114,6 +114,7 @@ class FrameQC:
     frame_advice: str | None = None  # SD-133: "farther" / "up" / "down" / "left" / "right" when it does (frame coordinates)
     sheet_area: float = 0.0          # share of the frame the sheet covers (step 9)
     sheet_brightness: float | None = None   # mean grey of the sheet (step 10)
+    period_strength: float | None = None   # SD-141: autocorrelation at the period / at zero; weak (< ~0.15) = px/mm unsure
     sideways: bool | None = None     # SD-138: the sheet stands on end in the frame (by its corners); None: no sheet found
 
     def to_dict(self) -> dict:
@@ -185,6 +186,22 @@ def grid_period(profiles: np.ndarray, *, min_lag: int, harmonics: int, comb_tol:
     if a[m] <= 0.05 * a[0]:
         return None                                   # no periodic structure: no grid
     return float(m + _parabola(a[m - 1], a[m], a[m + 1]))
+
+
+def period_strength(profiles: np.ndarray, period: float | None) -> float | None:
+    """SD-141: how clearly the grid repeats at the found period: the profiles' autocorrelation there (the best of the
+    three lags around it) over the one at zero. A weak period (SD-140: doubled px/mm) has ~0.1, a clear one ~0.35."""
+    if period is None or profiles.size == 0:
+        return None
+    n = profiles.shape[1]
+    m = int(round(period))
+    if m < 1 or m + 2 > n:
+        return None
+    a0 = float((profiles * profiles).sum()) / n
+    if a0 <= 0:
+        return None
+    at = max(float((profiles[:, : n - lag] * profiles[:, lag:]).sum()) / n for lag in (m - 1, m, m + 1))
+    return round(min(1.0, max(0.0, at / a0)), 4)
 
 
 def tilt_deg(profiles: np.ndarray, period: float, *, band: int) -> float | None:
@@ -409,4 +426,5 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
                    ok=not hints, shadow=None if shadow is None else round(shadow, 4), corners=corners,
                    sheet_whole=whole, frame_advice=advice, sheet_area=round(area, 4),
                    sheet_brightness=None if roi is None else round(roi, 3),
-                   sideways=sheet_sideways(corners_w, t.get("sideways_ratio")))
+                   sideways=sheet_sideways(corners_w, t.get("sideways_ratio")),
+                   period_strength=period_strength(prof, period))

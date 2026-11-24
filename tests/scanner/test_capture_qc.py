@@ -167,3 +167,24 @@ def test_a_sheet_standing_on_end_is_told_by_its_corners():
         turned = check_frame(np.ascontiguousarray(np.rot90(rgb, k)))
         assert turned.sideways is True and turned.px_per_mm is not None, k             # the grid is found either way
         assert "sideways" not in turned.hints                                          # a question, not a hint
+
+
+def test_period_strength_says_how_clearly_the_grid_repeats():
+    """SD-141: autocorrelation at the period over the one at zero; the same number as SD-140's p_over_a0."""
+    import importlib.util
+
+    from ecgscan.capture_qc import period_strength
+
+    rgb = cv2.cvtColor(cv2.imread(str(FIX / "clean_12.jpg")), cv2.COLOR_BGR2RGB)
+    clean = check_frame(rgb)
+    assert clean.period_strength is not None and 0.15 <= clean.period_strength <= 1.0
+    assert check_frame(np.full((720, 1280, 3), 200, np.uint8)).period_strength is None
+    assert period_strength(np.zeros((1, 50)), 10.0) is None and period_strength(np.ones((1, 50)), None) is None
+    spec = importlib.util.spec_from_file_location("period_diag", Path(__file__).parents[2] / "tools" / "scanner" / "period_diag.py")
+    pd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pd)
+    x = np.arange(1500)
+    prof = (np.cos(2 * np.pi * x / 20.0) + 0.6 * np.cos(2 * np.pi * x / 4.0))[None, :]
+    a = pd.acorr(prof, 600)
+    for period in (20.0, 40.0):
+        assert period_strength(prof, period) == pytest.approx(pd.features(a, period)["p_over_a0"], abs=1e-4)

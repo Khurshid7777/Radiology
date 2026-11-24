@@ -21,6 +21,13 @@ _T = {
     "probe_btn": ("Открыть замер камеры", "Kamera o'lchovini ochish"),
     "probe_off": ("Страница замера не настроена: у бота нет публичного адреса сайта.",
                   "O'lchov sahifasi sozlanmagan: botda saytning ochiq manzili yo'q."),
+    "app": (("CardioVision внутри Telegram: откройте кнопкой ниже или кнопкой меню слева от поля ввода. "
+             "Вход — по ключу клиники, как на сайте."),
+            ("CardioVision Telegram ichida: quyidagi tugma yoki kiritish maydonining chap tomonidagi menyu tugmasi bilan "
+             "oching. Kirish — klinika kaliti bilan, saytdagidek.")),
+    "app_btn": ("Открыть CardioVision", "CardioVision'ni ochish"),
+    "app_off": ("Сайт в Telegram не настроен: у бота нет публичного адреса сайта.",
+                "Telegramdagi sayt sozlanmagan: botda saytning ochiq manzili yo'q."),
     "admin_only": ("Команда только для администратора.", "Faqat administrator uchun."),
     "invite": ("Новый код: {code} (метка: {label})\nСсылка для входа: {link}\nОтозвать: /revoke {code}",
                "Yangi kod: {code} ({label})\nKirish havolasi: {link}\nBekor qilish: /revoke {code}"),

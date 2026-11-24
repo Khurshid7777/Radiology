@@ -81,8 +81,7 @@ def test_scan_sends_a_web_app_button_with_a_fresh_ticket_signed_with_the_bots_ke
     assert m, button.web_app.url
     ticket = verify_ticket(m.group(1), {"k": "bot"}, max_minutes=10)
     assert ticket is not None                                    # the server accepts it with the bot's key
-    # no Telegram id leaves the bot (the random hex ticket itself may contain the digits by chance — core, D348)
-    assert str(ADMIN) not in button.web_app.url.replace(m.group(1), "")
+    assert str(ADMIN) not in button.web_app.url.replace(m.group(1), "")   # no Telegram id leaves the bot (the random ticket may hold any digits)
     assert server.asked and server.asked[0] == (f"/scans/miniapp/inbox/{ticket.id}", {"X-API-Key": "k"})
 
 

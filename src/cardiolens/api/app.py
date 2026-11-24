@@ -119,9 +119,14 @@ def _feedback_store() -> FeedbackStore:
     return FeedbackStore.at(os.environ.get("CARDIOLENS_FEEDBACK_PATH", DEFAULT_FEEDBACK_PATH))
 
 
+# D349 (review): the page may be put in a frame only by itself and by Telegram Web (the Mini App); nowhere else.
+PAGE_HEADERS = {"Content-Security-Policy": "frame-ancestors 'self' https://web.telegram.org",
+                "Referrer-Policy": "same-origin"}
+
+
 @app.get("/", response_class=HTMLResponse)
-def index() -> str:
-    return (_STATIC / "index.html").read_text(encoding="utf-8")
+def index() -> HTMLResponse:
+    return HTMLResponse((_STATIC / "index.html").read_text(encoding="utf-8"), headers=PAGE_HEADERS)
 
 
 _FONTS = {p.name for p in (_STATIC / "fonts").glob("*.woff2")}

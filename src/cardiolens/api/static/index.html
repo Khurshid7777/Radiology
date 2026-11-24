@@ -607,6 +607,10 @@ const UZ = {
   '↺ Повернуть влево': '↺ Chapga burish',
   '↻ Повернуть вправо': '↻ O\'ngga burish',
   'Строки уже идут слева направо': 'Qatorlar allaqachon chapdan o\'ngga boradi',
+  'Ссылка содержит другой ключ клиники. Заменить сохранённый ключ?':
+    'Havolada boshqa klinika kaliti bor. Saqlangan kalit almashtirilsinmi?',
+  'Введите ключ клиники один раз — он сохранится в Telegram на этом устройстве.':
+    'Klinika kalitini bir marta kiriting — u shu qurilmadagi Telegram\'da saqlanadi.',
   'Фото всё ещё вертикальное — поверните ещё раз.': 'Surat hali ham vertikal — yana bir marta burang.',
   'Повёрнуто. Проверьте по предпросмотру: строки идут слева направо и подписи отведений не вверх ногами. Если перевёрнуто — нажмите поворот ещё два раза.':
     'Burildi. Oldindan ko\'rishda tekshiring: qatorlar chapdan o\'ngga boradi va tarmoq yozuvlari teskari emas. Agar teskari bo\'lsa — burishni yana ikki marta bosing.',
@@ -714,10 +718,16 @@ const KEY = 'cardiolens_key';
 (function () {
   try {
     const u = new URL(location.href);
-    const hk = (u.hash.match(/[#&]key=([^&]+)/) || [])[1];
-    const k = u.searchParams.get('key') || (hk ? decodeURIComponent(hk) : null);
-    if (k) { localStorage.setItem(KEY, k); u.searchParams.delete('key');
-      history.replaceState(null, '', u.pathname + u.search); }
+    // D349 (review): inside Telegram a link never sets the key (any bot can open the site with its own address), and
+    // anywhere a link never silently replaces a different key already kept here — the doctor is asked first.
+    const inTelegram = /[#&]tgWebApp(Platform|Version)=/.test(u.hash);
+    const hk = inTelegram ? null : (u.hash.match(/[#&]key=([^&]+)/) || [])[1];
+    const k = inTelegram ? null : (u.searchParams.get('key') || (hk ? decodeURIComponent(hk) : null));
+    const had = localStorage.getItem(KEY);
+    if (k && (!had || had === k || confirm(t('Ссылка содержит другой ключ клиники. Заменить сохранённый ключ?')))) {
+      localStorage.setItem(KEY, k);
+    }
+    if (k) { u.searchParams.delete('key'); history.replaceState(null, '', u.pathname + u.search); }
     $('apikey').value = localStorage.getItem(KEY) || '';
   } catch (e) {}
   keyStatus();
@@ -728,7 +738,9 @@ $('apikey').addEventListener('change', () => {
 });
 function keyStatus() {
   const has = !!$('apikey').value.trim();
-  $('keyhint').textContent = t(has ? 'Ключ сохранён в этом браузере.' : 'Без ключа клиники анализ не запустится.');
+  const inTg = /[#&]tgWebApp(Platform|Version)=/.test(location.hash);
+  $('keyhint').textContent = t(has ? 'Ключ сохранён в этом браузере.'
+    : inTg ? 'Введите ключ клиники один раз — он сохранится в Telegram на этом устройстве.' : 'Без ключа клиники анализ не запустится.');
   if (!has) $('svc').open = true;
 }
 function authed(url, opts = {}) {
@@ -1575,12 +1587,7 @@ if (tgApp) {
   document.body.classList.add('tg');
   tgEvent('web_app_ready');
   tgEvent('web_app_expand');
-  if (!$('apikey').value.trim()) {
-    $('svc').open = true;
-    $('keyhint').textContent = lang === 'uz'
-      ? 'Klinika kalitini bir marta kiriting — u shu telefondagi Telegram\'da saqlanadi.'
-      : 'Введите ключ клиники один раз — он сохранится в Telegram на этом телефоне.';
-  }
+  if (!$('apikey').value.trim()) { $('svc').open = true; keyStatus(); }
 }
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }

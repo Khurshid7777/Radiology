@@ -45,7 +45,7 @@ class Ticket:
 
 
 def verify_ticket(ticket: str | None, keys: dict[str, str], *, max_minutes: float,
-                  now: float | None = None, refused_prefix: str | None = "agent") -> Ticket | None:
+                  now: float | None = None, refused_prefix: str | None = None) -> Ticket | None:
     """The live ticket signed with one of ``keys`` (key -> name), or None. A ticket valid for longer
     than ``max_minutes`` from now is refused too: a signer cannot mint a ticket for ever."""
     m = _TICKET.match(ticket or "")
@@ -55,10 +55,10 @@ def verify_ticket(ticket: str | None, keys: dict[str, str], *, max_minutes: floa
     now = time.time() if now is None else now
     owner = None
     for key, name in keys.items():       # every key compared: no early exit on a match
+        if refused_prefix and name.startswith(refused_prefix):
+            continue                      # a read-only key (the core's agents) never signs a ticket
         if hmac.compare_digest(_sign(key, tid, expiry), sig):
             owner = name
-    if owner is not None and refused_prefix and owner.startswith(refused_prefix):
-        owner = None                     # D348: an agent's read-only key (D260) cannot sign a capture ticket
     if owner is None or expiry <= now or expiry > now + max_minutes * 60:
         return None
     return Ticket(tid, owner, expiry)
@@ -78,20 +78,21 @@ def image_kind(data: bytes) -> str | None:
 TURNS = (0, 90, 180, 270)
 
 
-def size_refusal(data: bytes) -> None:
-    """D348 (core review): the size the file header declares is checked BEFORE any decoding, with the scanner's own
-    limits (D136: a 1-MB PNG can declare 32000 x 32000 px and decode to gigabytes). Raises ValueError with the
-    reason; returns when the picture may be decoded."""
+def size_refusal(data: bytes) -> str | None:
+    """Why the picture is not decoded (None: it may be): a 1-MB PNG can declare 30000 x 30000 px and
+    take gigabytes to decode (D136), so the header is read first, with the limits of the analysis. A header
+    that cannot be read is refused too: some TIFF headers PIL does not read expand to gigabytes in OpenCV."""
     from ecgscan.config import load_yaml
     from ecgscan.io import ImageRefused, check_image, image_size
 
+    if image_size(data) is None:          # a header the reader does not know: "the decoder decides" would decode it
+        return "UNREADABLE_HEADER"
     q = load_yaml("pipeline")["quality"]
-    if image_size(data) is None:           # D348 (review 2): a header PIL cannot read (e.g. a palette TIFF without a
-        raise ValueError("the picture's size cannot be read from its header")   # colour map) is never decoded here
     try:
         check_image(data, max_megapixels=float(q["max_megapixels"]), min_side_px=int(q["min_side_px"]))
     except ImageRefused as exc:
-        raise ValueError(str(exc)) from exc
+        return exc.code
+    return None
 
 
 def turn_photo(data: bytes, rotate_deg: int, quality: int, max_bytes: int) -> bytes:
@@ -105,7 +106,8 @@ def turn_photo(data: bytes, rotate_deg: int, quality: int, max_bytes: int) -> by
         raise ValueError(f"not a quarter turn: {rotate_deg}")
     if rotate_deg == 0:
         return data
-    size_refusal(data)                     # D348: never decode a picture that declares too many pixels
+    if size_refusal(data):
+        raise ValueError("the picture is not decoded: " + size_refusal(data))
     try:
         bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     except cv2.error as exc:

@@ -119,8 +119,7 @@ def test_a_header_pil_cannot_read_is_never_decoded_and_opencv_has_its_own_ceilin
     from ecgscan_service.miniapp import issue_ticket, size_refusal, turn_photo
     tif = _palette_tiff_without_colormap(20000, 20000)
     assert len(tif) < 100_000 and image_size(tif) is None
-    with pytest.raises(ValueError):
-        size_refusal(tif)
+    assert size_refusal(tif) == "UNREADABLE_HEADER"          # the scanner's form of the refusal (SD, merged in D349)
     decoded = []
     real = cv2.imdecode
     monkeypatch.setattr(cv2, "imdecode", lambda *a, **k: decoded.append(1) or real(*a, **k))
@@ -132,8 +131,8 @@ def test_a_header_pil_cannot_read_is_never_decoded_and_opencv_has_its_own_ceilin
     from pathlib import Path
     dockerfile = (Path(__file__).resolve().parents[1] / "deploy" / "Dockerfile").read_text()
     assert "ENV OPENCV_IO_MAX_IMAGE_PIXELS=60000000" in dockerfile
-    from ecgscan_service.router import _decode_pool
-    assert _decode_pool()._max_workers == 2
+    from ecgscan_service.router import _pool
+    assert _pool()._max_workers == 2
 
 
 def test_the_site_page_works_as_a_telegram_mini_app_d349():
@@ -151,3 +150,6 @@ def test_the_site_page_works_as_a_telegram_mini_app_d349():
     assert not re.search(r"postMessage\([^)]*['\"]\*['\"]", page)              # never to any origin
     r = TestClient(app).get("/")
     assert r.status_code == 200 and "x-frame-options" not in {k.lower() for k in r.headers}   # Telegram Web may frame it
+    assert r.headers["content-security-policy"] == "frame-ancestors 'self' https://web.telegram.org"   # nobody else may
+    keyblock = page[page.index("const KEY = 'cardiolens_key';"):page.index("function keyStatus()")]
+    assert "inTelegram ? null" in keyblock and "confirm(" in keyblock              # review: no silent key replacement
