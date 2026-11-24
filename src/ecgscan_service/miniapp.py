@@ -45,7 +45,7 @@ class Ticket:
 
 
 def verify_ticket(ticket: str | None, keys: dict[str, str], *, max_minutes: float,
-                  now: float | None = None) -> Ticket | None:
+                  now: float | None = None, refused_prefix: str | None = None) -> Ticket | None:
     """The live ticket signed with one of ``keys`` (key -> name), or None. A ticket valid for longer
     than ``max_minutes`` from now is refused too: a signer cannot mint a ticket for ever."""
     m = _TICKET.match(ticket or "")
@@ -55,6 +55,8 @@ def verify_ticket(ticket: str | None, keys: dict[str, str], *, max_minutes: floa
     now = time.time() if now is None else now
     owner = None
     for key, name in keys.items():       # every key compared: no early exit on a match
+        if refused_prefix and name.startswith(refused_prefix):
+            continue                      # a read-only key (the core's agents) never signs a ticket
         if hmac.compare_digest(_sign(key, tid, expiry), sig):
             owner = name
     if owner is None or expiry <= now or expiry > now + max_minutes * 60:
@@ -76,6 +78,20 @@ def image_kind(data: bytes) -> str | None:
 TURNS = (0, 90, 180, 270)
 
 
+def size_refusal(data: bytes) -> str | None:
+    """Why the picture is not decoded (None: it may be): a 1-MB PNG can declare 30000 x 30000 px and
+    take gigabytes to decode (D136), so the header is read first, with the limits of the analysis."""
+    from ecgscan.config import load_yaml
+    from ecgscan.io import ImageRefused, check_image
+
+    q = load_yaml("pipeline")["quality"]
+    try:
+        check_image(data, max_megapixels=float(q["max_megapixels"]), min_side_px=int(q["min_side_px"]))
+    except ImageRefused as exc:
+        return exc.code
+    return None
+
+
 def turn_photo(data: bytes, rotate_deg: int, quality: int, max_bytes: int) -> bytes:
     """The photo turned ``rotate_deg`` clockwise (SD-138), as a JPEG: decoded as the doctor saw it
     (EXIF applied), turned, encoded at ``quality`` (lower if it would not fit ``max_bytes``).
@@ -87,7 +103,12 @@ def turn_photo(data: bytes, rotate_deg: int, quality: int, max_bytes: int) -> by
         raise ValueError(f"not a quarter turn: {rotate_deg}")
     if rotate_deg == 0:
         return data
-    bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if size_refusal(data):
+        raise ValueError("the picture is not decoded: " + size_refusal(data))
+    try:
+        bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    except cv2.error as exc:
+        raise ValueError("not a picture") from exc
     if bgr is None:
         raise ValueError("not a picture")
     bgr = np.ascontiguousarray(np.rot90(bgr, k=-rotate_deg // 90))

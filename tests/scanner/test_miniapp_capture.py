@@ -427,3 +427,47 @@ def test_the_turn_choice_is_on_the_page():
                  "turned(0)", "'&rotate=' + rotate"):
         assert part in src, part
     assert "toBlob" not in src and "toDataURL" not in src            # the page shows the turn, the server makes it
+
+
+# --- the core's review of SD-137/138: a declared size costs memory, a read-only key signs nothing -------
+
+def png_declaring(w: int, h: int) -> bytes:
+    """A tiny PNG whose header declares w x h px (the decoder would allocate that much)."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(b"\x00" * 16)) + chunk(b"IEND", b"")
+
+
+def test_a_picture_declaring_a_huge_size_is_refused_before_it_is_decoded(client, monkeypatch):
+    from ecgscan_service.miniapp import size_refusal
+
+    bomb = png_declaring(30000, 30000)
+    assert len(bomb) < 1000 and size_refusal(bomb) == "IMAGE_TOO_LARGE"
+    assert size_refusal(png_declaring(50, 50)) == "LOW_RESOLUTION" and size_refusal(good_photo()) is None
+    decoded = []
+    real = cv2.imdecode
+    monkeypatch.setattr(cv2, "imdecode", lambda *a, **k: decoded.append(1) or real(*a, **k))
+    head, _ = ticket_headers()
+    assert client.post("/miniapp/upload", content=bomb, headers=head).status_code == 413
+    assert client.post("/miniapp/send", headers=head).status_code == 409                     # nothing was kept
+    assert not decoded                                                                       # never decoded
+    with pytest.raises(ValueError):
+        turn_photo(bomb, 90, 95, 10**7)
+    assert not decoded
+
+
+def test_a_read_only_key_never_signs_a_ticket(monkeypatch, client):
+    monkeypatch.setenv("ECGSCAN_API_KEYS", "bot:k-bot,agents:k-agents")
+    head, _ = ticket_headers("k-agents")
+    assert client.post("/miniapp/upload", content=b"\xff\xd8\xff", headers=head).status_code == 401
+    assert client.post("/miniapp/send", headers=head).status_code == 401
+    ticket, _, _ = issue_ticket("k-agents", 5)
+    keys = {"k-bot": "bot", "k-agents": "agents"}
+    assert verify_ticket(ticket, keys, max_minutes=10) is not None                           # signed by a known key ...
+    assert verify_ticket(ticket, keys, max_minutes=10, refused_prefix="agent") is None       # ... but not by a read-only one
+    assert verify_ticket(issue_ticket("k-bot", 5)[0], keys, max_minutes=10, refused_prefix="agent") is not None

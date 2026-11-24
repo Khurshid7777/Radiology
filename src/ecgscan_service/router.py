@@ -30,6 +30,7 @@ from ecgscan_service.miniapp import (
     InboxFull,
     Ticket,
     image_kind,
+    size_refusal,
     turn_photo,
     verify_ticket,
 )
@@ -79,7 +80,8 @@ def _lang(lang: str | None) -> str:
 def _ticket(request: Request) -> Ticket:
     """The live, unused ticket of the request, from its header alone (the body is not touched)."""
     tk = verify_ticket(request.headers.get(TICKET_HEADER), _keys(),
-                       max_minutes=float(load_yaml("service")["miniapp"]["max_ticket_minutes"]))
+                       max_minutes=float(load_yaml("service")["miniapp"]["max_ticket_minutes"]),
+                       refused_prefix="agent")
     if tk is None or get_inbox().used(tk.id):
         raise HTTPException(401, "invalid, expired or used ticket")
     return tk
@@ -93,7 +95,10 @@ def photo_hints(data: bytes, lang: str) -> dict:
     from ecgscan.capture_qc import check_frame, config
 
     c = load_yaml("service")["miniapp"]
-    bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    try:
+        bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    except cv2.error:
+        bgr = None
     if bgr is None:                       # a format OpenCV does not read: the analysis decides
         return {"checked": False, "width": None, "height": None, "px_per_mm": None, "hints": [], "turn": False}
     h, w = bgr.shape[:2]
@@ -155,6 +160,8 @@ async def miniapp_upload(request: Request, lang: str = "ru") -> dict:
         raise HTTPException(400, "empty file")
     if not known:
         raise HTTPException(415, "not a photo the scanner reads")
+    if size_refusal(data):                # before any decoding: the declared size, not the file's, costs memory
+        raise HTTPException(413, "the picture is too large or too small")
     info = await asyncio.get_running_loop().run_in_executor(None, photo_hints, data, _lang(lang))
     try:
         get_inbox().put(tk, data)
