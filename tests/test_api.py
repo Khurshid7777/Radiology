@@ -509,3 +509,12 @@ def test_the_grid_overlay_is_returned_only_when_one_sure_grid_fits_the_frame_d34
                     files={"frame": ("t.jpg", cv2.imencode(".jpg", tilted)[1].tobytes(), "image/jpeg")}).json()
     assert t["grid"] is None
     assert "grid" in t and "grid" in d
+
+
+def test_a_flat_good_frame_keeps_its_auto_capture_with_the_grid_overlay_d344():
+    """Review of D344 part 2: the scanner's flat grey-grid fixture was ok before and must stay ok (no «parallel»)."""
+    from pathlib import Path
+
+    f = Path(__file__).resolve().parent / "scanner" / "fixtures" / "capture_qc" / "grey_grid.jpg"
+    d = client.post("/api/capture/check", files={"frame": ("g.jpg", f.read_bytes(), "image/jpeg")}).json()
+    assert "parallel" not in {h["code"] for h in d["hints"]}
