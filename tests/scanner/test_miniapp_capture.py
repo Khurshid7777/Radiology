@@ -184,7 +184,8 @@ def test_a_poor_photo_gets_the_frame_checks_words_in_the_pages_language(client):
         assert strings(lang)["qc.light"] in body["hints"], body
         # A poor photo is still the doctor's to send as it is.
         assert client.post("/miniapp/send", headers=head).status_code == 200
-    # A small picture with no grid in it is called small; bytes that are no picture are let through unchecked.
+    # A small picture with no grid in it is called small; bytes whose size cannot be read are refused before any
+    # decoding (core D348: a palette TIFF without a colour map decoded to gigabytes).
     head, _ = ticket_headers()
     import numpy as np
 
@@ -192,8 +193,7 @@ def test_a_poor_photo_gets_the_frame_checks_words_in_the_pages_language(client):
     body = client.post("/miniapp/upload?lang=ru", content=blank, headers=head).json()
     assert any("мелкий" in h for h in body["hints"]), body
     head, _ = ticket_headers()
-    assert client.post("/miniapp/upload?lang=xx", content=b"\xff\xd8\xff not a picture after all", headers=head).json() == {
-        "checked": False, "width": None, "height": None, "px_per_mm": None, "hints": [], "turn": False}
+    assert client.post("/miniapp/upload?lang=xx", content=b"\xff\xd8\xff not a picture after all", headers=head).status_code == 415
 
 
 def test_a_sheet_running_off_the_frame_is_told_which_way_to_move(client):

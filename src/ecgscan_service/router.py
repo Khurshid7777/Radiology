@@ -69,6 +69,15 @@ _PAGE_TEXTS = ("title", "lead", "tips", "shoot", "pick", "uploading", "checking"
 
 
 @lru_cache(maxsize=1)
+def _decode_pool():
+    """D348 (review 2): at most two capture photos are decoded at once, whatever the number of tickets and
+    uploads (a 60-MP photo takes about half a gigabyte while it is checked)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    return ThreadPoolExecutor(max_workers=2, thread_name_prefix="miniapp-decode")
+
+
+@lru_cache(maxsize=1)
 def get_inbox() -> Inbox:
     return Inbox(int(load_yaml("service")["miniapp"]["max_waiting"]))
 
@@ -159,11 +168,15 @@ async def miniapp_upload(request: Request, lang: str = "ru") -> dict:
         raise HTTPException(400, "empty file")
     if not known:
         raise HTTPException(415, "not a photo the scanner reads")
+    from ecgscan.io import image_size
+
+    if image_size(data) is None:          # D348 (review 2): a header that cannot be read is never decoded here
+        raise HTTPException(415, "not a photo the scanner reads")
     try:
         size_refusal(data)                # D348: the declared size before any decoding (D136)
     except ValueError as exc:
         raise HTTPException(413, f"picture refused: {exc}") from None
-    info = await asyncio.get_running_loop().run_in_executor(None, photo_hints, data, _lang(lang))
+    info = await asyncio.get_running_loop().run_in_executor(_decode_pool(), photo_hints, data, _lang(lang))
     try:
         get_inbox().put(tk, data)
     except InboxFull:

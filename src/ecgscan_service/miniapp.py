@@ -83,9 +83,11 @@ def size_refusal(data: bytes) -> None:
     limits (D136: a 1-MB PNG can declare 32000 x 32000 px and decode to gigabytes). Raises ValueError with the
     reason; returns when the picture may be decoded."""
     from ecgscan.config import load_yaml
-    from ecgscan.io import ImageRefused, check_image
+    from ecgscan.io import ImageRefused, check_image, image_size
 
     q = load_yaml("pipeline")["quality"]
+    if image_size(data) is None:           # D348 (review 2): a header PIL cannot read (e.g. a palette TIFF without a
+        raise ValueError("the picture's size cannot be read from its header")   # colour map) is never decoded here
     try:
         check_image(data, max_megapixels=float(q["max_megapixels"]), min_side_px=int(q["min_side_px"]))
     except ImageRefused as exc:

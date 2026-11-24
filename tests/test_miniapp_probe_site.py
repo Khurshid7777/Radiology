@@ -95,3 +95,42 @@ def test_a_decompression_bomb_is_refused_before_decoding_and_agent_keys_sign_no_
     agent_ticket, _, _ = issue_ticket("agentsecret", 5)
     assert c.post("/miniapp/upload", content=bomb, headers={"X-Miniapp-Ticket": agent_ticket}).status_code == 401
     assert c.post("/miniapp/send", headers={"X-Miniapp-Ticket": agent_ticket}).status_code == 401
+
+
+def _palette_tiff_without_colormap(w: int, h: int) -> bytes:
+    """A TIFF PIL cannot open (palette, no colour map) but OpenCV's libtiff decodes — the review's bypass."""
+    import struct
+    import zlib
+
+    data = zlib.compress(b"\x00" * w * 8)          # a stub strip: only the header matters for the refusal
+    entries = [(256, 4, 1, w), (257, 4, 1, h), (258, 3, 1, 8), (259, 3, 1, 8), (262, 3, 1, 3), (273, 4, 1, 8 + 2 + 12 * 9 + 4),
+               (277, 3, 1, 1), (278, 4, 1, h), (279, 4, 1, len(data))]
+    ifd = struct.pack("<H", len(entries)) + b"".join(
+        struct.pack("<HHI", t, k, n) + (struct.pack("<HH", v, 0) if k == 3 else struct.pack("<I", v)) for t, k, n, v in entries)
+    return b"II*\x00" + struct.pack("<I", 8) + ifd + struct.pack("<I", 0) + data
+
+
+def test_a_header_pil_cannot_read_is_never_decoded_and_opencv_has_its_own_ceiling_d348(monkeypatch):
+    monkeypatch.setenv("CARDIOLENS_API_KEYS", "clinic:secret")
+    monkeypatch.setenv("ECGSCAN_API_KEYS", "clinic:secret")
+    import cv2
+
+    from ecgscan.io import image_size
+    from ecgscan_service.miniapp import issue_ticket, size_refusal, turn_photo
+    tif = _palette_tiff_without_colormap(20000, 20000)
+    assert len(tif) < 100_000 and image_size(tif) is None
+    with pytest.raises(ValueError):
+        size_refusal(tif)
+    decoded = []
+    real = cv2.imdecode
+    monkeypatch.setattr(cv2, "imdecode", lambda *a, **k: decoded.append(1) or real(*a, **k))
+    ticket, _, _ = issue_ticket("secret", 5)
+    assert TestClient(app).post("/miniapp/upload", content=tif, headers={"X-Miniapp-Ticket": ticket}).status_code == 415
+    with pytest.raises(ValueError):
+        turn_photo(tif, 90, 95, 25 * 1024 * 1024)
+    assert not decoded
+    from pathlib import Path
+    dockerfile = (Path(__file__).resolve().parents[1] / "deploy" / "Dockerfile").read_text()
+    assert "ENV OPENCV_IO_MAX_IMAGE_PIXELS=60000000" in dockerfile
+    from ecgscan_service.router import _decode_pool
+    assert _decode_pool()._max_workers == 2
