@@ -161,6 +161,8 @@ CAPTURE_FRAME_MAX_BYTES = 2_000_000
 
 
 GRID_SURE = 0.15        # D344: period_strength from which the frame check's px/mm is trusted (SD-141 aggregates)
+GRID_AGREE = 0.9        # D344 part 2: the 3 x 3 zones agree with one grid (SD-143: flat 32/32, perspective <= 0.6 44/44)
+GRID_MIN_ZONES = 4      # D344 part 2: «hold the phone parallel» only when the grid is seen over enough of the frame
 
 
 @app.post("/api/capture/check")
@@ -275,6 +277,18 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
                         "ru": "Сетка видна нечётко — держите телефон ровно над листом, без тени.",
                         "uz": "To‘r aniq ko‘rinmayapti — telefonni varaq ustida tekis, soyasiz tuting."}
             hints.append("grid_unsure")   # no auto-capture on an unsure scale; a manual shot is still possible
+    # D344 part 2: the grid as the server sees it, for the page to draw over the video (SD-143) — only when it is sure
+    # and one grid fits the whole frame; a grid that does not agree over the frame means the phone is not parallel.
+    grid = None
+    strong = qc.period_strength is not None and qc.period_strength >= GRID_SURE
+    if strong and qc.grid_period_px and qc.grid_phase_px and qc.grid_slope and qc.grid_zones_agree is not None:
+        if qc.grid_zones_agree >= GRID_AGREE:
+            grid = {"period_px": qc.grid_period_px, "phase_px": qc.grid_phase_px, "slope": qc.grid_slope,
+                    "agree": qc.grid_zones_agree}
+        elif (qc.grid_zones or 0) >= GRID_MIN_ZONES:
+            hints.append("parallel")      # no auto-capture: the scale differs over the frame
+            texts.append({"code": "parallel", "ru": "Держите телефон параллельно листу: сетка по краям кадра расходится.",
+                          "uz": "Telefonni varaqqa parallel tuting: kadr chetlarida to‘r mos kelmayapti."})
     if "parts" in hints:
         texts.append({"code": "parts", "ru": "Лист большой: снимите его частями, каждая часть с перекрытием "
                                            "соседней — режим «частями» включён.",
@@ -296,6 +310,7 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
         "frame": [w, h],
         "distance": distance,                 # D344
         "sheet_whole": qc.sheet_whole,        # D344: the page draws the sheet's outline only when it is whole
+        "grid": grid,                         # D344 part 2: the 5-mm grid in frame px, drawn over the video
     }
 
 

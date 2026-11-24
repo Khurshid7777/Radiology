@@ -16,6 +16,7 @@ algorithm:
   block: 32                # sheet blocks, working px (at least 2 × (period + tilt shift))
   paper_ratio: 1.15        # half-period / full-period difference ratio of paper (as the server's paper mask)
   edge_blocks: 3          # SD-070: a sheet runs out of the frame when an outer block line holds this many sheet blocks
+  zone_phase_tol: 0.15     # SD-143: a 3 x 3 zone agrees with the frame's grid when its phase is within this share of the period
 
 thresholds:                # PROVISIONAL until real phone frames (M5 data): see SD-046
   min_px_per_mm: 8.0       # on the captured photo (TZ §6.1: mandatory for auto-capture)

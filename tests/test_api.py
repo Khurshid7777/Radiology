@@ -481,3 +481,31 @@ def test_the_sheet_outline_only_when_whole_and_frame_advice_d344():
     assert "d.corners && d.sheet_whole !== false" in page
     src = (Path(__file__).resolve().parents[1] / "src" / "cardiolens" / "api" / "app.py").read_text()
     assert 'f"qc.frame_{qc.frame_advice}"' in src
+
+
+def test_the_grid_overlay_is_returned_only_when_one_sure_grid_fits_the_frame_d344(tmp_path):
+    """D344 part 2: the server's grid (SD-143) for the page to draw — on a flat sheet it matches the true 5-mm grid;
+    under a strong perspective it is not given and the phone is asked to be held parallel."""
+    import cv2
+    import numpy as np
+
+    page = cv2.imread(str(_page_png(tmp_path, px_per_mm=6)))
+    flat = cv2.copyMakeBorder(page, 60, 60, 80, 80, cv2.BORDER_CONSTANT, value=(60, 50, 40))
+    d = client.post("/api/capture/check", data={"capture_width": str(flat.shape[1]), "parts": "true"},
+                    files={"frame": ("f.jpg", cv2.imencode(".jpg", flat)[1].tobytes(), "image/jpeg")}).json()
+    if d["grid"] is not None:                                        # a sure grid: its period is the true 5 mm
+        assert abs(d["grid"]["period_px"] - 30) < 1.5 and d["grid"]["agree"] >= 0.9
+        # the page's grid starts at the sheet's corner (80, 60) on a 6-px/mm grid: phase within 0.1 of a step
+        for got, edge in zip(d["grid"]["phase_px"], (80, 60)):
+            off = (got - edge) % d["grid"]["period_px"]
+            assert min(off, d["grid"]["period_px"] - off) <= 0.1 * d["grid"]["period_px"] + 1
+    else:                                                            # unsure on this synthetic page: nothing drawn
+        assert "parallel" not in {h["code"] for h in d["hints"]} or d["ok"] is False
+    h, w = flat.shape[:2]
+    src = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
+    dst = np.float32([[0.18 * w, 0], [0.82 * w, 0], [w, h], [0, h]])              # a strong tilt of the phone
+    tilted = cv2.warpPerspective(flat, cv2.getPerspectiveTransform(src, dst), (w, h))
+    t = client.post("/api/capture/check", data={"capture_width": str(w), "parts": "true"},
+                    files={"frame": ("t.jpg", cv2.imencode(".jpg", tilted)[1].tobytes(), "image/jpeg")}).json()
+    assert t["grid"] is None
+    assert "grid" in t and "grid" in d

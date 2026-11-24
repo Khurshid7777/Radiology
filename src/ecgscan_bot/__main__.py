@@ -303,6 +303,7 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
         if code and store.join(user.id, code):
             log.info("user joined with an invite code")
             await message.answer(tr("code_ok", lang) + "\n\n" + t("bot.welcome", lang))
+            await menu_button(message, lang)      # SD-142: also for one who came in by /start <code> or /code
         else:
             await message.answer(tr("code_bad", lang))
 

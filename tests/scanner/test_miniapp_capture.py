@@ -468,7 +468,8 @@ def test_a_read_only_key_never_signs_a_ticket(monkeypatch, client):
     assert client.post("/miniapp/send", headers=head).status_code == 401
     ticket, _, _ = issue_ticket("k-agents", 5)
     keys = {"k-bot": "bot", "k-agents": "agents"}
-    assert verify_ticket(ticket, keys, max_minutes=10) is not None                           # signed by a known key ...
+    assert verify_ticket(ticket, keys, max_minutes=10, refused_prefix=None) is not None      # signed by a known key ...
+    assert verify_ticket(ticket, keys, max_minutes=10) is None                               # refused by default too
     assert verify_ticket(ticket, keys, max_minutes=10, refused_prefix="agent") is None       # ... but not by a read-only one
     assert verify_ticket(issue_ticket("k-bot", 5)[0], keys, max_minutes=10, refused_prefix="agent") is not None
 

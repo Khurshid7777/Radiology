@@ -934,6 +934,17 @@ function camDraw(d, fw, fh) {
   for (const [x, y, sx, sy] of [[gx, gy, 1, 1], [gx + gw, gy, -1, 1], [gx, gy + gh, 1, -1], [gx + gw, gy + gh, -1, -1]]) {
     g.beginPath(); g.moveTo(x, y + sy * c); g.lineTo(x, y); g.lineTo(x + sx * c, y); g.stroke();
   }
+  if (d.grid && d.grid.period_px > 2) {          // D344 part 2: the 5-mm grid as the server reads it, over the video
+    const P = d.grid.period_px, [px, py] = d.grid.phase_px, [sx, sy] = d.grid.slope;
+    g.strokeStyle = 'rgba(76,175,80,0.45)'; g.lineWidth = 1; g.beginPath();
+    for (let x0 = px - Math.ceil((px + Math.abs(sx) * fh) / P) * P; x0 < fw + Math.abs(sx) * fh; x0 += P) {
+      g.moveTo(ox + x0 * k, oy); g.lineTo(ox + (x0 + sx * fh) * k, oy + fh * k);
+    }
+    for (let y0 = py - Math.ceil((py + Math.abs(sy) * fw) / P) * P; y0 < fh + Math.abs(sy) * fw; y0 += P) {
+      g.moveTo(ox, oy + y0 * k); g.lineTo(ox + fw * k, oy + (y0 + sy * fw) * k);
+    }
+    g.stroke();
+  }
   if (d.corners && d.sheet_whole !== false) {     // D344: an outline of a sheet that is not whole misled the owner
     g.strokeStyle = d.ok ? '#4caf50' : '#ffb300'; g.lineWidth = 4; g.beginPath();
     d.corners.forEach(([x, y], i) => (i ? g.lineTo : g.moveTo).call(g, ox + x * k, oy + y * k));
