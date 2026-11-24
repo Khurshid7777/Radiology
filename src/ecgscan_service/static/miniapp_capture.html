@@ -11,6 +11,7 @@
   Telegram's signed user data is never read. The texts and the ticket are put in by the server.
   A sheet that stands on end (SD-138): the doctor picks the upright one of two small turned copies drawn
   here from the chosen file; the turn itself is made by the server.
+  Several photos of one record (SD-147): a long strip shot in parts, in order; the doctor sends them all at once.
 -->
 <style>
   :root { color-scheme: light dark; }
@@ -28,6 +29,9 @@
   #turn_title { font-weight: 600; }
   #turn_row button { padding: 6px; }      /* one under the other: large enough to read the lead labels */
   canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 6px; }
+  #parts { margin: 8px 0; padding-left: 22px; }
+  #parts li { margin: 4px 0; }
+  #parts .warn { color: #b26a00; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -35,17 +39,19 @@
 <h1 id="title"></h1>
 <p id="lead"></p>
 <p id="tips" class="note"></p>
+<p id="parts_hint" class="note"></p>
+
+<ol id="parts"></ol>
 
 <div id="pickers">
   <label class="btn" for="f_cam" id="l_cam"></label>
   <input id="f_cam" type="file" accept="image/*" capture="environment">
   <label class="btn alt" for="f_gal" id="l_gal"></label>
-  <input id="f_gal" type="file" accept="image/*">
+  <input id="f_gal" type="file" accept="image/*" multiple>
 </div>
 
 <div id="bar"></div>
 <p id="status"></p>
-<p id="size" class="note"></p>
 <div id="turnbox" hidden>
   <p id="turn_title"></p>
   <p id="turn_lead" class="note"></p>
@@ -55,19 +61,20 @@
   </div>
   <button id="b_keep" class="alt"></button>
 </div>
-<p id="hints_title" hidden></p>
-<ul id="hints"></ul>
 <button id="b_send" hidden></button>
+<button id="b_drop" class="alt" hidden></button>
 <button id="b_retry" class="alt" hidden></button>
 
 <script>
 'use strict';
-const PAGE = /*__PAGE__*/{};          // {texts, max_mb, lang}: put in by the server
+const PAGE = /*__PAGE__*/{};          // {texts, max_mb, max_files, lang, telegram_web}: put in by the server
 const T = PAGE.texts || {};
 const $ = id => document.getElementById(id);
 const ticket = new URLSearchParams(location.search).get('t');
 const TG_WEB = PAGE.telegram_web;
-let lastFile = null, busy = false, rotate = 0, answer = null;
+const MAX = PAGE.max_files || 10;
+const parts = [];                      // what the server holds, in order: {width, height, mb, hints}
+let busy = false, closed = false, retryFiles = null;
 
 function text(key, vars) {
   return (T[key] || key).replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? String(vars[k]) : m));
@@ -81,10 +88,6 @@ function tgEvent(name) {
     // Telegram Web shows the page in a frame and listens to messages from it; to that site only.
     else if (window.parent !== window) window.parent.postMessage(JSON.stringify({ eventType: name, eventData: {} }), TG_WEB);
   } catch (e) { /* not Telegram */ }
-}
-function clearResult() {
-  $('size').textContent = ''; $('hints').replaceChildren(); show('hints_title', false); show('b_send', false); show('b_retry', false);
-  show('turnbox', false);
 }
 function post(path, body, onProgress, query) {
   return new Promise(resolve => {
@@ -100,71 +103,92 @@ function post(path, body, onProgress, query) {
 }
 function failure(code) {
   progress(0);
-  if (code === 401) { status(text('miniapp.expired')); show('pickers', false); return; }
-  if (code === 413) { status(text('miniapp.too_big', { mb: PAGE.max_mb })); return; }
+  if (code === 401) { status(text('miniapp.expired')); closed = true; render(); return; }
+  if (code === 413) { status(parts.length >= MAX ? text('miniapp.too_many', { max: MAX }) : text('miniapp.too_big', { mb: PAGE.max_mb })); return; }
   if (code === 415) { status(text('miniapp.bad_format')); return; }
-  if (code === 429) { status(text('miniapp.busy')); show('b_retry', !!lastFile); return; }
-  status(text('miniapp.failed')); show('b_retry', !!lastFile);
+  if (code === 429) { status(text('miniapp.busy')); show('b_retry', !!retryFiles); return; }
+  status(text('miniapp.failed')); show('b_retry', !!retryFiles);
 }
-async function upload(file) {
-  if (busy || !file) return;
-  lastFile = file; rotate = 0; answer = null; clearResult();
-  if (file.size > PAGE.max_mb * 1024 * 1024) { failure(413); return; }
-  busy = true;
-  status(text('miniapp.uploading', { percent: 0 }));
-  const r = await post('upload', file, share => {
-    progress(share);
-    status(share < 1 ? text('miniapp.uploading', { percent: Math.round(100 * share) }) : text('miniapp.checking'));
+function render() {
+  const list = $('parts'); list.replaceChildren();
+  parts.forEach((p, i) => {
+    const li = document.createElement('li');
+    // A record shot in parts: each part runs off the frame by design, so "frame" says nothing there (SD-147).
+    const hints = p.hints.filter((h, k) => !(parts.length > 1 && p.codes[k] === 'frame'));
+    li.textContent = text('miniapp.list_item', { i: i + 1, width: p.width || '?', height: p.height || '?', mb: p.mb }) +
+      ' — ' + (hints.length ? hints.join(' ') : text('miniapp.list_ok'));
+    if (hints.length) li.className = 'warn';
+    list.appendChild(li);
   });
-  busy = false;
-  if (r.status !== 200 || !r.body) { failure(r.status); return; }
-  const d = r.body;
-  if (d.width && d.height) $('size').textContent = text('miniapp.size', { width: d.width, height: d.height, mb: (file.size / 1048576).toFixed(1) });
-  answer = d;
-  if (d.turn) { await askTurn(file); return; }
-  await proceed();
+  const open = !closed && !busy;
+  show('pickers', !closed && parts.length < MAX);
+  $('l_cam').textContent = parts.length ? text('miniapp.add_more') : text('miniapp.shoot');
+  $('l_gal').textContent = parts.length ? text('miniapp.pick_more') : text('miniapp.pick');
+  $('b_send').textContent = text('miniapp.send_n', { n: parts.length });
+  show('b_send', open && parts.length > 0);
+  show('b_drop', open && parts.length > 0);
 }
-// SD-138: the sheet seems to stand on end. Which way is up only the doctor can tell: two small turned
-// copies to pick from, or "leave as it is".
-async function askTurn(file) {
-  progress(0); status('');
-  let drawn = false;
-  try {
-    const bmp = await createImageBitmap(file);
-    const k = Math.min(1, 720 / Math.max(bmp.width, bmp.height));
-    for (const [id, deg] of [['c_cw', 90], ['c_ccw', 270]]) {
-      const c = $(id); c.width = Math.round(bmp.height * k); c.height = Math.round(bmp.width * k);
-      const g = c.getContext('2d');
-      g.translate(c.width / 2, c.height / 2); g.rotate(deg * Math.PI / 180);
-      g.drawImage(bmp, -bmp.width * k / 2, -bmp.height * k / 2, bmp.width * k, bmp.height * k);
+// SD-138: the sheet seems to stand on end. Which way is up only the doctor can tell.
+function askTurn(file) {
+  return new Promise(async resolve => {
+    let drawn = false;
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 720 / Math.max(bmp.width, bmp.height));
+      for (const [id, deg] of [['c_cw', 90], ['c_ccw', 270]]) {
+        const c = $(id); c.width = Math.round(bmp.height * k); c.height = Math.round(bmp.width * k);
+        const g = c.getContext('2d');
+        g.translate(c.width / 2, c.height / 2); g.rotate(deg * Math.PI / 180);
+        g.drawImage(bmp, -bmp.width * k / 2, -bmp.height * k / 2, bmp.width * k, bmp.height * k);
+      }
+      bmp.close(); drawn = true;
+    } catch (e) { /* a picture the browser cannot draw: the buttons say which way they turn */ }
+    for (const side of ['cw', 'ccw']) { show('c_' + side, drawn); show('s_' + side, !drawn); }
+    show('turnbox', true);
+    const pick = deg => { show('turnbox', false); resolve(deg); };
+    $('b_cw').onclick = () => pick(90); $('b_ccw').onclick = () => pick(270); $('b_keep').onclick = () => pick(0);
+  });
+}
+async function uploadAll(files) {
+  if (busy || !files.length) return;
+  busy = true; retryFiles = null; show('b_retry', false); render();
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    if (parts.length >= MAX) { status(text('miniapp.too_many', { max: MAX })); break; }
+    if (file.size > PAGE.max_mb * 1024 * 1024) { failure(413); continue; }
+    status(text('miniapp.uploading', { percent: 0 }));
+    const r = await post('upload', file, share => {
+      progress(share);
+      status(share < 1 ? text('miniapp.uploading', { percent: Math.round(100 * share) }) : text('miniapp.checking'));
+    });
+    if (r.status !== 200 || !r.body) { retryFiles = files.slice(i); failure(r.status); break; }
+    const d = r.body;
+    parts.push({ width: d.width, height: d.height, mb: (file.size / 1048576).toFixed(1), hints: d.hints || [], codes: d.codes || [] });
+    render();
+    if (d.turn) {
+      progress(0); status('');
+      const deg = await askTurn(file);
+      if (deg) await post('turn', null, null, '&part=' + d.part + '&rotate=' + deg);
     }
-    bmp.close(); drawn = true;
-  } catch (e) { /* a picture the browser cannot draw: the buttons say which way they turn */ }
-  for (const side of ['cw', 'ccw']) { show('c_' + side, drawn); show('s_' + side, !drawn); }
-  show('turnbox', true);
+    progress(0); status('');
+  }
+  busy = false; render();
 }
-async function turned(deg) {
-  rotate = deg; show('turnbox', false);
-  await proceed();
-}
-async function proceed() {
-  const d = answer;
-  if (!d) return;
-  if (!d.hints || !d.hints.length) { await send(); return; }
-  progress(0); status('');
-  $('hints_title').textContent = text('miniapp.hints_title'); show('hints_title', true);
-  $('hints').replaceChildren();
-  for (const h of d.hints) { const li = document.createElement('li'); li.textContent = h; $('hints').appendChild(li); }
-  $('l_cam').textContent = text('miniapp.retake');
-  show('b_send', true);
+async function dropLast() {
+  if (busy || !parts.length) return;
+  busy = true; render();
+  const r = await post('drop', null, null, '&part=' + (parts.length - 1));
+  busy = false;
+  if (r.status === 200) parts.pop(); else failure(r.status);
+  render();
 }
 async function send() {
-  if (busy) return;
-  busy = true; show('b_send', false); show('b_retry', false);
-  const r = await post('send', null, null, '&rotate=' + rotate);
+  if (busy || !parts.length) return;
+  busy = true; render();
+  const r = await post('send', null, null);
   busy = false;
-  if (r.status !== 200) { failure(r.status); if (r.status !== 401) show('b_send', true); return; }
-  progress(1); clearResult(); show('pickers', false);
+  if (r.status !== 200) { failure(r.status); render(); return; }
+  progress(1); closed = true; render();
   status(text('miniapp.sent'));
   setTimeout(() => tgEvent('web_app_close'), 2500);
 }
@@ -174,24 +198,22 @@ function start() {
   $('title').textContent = text('miniapp.title');
   $('lead').textContent = text('miniapp.lead');
   $('tips').textContent = text('miniapp.tips');
-  $('l_cam').textContent = text('miniapp.shoot');
-  $('l_gal').textContent = text('miniapp.pick');
-  $('b_send').textContent = text('miniapp.send_anyway');
+  $('parts_hint').textContent = text('miniapp.parts_hint', { max: MAX });
+  $('b_drop').textContent = text('miniapp.drop_last');
   $('b_retry').textContent = text('miniapp.retry');
   $('turn_title').textContent = text('miniapp.turn_title');
   $('turn_lead').textContent = text('miniapp.turn_lead');
   $('b_keep').textContent = text('miniapp.turn_keep');
   $('s_ccw').textContent = text('miniapp.turn_left'); $('b_ccw').setAttribute('aria-label', text('miniapp.turn_left'));
   $('s_cw').textContent = text('miniapp.turn_right'); $('b_cw').setAttribute('aria-label', text('miniapp.turn_right'));
-  $('b_cw').addEventListener('click', () => turned(90));
-  $('b_ccw').addEventListener('click', () => turned(270));
-  $('b_keep').addEventListener('click', () => turned(0));
   for (const id of ['f_cam', 'f_gal']) {
-    $(id).addEventListener('change', ev => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; upload(f); });
+    $(id).addEventListener('change', ev => { const f = [...(ev.target.files || [])]; ev.target.value = ''; uploadAll(f); });
   }
   $('b_send').addEventListener('click', send);
-  $('b_retry').addEventListener('click', () => upload(lastFile));
-  if (!ticket) { status(text('miniapp.no_ticket')); show('pickers', false); }
+  $('b_drop').addEventListener('click', dropLast);
+  $('b_retry').addEventListener('click', () => uploadAll(retryFiles || []));
+  if (!ticket) { status(text('miniapp.no_ticket')); closed = true; }
+  render();
   tgEvent('web_app_ready'); tgEvent('web_app_expand');
 }
 start();

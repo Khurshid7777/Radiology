@@ -536,14 +536,17 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
                 if got is False:
                     break
                 if got:
-                    log.info("capture page: a photo of %d bytes", len(got))
-                    name = photo_name(got)
+                    log.info("capture page: %d photo(s), %d bytes", len(got), sum(len(b) for b in got))
+                    files = [(photo_name(b) if len(got) == 1 else photo_name(b).replace("ecg.", f"ecg_{i + 1:02d}."), b)
+                             for i, b in enumerate(got)]
                     await retire(None)
-                    await message.answer(t("bot.scan_got", lang))
+                    await message.answer(t("bot.scan_got", lang) if len(got) == 1
+                                         else t("bot.scan_got_many", lang, n=len(got)))
                     if cfg.mode == "analyze":
-                        await begin(message, [(name, got)], None, lang)
+                        await begin(message, files, None, lang)
                     else:
-                        text, scan_id = await asyncio.to_thread(handle_file, cfg, api, got, name, lang)
+                        name, data = files[0]
+                        text, scan_id = await asyncio.to_thread(handle_file, cfg, api, data, name, lang)
                         log.info("scan %s answered", scan_id)
                         await message.answer(text)
                     return

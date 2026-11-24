@@ -366,16 +366,31 @@ def miniapp_button_url(cfg: BotConfig, lang: str, now: float | None = None) -> t
     return f"{base}?lang={lang}&t={ticket}", tid, expiry
 
 
-def miniapp_take(api, ticket_id: str) -> bytes | None | bool:
-    """Ask the server for the photo of a ticket: bytes; None: not there yet (or the server did not
-    answer: try again); False: it was already taken."""
+def miniapp_take(api, ticket_id: str) -> list[bytes] | None | bool:
+    """Ask the server for the photos of a ticket: their bytes in order (SD-147: a record shot in parts); None: not
+    there yet (or the server did not answer: try again); False: they were already taken."""
     try:
         r = api.http.get(f"/scans/miniapp/inbox/{ticket_id}", headers=api.headers)
     except Exception:
         return None
     if r.status_code == 200:
-        return r.content
+        return split_parts(r.content, (getattr(r, "headers", None) or {}).get("X-Miniapp-Sizes"))
     return False if r.status_code == 404 else None
+
+
+def split_parts(body: bytes, sizes: str | None) -> list[bytes]:
+    """The photos of the server's answer by ``X-Miniapp-Sizes``; one photo when the header is absent or does not add up."""
+    try:
+        n = [int(x) for x in (sizes or "").split(",") if x.strip()]
+    except ValueError:
+        n = []
+    if not n or sum(n) != len(body) or min(n) <= 0:
+        return [body]
+    out, at = [], 0
+    for k in n:
+        out.append(body[at:at + k])
+        at += k
+    return out
 
 
 def photo_name(data: bytes) -> str:

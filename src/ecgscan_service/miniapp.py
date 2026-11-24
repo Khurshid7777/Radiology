@@ -124,23 +124,30 @@ def turn_photo(data: bytes, rotate_deg: int, quality: int, max_bytes: int) -> by
 
 
 class InboxFull(Exception):
-    pass
+    """The whole store is full (all tickets together): try again later."""
+
+
+class TooMuch(Exception):
+    """This ticket already holds as many photos or bytes as one record may have."""
 
 
 @dataclass
 class _Item:
-    data: bytes
     owner: str
     expiry: int
+    parts: list[bytes]
+    turns: list[int]    # the doctor's quarter turn of each part, clockwise (SD-138); applied when the bot takes them
     ready: bool = False
-    rotate: int = 0     # the doctor's quarter turn, clockwise (SD-138); applied when the bot takes the file
 
 
 class Inbox:
-    """Uploaded files waiting for the bot, in memory only."""
+    """Uploaded photos waiting for the bot, in memory only. SD-147: a ticket holds the photos of one record, in order
+    (a long strip shot in parts); the bot takes them all at once."""
 
-    def __init__(self, max_waiting: int):
-        self.max_waiting = max_waiting
+    def __init__(self, max_waiting: int, *, max_files: int = 10, max_ticket_bytes: int = 60 << 20,
+                 max_store_bytes: int = 300 << 20):
+        self.max_waiting, self.max_files = max_waiting, max_files
+        self.max_ticket_bytes, self.max_store_bytes = max_ticket_bytes, max_store_bytes
         self._lock = threading.Lock()
         self._items: dict[str, _Item] = {}
         self._used: dict[str, int] = {}          # ticket id -> expiry: taken by the bot, never accepted again
@@ -151,10 +158,13 @@ class Inbox:
             for k in [k for k, v in d.items() if expiry(v) <= now]:
                 del d[k]
 
+    def _now(self, now: float | None) -> None:
+        self._purge(time.time() if now is None else now)
+
     def attempt(self, ticket: Ticket, limit: int, now: float | None = None) -> bool:
-        """Count one upload of the ticket; False when it has had ``limit`` uploads or its file is taken."""
+        """Count one upload of the ticket; False when it has had ``limit`` uploads or its photos are taken."""
         with self._lock:
-            self._purge(time.time() if now is None else now)
+            self._now(now)
             tries = self._tries.setdefault(ticket.id, [ticket.expiry, 0])
             if ticket.id in self._used or tries[1] >= limit:
                 return False
@@ -163,34 +173,79 @@ class Inbox:
 
     def used(self, tid: str, now: float | None = None) -> bool:
         with self._lock:
-            self._purge(time.time() if now is None else now)
+            self._now(now)
             return tid in self._used
 
-    def put(self, ticket: Ticket, data: bytes, now: float | None = None) -> None:
-        """Keep the file for the ticket; a new file for the same ticket replaces the earlier one."""
+    def add(self, ticket: Ticket, data: bytes, now: float | None = None) -> int:
+        """Keep one more photo of the ticket's record; its number (0, 1, ...). KeyError: the ticket is spent;
+        TooMuch: the record is full; InboxFull: the store is."""
         with self._lock:
-            self._purge(time.time() if now is None else now)
+            self._now(now)
             if ticket.id in self._used:
                 raise KeyError(ticket.id)
-            if ticket.id not in self._items and len(self._items) >= self.max_waiting:
+            item = self._items.get(ticket.id)
+            if item is None and len(self._items) >= self.max_waiting:
                 raise InboxFull
-            self._items[ticket.id] = _Item(data, ticket.owner, ticket.expiry)
+            held = sum(len(b) for b in item.parts) if item else 0
+            if item is not None and (len(item.parts) >= self.max_files or held + len(data) > self.max_ticket_bytes):
+                raise TooMuch
+            if len(data) > self.max_ticket_bytes:
+                raise TooMuch
+            if sum(len(b) for it in self._items.values() for b in it.parts) + len(data) > self.max_store_bytes:
+                raise InboxFull
+            if item is None:
+                item = self._items[ticket.id] = _Item(ticket.owner, ticket.expiry, [], [])
+            item.parts.append(data)
+            item.turns.append(0)
+            item.ready = False
+            return len(item.parts) - 1
+
+    def put(self, ticket: Ticket, data: bytes, now: float | None = None) -> None:
+        """One photo for the ticket, replacing whatever it held (the single-photo flow of SD-137)."""
+        with self._lock:
+            item = self._items.get(ticket.id)
+            if item is not None:
+                item.parts, item.turns = [], []
+        self.add(ticket, data, now)
+
+    def turn(self, ticket: Ticket, part: int, rotate: int, now: float | None = None) -> bool:
+        with self._lock:
+            self._now(now)
+            item = self._items.get(ticket.id)
+            if item is None or not 0 <= part < len(item.parts):
+                return False
+            item.turns[part] = rotate
+            return True
+
+    def drop(self, ticket: Ticket, part: int, now: float | None = None) -> bool:
+        with self._lock:
+            self._now(now)
+            item = self._items.get(ticket.id)
+            if item is None or not 0 <= part < len(item.parts):
+                return False
+            del item.parts[part], item.turns[part]
+            if not item.parts:
+                del self._items[ticket.id]
+            return True
 
     def send(self, ticket: Ticket, now: float | None = None, rotate: int = 0) -> bool:
-        """Mark the ticket's file ready for the bot, with the doctor's turn; False when nothing is waiting."""
+        """Mark the ticket's photos ready for the bot; ``rotate`` (the SD-138 form) turns the last one. False when
+        nothing is waiting."""
         with self._lock:
-            self._purge(time.time() if now is None else now)
+            self._now(now)
             item = self._items.get(ticket.id)
-            if item is None:
+            if item is None or not item.parts:
                 return False
-            item.ready, item.rotate = True, rotate
+            if rotate:
+                item.turns[-1] = rotate
+            item.ready = True
             return True
 
     def take(self, tid: str, owner: str, now: float | None = None, *, with_turn: bool = False):
-        """The ready file of the ticket, once: bytes (with ``with_turn``: bytes and the doctor's turn);
-        None: nothing ready yet; False: already taken. Only the key that signed the ticket gets it."""
+        """The ready photos of the ticket, once and in order: a list of bytes (with ``with_turn``: of (bytes, turn));
+        None: nothing ready yet; False: already taken. Only the key that signed the ticket gets them."""
         with self._lock:
-            self._purge(time.time() if now is None else now)
+            self._now(now)
             if tid in self._used:
                 return False
             item = self._items.get(tid)
@@ -198,7 +253,7 @@ class Inbox:
                 return None
             del self._items[tid]
             self._used[tid] = item.expiry
-            return (item.data, item.rotate) if with_turn else item.data
+            return list(zip(item.parts, item.turns, strict=True)) if with_turn else list(item.parts)
 
     def __len__(self) -> int:
         with self._lock:
