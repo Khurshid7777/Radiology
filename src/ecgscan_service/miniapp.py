@@ -80,10 +80,13 @@ TURNS = (0, 90, 180, 270)
 
 def size_refusal(data: bytes) -> str | None:
     """Why the picture is not decoded (None: it may be): a 1-MB PNG can declare 30000 x 30000 px and
-    take gigabytes to decode (D136), so the header is read first, with the limits of the analysis."""
+    take gigabytes to decode (D136), so the header is read first, with the limits of the analysis. A header
+    that cannot be read is refused too: some TIFF headers PIL does not read expand to gigabytes in OpenCV."""
     from ecgscan.config import load_yaml
-    from ecgscan.io import ImageRefused, check_image
+    from ecgscan.io import ImageRefused, check_image, image_size
 
+    if image_size(data) is None:          # a header the reader does not know: "the decoder decides" would decode it
+        return "UNREADABLE_HEADER"
     q = load_yaml("pipeline")["quality"]
     try:
         check_image(data, max_megapixels=float(q["max_megapixels"]), min_side_px=int(q["min_side_px"]))

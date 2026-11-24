@@ -69,6 +69,19 @@ _PAGE_TEXTS = ("title", "lead", "tips", "shoot", "pick", "uploading", "checking"
 
 
 @lru_cache(maxsize=1)
+def _hint_pool():
+    """The frame check of uploaded photos runs on its own two workers: a burst of uploads cannot take every thread."""
+    return _pool()
+
+
+@lru_cache(maxsize=1)
+def _pool():
+    from concurrent.futures import ThreadPoolExecutor
+
+    return ThreadPoolExecutor(max_workers=2, thread_name_prefix="miniapp-hints")
+
+
+@lru_cache(maxsize=1)
 def get_inbox() -> Inbox:
     return Inbox(int(load_yaml("service")["miniapp"]["max_waiting"]))
 
@@ -160,9 +173,12 @@ async def miniapp_upload(request: Request, lang: str = "ru") -> dict:
         raise HTTPException(400, "empty file")
     if not known:
         raise HTTPException(415, "not a photo the scanner reads")
-    if size_refusal(data):                # before any decoding: the declared size, not the file's, costs memory
+    why = size_refusal(data)              # before any decoding: the declared size, not the file's, costs memory
+    if why == "UNREADABLE_HEADER":
+        raise HTTPException(415, "not a photo the scanner reads")
+    if why:
         raise HTTPException(413, "the picture is too large or too small")
-    info = await asyncio.get_running_loop().run_in_executor(None, photo_hints, data, _lang(lang))
+    info = await asyncio.get_running_loop().run_in_executor(_hint_pool(), photo_hints, data, _lang(lang))
     try:
         get_inbox().put(tk, data)
     except InboxFull:

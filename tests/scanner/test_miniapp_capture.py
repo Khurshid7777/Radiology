@@ -191,8 +191,8 @@ def test_a_poor_photo_gets_the_frame_checks_words_in_the_pages_language(client):
     body = client.post("/miniapp/upload?lang=ru", content=blank, headers=head).json()
     assert any("мелкий" in h for h in body["hints"]), body
     head, _ = ticket_headers()
-    assert client.post("/miniapp/upload?lang=xx", content=b"\xff\xd8\xff not a picture after all", headers=head).json() == {
-        "checked": False, "width": None, "height": None, "px_per_mm": None, "hints": [], "turn": False}
+    # bytes that start like a JPEG but have no readable header are refused before any decoder sees them
+    assert client.post("/miniapp/upload?lang=xx", content=b"\xff\xd8\xff not a picture after all", headers=head).status_code == 415
 
 
 def test_a_sheet_running_off_the_frame_is_told_which_way_to_move(client):
@@ -471,3 +471,27 @@ def test_a_read_only_key_never_signs_a_ticket(monkeypatch, client):
     assert verify_ticket(ticket, keys, max_minutes=10) is not None                           # signed by a known key ...
     assert verify_ticket(ticket, keys, max_minutes=10, refused_prefix="agent") is None       # ... but not by a read-only one
     assert verify_ticket(issue_ticket("k-bot", 5)[0], keys, max_minutes=10, refused_prefix="agent") is not None
+
+
+def test_a_header_the_reader_does_not_know_is_refused_before_decoding(client, monkeypatch):
+    """Some TIFF headers PIL cannot read (a palette without a ColorMap...) still expand to gigabytes in OpenCV."""
+    from ecgscan_service.miniapp import size_refusal
+
+    tiff = b"II*\x00\x08\x00\x00\x00" + b"\x00" * 32
+    assert size_refusal(tiff) == "UNREADABLE_HEADER" and size_refusal(b"\xff\xd8\xff nothing") == "UNREADABLE_HEADER"
+    decoded = []
+    real = cv2.imdecode
+    monkeypatch.setattr(cv2, "imdecode", lambda *a, **k: decoded.append(1) or real(*a, **k))
+    head, _ = ticket_headers()
+    assert client.post("/miniapp/upload", content=tiff, headers=head).status_code == 415
+    assert client.post("/miniapp/send", headers=head).status_code == 409
+    with pytest.raises(ValueError):
+        turn_photo(tiff, 90, 95, 10**7)
+    assert not decoded
+
+
+def test_frame_checks_run_on_their_own_two_workers():
+    from ecgscan_service import router
+
+    pool = router._hint_pool()
+    assert pool is router._hint_pool() and pool._max_workers == 2
