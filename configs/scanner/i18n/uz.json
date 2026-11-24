@@ -231,6 +231,7 @@
   "miniapp.list_ok": "izohsiz",
   "miniapp.parts_hint": "Uzun lentani qismlarga bo‘lib, tartib bilan, biroz ustma-ust suratga oling; {max} tagacha surat.",
   "miniapp.too_many": "Boshqa mumkin emas: bitta yozuvda {max} tagacha surat.",
+  "miniapp.record_full": "Yozuv to‘ldi: unda allaqachon {max} ta surat yoki 60 MB bor. Uni yuboring yoki ortiqcha suratni olib tashlang.",
   "miniapp.turn_title": "Varaq yonboshlab suratga olinganga o‘xshaydi.",
   "miniapp.turn_lead": "EKG qatorlari chapdan o‘ngga ketadigan, tarmoq yozuvlari teskari bo‘lmagan suratni tanlang.",
   "miniapp.turn_left": "Chapga burish",

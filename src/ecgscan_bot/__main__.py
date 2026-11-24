@@ -574,6 +574,8 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
             return False
         url, ticket_id, expiry = made
         tasks = waiting.setdefault(message.chat.id, [])
+        if not own_message and len(tasks) >= cfg.miniapp_max_buttons:
+            return False                  # a compressed photo never ends a live wait (/scan); the warning goes plain
         while len(tasks) >= cfg.miniapp_max_buttons:      # earlier buttons keep working; only the oldest gives way
             tasks.pop(0).cancel()
         sent = await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[

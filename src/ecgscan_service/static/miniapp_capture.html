@@ -101,10 +101,13 @@ function post(path, body, onProgress, query) {
     x.send(body || null);
   });
 }
-function failure(code) {
+function failure(code, body) {
   progress(0);
   if (code === 401) { status(text('miniapp.expired')); closed = true; render(); return; }
-  if (code === 413) { status(parts.length >= MAX ? text('miniapp.too_many', { max: MAX }) : text('miniapp.too_big', { mb: PAGE.max_mb })); return; }
+  if (code === 413) {
+    const full = parts.length >= MAX || (body && /record/.test(String(body.detail || '')));
+    status(full ? text('miniapp.record_full', { max: MAX }) : text('miniapp.too_big', { mb: PAGE.max_mb })); return;
+  }
   if (code === 415) { status(text('miniapp.bad_format')); return; }
   if (code === 429) { status(text('miniapp.busy')); show('b_retry', !!retryFiles); return; }
   status(text('miniapp.failed')); show('b_retry', !!retryFiles);
@@ -161,14 +164,17 @@ async function uploadAll(files) {
       progress(share);
       status(share < 1 ? text('miniapp.uploading', { percent: Math.round(100 * share) }) : text('miniapp.checking'));
     });
-    if (r.status !== 200 || !r.body) { retryFiles = files.slice(i); failure(r.status); break; }
+    if (r.status !== 200 || !r.body) { retryFiles = r.status === 413 ? null : files.slice(i); failure(r.status, r.body); break; }
     const d = r.body;
     parts.push({ width: d.width, height: d.height, mb: (file.size / 1048576).toFixed(1), hints: d.hints || [], codes: d.codes || [] });
     render();
     if (d.turn) {
       progress(0); status('');
       const deg = await askTurn(file);
-      if (deg) await post('turn', null, null, '&part=' + d.part + '&rotate=' + deg);
+      if (deg) {
+        const t = await post('turn', null, null, '&part=' + d.part + '&rotate=' + deg);
+        if (t.status !== 200) { failure(t.status, t.body); break; }    // the photo stays as it was shot
+      }
     }
     progress(0); status('');
   }
@@ -179,7 +185,7 @@ async function dropLast() {
   busy = true; render();
   const r = await post('drop', null, null, '&part=' + (parts.length - 1));
   busy = false;
-  if (r.status === 200) parts.pop(); else failure(r.status);
+  if (r.status === 200) parts.pop(); else failure(r.status, r.body);
   render();
 }
 async function send() {
@@ -187,7 +193,7 @@ async function send() {
   busy = true; render();
   const r = await post('send', null, null);
   busy = false;
-  if (r.status !== 200) { failure(r.status); render(); return; }
+  if (r.status !== 200) { failure(r.status, r.body); render(); return; }
   progress(1); closed = true; render();
   status(text('miniapp.sent'));
   setTimeout(() => tgEvent('web_app_close'), 2500);
