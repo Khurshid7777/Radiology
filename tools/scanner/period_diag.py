@@ -66,7 +66,7 @@ def report(rows: list[dict]) -> dict:
     for g in ("doubled", "normal", "half"):
         part = [r for r in rows if r["group"] == g]
         out[g] = {"n": len(part), **{k: quantiles([r[k] for r in part if r.get(k) is not None])
-                                      for k in (*FRACTIONS, "p_over_a0", "sheet_ratio", "check_fill", "scan_fill")}}
+                                      for k in (*FRACTIONS, "p_over_a0", "period_strength", "sheet_ratio", "check_fill", "scan_fill")}}
     return out
 
 
@@ -105,7 +105,7 @@ def run(root: Path, hc_files: list[Path], out_path: Path, shard: tuple[int, int]
                 continue
             fill = max(w, h) / 297.0              # px/mm if an A4 sheet filled the frame's long side
             extra = {"check_fill": round(row["ppm_check"] / fill, 3), "scan_fill": round(row["ppm_scan"] / fill, 3),
-                     "status": row["status"]}
+                     "status": row["status"], "period_strength": qc.period_strength}
             a = acorr(seen["profiles"], int(0.4 * seen["profiles"].shape[1]))
             f = features(a, seen["period"])
             tl, tr, _, bl = qc.corners
