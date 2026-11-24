@@ -24,8 +24,8 @@ PHOTO = b"\xff\xd8\xff" + b"original bytes of the phone's photo" * 50
 
 
 class Reply:
-    def __init__(self, status_code, content=b""):
-        self.status_code, self.content = status_code, content
+    def __init__(self, status_code, content=b"", headers=None):
+        self.status_code, self.content, self.headers = status_code, content, headers or {}
 
 
 class Server:
@@ -163,10 +163,33 @@ def test_helpers():
     assert miniapp_button_url(cfg(public_url=None), "ru") is None
     url, tid, expiry = miniapp_button_url(scan_cfg(), "uz", now=1_800_000_000)
     assert url.startswith("https://site.example/miniapp/capture?lang=uz&t=" + tid) and expiry == 1_800_000_600
-    assert miniapp_take(Api(Server(Reply(200, b"x"))), "t") == b"x"
+    assert miniapp_take(Api(Server(Reply(200, b"x"))), "t") == [b"x"]
     assert miniapp_take(Api(Server(Reply(204))), "t") is None
     assert miniapp_take(Api(Server(Reply(500))), "t") is None
     assert miniapp_take(Api(Server(Reply(404))), "t") is False
     assert photo_name(b"\xff\xd8\xff\xe0") == "ecg.jpg" and photo_name(b"\x89PNG\r\n\x1a\n") == "ecg.png"
     assert photo_name(b"\x00\x00\x00\x18ftypheic") == "ecg.heic" and photo_name(b"RIFF\x00\x00\x00\x00WEBP") == "ecg.webp"
     assert photo_name(b"MM\x00*") == "ecg.tiff" and photo_name(b"?") == "ecg.jpg"
+
+
+
+def test_the_photos_of_one_record_are_split_by_their_sizes():
+    from ecgscan_bot.logic import split_parts
+
+    assert split_parts(b"aaabbbbc", "3,4,1") == [b"aaa", b"bbbb", b"c"]
+    assert split_parts(b"abc", None) == [b"abc"] and split_parts(b"abc", "2,2") == [b"abc"]
+    assert split_parts(b"abc", "x,y") == [b"abc"] and split_parts(b"abc", "3,0") == [b"abc"]
+
+
+def test_nine_photos_from_the_page_are_one_record_in_order(tmp_path, monkeypatch):
+    """SD-147: a long strip shot in nine parts is analysed once, with the nine files in order."""
+    monkeypatch.delenv(PUBLIC_URL_ENV, raising=False)
+    parts = [b"\xff\xd8\xff" + bytes([i]) * (100 + i) for i in range(9)]
+    reply = Reply(200, b"".join(parts), {"X-Miniapp-Sizes": ",".join(str(len(b)) for b in parts)})
+    api = Api(Server(reply))
+    sent = run(scan_cfg(), api, AccessStore(tmp_path / "a.json"), text_update(ADMIN, "private", ADMIN, "/scan", 1),
+               text_update(ADMIN, "private", ADMIN, "54 м", 2), text_update(ADMIN, "private", ADMIN, "-", 3))
+    texts = [m.text for m in sent]
+    assert t("bot.scan_got_many", "ru", n=9) in texts
+    assert api.calls == 1 and [d for _, d in api.files] == parts
+    assert [n for n, _ in api.files] == [f"ecg_{i:02d}.jpg" for i in range(1, 10)]

@@ -9,6 +9,7 @@ import re
 import time
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from ecgscan.i18n import strings
@@ -57,7 +58,7 @@ def test_the_inbox_gives_a_sent_file_once_to_its_owner_and_forgets_it_in_time():
     assert box.take(a.id, "bot", now) is None              # not sent yet
     assert box.send(a, now) is True
     assert box.take(a.id, "other", now) is None            # another key never gets it
-    assert box.take(a.id, "bot", now) == b"second"
+    assert box.take(a.id, "bot", now) == [b"second"]
     assert box.take(a.id, "bot", now) is False and box.used(a.id, now)
     with pytest.raises(KeyError):
         box.put(a, b"again", now)                          # a used ticket takes no more files
@@ -218,7 +219,7 @@ def test_the_page_talks_to_its_own_two_addresses_only():
     assert not re.search(r"https?://|//[a-z]", src.replace("// ", "").replace("/*", ""))        # no outside address
     assert "PAGE.telegram_web" in src and src.count("postMessage(") == 1                        # Telegram Web's frame, by the server's word
     assert "<script src" not in src
-    assert set(re.findall(r"post\('([^']+)'", src)) == {"upload", "send"}
+    assert set(re.findall(r"post\('([^']+)'", src)) == {"upload", "turn", "drop", "send"}     # SD-147: its own four addresses
     assert src.count("XMLHttpRequest") == 1 and src.count(".open(") == 1
     assert src.count('type="file"') == 2 and 'capture="environment"' in src
     assert TICKET_HEADER in src                                         # the page and the server name the header alike
@@ -423,8 +424,8 @@ def test_a_photo_is_turned_from_the_way_the_doctor_saw_it():
 
 def test_the_turn_choice_is_on_the_page():
     src = PAGE.read_text(encoding="utf-8")
-    for part in ('id="turnbox"', 'id="b_cw"', 'id="b_ccw"', 'id="b_keep"', "createImageBitmap(", "turned(90)", "turned(270)",
-                 "turned(0)", "'&rotate=' + rotate"):
+    for part in ('id="turnbox"', 'id="b_cw"', 'id="b_ccw"', 'id="b_keep"', "createImageBitmap(", "pick(90)", "pick(270)",
+                 "pick(0)", "'&rotate=' + deg"):
         assert part in src, part
     assert "toBlob" not in src and "toDataURL" not in src            # the page shows the turn, the server makes it
 
@@ -496,3 +497,90 @@ def test_frame_checks_run_on_their_own_two_workers():
 
     pool = router._hint_pool()
     assert pool is router._hint_pool() and pool._max_workers == 2
+
+
+# --- SD-147: several photos of one record --------------------------------------------------------------
+
+def small_photo(shade: int) -> bytes:
+    import numpy as np
+
+    return cv2.imencode(".jpg", np.full((400, 600, 3), shade, np.uint8))[1].tobytes()
+
+
+def take_parts(client, tid):
+    r = client.get(f"/scans/miniapp/inbox/{tid}", headers={"X-API-Key": "k-bot"})
+    assert r.status_code == 200
+    sizes = [int(x) for x in r.headers["x-miniapp-sizes"].split(",")]
+    out, at = [], 0
+    for n in sizes:
+        out.append(r.content[at:at + n])
+        at += n
+    assert at == len(r.content)
+    return out
+
+
+def test_nine_photos_of_a_strip_reach_the_bot_in_order_byte_for_byte(client):
+    head, tid = ticket_headers()
+    photos = [small_photo(100 + 10 * i) for i in range(9)]
+    for i, ph in enumerate(photos):
+        r = client.post("/miniapp/upload", content=ph, headers=head)
+        assert r.status_code == 200 and r.json()["part"] == i
+    assert client.post("/miniapp/send", headers=head).json() == {"sent": True}
+    assert take_parts(client, tid) == photos
+    assert client.get(f"/scans/miniapp/inbox/{tid}", headers={"X-API-Key": "k-bot"}).status_code == 404
+
+
+def test_each_photo_has_its_own_turn_and_a_photo_can_be_dropped(client):
+    head, tid = ticket_headers()
+    a, b, c = marked(), marked(), small_photo(200)
+    for ph in (a, b, c):
+        assert client.post("/miniapp/upload", content=ph, headers=head).status_code == 200
+    assert client.post("/miniapp/turn?part=1&rotate=90", headers=head).json() == {"part": 1, "rotate": 90}
+    assert client.post("/miniapp/turn?part=1&rotate=45", headers=head).status_code == 422
+    assert client.post("/miniapp/turn?part=7&rotate=90", headers=head).status_code == 404
+    assert client.post("/miniapp/drop?part=2", headers=head).json() == {"dropped": 2}         # the last one goes
+    assert client.post("/miniapp/drop?part=5", headers=head).status_code == 404
+    assert client.post("/miniapp/send", headers=head).json() == {"sent": True}
+    got = take_parts(client, tid)
+    assert len(got) == 2 and got[0] == a                                                     # no turn: the original
+    assert dark_corner(got[1]) == ("top-right", (400, 600))                                  # its own quarter turn
+
+
+def test_a_record_has_limits_per_button_and_for_the_whole_store(client, monkeypatch):
+    from ecgscan_service import router
+
+    real = router.load_yaml
+
+    def small(name):
+        cfg = real(name)
+        if name != "service":
+            return cfg
+        return {**cfg, "miniapp": {**cfg["miniapp"], "max_files": 3, "max_total_mb": 0.05, "max_store_mb": 0.06}}
+
+    monkeypatch.setattr(router, "load_yaml", small)
+    router.get_inbox.cache_clear()
+    head, _ = ticket_headers()
+    ph = small_photo(120)
+    assert [client.post("/miniapp/upload", content=ph, headers=head).status_code for _ in range(4)] == [200, 200, 200, 413]
+    big = cv2.imencode(".png", np.random.default_rng(0).integers(0, 255, (300, 300, 3), dtype=np.uint8))[1].tobytes()
+    assert len(big) > 0.05 * 1024 * 1024
+    assert client.post("/miniapp/upload", content=big, headers=ticket_headers()[0]).status_code == 413   # over a record's bytes
+    router.get_inbox.cache_clear()
+    from ecgscan_service.miniapp import TooMuch
+
+    box = Inbox(5, max_files=10, max_ticket_bytes=100, max_store_bytes=150)                  # the whole store's limit
+    t1, t2 = Ticket("a" * 24, "bot", 2000), Ticket("b" * 24, "bot", 2000)
+    assert box.add(t1, b"x" * 90, 1000.0) == 0
+    with pytest.raises(TooMuch):
+        box.add(t1, b"x" * 20, 1000.0)                                                       # over the record's 100
+    with pytest.raises(InboxFull):
+        box.add(t2, b"x" * 70, 1000.0)                                                       # over the store's 150
+    assert box.add(t2, b"x" * 50, 1000.0) == 0
+
+
+def test_the_page_lets_several_photos_be_chosen_and_sends_them_together():
+    src = PAGE.read_text(encoding="utf-8")
+    assert 'id="f_gal" type="file" accept="image/*" multiple' in src
+    assert "parts.length >= MAX" in src and "miniapp.send_n" in src and "dropLast" in src
+    assert "await send()" not in src                                                         # no automatic send any more
+    assert "p.codes[k] === 'frame'" in src                                                   # parts are not told the sheet is cut

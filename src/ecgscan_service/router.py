@@ -29,6 +29,7 @@ from ecgscan_service.miniapp import (
     Inbox,
     InboxFull,
     Ticket,
+    TooMuch,
     image_kind,
     size_refusal,
     turn_photo,
@@ -38,6 +39,7 @@ from ecgscan_service.service import ScanError, ScanService
 from ecgscan_service.store import ScanRow
 
 KEYS_ENV = "ECGSCAN_API_KEYS"
+SIZES_HEADER = "X-Miniapp-Sizes"      # SD-147: the sizes of the photos in the bot's answer, in order
 log = logging.getLogger("ecgscan_service")
 
 router = APIRouter(prefix="/scans", tags=["scanner"])
@@ -65,7 +67,8 @@ CAPTURE_HEADERS = {**PROBE_HEADERS,
                        "connect-src 'none'", "connect-src 'self'")}
 _PAGE_TEXTS = ("title", "lead", "tips", "shoot", "pick", "uploading", "checking", "size", "hints_title", "retake",
                "send_anyway", "sent", "no_ticket", "expired", "too_big", "bad_format", "busy", "failed", "retry",
-               "turn_title", "turn_lead", "turn_left", "turn_right", "turn_keep")
+               "turn_title", "turn_lead", "turn_left", "turn_right", "turn_keep", "add_more", "pick_more", "drop_last",
+               "send_n", "list_item", "list_ok", "parts_hint", "too_many")
 
 
 @lru_cache(maxsize=1)
@@ -83,7 +86,9 @@ def _pool():
 
 @lru_cache(maxsize=1)
 def get_inbox() -> Inbox:
-    return Inbox(int(load_yaml("service")["miniapp"]["max_waiting"]))
+    c = load_yaml("service")["miniapp"]
+    return Inbox(int(c["max_waiting"]), max_files=int(c["max_files"]), max_ticket_bytes=int(c["max_total_mb"] * 1024 * 1024),
+                 max_store_bytes=int(c["max_store_mb"] * 1024 * 1024))
 
 
 def _lang(lang: str | None) -> str:
@@ -113,7 +118,7 @@ def photo_hints(data: bytes, lang: str) -> dict:
     except cv2.error:
         bgr = None
     if bgr is None:                       # a format OpenCV does not read: the analysis decides
-        return {"checked": False, "width": None, "height": None, "px_per_mm": None, "hints": [], "turn": False}
+        return {"checked": False, "width": None, "height": None, "px_per_mm": None, "hints": [], "codes": [], "turn": False}
     h, w = bgr.shape[:2]
     k = min(1.0, int(c["check_width"]) / w)
     small = cv2.resize(bgr, (round(w * k), round(h * k)), interpolation=cv2.INTER_AREA) if k < 1 else bgr
@@ -121,12 +126,14 @@ def photo_hints(data: bytes, lang: str) -> dict:
     s = strings(lang)
     hints = [s[f"qc.frame_{qc.frame_advice}"] if code == "frame" and qc.frame_advice else s[f"qc.{code}"]
              for code in qc.hints]
+    codes = list(qc.hints)               # SD-147: the page leaves out "frame" when the record is shot in parts
     if qc.px_per_mm is None and max(w, h) < int(c["small_side_px"]):
         hints.append(s["miniapp.small"].format(px=f"{max(w, h) / 297:.1f}"))
+        codes.append("small")
     # SD-138: ask the doctor which way is up when the sheet stands on end; with no sheet found, when the photo does
     # (the core's portrait check, D171). Which way to turn it the picture does not say.
     turn = qc.sideways if qc.sideways is not None else h > float(config()["thresholds"]["sideways_ratio"]) * w
-    return {"checked": True, "width": w, "height": h, "px_per_mm": qc.px_per_mm, "hints": hints, "turn": bool(turn)}
+    return {"checked": True, "width": w, "height": h, "px_per_mm": qc.px_per_mm, "hints": hints, "codes": codes, "turn": bool(turn)}
 
 
 @public_router.api_route("/capture", methods=["GET", "HEAD"], response_class=HTMLResponse)
@@ -137,6 +144,7 @@ def miniapp_capture(lang: str = "ru") -> HTMLResponse:
     lang = _lang(lang)
     s = strings(lang)
     page = {"lang": lang, "max_mb": load_yaml("service")["upload"]["max_mb"], "telegram_web": TELEGRAM_WEB,
+            "max_files": int(load_yaml("service")["miniapp"]["max_files"]),
             "texts": {f"miniapp.{k}": s[f"miniapp.{k}"] for k in _PAGE_TEXTS}}
     blob = json.dumps(page, ensure_ascii=False).replace("</", "<\\/")
     html = (_STATIC / "miniapp_capture.html").read_text(encoding="utf-8").replace("/*__PAGE__*/{}", blob, 1)
@@ -180,12 +188,34 @@ async def miniapp_upload(request: Request, lang: str = "ru") -> dict:
         raise HTTPException(413, "the picture is too large or too small")
     info = await asyncio.get_running_loop().run_in_executor(_hint_pool(), photo_hints, data, _lang(lang))
     try:
-        get_inbox().put(tk, data)
+        part = get_inbox().add(tk, data)
+    except TooMuch:
+        raise HTTPException(413, "this record already holds as many photos as it may") from None
     except InboxFull:
         raise HTTPException(429, "too many photos are waiting") from None
     except KeyError:
         raise HTTPException(401, "invalid, expired or used ticket") from None
-    return info
+    return {**info, "part": part}
+
+
+@public_router.post("/turn")
+def miniapp_turn(request: Request, part: int, rotate: int) -> dict:
+    """SD-147: the doctor's quarter turn of one photo of the record (SD-138)."""
+    tk = _ticket(request)
+    if rotate not in TURNS:
+        raise HTTPException(422, "rotate: a quarter turn, 0 / 90 / 180 / 270")
+    if not get_inbox().turn(tk, part, rotate):
+        raise HTTPException(404, "no such photo")
+    return {"part": part, "rotate": rotate}
+
+
+@public_router.post("/drop")
+def miniapp_drop(request: Request, part: int) -> dict:
+    """SD-147: take one photo out of the record (a retake, or a wrong one)."""
+    tk = _ticket(request)
+    if not get_inbox().drop(tk, part):
+        raise HTTPException(404, "no such photo")
+    return {"dropped": part}
 
 
 @public_router.post("/send")
@@ -359,23 +389,27 @@ def capture_qc_config(who: str = Depends(actor)) -> dict:
 
 @router.get("/miniapp/inbox/{ticket_id}")
 def miniapp_take(ticket_id: str, who: str = Depends(actor)) -> Response:
-    """The bot takes the photo of a ticket it signed, once (SD-137): 200 the bytes (the server forgets
-    them), 204 nothing ready yet, 404 already taken. Without a turn these are the bytes the phone made;
-    with the doctor's turn (SD-138) a JPEG of the turned picture, so every reader sees it upright."""
+    """The bot takes the photos of a ticket it signed, once (SD-137, SD-147): 200 the photos in order, one after the
+    other in the body, their sizes in ``X-Miniapp-Sizes`` (the server forgets them); 204 nothing ready yet; 404 already
+    taken. Without a turn a photo is the bytes the phone made; with the doctor's turn (SD-138) a JPEG of the turned
+    picture, so every reader sees it upright."""
     got = get_inbox().take(ticket_id, who, with_turn=True)
     if got is False:
         raise HTTPException(404, "already taken")
     if got is None:
         return Response(status_code=204)
-    data, rotate = got
-    if rotate:
-        conf = load_yaml("service")
-        try:
-            data = turn_photo(data, rotate, int(conf["miniapp"]["turn_jpeg_quality"]),
-                              int(conf["upload"]["max_mb"] * 1024 * 1024))
-        except ValueError:
-            log.warning("capture page: the photo could not be turned, it goes as it was sent")
-    return Response(data, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+    conf = load_yaml("service")
+    parts = []
+    for data, rotate in got:
+        if rotate:
+            try:
+                data = turn_photo(data, rotate, int(conf["miniapp"]["turn_jpeg_quality"]),
+                                  int(conf["upload"]["max_mb"] * 1024 * 1024))
+            except ValueError:
+                log.warning("capture page: a photo could not be turned, it goes as it was sent")
+        parts.append(data)
+    return Response(b"".join(parts), media_type="application/octet-stream",
+                    headers={"Cache-Control": "no-store", SIZES_HEADER: ",".join(str(len(b)) for b in parts)})
 
 
 @router.get("/{scan_id}")

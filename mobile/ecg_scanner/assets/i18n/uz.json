@@ -223,6 +223,14 @@
   "miniapp.failed": "Yuborib bo'lmadi: aloqani tekshirib, qayta urinib ko'ring.",
   "miniapp.retry": "Qayta yuborish",
   "miniapp.small": "Surat mayda (varaq butun kadrda {px} nuqta/mm): faqat YUCH va ritm bo'ladi. Yaqinroq keling yoki telefon kamerasi bilan oling.",
+  "miniapp.add_more": "Yana surat qo‘shish",
+  "miniapp.pick_more": "Galereyadan yana",
+  "miniapp.drop_last": "Oxirgisini olib tashlash",
+  "miniapp.send_n": "Yuborish ({n})",
+  "miniapp.list_item": "Surat {i}: {width}×{height}, {mb} MB",
+  "miniapp.list_ok": "izohsiz",
+  "miniapp.parts_hint": "Uzun lentani qismlarga bo‘lib, tartib bilan, biroz ustma-ust suratga oling; {max} tagacha surat.",
+  "miniapp.too_many": "Boshqa mumkin emas: bitta yozuvda {max} tagacha surat.",
   "miniapp.turn_title": "Varaq yonboshlab suratga olinganga o‘xshaydi.",
   "miniapp.turn_lead": "EKG qatorlari chapdan o‘ngga ketadigan, tarmoq yozuvlari teskari bo‘lmagan suratni tanlang.",
   "miniapp.turn_left": "Chapga burish",
@@ -232,5 +240,8 @@
   "bot.scan_btn": "EKGni suratga olish",
   "bot.scan_off": "Sahifa orqali suratga olish sozlanmagan: botda saytning ochiq manzili yo'q. Fotoni fayl sifatida yuboring (qisqich → «Fayl»).",
   "bot.scan_got": "Surat to'liq sifatda qabul qilindi.",
-  "bot.scan_expired": "Suratga olish tugmasi endi ishlamaydi. Surat kelmagan bo‘lsa, /scan buyrug‘ini yana yuboring."
+  "bot.scan_got_many": "To‘liq sifatdagi suratlar olindi: {n}. Ularni bitta yozuv sifatida, tartib bo‘yicha tahlil qilaman.",
+  "bot.scan_expired": "Suratga olish tugmasi endi ishlamaydi. Surat kelmagan bo‘lsa, /scan buyrug‘ini yana yuboring.",
+  "bot.recapture": "Yoki quyidagi tugmani bosing: suratga olish sahifasi ochiladi va surat siqilmasdan, asl holida yuboriladi.",
+  "bot.recapture_btn": "To‘liq sifatda qayta suratga olish"
 }

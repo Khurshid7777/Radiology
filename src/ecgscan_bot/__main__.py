@@ -29,6 +29,7 @@ from ecgscan_bot.logic import (
     analyse,
     apply_choice,
     clean_comment,
+    command_list,
     feedback_buttons,
     first_question,
     group_head,
@@ -81,7 +82,24 @@ async def main() -> None:
     bot = Bot(token)
     api = AnalyzeApi(cfg) if cfg.mode == "analyze" else ScanApi(cfg)
     log.info("bot mode %s, api %s, %d allowed users", cfg.mode, cfg.api_url, len(cfg.allowed))
-    await build(cfg, bot, api, AccessStore()).start_polling(bot)
+    dp = build(cfg, bot, api, AccessStore())
+    await set_commands(bot)
+    await dp.start_polling(bot)
+
+
+START_SCAN = "scan"      # SD-146: t.me/<bot>?start=scan opens the capture button at once
+
+
+async def set_commands(bot) -> None:
+    """SD-146: the command list Telegram shows in private chats, in Russian (default) and Uzbek; never fatal."""
+    from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
+
+    for lang, code in (("ru", None), ("uz", "uz")):
+        try:
+            await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in command_list(lang)],
+                                      scope=BotCommandScopeAllPrivateChats(), language_code=code)
+        except Exception:
+            log.warning("the command list (%s) was not set", lang)
 
 
 def build(cfg: BotConfig, bot, api, store: AccessStore):
@@ -454,6 +472,13 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
 
     @dp.message(CommandStart())
     async def start(message: Message, command: CommandObject) -> None:
+        if (command.args or "").strip().lower() == START_SCAN:  # SD-146: t.me/<bot>?start=scan
+            lang = guard(message)
+            if lang is None:
+                await message.answer(not_allowed(message))
+            elif not await offer_capture(message, lang, t("bot.scan", lang, minutes=f"{cfg.miniapp_ticket_minutes:g}")):
+                await message.answer(t("bot.scan_off", lang))
+            return
         if command.args and not guard(message):          # t.me/<bot>?start=<code> (D208)
             await join(message, command.args)
             return
@@ -491,9 +516,11 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
         await message.answer(tr("probe", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=tr("probe_btn", lang), web_app=WebAppInfo(url=url))]]))
 
-    async def wait_miniapp(message: Message, button_id: int, ticket_id: str, expiry: int, lang: str) -> None:
+    async def wait_miniapp(message: Message, button_id: int, ticket_id: str, expiry: int, lang: str,
+                           own_message: bool = True) -> None:
         """SD-137: ask the server for the photo taken on the capture page until the ticket runs out,
-        then go on as with a file sent to the chat. The button's message says when the button is dead."""
+        then go on as with a file sent to the chat. The button's message says when the button is dead
+        (``own_message``: the message is the button's alone; otherwise, SD-144, only the button goes)."""
         import time
 
         async def retire(text: str | None) -> None:
@@ -509,21 +536,24 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
                 if got is False:
                     break
                 if got:
-                    log.info("capture page: a photo of %d bytes", len(got))
-                    name = photo_name(got)
+                    log.info("capture page: %d photo(s), %d bytes", len(got), sum(len(b) for b in got))
+                    files = [(photo_name(b) if len(got) == 1 else photo_name(b).replace("ecg.", f"ecg_{i + 1:02d}."), b)
+                             for i, b in enumerate(got)]
                     await retire(None)
-                    await message.answer(t("bot.scan_got", lang))
+                    await message.answer(t("bot.scan_got", lang) if len(got) == 1
+                                         else t("bot.scan_got_many", lang, n=len(got)))
                     if cfg.mode == "analyze":
-                        await begin(message, [(name, got)], None, lang)
+                        await begin(message, files, None, lang)
                     else:
-                        text, scan_id = await asyncio.to_thread(handle_file, cfg, api, got, name, lang)
+                        name, data = files[0]
+                        text, scan_id = await asyncio.to_thread(handle_file, cfg, api, data, name, lang)
                         log.info("scan %s answered", scan_id)
                         await message.answer(text)
                     return
                 await asyncio.sleep(cfg.miniapp_poll_s)
-            await retire(t("bot.scan_expired", lang))
+            await retire(t("bot.scan_expired", lang) if own_message else None)
         except asyncio.CancelledError:
-            await retire(t("bot.scan_expired", lang))
+            await retire(t("bot.scan_expired", lang) if own_message else None)
             raise
         except Exception:
             log.exception("capture page: the photo was not handled")
@@ -536,6 +566,22 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
             if not tasks:
                 waiting.pop(message.chat.id, None)
 
+    async def offer_capture(message: Message, lang: str, text: str, own_message: bool = True) -> bool:
+        """SD-137/144: ``text`` with the capture page's button (a fresh ticket) and the wait for its photo; False when
+        the page is not set up (no https address or no API key) and nothing was sent."""
+        made = miniapp_button_url(cfg, lang)
+        if made is None:
+            return False
+        url, ticket_id, expiry = made
+        tasks = waiting.setdefault(message.chat.id, [])
+        while len(tasks) >= cfg.miniapp_max_buttons:      # earlier buttons keep working; only the oldest gives way
+            tasks.pop(0).cancel()
+        sent = await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=t("bot.scan_btn" if own_message else "bot.recapture_btn", lang),
+                                 web_app=WebAppInfo(url=url))]]))
+        tasks.append(asyncio.create_task(wait_miniapp(message, sent.message_id, ticket_id, expiry, lang, own_message)))
+        return True
+
     @dp.message(Command("scan"))
     async def scan(message: Message) -> None:
         """SD-137: the capture page as a Mini App: the photo goes to the server as the original."""
@@ -543,18 +589,8 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
         if lang is None:
             await message.answer(not_allowed(message))
             return
-        made = miniapp_button_url(cfg, lang)
-        if made is None:
+        if not await offer_capture(message, lang, t("bot.scan", lang, minutes=f"{cfg.miniapp_ticket_minutes:g}")):
             await message.answer(t("bot.scan_off", lang))
-            return
-        url, ticket_id, expiry = made
-        tasks = waiting.setdefault(message.chat.id, [])
-        while len(tasks) >= cfg.miniapp_max_buttons:      # earlier buttons keep working; only the oldest gives way
-            tasks.pop(0).cancel()
-        sent = await message.answer(t("bot.scan", lang, minutes=f"{cfg.miniapp_ticket_minutes:g}"),
-                                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                                        InlineKeyboardButton(text=t("bot.scan_btn", lang), web_app=WebAppInfo(url=url))]]))
-        tasks.append(asyncio.create_task(wait_miniapp(message, sent.message_id, ticket_id, expiry, lang)))
 
     @dp.message(Command("code"))
     async def code(message: Message, command: CommandObject) -> None:
@@ -617,7 +653,10 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
                 name = "photo.jpg"
                 # D228: say at once that this is a compressed copy and how to send the original
                 # (once per album: only with its first photo).
-                if cfg.mode == "analyze" and (not message.media_group_id or message.media_group_id not in albums):
+                # SD-144: with the capture page's button, the original is one tap away.
+                first = not message.media_group_id or message.media_group_id not in albums
+                if cfg.mode == "analyze" and first and not await offer_capture(
+                        message, lang, tr("compressed", lang) + "\n\n" + t("bot.recapture", lang), own_message=False):
                     await message.answer(tr("compressed", lang))
             else:
                 await bot.download(doc, destination=buf)
