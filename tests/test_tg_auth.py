@@ -42,7 +42,6 @@ def env(monkeypatch, tmp_path):
 def test_the_signature_is_checked_as_telegram_prescribes(env):
     assert tg_auth.telegram_user(signed(1001)) == 1001
     assert tg_auth.telegram_user(signed(1001, token="999:other-bot")) is None            # another bot's data
-    assert tg_auth.telegram_user(signed(1001, tamper="1001")) is None or True               # same id after re-dump
     assert tg_auth.telegram_user(signed(5005, tamper="1001")) is None                       # someone else's id inserted
     assert tg_auth.telegram_user(signed(1001, auth=time.time() - 25 * 3600)) is None        # older than a day
     assert tg_auth.telegram_user(signed(1001, auth=time.time() + 3600)) is None             # from the future
@@ -89,8 +88,7 @@ def test_each_doctor_sees_only_their_own_analyses(env):
 
     c = TestClient(app)
     r = c.post("/api/analyze", headers={"X-Telegram-Init-Data": signed(1001)}, data={"case": "stemi", "mode": "A"})
-    if r.status_code != 200:
-        pytest.skip(f"the demo case did not run here: {r.status_code}")
+    assert r.status_code == 200, r.text
     aid = r.json().get("analysis_id") or r.json().get("id")
     assert aid
     assert c.get(f"/api/analysis/{aid}/waveform.json", headers={"X-Telegram-Init-Data": signed(1001)}).status_code == 200
@@ -119,3 +117,21 @@ def test_deploy_passes_the_derived_secret_not_the_token():
     assert "ECGSCAN_WEBAPP_SECRET" in site and "ECGSCAN_BOT_TOKEN" not in site
     assert "openssl dgst -sha256 -hmac WebAppData" in root.joinpath("deploy", "server_env.sh").read_text()
     assert tg_auth.webapp_secret(TOKEN) == hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).hexdigest()
+
+
+def test_admins_are_parsed_as_the_bot_does_and_a_damaged_file_refuses(env, monkeypatch, tmp_path):
+    monkeypatch.setenv("ECGSCAN_BOT_ALLOWED", "1001, 77abc,-100555")
+    assert tg_auth.telegram_actor(signed(1001)) == "tg:1001" and tg_auth.telegram_actor(signed(77)) is None
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"codes": [], "users": {"2002": {"code": "X"}}}')
+    monkeypatch.setenv("ECGSCAN_BOT_STORE", str(bad))
+    assert tg_auth.telegram_actor(signed(2002)) is None
+
+
+def test_the_page_lets_a_telegram_doctor_start_an_analysis_without_a_key():
+    """Review: the old client-side «no key» check stopped the analysis before any request in Telegram."""
+    from pathlib import Path
+
+    page = (Path(__file__).resolve().parents[1] / "src" / "cardiolens" / "api" / "static" / "index.html").read_text()
+    stops = [ln for ln in page.splitlines() if "if (!$('apikey').value.trim()" in ln and "return" in ln]
+    assert stops and all("tgInitData()" in ln for ln in stops), stops

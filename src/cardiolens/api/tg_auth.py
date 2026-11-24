@@ -71,7 +71,10 @@ def telegram_user(init_data: str | None, *, secret: bytes | None = None, now: fl
 
 
 def _admins() -> set[int]:
-    return {int(x) for x in re.findall(r"-?\d+", os.environ.get("ECGSCAN_BOT_ALLOWED", ""))}
+    """The bot's own parser (review: a site-side regex let «77abc» in as 77)."""
+    from ecgscan_bot.logic import _ids
+
+    return _ids(os.environ.get("ECGSCAN_BOT_ALLOWED", ""))
 
 
 def allowed_user(uid: int | None) -> bool:
@@ -82,7 +85,10 @@ def allowed_user(uid: int | None) -> bool:
         return True
     from ecgscan_bot.access import AccessStore
 
-    return AccessStore().is_member(uid)
+    try:
+        return AccessStore().is_member(uid)
+    except (AttributeError, TypeError, ValueError):   # a damaged access file refuses, it does not crash (review)
+        return False
 
 
 def telegram_actor(init_data: str | None) -> str | None:

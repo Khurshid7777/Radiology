@@ -1102,7 +1102,7 @@ $('run').addEventListener('click', async () => {
   const age = parseFloat($('age').value);
   if (!(age >= 0 && age <= 120)) { $('err').textContent = t('Укажите возраст пациента.'); $('age').focus(); return; }
   if (!sex) { $('err').textContent = t('Укажите пол пациента.'); return; }
-  if (!$('apikey').value.trim()) { $('err').textContent = t('Нужен ключ клиники — его выдаёт администратор (раздел «Служебное»).'); $('svc').open = true; return; }
+  if (!$('apikey').value.trim() && !tgInitData()) { $('err').textContent = t('Нужен ключ клиники — его выдаёт администратор (раздел «Служебное»).'); $('svc').open = true; return; }
 
   fd.append('mode', $('mode').value);
   // D179: the speed and gain printed on the strip, when the user gives them.
@@ -1567,8 +1567,7 @@ function setLang(l) {
   lang = l; concLang = l;
   try { localStorage.setItem('cardiolens_lang_v1', l); } catch (e) {}
   applyLang(); fillPrior(); fillHistory(); loadHealth();
-  const hasKey = !!$('apikey').value.trim();
-  $('keyhint').textContent = t(hasKey ? 'Ключ сохранён в этом браузере.' : 'Без ключа клиники анализ не запустится.');
+  keyStatus();                                   // D350: the Telegram sign-in line survives a language change
   if (lastData) render(lastData, true);
 }
 // D272: the consent gate. The acceptance is kept in this browser with the terms' version; a new version asks again.
@@ -1600,7 +1599,8 @@ $('lang_uz').addEventListener('click', () => setLang('uz'));
 applyLang();
 
 // D349: the same page opened from the bot as a Telegram Mini App. Telegram puts its launch parameters after «#»;
-// only the platform and the version are read here — the signed user data (tgWebAppData) is never read or sent.
+// only the platform and the version are read here; the signed user data (tgWebAppData) is read by tgInitData() alone
+// and sent only to this server in the X-Telegram-Init-Data header (D350).
 const TG_WEB = 'https://web.telegram.org';
 const tgApp = (function () {
   try {
