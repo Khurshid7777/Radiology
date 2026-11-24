@@ -45,6 +45,13 @@ def miniapp_url(cfg: BotConfig, page: str) -> str | None:
     return f"{base}/miniapp/{page}" if base.startswith("https://") else None
 
 
+def command_list(lang: str) -> list[tuple[str, str]]:
+    """SD-146: (command, description) shown by Telegram in private chats."""
+    from ecgscan_bot.texts import tr
+
+    return [(c, tr(f"cmd_{c}", lang)) for c in ("scan", "app", "probe")]
+
+
 def site_url(cfg: BotConfig) -> str | None:
     """The site's root as a Mini App (SD-142, the core's D349): no key, no ticket, no id in the address."""
     base = (os.environ.get(PUBLIC_URL_ENV) or cfg.public_url or "").rstrip("/")

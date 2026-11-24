@@ -29,6 +29,7 @@ from ecgscan_bot.logic import (
     analyse,
     apply_choice,
     clean_comment,
+    command_list,
     feedback_buttons,
     first_question,
     group_head,
@@ -81,7 +82,24 @@ async def main() -> None:
     bot = Bot(token)
     api = AnalyzeApi(cfg) if cfg.mode == "analyze" else ScanApi(cfg)
     log.info("bot mode %s, api %s, %d allowed users", cfg.mode, cfg.api_url, len(cfg.allowed))
-    await build(cfg, bot, api, AccessStore()).start_polling(bot)
+    dp = build(cfg, bot, api, AccessStore())
+    await set_commands(bot)
+    await dp.start_polling(bot)
+
+
+START_SCAN = "scan"      # SD-146: t.me/<bot>?start=scan opens the capture button at once
+
+
+async def set_commands(bot) -> None:
+    """SD-146: the command list Telegram shows in private chats, in Russian (default) and Uzbek; never fatal."""
+    from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
+
+    for lang, code in (("ru", None), ("uz", "uz")):
+        try:
+            await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in command_list(lang)],
+                                      scope=BotCommandScopeAllPrivateChats(), language_code=code)
+        except Exception:
+            log.warning("the command list (%s) was not set", lang)
 
 
 def build(cfg: BotConfig, bot, api, store: AccessStore):
@@ -454,6 +472,13 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
 
     @dp.message(CommandStart())
     async def start(message: Message, command: CommandObject) -> None:
+        if (command.args or "").strip().lower() == START_SCAN:  # SD-146: t.me/<bot>?start=scan
+            lang = guard(message)
+            if lang is None:
+                await message.answer(not_allowed(message))
+            elif not await offer_capture(message, lang, t("bot.scan", lang, minutes=f"{cfg.miniapp_ticket_minutes:g}")):
+                await message.answer(t("bot.scan_off", lang))
+            return
         if command.args and not guard(message):          # t.me/<bot>?start=<code> (D208)
             await join(message, command.args)
             return
