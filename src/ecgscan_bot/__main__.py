@@ -50,6 +50,7 @@ from ecgscan_bot.logic import (
     render,
     report_text,
     scale_buttons,
+    site_url,
     symptom_buttons,
     toggle_symptom,
     watched_group,
@@ -95,6 +96,7 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
         ChatMemberUpdated,
         InlineKeyboardButton,
         InlineKeyboardMarkup,
+        MenuButtonWebApp,
         Message,
         WebAppInfo,
     )
@@ -438,6 +440,17 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
         if cfg.report_weekly and cfg.mode == "analyze":
             dp["weekly_reports"] = asyncio.create_task(weekly_reports())
 
+    async def menu_button(message: Message, lang: str) -> None:
+        """SD-142: the chat's menu button opens the site as a Mini App (a private chat of one let in)."""
+        url = site_url(cfg)
+        if url is None:
+            return
+        try:
+            await bot.set_chat_menu_button(chat_id=message.chat.id, menu_button=MenuButtonWebApp(
+                text=tr("app_btn", lang), web_app=WebAppInfo(url=url)))
+        except Exception:
+            log.warning("the chat's menu button was not set")
+
     @dp.message(CommandStart())
     async def start(message: Message, command: CommandObject) -> None:
         if command.args and not guard(message):          # t.me/<bot>?start=<code> (D208)
@@ -445,6 +458,23 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
             return
         lang = guard(message)
         await message.answer(t("bot.welcome", lang) if lang else not_allowed(message))
+        if lang:
+            await menu_button(message, lang)
+
+    @dp.message(Command("app"))
+    async def app(message: Message) -> None:
+        """SD-142: the whole site as a Mini App; the clinic key is asked for by the site, as in a browser."""
+        lang = guard(message)             # None outside a private chat too (in a group the bot is silent, SD-107)
+        if lang is None:
+            await message.answer(not_allowed(message))
+            return
+        url = site_url(cfg)
+        if url is None:
+            await message.answer(tr("app_off", lang))
+            return
+        await message.answer(tr("app", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=tr("app_btn", lang), web_app=WebAppInfo(url=url))]]))
+        await menu_button(message, lang)
 
     @dp.message(Command("probe"))
     async def probe(message: Message) -> None:

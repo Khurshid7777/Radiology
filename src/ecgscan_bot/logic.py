@@ -45,6 +45,12 @@ def miniapp_url(cfg: BotConfig, page: str) -> str | None:
     return f"{base}/miniapp/{page}" if base.startswith("https://") else None
 
 
+def site_url(cfg: BotConfig) -> str | None:
+    """The site's root as a Mini App (SD-142, the core's D349): no key, no ticket, no id in the address."""
+    base = (os.environ.get(PUBLIC_URL_ENV) or cfg.public_url or "").rstrip("/")
+    return f"{base}/" if base.startswith("https://") else None
+
+
 @dataclass
 class BotConfig:
     api_url: str
