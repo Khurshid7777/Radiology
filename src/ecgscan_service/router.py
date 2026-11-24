@@ -146,6 +146,7 @@ def miniapp_capture(lang: str = "ru") -> HTMLResponse:
     s = strings(lang)
     page = {"lang": lang, "max_mb": load_yaml("service")["upload"]["max_mb"], "telegram_web": TELEGRAM_WEB,
             "max_files": int(load_yaml("service")["miniapp"]["max_files"]),
+            "max_total_mb": load_yaml("service")["miniapp"]["max_total_mb"],
             "texts": {f"miniapp.{k}": s[f"miniapp.{k}"] for k in _PAGE_TEXTS}}
     blob = json.dumps(page, ensure_ascii=False).replace("</", "<\\/")
     html = (_STATIC / "miniapp_capture.html").read_text(encoding="utf-8").replace("/*__PAGE__*/{}", blob, 1)
@@ -166,10 +167,10 @@ async def miniapp_upload(request: Request, lang: str = "ru") -> dict:
     size_said = int(declared) if declared is not None and declared.isdigit() else None
     if size_said is not None and size_said > cap:
         raise HTTPException(413, "file too large")
-    if not get_inbox().attempt(tk, int(conf["miniapp"]["max_uploads_per_ticket"])):
-        raise HTTPException(401, "invalid, expired or used ticket")
+    m = conf["miniapp"]
     try:                                  # SD-147 review: the record's and the store's room is taken before reading
-        allowed = get_inbox().reserve(tk, size_said, cap, int(conf["miniapp"]["max_inflight"]))
+        allowed = get_inbox().reserve(tk, size_said, cap, int(m["max_inflight"]),
+                                      per_ticket=int(m["max_inflight_per_ticket"]))
     except TooMuch:
         raise HTTPException(413, RECORD_FULL) from None
     except InboxFull:
@@ -178,16 +179,23 @@ async def miniapp_upload(request: Request, lang: str = "ru") -> dict:
         raise HTTPException(401, "invalid, expired or used ticket") from None
     added = False
     try:
+        # A refusal before reading costs the button nothing; an upload that is read counts (the core's review).
+        if not get_inbox().attempt(tk, int(m["max_uploads_per_ticket"])):
+            raise HTTPException(401, "invalid, expired or used ticket")
         chunks, size, known = [], 0, False
-        async for chunk in request.stream():
-            size += len(chunk)
-            if size > allowed:
-                raise HTTPException(413, "file too large" if size > cap else RECORD_FULL)
-            chunks.append(chunk)
-            if not known and size >= 8:
-                if f"image/{image_kind(b''.join(chunks)[:8])}" not in conf["upload"]["mime"]:
-                    raise HTTPException(415, "not a photo the scanner reads")
-                known = True
+        try:
+            async with asyncio.timeout(float(m["body_timeout_s"])):   # a slow body never holds its room for ever
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > allowed:
+                        raise HTTPException(413, "file too large" if size > cap else RECORD_FULL)
+                    chunks.append(chunk)
+                    if not known and size >= 8:
+                        if f"image/{image_kind(b''.join(chunks)[:8])}" not in conf["upload"]["mime"]:
+                            raise HTTPException(415, "not a photo the scanner reads")
+                        known = True
+        except TimeoutError:
+            raise HTTPException(408, "the photo came too slowly") from None
         data = b"".join(chunks)
         if not data:
             raise HTTPException(400, "empty file")

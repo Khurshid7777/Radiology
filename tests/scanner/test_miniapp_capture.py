@@ -630,8 +630,8 @@ def test_thirty_big_uploads_on_one_button_read_only_what_the_record_can_hold(cli
     ticket = ticket_headers()[0][TICKET_HEADER]
     sent, read = concurrent_uploads(app, [ticket] * 30, 25 * 1024 * 1024)
     assert len(read) <= 2                                       # 60 MB a record: two 25-MB bodies at most are read
-    assert set(sent.values()) <= {200, 400, 401, 413, 415}      # 401: the button's upload count, also before reading
-    assert sum(1 for v in sent.values() if v in (401, 413)) >= 28
+    assert set(sent.values()) <= {200, 400, 401, 413, 415, 429}  # 429: two uploads in flight a button at most
+    assert sum(1 for v in sent.values() if v in (401, 413, 429)) >= 28
 
 
 def test_uploads_in_flight_on_the_whole_service_are_limited_before_reading(client):
@@ -683,3 +683,80 @@ def test_a_full_record_is_told_apart_from_a_big_file(client, monkeypatch):
     src = PAGE.read_text(encoding="utf-8")
     assert "miniapp.record_full" in src and "/record/.test(" in src
     router.get_inbox.cache_clear()
+
+
+
+# --- SD-147, the core's second review -------------------------------------------------------------------
+
+def test_one_button_holds_at_most_two_uploads_in_flight(client):
+    from ecgscan_service.app import app
+
+    ticket = ticket_headers()[0][TICKET_HEADER]
+    sent, read = concurrent_uploads(app, [ticket] * 3, 1000)
+    assert len(read) <= 2 and sum(1 for v in sent.values() if v == 429) >= 1
+
+
+def test_a_slow_body_is_cut_off_and_frees_its_room(client, monkeypatch):
+    from ecgscan_service import router
+    from ecgscan_service.app import app
+
+    real = router.load_yaml
+
+    def quick(name):
+        cfg = real(name)
+        return {**cfg, "miniapp": {**cfg["miniapp"], "body_timeout_s": 0.2}} if name == "service" else cfg
+
+    monkeypatch.setattr(router, "load_yaml", quick)
+    router.get_inbox.cache_clear()
+    sent = []
+
+    async def receive():
+        await asyncio.sleep(5)                                    # the body never comes in time
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(msg):
+        sent.append(msg)
+
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "https",
+             "path": "/miniapp/upload", "raw_path": b"/miniapp/upload", "query_string": b"", "root_path": "",
+             "headers": [(b"x-miniapp-ticket", ticket_headers()[0][TICKET_HEADER].encode()), (b"content-length", b"5000")],
+             "client": ("203.0.113.1", 1), "server": ("site", 443)}
+    asyncio.run(app(scope, receive, send))
+    assert sent[0]["status"] == 408 and not router.get_inbox()._flying
+    router.get_inbox.cache_clear()
+
+
+def test_a_reservation_does_not_outlive_its_ticket():
+    box = Inbox(5)
+    tk = Ticket("a" * 24, "bot", 2000)
+    assert box.reserve(tk, 100, 10_000, 4, now=1000.0) == 100
+    assert box._flying
+    box.used("x", 2001.0)                                         # any call after the ticket ran out
+    assert not box._flying and not box._flying_until
+
+
+def test_a_refusal_before_reading_costs_the_button_nothing(client, monkeypatch):
+    from ecgscan_service import router
+
+    real = router.load_yaml
+
+    def tight(name):
+        cfg = real(name)
+        return {**cfg, "miniapp": {**cfg["miniapp"], "max_uploads_per_ticket": 1, "max_total_mb": 0.01}} if name == "service" else cfg
+
+    monkeypatch.setattr(router, "load_yaml", tight)
+    router.get_inbox.cache_clear()
+    head, _ = ticket_headers()
+    big = b"\xff\xd8\xff" + b"x" * 20_000
+    for _ in range(3):
+        assert client.post("/miniapp/upload", content=big, headers=head).status_code == 413     # before reading
+    assert client.post("/miniapp/upload", content=small_photo(80), headers=head).status_code == 200
+    router.get_inbox.cache_clear()
+
+
+def test_the_page_goes_on_past_a_photo_too_big_and_keeps_the_rest_after_a_failed_turn():
+    src = PAGE.read_text(encoding="utf-8")
+    assert "skipped = true; continue;" in src and "retryFiles = files.slice(i + 1)" in src
+    assert "total: PAGE.max_total_mb" in src
+    for lang in ("ru", "uz"):
+        assert "{total}" in strings(lang)["miniapp.record_full"]
