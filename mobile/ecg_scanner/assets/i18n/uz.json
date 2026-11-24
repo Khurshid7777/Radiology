@@ -232,5 +232,7 @@
   "bot.scan_btn": "EKGni suratga olish",
   "bot.scan_off": "Sahifa orqali suratga olish sozlanmagan: botda saytning ochiq manzili yo'q. Fotoni fayl sifatida yuboring (qisqich → «Fayl»).",
   "bot.scan_got": "Surat to'liq sifatda qabul qilindi.",
-  "bot.scan_expired": "Suratga olish tugmasi endi ishlamaydi. Surat kelmagan bo‘lsa, /scan buyrug‘ini yana yuboring."
+  "bot.scan_expired": "Suratga olish tugmasi endi ishlamaydi. Surat kelmagan bo‘lsa, /scan buyrug‘ini yana yuboring.",
+  "bot.recapture": "Yoki quyidagi tugmani bosing: suratga olish sahifasi ochiladi va surat siqilmasdan, asl holida yuboriladi.",
+  "bot.recapture_btn": "To‘liq sifatda qayta suratga olish"
 }
