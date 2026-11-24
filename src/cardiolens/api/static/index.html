@@ -781,7 +781,9 @@ const sameFile = (a, b) => a.name === b.name && a.size === b.size && a.lastModif
 function syncFiles() {
   const dt = new DataTransfer(); kept.forEach(f => dt.items.add(f)); files.files = dt.files; showChosen();
 }
+let freshSet = false;    // D351 (review): after a result the next choice starts a new set — never another patient's photo
 function addFiles(list) {
+  if (freshSet) { kept = []; freshSet = false; }
   for (const f of list) if (!kept.some(k => sameFile(k, f))) kept.push(f);
   syncFiles();
 }
@@ -1169,6 +1171,7 @@ let lastData = null;
 function render(d, redraw = false) {
   $('results').classList.remove('hidden');
   lastData = d;                                           // D200: re-drawn on a language switch
+  if (!redraw) freshSet = true;                                        // D351: a new result — the next photo chosen begins a new set
   const modeLabel = { A: 'Готово — заключение для врача', B: 'Готово — автономное заключение',
     escalate: '⚠ Требуется просмотр врача' };
   const b = $('banner'); b.className = 'banner ' + d.mode;

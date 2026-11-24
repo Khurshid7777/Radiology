@@ -864,23 +864,33 @@ def _pr_unstable(sig, findings: FindingSet, audit: list[str]) -> None:
 
 
 def _photos_not_all_used(sig, findings: FindingSet, audit: list[str]) -> None:
-    """D351: of several photos sent as one ECG, not all went into the record (the same leads at another time are not
-    joined yet) — the doctor is told, not left to think all of them were read."""
+    """D351: of several photos sent as one ECG, not all went into the record — some repeat the same leads (a record by
+    time is not joined yet), some could not be read. The doctor is told, not left to think all of them were read.
+    A note on how the record was read («quality»): nothing in the heart explains it (review: «other» made it an
+    implausible finding with a false «artefact or swapped electrodes» line)."""
     import re
 
     note = next((n for n in (sig.provenance.notes or []) if n.startswith("photos used: ")), None)
-    m = re.fullmatch(r"photos used: (\d+) of (\d+)", note or "")
+    m = re.fullmatch(r"photos used: (\d+) of (\d+)(?:; unread: (\d+))?", note or "")
     if not m or int(m.group(1)) >= int(m.group(2)):
         return
-    k, n = int(m.group(1)), int(m.group(2))
+    k, n, unread = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+    repeat = n - k - unread
+    ru, uz = [f"Разобрано {k} фото из {n}"], [f"{n} ta suratdan {k} tasi tahlil qilindi"]
+    if unread:
+        ru.append(f"не прочитано: {unread}")
+        uz.append(f"o'qilmadi: {unread}")
+    if repeat > 0:
+        ru.append(f"повторяют уже прочитанные отведения: {repeat} — длинная запись по времени пока не склеивается")
+        uz.append(f"allaqachon o'qilgan tarmoqlarni takrorlaydi: {repeat} — uzun yozuv vaqt bo'yicha hali birlashtirilmaydi")
+    if k == 1:
+        ru.append("разбор сделан по одному фото")
+        uz.append("tahlil bitta surat bo'yicha")
     findings.findings.append(Finding(
-        code="photos_not_all_used", group="other",
-        label_ru=f"Разобрано {k} фото из {n}: остальные повторяют те же отведения в другое время — длинная запись "
-                 "по времени пока не склеивается; разбор сделан по первому прочитанному фото",
-        label_uz=f"{n} ta suratdan {k} tasi tahlil qilindi: qolganlari o'sha tarmoqlarni boshqa vaqtda takrorlaydi — "
-                 "uzun yozuv vaqt bo'yicha hali birlashtirilmaydi; tahlil birinchi o'qilgan surat bo'yicha",
+        code="photos_not_all_used", group="quality",
+        label_ru="; ".join(ru), label_uz="; ".join(uz),
         evidence=[Evidence(feature="photos_used", value=f"{k}/{n}")], confidence=1.0))
-    audit.append(f"[L4] photos used {k} of {n} (D351)")
+    audit.append(f"[L4] photos used {k} of {n}, unread {unread} (D351)")
 
 
 def _approximate_long_qt(sig, findings: FindingSet, audit: list[str]) -> None:

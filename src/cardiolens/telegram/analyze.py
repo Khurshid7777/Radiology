@@ -423,9 +423,9 @@ def digitize_photos(paths: list[str | Path], *, paper_speed_mm_s: float | None =
             sigs.append(digitize_photo(p, **scale))
         except Exception as e:
             errors.append((Path(p).name, error_text(e)))
-    out = _combine(sigs, combine_screen_signals)
+    out, parts = _combine(sigs, combine_screen_signals)
     if out is not None and len(paths) > 1:
-        _note_used(out, sigs, len(paths))
+        _note_used(out, parts, len(paths), unread=[name for name, _ in errors])
         return out
     # One reason for all the photos is said once (D142: three parts of one strip
     # repeated the same refusal three times).
@@ -444,37 +444,38 @@ def _leads(s) -> set[str]:
     return set((s.provenance.lead_windows or {}).keys()) or set(s.lead_names or [])
 
 
-def _note_used(out, sigs, total: int) -> None:
-    """D351: how many of the photos sent went into the record — one read photo, or the pages of a combined record that
-    brought new leads (D123, D125); photos that could not be read count as not used."""
-    if any(out is s for s in sigs):
+def _note_used(out, parts: list, total: int, *, unread: list[str]) -> None:
+    """D351: how many of the photos sent went into the record — the pages actually combined (those that brought new
+    leads, D123/D125), or the one photo read; and which photos could not be read at all."""
+    if len(parts) <= 1:
         used = 1
     else:
         seen: set[str] = set()
         used = 0
-        mine = _leads(out)
-        for s in sigs:
-            new = _leads(s) - seen
-            if new and new <= mine:
+        for s in parts:
+            if _leads(s) - seen:
                 used += 1
                 seen |= _leads(s)
-        used = max(1, used)
-    out.provenance.notes = [*(out.provenance.notes or []), f"{PHOTOS_USED_NOTE}{min(used, total)} of {total}"]
+    note = f"{PHOTOS_USED_NOTE}{min(max(used, 1), total)} of {total}"
+    if unread:
+        note += f"; unread: {len(unread)}"
+    out.provenance.notes = [*(out.provenance.notes or []), note]
 
 
 def _combine(sigs, combine_screen_signals):
-    """The record from several read photos (D123, D125), or the first read one; None when none was read."""
+    """(the record from several read photos (D123, D125) or the first read one, the photos that went into it);
+    (None, []) when none was read."""
     screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]
     strips = [s for s in sigs if any(n.startswith(("three-channel strip photo", "3x4+rhythm strip photo"))
                                      for n in s.provenance.notes)]
     try:
         if len(screens) >= 2:
-            return combine_screen_signals(screens)
+            return combine_screen_signals(screens), screens
         if len(strips) >= 2:       # parts of one strip, in the order sent (D125)
-            return combine_screen_signals(strips, drop_repeats=True)
+            return combine_screen_signals(strips, drop_repeats=True), strips
     except ValueError:            # the pages repeat leads: two photos of the same page
-        return sigs[0]
-    return sigs[0] if sigs else None
+        return sigs[0], [sigs[0]]
+    return (sigs[0], [sigs[0]]) if sigs else (None, [])
 
 
 def analyse_photos(paths: list[str | Path], *, mode: str = "A",
