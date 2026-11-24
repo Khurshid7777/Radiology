@@ -115,6 +115,12 @@ class FrameQC:
     sheet_area: float = 0.0          # share of the frame the sheet covers (step 9)
     sheet_brightness: float | None = None   # mean grey of the sheet (step 10)
     period_strength: float | None = None   # SD-141: autocorrelation at the period / at zero; weak (< ~0.15) = px/mm unsure
+    grid_phase_px: list[float] | None = None    # SD-143: [x, y] where the 5-mm lines lie at y = 0 / x = 0 (frame px, mod the period)
+    grid_period_px: float | None = None         # SD-143: the 5-mm period refined for the overlay (frame px); px_per_mm stays as it was
+    grid_phase: list[float] | None = None       # SD-143: the same in parts of the period (0..1)
+    grid_slope: list[float] | None = None       # SD-143: [sx, sy]: a vertical line at row y is at x = phase + sx * y, a horizontal one likewise
+    grid_zones_agree: float | None = None       # SD-143: share of the 3 x 3 zones (with a grid) that agree with that model
+    grid_zones: int | None = None               # SD-143: zones in which a grid is seen
     sideways: bool | None = None     # SD-138: the sheet stands on end in the frame (by its corners); None: no sheet found
 
     def to_dict(self) -> dict:
@@ -202,6 +208,90 @@ def period_strength(profiles: np.ndarray, period: float | None) -> float | None:
         return None
     at = max(float((profiles[:, : n - lag] * profiles[:, lag:]).sum()) / n for lag in (m - 1, m, m + 1))
     return round(min(1.0, max(0.0, at / a0)), 4)
+
+
+def band_phases(profiles: np.ndarray, period: float) -> tuple[np.ndarray, np.ndarray]:
+    """SD-143: per band, where the lines of the period lie (0..period, working px) and how strongly (|first harmonic|)."""
+    n = profiles.shape[1]
+    z = profiles @ np.exp(-2j * np.pi * np.arange(n) / period)
+    return np.mod(-np.angle(z) * period / (2 * np.pi), period), np.abs(z) / n
+
+
+def _wrap(d: np.ndarray | float, period: float):
+    return (np.asarray(d) + period / 2) % period - period / 2
+
+
+def phase_line(profiles: np.ndarray, period: float, *, band: int, origin: float = 0.0,
+               min_share: float = 0.25) -> tuple[float, float] | None:
+    """SD-143: (phase at coordinate 0, slope) of the lines across the bands: the phase unwrapped band by band and a
+    weighted straight line through it. ``origin``: the coordinate of the first band's top (zones)."""
+    if profiles.shape[0] < 2:
+        return None
+    ph, wt = band_phases(profiles, period)
+    keep = wt >= min_share * float(wt.max()) if wt.size and wt.max() > 0 else np.zeros_like(wt, bool)
+    if keep.sum() < 2:
+        return None
+    y = origin + band * (np.arange(len(ph)) + 0.5)
+    ph, wt, y = ph[keep], wt[keep], y[keep]
+    un = [float(ph[0])]
+    for v in ph[1:]:
+        un.append(un[-1] + float(_wrap(v - un[-1], period)))
+    s, a = np.polyfit(y, np.array(un), 1, w=wt)
+    return float(a % period), float(s)
+
+
+def refine_period(profiles: np.ndarray, period: float, *, span: float = 0.03, steps: int = 61) -> float:
+    """SD-143: the period to a fraction of a pixel, where the bands' first harmonics are strongest. An error of 0.1 px a
+    period is 2.5 px across 25 periods: a phase drawn from the centre would drift off the lines at the frame's edges."""
+    n = profiles.shape[1]
+    x = np.arange(n)
+    cand = period * (1 + np.linspace(-span, span, steps))
+    score = [float(np.abs(profiles @ np.exp(-2j * np.pi * x / c)).sum()) for c in cand]
+    i = int(np.argmax(score))
+    if 0 < i < steps - 1:
+        return float(cand[i] + (cand[1] - cand[0]) * _parabola(score[i - 1], score[i], score[i + 1]))
+    return float(cand[i])
+
+
+def grid_geometry(q: np.ndarray, period: float | None, *, band: int, detrend: int, smooth: int, tol: float,
+                  min_share: float = 0.25) -> dict | None:
+    """SD-143: the grid's period (refined), phase and slope in both axes (working px) and how many 3 x 3 zones agree."""
+    if period is None:
+        return None
+    prof_x = band_profiles(q, band=band, detrend=detrend, smooth=smooth)
+    prof_y = band_profiles(q.T, band=band, detrend=detrend, smooth=smooth)
+    period = refine_period(np.vstack([prof_x[:, : min(prof_x.shape[1], prof_y.shape[1])],
+                                      prof_y[:, : min(prof_x.shape[1], prof_y.shape[1])]]), period)
+    lx, ly = phase_line(prof_x, period, band=band), phase_line(prof_y, period, band=band)
+    if lx is None or ly is None:
+        return None
+    ref = float(np.median(band_phases(prof_x, period)[1]))
+    h, w = q.shape
+    agree = seen = 0
+    for i in range(3):
+        for j in range(3):
+            y0, y1, x0, x1 = i * h // 3, (i + 1) * h // 3, j * w // 3, (j + 1) * w // 3
+            zone = q[y0:y1, x0:x1]
+            ok = []
+            for sub, line, off_a, off_b in ((zone, lx, x0, y0), (zone.T, ly, y0, x0)):
+                pr = band_profiles(sub, band=band, detrend=detrend, smooth=smooth)
+                if pr.shape[0] < 2:
+                    ok.append(None)
+                    continue
+                ph, wt = band_phases(pr, period)
+                good = wt >= min_share * ref
+                if good.sum() < max(2, len(wt) // 3):
+                    ok.append(None)
+                    continue
+                c = off_b + band * (np.arange(len(ph)) + 0.5)
+                res = _wrap((ph + off_a) - (line[0] + line[1] * c), period)[good]
+                ok.append(float(np.median(np.abs(res))) <= tol * period)
+            if None in ok:
+                continue
+            seen += 1
+            agree += all(ok)
+    return {"period": period, "phase": (lx[0], ly[0]), "slope": (lx[1], ly[1]),
+            "agree": None if seen == 0 else agree / seen, "zones": seen}
 
 
 def tilt_deg(profiles: np.ndarray, period: float, *, band: int) -> float | None:
@@ -383,6 +473,8 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
         if period is not None:
             break
     tilt = None if period is None else tilt_deg(prof, period, band=a["band"])
+    geo = grid_geometry(q, period, band=a["band"], detrend=a["detrend"], smooth=a["smooth"],
+                        tol=float(a.get("zone_phase_tol", 0.15))) if grid else None
     ppm = None if period is None else period * k * scale_to_capture / 5.0
     rows, blk = paper_blocks(q, period, tilt, block=a["block"], ratio=a["paper_ratio"])
     n_blocks = sum(len(r) for r in rows)
@@ -427,4 +519,10 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
                    sheet_whole=whole, frame_advice=advice, sheet_area=round(area, 4),
                    sheet_brightness=None if roi is None else round(roi, 3),
                    sideways=sheet_sideways(corners_w, t.get("sideways_ratio")),
-                   period_strength=period_strength(prof, period))
+                   period_strength=period_strength(prof, period),
+                   grid_phase_px=None if geo is None else [round(v * k, 2) for v in geo["phase"]],
+                   grid_period_px=None if geo is None else round(geo["period"] * k, 3),
+                   grid_phase=None if geo is None else [round(v / geo["period"], 4) for v in geo["phase"]],
+                   grid_slope=None if geo is None else [round(v, 5) for v in geo["slope"]],
+                   grid_zones_agree=None if geo is None or geo["agree"] is None else round(geo["agree"], 4),
+                   grid_zones=None if geo is None else geo["zones"])

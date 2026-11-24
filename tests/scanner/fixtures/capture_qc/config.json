@@ -11,7 +11,8 @@
   "min_lag": 6,
   "block": 32,
   "paper_ratio": 1.15,
-  "edge_blocks": 3
+  "edge_blocks": 3,
+  "zone_phase_tol": 0.15
  },
  "thresholds": {
   "min_px_per_mm": 8.0,
