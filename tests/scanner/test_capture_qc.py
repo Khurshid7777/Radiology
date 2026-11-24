@@ -146,3 +146,24 @@ def test_config_endpoint_serves_the_frame_advice_texts(monkeypatch):
         assert set(body["frame_advice"][lang]) == {"farther", "up", "down", "left", "right"}
         assert all(body["frame_advice"][lang].values())
     assert body["frame_advice"]["ru"]["left"].startswith("Сдвиньте телефон влево")
+
+
+def test_a_sheet_standing_on_end_is_told_by_its_corners():
+    """SD-138: geometry of the sheet, not of the photo; which way to turn it the check does not say."""
+    import cv2
+
+    from ecgscan.capture_qc import sheet_sideways
+
+    assert sheet_sideways(None, 1.15) is None and sheet_sideways([(0, 0), (10, 0), (10, 20), (0, 20)], None) is None
+    assert sheet_sideways([(0, 0), (100, 0), (100, 70), (0, 70)], 1.15) is False       # a landscape sheet
+    assert sheet_sideways([(0, 0), (70, 0), (70, 100), (0, 100)], 1.15) is True        # the same sheet on end
+    assert sheet_sideways([(0, 0), (100, 0), (100, 110), (0, 110)], 1.15) is False     # nearly square: not asked
+    assert sheet_sideways([(0, 0), (100, 0), (100, 115), (0, 115)], 1.15) is True
+    assert config()["thresholds"]["sideways_ratio"] == 1.15                            # the core's portrait check (D171)
+    rgb = cv2.cvtColor(cv2.imread(str(FIX / "clean_12.jpg")), cv2.COLOR_BGR2RGB)
+    upright = check_frame(rgb)
+    assert upright.sideways is False
+    for k in (1, 3):
+        turned = check_frame(np.ascontiguousarray(np.rot90(rgb, k)))
+        assert turned.sideways is True and turned.px_per_mm is not None, k             # the grid is found either way
+        assert "sideways" not in turned.hints                                          # a question, not a hint

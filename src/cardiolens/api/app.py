@@ -27,6 +27,7 @@ import asyncio
 import functools
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import shutil
@@ -76,6 +77,20 @@ app.add_middleware(RequestGuard, max_body_bytes=max(service.MAX_UPLOAD_BYTES, _S
 app.include_router(scans_router)
 # D345: the Mini App probe page (SD-136): open and static, reads nothing, its headers forbid any connection.
 app.include_router(miniapp_router)
+
+
+class MiniappQueryFilter(logging.Filter):
+    """D348: the capture page's address carries a one-time ticket in its query (Telegram keeps only the part
+    before «#» for the app); the access log keeps the path of /miniapp/* addresses, never their query."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str) and args[2].startswith("/miniapp/"):
+            record.args = (*args[:2], args[2].split("?", 1)[0], *args[3:])
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(MiniappQueryFilter())
 
 _STATIC = Path(__file__).parent / "static"
 

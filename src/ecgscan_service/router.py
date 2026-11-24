@@ -10,32 +10,47 @@ listed in ``access.admins`` (D136). With no keys configured the API refuses ever
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
-from ecgscan.i18n import LANGS, t
+from ecgscan.config import load_yaml
+from ecgscan.i18n import LANGS, strings, t
 from ecgscan.layout.devices import device_profiles
+from ecgscan_service.miniapp import (
+    TICKET_HEADER,
+    TURNS,
+    Inbox,
+    InboxFull,
+    Ticket,
+    image_kind,
+    turn_photo,
+    verify_ticket,
+)
 from ecgscan_service.service import ScanError, ScanService
 from ecgscan_service.store import ScanRow
 
 KEYS_ENV = "ECGSCAN_API_KEYS"
+log = logging.getLogger("ecgscan_service")
 
 router = APIRouter(prefix="/scans", tags=["scanner"])
 # SD-136: pages Telegram opens as a Mini App. Telegram has no clinic key, so these are open; they are
 # static, read nothing from the server and (by the headers below) cannot reach any network.
 public_router = APIRouter(prefix="/miniapp", tags=["miniapp"])
 _STATIC = Path(__file__).parent / "static"
-# Inline script and style only, the page's own camera, nothing else: no connection, no form, no outside file.
+TELEGRAM_WEB = "https://web.telegram.org"     # the one site that shows a Mini App in a frame
+# Inline script and style only, nothing else: no connection, no form, no outside file (the camera preview and the
+# pictures drawn from a chosen file need no source of their own). Only Telegram Web may put the page in a frame.
 PROBE_HEADERS = {
     "Content-Security-Policy": ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-                                "img-src blob:; media-src blob: mediastream:; connect-src 'none'; "
-                                "form-action 'none'; base-uri 'none'"),
+                                "connect-src 'none'; form-action 'none'; base-uri 'none'; "
+                                f"frame-ancestors {TELEGRAM_WEB}"),
     "Permissions-Policy": "camera=(self), microphone=(), geolocation=()",
     "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer",
@@ -43,7 +58,126 @@ PROBE_HEADERS = {
 }
 
 
-@public_router.get("/probe", response_class=HTMLResponse)
+# The capture page (SD-137) may also post to its own two addresses, and nowhere else.
+CAPTURE_HEADERS = {**PROBE_HEADERS,
+                   "Content-Security-Policy": PROBE_HEADERS["Content-Security-Policy"].replace(
+                       "connect-src 'none'", "connect-src 'self'")}
+_PAGE_TEXTS = ("title", "lead", "tips", "shoot", "pick", "uploading", "checking", "size", "hints_title", "retake",
+               "send_anyway", "sent", "no_ticket", "expired", "too_big", "bad_format", "busy", "failed", "retry",
+               "turn_title", "turn_lead", "turn_left", "turn_right", "turn_keep")
+
+
+@lru_cache(maxsize=1)
+def get_inbox() -> Inbox:
+    return Inbox(int(load_yaml("service")["miniapp"]["max_waiting"]))
+
+
+def _lang(lang: str | None) -> str:
+    return lang if lang in LANGS else "ru"
+
+
+def _ticket(request: Request) -> Ticket:
+    """The live, unused ticket of the request, from its header alone (the body is not touched)."""
+    tk = verify_ticket(request.headers.get(TICKET_HEADER), _keys(),
+                       max_minutes=float(load_yaml("service")["miniapp"]["max_ticket_minutes"]))
+    if tk is None or get_inbox().used(tk.id):
+        raise HTTPException(401, "invalid, expired or used ticket")
+    return tk
+
+
+def photo_hints(data: bytes, lang: str) -> dict:
+    """What the frame check says about an uploaded photo, in words (SD-137); nothing is kept."""
+    import cv2
+    import numpy as np
+
+    from ecgscan.capture_qc import check_frame, config
+
+    c = load_yaml("service")["miniapp"]
+    bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if bgr is None:                       # a format OpenCV does not read: the analysis decides
+        return {"checked": False, "width": None, "height": None, "px_per_mm": None, "hints": [], "turn": False}
+    h, w = bgr.shape[:2]
+    k = min(1.0, int(c["check_width"]) / w)
+    small = cv2.resize(bgr, (round(w * k), round(h * k)), interpolation=cv2.INTER_AREA) if k < 1 else bgr
+    qc = check_frame(cv2.cvtColor(small, cv2.COLOR_BGR2RGB), scale_to_capture=w / small.shape[1])
+    s = strings(lang)
+    hints = [s[f"qc.frame_{qc.frame_advice}"] if code == "frame" and qc.frame_advice else s[f"qc.{code}"]
+             for code in qc.hints]
+    if qc.px_per_mm is None and max(w, h) < int(c["small_side_px"]):
+        hints.append(s["miniapp.small"].format(px=f"{max(w, h) / 297:.1f}"))
+    # SD-138: ask the doctor which way is up when the sheet stands on end; with no sheet found, when the photo does
+    # (the core's portrait check, D171). Which way to turn it the picture does not say.
+    turn = qc.sideways if qc.sideways is not None else h > float(config()["thresholds"]["sideways_ratio"]) * w
+    return {"checked": True, "width": w, "height": h, "px_per_mm": qc.px_per_mm, "hints": hints, "turn": bool(turn)}
+
+
+@public_router.api_route("/capture", methods=["GET", "HEAD"], response_class=HTMLResponse)
+def miniapp_capture(lang: str = "ru") -> HTMLResponse:
+    """The capture page: the texts of the language and the upload limit are put into the static page."""
+    import json
+
+    lang = _lang(lang)
+    s = strings(lang)
+    page = {"lang": lang, "max_mb": load_yaml("service")["upload"]["max_mb"], "telegram_web": TELEGRAM_WEB,
+            "texts": {f"miniapp.{k}": s[f"miniapp.{k}"] for k in _PAGE_TEXTS}}
+    blob = json.dumps(page, ensure_ascii=False).replace("</", "<\\/")
+    html = (_STATIC / "miniapp_capture.html").read_text(encoding="utf-8").replace("/*__PAGE__*/{}", blob, 1)
+    return HTMLResponse(html, headers=CAPTURE_HEADERS)
+
+
+@public_router.post("/upload")
+async def miniapp_upload(request: Request, lang: str = "ru") -> dict:
+    """The photo as the phone made it (the raw request body). The ticket, its count of uploads and the
+    declared size are checked before a byte of the body is read; the body is read as a stream, cut off
+    at the upload limit and dropped at its first bytes if they are not an image the scanner reads."""
+    import asyncio
+
+    tk = _ticket(request)
+    conf = load_yaml("service")
+    cap = int(conf["upload"]["max_mb"] * 1024 * 1024)
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > cap:
+        raise HTTPException(413, "file too large")
+    if not get_inbox().attempt(tk, int(conf["miniapp"]["max_uploads_per_ticket"])):
+        raise HTTPException(401, "invalid, expired or used ticket")
+    chunks, size, known = [], 0, False
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > cap:
+            raise HTTPException(413, "file too large")
+        chunks.append(chunk)
+        if not known and size >= 8:
+            if f"image/{image_kind(b''.join(chunks)[:8])}" not in conf["upload"]["mime"]:
+                raise HTTPException(415, "not a photo the scanner reads")
+            known = True
+    data = b"".join(chunks)
+    if not data:
+        raise HTTPException(400, "empty file")
+    if not known:
+        raise HTTPException(415, "not a photo the scanner reads")
+    info = await asyncio.get_running_loop().run_in_executor(None, photo_hints, data, _lang(lang))
+    try:
+        get_inbox().put(tk, data)
+    except InboxFull:
+        raise HTTPException(429, "too many photos are waiting") from None
+    except KeyError:
+        raise HTTPException(401, "invalid, expired or used ticket") from None
+    return info
+
+
+@public_router.post("/send")
+def miniapp_send(request: Request, rotate: int = 0) -> dict:
+    """The doctor is done with the photo of this ticket: the bot may take it, turned ``rotate`` degrees
+    clockwise if the doctor said the sheet stands on end (SD-138)."""
+    tk = _ticket(request)
+    if rotate not in TURNS:
+        raise HTTPException(422, "rotate: a quarter turn, 0 / 90 / 180 / 270")
+    if not get_inbox().send(tk, rotate=rotate):
+        raise HTTPException(409, "nothing uploaded for this ticket")
+    return {"sent": True}
+
+
+@public_router.api_route("/probe", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def miniapp_probe() -> HTMLResponse:
     """The phone probe (SD-134): what a page inside Telegram gets from the camera, as numbers on the screen."""
     return HTMLResponse((_STATIC / "miniapp_probe.html").read_text(encoding="utf-8"), headers=PROBE_HEADERS)
@@ -198,6 +332,27 @@ def capture_qc_config(who: str = Depends(actor)) -> dict:
                                           for lang in LANGS},
             # SD-133: a more exact text for the "frame" hint, by FrameQC.frame_advice
             "frame_advice": {lang: {a: strings(lang)[f"qc.frame_{a}"] for a in FRAME_ADVICE} for lang in LANGS}}
+
+
+@router.get("/miniapp/inbox/{ticket_id}")
+def miniapp_take(ticket_id: str, who: str = Depends(actor)) -> Response:
+    """The bot takes the photo of a ticket it signed, once (SD-137): 200 the bytes (the server forgets
+    them), 204 nothing ready yet, 404 already taken. Without a turn these are the bytes the phone made;
+    with the doctor's turn (SD-138) a JPEG of the turned picture, so every reader sees it upright."""
+    got = get_inbox().take(ticket_id, who, with_turn=True)
+    if got is False:
+        raise HTTPException(404, "already taken")
+    if got is None:
+        return Response(status_code=204)
+    data, rotate = got
+    if rotate:
+        conf = load_yaml("service")
+        try:
+            data = turn_photo(data, rotate, int(conf["miniapp"]["turn_jpeg_quality"]),
+                              int(conf["upload"]["max_mb"] * 1024 * 1024))
+        except ValueError:
+            log.warning("capture page: the photo could not be turned, it goes as it was sent")
+    return Response(data, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/{scan_id}")

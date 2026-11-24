@@ -37,6 +37,8 @@ from ecgscan_bot.logic import (
     is_admin,
     lang_of,
     message_link,
+    miniapp_button_url,
+    miniapp_take,
     miniapp_url,
     next_weekly,
     parse_caption,
@@ -44,6 +46,7 @@ from ecgscan_bot.logic import (
     parse_scale,
     parse_symptoms,
     patient_answer,
+    photo_name,
     render,
     report_text,
     scale_buttons,
@@ -58,6 +61,13 @@ ALBUM_WAIT_S = 2.0          # Telegram delivers an album's files one by one; wai
 RECALC_KEEP_S = 15 * 60     # a record's files are kept in memory this long for the speed / gain buttons
 RECALC_MAX = 20             # ... and no more records than this (the oldest go first)
 log = logging.getLogger("ecgscan_bot")
+
+
+def setup_logging() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    # httpx prints every request with its address at INFO: while a capture button waits (SD-137) that is a line
+    # every poll, with the ticket's number in it. The bot's own lines say what was done.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 async def main() -> None:
@@ -96,6 +106,7 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
     # The last records' files, in memory only, for re-running with another speed / gain.
     recent: dict[str, dict] = {}     # token -> {"files", "caption", "scale", "lang", "chat", "at"}
     wrong: dict[int, dict] = {}      # SD-108: chat -> {"aid", "at"}: "wrong" was pressed, the next text says why
+    waiting: dict[int, list[asyncio.Task]] = {}   # SD-137: chat -> the tasks waiting for a photo from the capture page
 
     def keep(rec: dict) -> str:
         now = asyncio.get_running_loop().time()
@@ -449,6 +460,71 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
         await message.answer(tr("probe", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=tr("probe_btn", lang), web_app=WebAppInfo(url=url))]]))
 
+    async def wait_miniapp(message: Message, button_id: int, ticket_id: str, expiry: int, lang: str) -> None:
+        """SD-137: ask the server for the photo taken on the capture page until the ticket runs out,
+        then go on as with a file sent to the chat. The button's message says when the button is dead."""
+        import time
+
+        async def retire(text: str | None) -> None:
+            with contextlib.suppress(Exception):
+                if text is None:
+                    await bot.edit_message_reply_markup(chat_id=message.chat.id, message_id=button_id)
+                else:
+                    await bot.edit_message_text(text, chat_id=message.chat.id, message_id=button_id)
+
+        try:
+            while time.time() < expiry + cfg.miniapp_poll_s:
+                got = await asyncio.to_thread(miniapp_take, api, ticket_id)
+                if got is False:
+                    break
+                if got:
+                    log.info("capture page: a photo of %d bytes", len(got))
+                    name = photo_name(got)
+                    await retire(None)
+                    await message.answer(t("bot.scan_got", lang))
+                    if cfg.mode == "analyze":
+                        await begin(message, [(name, got)], None, lang)
+                    else:
+                        text, scan_id = await asyncio.to_thread(handle_file, cfg, api, got, name, lang)
+                        log.info("scan %s answered", scan_id)
+                        await message.answer(text)
+                    return
+                await asyncio.sleep(cfg.miniapp_poll_s)
+            await retire(t("bot.scan_expired", lang))
+        except asyncio.CancelledError:
+            await retire(t("bot.scan_expired", lang))
+            raise
+        except Exception:
+            log.exception("capture page: the photo was not handled")
+            with contextlib.suppress(Exception):
+                await message.answer(t("bot.server_error", lang))
+        finally:
+            tasks = waiting.get(message.chat.id, [])
+            if asyncio.current_task() in tasks:
+                tasks.remove(asyncio.current_task())
+            if not tasks:
+                waiting.pop(message.chat.id, None)
+
+    @dp.message(Command("scan"))
+    async def scan(message: Message) -> None:
+        """SD-137: the capture page as a Mini App: the photo goes to the server as the original."""
+        lang = guard(message)             # None outside a private chat too (in a group the bot is silent, SD-107)
+        if lang is None:
+            await message.answer(not_allowed(message))
+            return
+        made = miniapp_button_url(cfg, lang)
+        if made is None:
+            await message.answer(t("bot.scan_off", lang))
+            return
+        url, ticket_id, expiry = made
+        tasks = waiting.setdefault(message.chat.id, [])
+        while len(tasks) >= cfg.miniapp_max_buttons:      # earlier buttons keep working; only the oldest gives way
+            tasks.pop(0).cancel()
+        sent = await message.answer(t("bot.scan", lang, minutes=f"{cfg.miniapp_ticket_minutes:g}"),
+                                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                                        InlineKeyboardButton(text=t("bot.scan_btn", lang), web_app=WebAppInfo(url=url))]]))
+        tasks.append(asyncio.create_task(wait_miniapp(message, sent.message_id, ticket_id, expiry, lang)))
+
     @dp.message(Command("code"))
     async def code(message: Message, command: CommandObject) -> None:
         await join(message, command.args)
@@ -710,5 +786,5 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    setup_logging()
     asyncio.run(main())

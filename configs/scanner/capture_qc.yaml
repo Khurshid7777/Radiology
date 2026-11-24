@@ -29,6 +29,8 @@ thresholds:                # PROVISIONAL until real phone frames (M5 data): see 
   max_shadow: 0.25         # spread over 4 x 4 zones of the sheet; TZ start 0.35; good frames <= 0.11 (SD-070)
   require_whole_sheet: true   # no sheet block on the frame's outer ring; the client turns it off for parts
   max_camera_tilt_deg: 10.0   # phone only (gyroscope / accelerometer): the camera against a sheet lying flat (TZ §18.2)
+  sideways_ratio: 1.15        # SD-138: the sheet's vertical side / horizontal side at or above this = it stands on end (not a hint:
+                              # the capture page asks the doctor which way is up); the number of the core's portrait check (D171)
 
 auto_capture:
   consecutive_frames: 5    # all checks pass this many frames in a row

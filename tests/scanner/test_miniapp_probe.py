@@ -18,7 +18,8 @@ def test_probe_page_has_no_network_code():
     for word in FORBIDDEN:
         assert word not in src, word
     # No address of any kind: nothing is loaded from outside, nothing can be posted to it.
-    assert not re.search(r"https?://|\bsrc\s*=\s*[\"'](?!\")", src)
+    assert src.count("https://web.telegram.org") == 1 and src.count("postMessage(") == 1   # Telegram Web's frame only
+    assert not re.search(r"https?://|\bsrc\s*=\s*[\"'](?!\")", src.replace("https://web.telegram.org", ""))
     assert "<script src" not in src
 
 
@@ -46,7 +47,11 @@ def test_the_page_is_served_open_with_headers_that_forbid_any_network(monkeypatc
     assert r.headers["content-type"].startswith("text/html")
     csp = r.headers["content-security-policy"]
     assert "default-src 'none'" in csp and "connect-src 'none'" in csp and "form-action 'none'" in csp
-    assert "http" not in csp and "*" not in csp                      # no outside source of any kind
+    assert csp.endswith("frame-ancestors https://web.telegram.org")  # only Telegram Web may frame the page
+    assert "http" not in csp.replace("https://web.telegram.org", "") and "*" not in csp   # no outside source of any kind
+    assert "img-src" not in csp and "media-src" not in csp           # nothing the page does not use
+    head = client.head("/miniapp/probe")
+    assert head.status_code == 200 and head.headers["content-security-policy"] == csp
     assert r.headers["cache-control"] == "no-store" and r.headers["referrer-policy"] == "no-referrer"
     assert r.headers["x-content-type-options"] == "nosniff"
     # The scanner's own routes stay behind the key, and nothing else lives under /miniapp.
