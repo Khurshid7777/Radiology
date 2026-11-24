@@ -134,3 +134,20 @@ def test_a_header_pil_cannot_read_is_never_decoded_and_opencv_has_its_own_ceilin
     assert "ENV OPENCV_IO_MAX_IMAGE_PIXELS=60000000" in dockerfile
     from ecgscan_service.router import _decode_pool
     assert _decode_pool()._max_workers == 2
+
+
+def test_the_site_page_works_as_a_telegram_mini_app_d349():
+    """D349: the page tells Telegram it is ready and opens full height; the signed Telegram data is never read; in a
+    browser nothing changes; no key travels in an address."""
+    import re
+    from pathlib import Path
+
+    page = (Path(__file__).resolve().parents[1] / "src" / "cardiolens" / "api" / "static" / "index.html").read_text()
+    block = page[page.index("// D349:"):page.index("function esc(")]
+    assert "web_app_ready" in block and "web_app_expand" in block and "TelegramWebviewProxy" in block
+    assert "postMessage(body, TG_WEB)" in block and "const TG_WEB = 'https://web.telegram.org'" in block
+    assert "tgWebAppData" not in page.replace("(tgWebAppData)", "")            # named in a comment only, never read
+    assert "if (tgApp)" in block                                               # everything else only inside Telegram
+    assert not re.search(r"postMessage\([^)]*['\"]\*['\"]", page)              # never to any origin
+    r = TestClient(app).get("/")
+    assert r.status_code == 200 and "x-frame-options" not in {k.lower() for k in r.headers}   # Telegram Web may frame it

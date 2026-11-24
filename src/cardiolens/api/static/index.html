@@ -1554,6 +1554,35 @@ $('lang_ru').addEventListener('click', () => setLang('ru'));
 $('lang_uz').addEventListener('click', () => setLang('uz'));
 applyLang();
 
+// D349: the same page opened from the bot as a Telegram Mini App. Telegram puts its launch parameters after «#»;
+// only the platform and the version are read here — the signed user data (tgWebAppData) is never read or sent.
+const TG_WEB = 'https://web.telegram.org';
+const tgApp = (function () {
+  try {
+    const q = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+    const platform = q.get('tgWebAppPlatform'), version = q.get('tgWebAppVersion');
+    return platform || version ? { platform: platform || '', version: version || '' } : null;
+  } catch (e) { return null; }
+})();
+function tgEvent(name) {
+  const body = JSON.stringify({ eventType: name, eventData: {} });
+  try {
+    if (window.TelegramWebviewProxy) { window.TelegramWebviewProxy.postEvent(name, '{}'); return; }
+    if (window.parent !== window) window.parent.postMessage(body, TG_WEB);    // Telegram Web shows the app in a frame
+  } catch (e) { /* not Telegram after all */ }
+}
+if (tgApp) {
+  document.body.classList.add('tg');
+  tgEvent('web_app_ready');
+  tgEvent('web_app_expand');
+  if (!$('apikey').value.trim()) {
+    $('svc').open = true;
+    $('keyhint').textContent = lang === 'uz'
+      ? 'Klinika kalitini bir marta kiriting — u shu telefondagi Telegram\'da saqlanadi.'
+      : 'Введите ключ клиники один раз — он сохранится в Telegram на этом телефоне.';
+  }
+}
+
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 // D272: even the list of demo cases waits for the consent.
