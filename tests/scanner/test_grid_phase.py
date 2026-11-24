@@ -52,9 +52,40 @@ def test_no_grid_no_geometry():
     assert q.grid_phase_px is q.grid_phase is q.grid_slope is q.grid_period_px is q.grid_zones_agree is q.grid_zones is None
 
 
+def core_page(ppm):
+    """The core's check (D344): its renderer, the 5-mm lines exactly at x = 0, 5 ppm, ... 1 px wide, a desk around the sheet."""
+    pytest.importorskip("cardiolens")
+    import tempfile
+
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+    from cardiolens.layer1_ingestion.digitize import render_ecg_page
+
+    with tempfile.TemporaryDirectory() as d:
+        path = f"{d}/p.png"
+        render_ecg_page(generate_synthetic_ecg(heart_rate_bpm=72, seed=5), path, px_per_mm=ppm)
+        img = cv2.imread(path)
+    return cv2.copyMakeBorder(img, 60, 60, 80, 80, cv2.BORDER_CONSTANT, value=(60, 50, 40))
+
+
+@pytest.mark.parametrize("ppm", [4, 6, 8, 10, 12])
+def test_the_grid_stays_on_the_lines_to_the_sheets_edges(ppm):
+    """The worst distance from the reported grid to any true 5-mm line across the sheet: <= 0.1 of the period."""
+    img = core_page(ppm)
+    q = check_frame(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    step, first = 5 * ppm, 80
+    period, phase = q.grid_period_px, q.grid_phase_px[0]
+    assert period == pytest.approx(step, rel=0.002)
+    worst = max(abs(phase + round((first + step * m - phase) / period) * period - (first + step * m)) / step
+                for m in range(int((img.shape[1] - 160) / step) + 1))
+    assert worst <= 0.1, worst
+
+
 def test_phase_and_period_on_a_pure_profile():
     x = np.arange(1280)
     prof = np.tile(np.cos(2 * np.pi * (x - 7.0) / 23.4), (6, 1))
     assert refine_period(prof, 23.0) == pytest.approx(23.4, abs=0.05)
+    spiky = prof.copy()
+    spiky[:, 100] += 50.0                                             # a sheet's edge: one step far above the lines
+    assert refine_period(spiky, 23.0) == pytest.approx(23.4, abs=0.05)
     phase, slope = phase_line(prof, 23.4, band=16)
     assert phase == pytest.approx(7.0, abs=0.2) and slope == pytest.approx(0.0, abs=1e-3)
