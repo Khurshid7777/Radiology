@@ -81,3 +81,15 @@ def test_a_failed_menu_button_does_not_break_the_answer(tmp_path, monkeypatch):
 def test_app_texts_exist_in_both_languages():
     for key in ("app", "app_btn", "app_off"):
         assert tr(key, "ru") and tr(key, "uz") and tr(key, "ru") != tr(key, "uz")
+
+
+def test_one_who_comes_in_by_a_code_gets_the_menu_button_too(tmp_path, monkeypatch):
+    monkeypatch.delenv(PUBLIC_URL_ENV, raising=False)
+    store = AccessStore(tmp_path / "a.json")
+    code = store.new_code("clinic", ADMIN)
+    sent = run(cfg(public_url="https://site.example"), FakeApi(), store, text_update(555, "private", 555, f"/start {code}"))
+    (menu,) = of(sent, SetChatMenuButton)
+    assert menu.chat_id == 555 and menu.menu_button.web_app.url == "https://site.example/"
+    bad = run(cfg(public_url="https://site.example"), FakeApi(), AccessStore(tmp_path / "b.json"),
+              text_update(556, "private", 556, "/start NOPE"))
+    assert not of(bad, SetChatMenuButton)

@@ -45,7 +45,7 @@ class Ticket:
 
 
 def verify_ticket(ticket: str | None, keys: dict[str, str], *, max_minutes: float,
-                  now: float | None = None, refused_prefix: str | None = None) -> Ticket | None:
+                  now: float | None = None, refused_prefix: str | None = "agent") -> Ticket | None:
     """The live ticket signed with one of ``keys`` (key -> name), or None. A ticket valid for longer
     than ``max_minutes`` from now is refused too: a signer cannot mint a ticket for ever."""
     m = _TICKET.match(ticket or "")
@@ -106,8 +106,9 @@ def turn_photo(data: bytes, rotate_deg: int, quality: int, max_bytes: int) -> by
         raise ValueError(f"not a quarter turn: {rotate_deg}")
     if rotate_deg == 0:
         return data
-    if size_refusal(data):
-        raise ValueError("the picture is not decoded: " + size_refusal(data))
+    why = size_refusal(data)
+    if why:
+        raise ValueError("the picture is not decoded: " + why)
     try:
         bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     except cv2.error as exc:
