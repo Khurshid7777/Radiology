@@ -145,7 +145,9 @@ def test_the_site_page_works_as_a_telegram_mini_app_d349():
     block = page[page.index("// D349:"):page.index("function esc(")]
     assert "web_app_ready" in block and "web_app_expand" in block and "TelegramWebviewProxy" in block
     assert "postMessage(body, TG_WEB)" in block and "const TG_WEB = 'https://web.telegram.org'" in block
-    assert "tgWebAppData" not in page.replace("(tgWebAppData)", "")            # named in a comment only, never read
+    # D350 supersedes D349 here: the signed data is read in one place only and goes to this server in a header only
+    reads = [ln for ln in page.splitlines() if "tgWebAppData" in ln and not ln.strip().startswith("//")]
+    assert len(reads) == 1 and "get('tgWebAppData')" in reads[0]
     assert "if (tgApp)" in block                                               # everything else only inside Telegram
     assert not re.search(r"postMessage\([^)]*['\"]\*['\"]", page)              # never to any origin
     r = TestClient(app).get("/")
