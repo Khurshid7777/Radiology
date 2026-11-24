@@ -104,3 +104,17 @@ def test_without_a_site_the_old_warning_and_a_file_gets_none(tmp_path, monkeypat
 def test_texts_in_both_languages():
     for k in ("bot.recapture", "bot.recapture_btn"):
         assert t(k, "ru") and t(k, "uz") and t(k, "ru") != t(k, "uz")
+
+
+def test_a_compressed_photo_never_ends_a_live_scan_wait(tmp_path, monkeypatch):
+    monkeypatch.delenv(PUBLIC_URL_ENV, raising=False)
+    from ecgscan_bot.access import AccessStore
+
+    server = Server()
+    sent = run(scan_cfg(miniapp_max_buttons=1, miniapp_poll_s=0.05), Api(server), AccessStore(tmp_path / "a.json"),
+               text_update(ADMIN, "private", ADMIN, "/scan", 1), photo_update(ADMIN, "private", ADMIN, 2), settle=0.3,
+               everything=True)
+    warn = [m for m in of(sent, SendMessage) if m.text.startswith(tr("compressed", "ru"))]
+    assert len(warn) == 1 and warn[0].reply_markup is None                     # no button: the /scan one stays alive
+    first = server.asked[0][0]
+    assert first in [p for p, _ in server.asked[-3:]]                          # ... and is still being asked for

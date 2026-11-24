@@ -584,3 +584,102 @@ def test_the_page_lets_several_photos_be_chosen_and_sends_them_together():
     assert "parts.length >= MAX" in src and "miniapp.send_n" in src and "dropLast" in src
     assert "await send()" not in src                                                         # no automatic send any more
     assert "p.codes[k] === 'frame'" in src                                                   # parts are not told the sheet is cut
+
+
+# --- SD-147, the core's review: room is taken before the body is read ------------------------------------
+
+def concurrent_uploads(app, tickets, declared):
+    """Uploads at once; each body is held until all have started. Returns (statuses, the uploads whose body was read)."""
+    read, sent = set(), {}
+
+    async def one(i, ticket):
+        gate = asyncio.Event()
+        started.append(gate)
+
+        async def receive():
+            read.add(i)
+            await gate.wait()
+            return {"type": "http.request", "body": b"\xff\xd8\xff" + b"\x00" * 13, "more_body": False}
+
+        async def send(msg):
+            if msg["type"] == "http.response.start":
+                sent[i] = msg["status"]
+
+        scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "https",
+                 "path": "/miniapp/upload", "raw_path": b"/miniapp/upload", "query_string": b"", "root_path": "",
+                 "headers": [(b"x-miniapp-ticket", ticket.encode()), (b"content-length", str(declared).encode())],
+                 "client": ("203.0.113.1", 1), "server": ("site", 443)}
+        await app(scope, receive, send)
+
+    started = []
+
+    async def go():
+        tasks = [asyncio.create_task(one(i, t)) for i, t in enumerate(tickets)]
+        await asyncio.sleep(0.3)
+        for g in started:
+            g.set()
+        await asyncio.gather(*tasks)
+
+    asyncio.run(go())
+    return sent, read
+
+
+def test_thirty_big_uploads_on_one_button_read_only_what_the_record_can_hold(client):
+    from ecgscan_service.app import app
+
+    ticket = ticket_headers()[0][TICKET_HEADER]
+    sent, read = concurrent_uploads(app, [ticket] * 30, 25 * 1024 * 1024)
+    assert len(read) <= 2                                       # 60 MB a record: two 25-MB bodies at most are read
+    assert set(sent.values()) <= {200, 400, 401, 413, 415}      # 401: the button's upload count, also before reading
+    assert sum(1 for v in sent.values() if v in (401, 413)) >= 28
+
+
+def test_uploads_in_flight_on_the_whole_service_are_limited_before_reading(client):
+    from ecgscan_service.app import app
+
+    tickets = [ticket_headers()[0][TICKET_HEADER] for _ in range(6)]
+    sent, read = concurrent_uploads(app, tickets, 1000)
+    assert len(read) <= 4 and sum(1 for v in sent.values() if v == 429) >= 2       # max_inflight: 4
+
+
+def test_the_turned_record_still_fits_its_limit(client, monkeypatch):
+    from ecgscan_service import router
+
+    real = router.load_yaml
+    photos = [marked(1200, 800) for _ in range(3)]
+    limit = sum(len(p) for p in photos) + 2000
+
+    def tight(name):
+        cfg = real(name)
+        return {**cfg, "miniapp": {**cfg["miniapp"], "max_total_mb": limit / 1024 / 1024}} if name == "service" else cfg
+
+    monkeypatch.setattr(router, "load_yaml", tight)
+    router.get_inbox.cache_clear()
+    head, tid = ticket_headers()
+    for i, ph in enumerate(photos):
+        assert client.post("/miniapp/upload", content=ph, headers={**head, "Content-Length": str(len(ph))}).status_code == 200
+        assert client.post(f"/miniapp/turn?part={i}&rotate=90", headers=head).status_code == 200
+    assert client.post("/miniapp/send", headers=head).json() == {"sent": True}
+    got = take_parts(client, tid)
+    assert len(got) == 3 and sum(len(g) for g in got) <= limit
+    router.get_inbox.cache_clear()
+
+
+def test_a_full_record_is_told_apart_from_a_big_file(client, monkeypatch):
+    from ecgscan_service import router
+
+    real = router.load_yaml
+
+    def two(name):
+        cfg = real(name)
+        return {**cfg, "miniapp": {**cfg["miniapp"], "max_files": 1}} if name == "service" else cfg
+
+    monkeypatch.setattr(router, "load_yaml", two)
+    router.get_inbox.cache_clear()
+    head, _ = ticket_headers()
+    assert client.post("/miniapp/upload", content=small_photo(90), headers=head).status_code == 200
+    r = client.post("/miniapp/upload", content=small_photo(91), headers=head)
+    assert r.status_code == 413 and "record" in r.json()["detail"]
+    src = PAGE.read_text(encoding="utf-8")
+    assert "miniapp.record_full" in src and "/record/.test(" in src
+    router.get_inbox.cache_clear()

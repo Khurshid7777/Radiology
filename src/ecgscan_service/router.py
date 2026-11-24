@@ -39,6 +39,7 @@ from ecgscan_service.service import ScanError, ScanService
 from ecgscan_service.store import ScanRow
 
 KEYS_ENV = "ECGSCAN_API_KEYS"
+RECORD_FULL = "this record already holds as many photos as it may"
 SIZES_HEADER = "X-Miniapp-Sizes"      # SD-147: the sizes of the photos in the bot's answer, in order
 log = logging.getLogger("ecgscan_service")
 
@@ -68,7 +69,7 @@ CAPTURE_HEADERS = {**PROBE_HEADERS,
 _PAGE_TEXTS = ("title", "lead", "tips", "shoot", "pick", "uploading", "checking", "size", "hints_title", "retake",
                "send_anyway", "sent", "no_ticket", "expired", "too_big", "bad_format", "busy", "failed", "retry",
                "turn_title", "turn_lead", "turn_left", "turn_right", "turn_keep", "add_more", "pick_more", "drop_last",
-               "send_n", "list_item", "list_ok", "parts_hint", "too_many")
+               "send_n", "list_item", "list_ok", "parts_hint", "too_many", "record_full")
 
 
 @lru_cache(maxsize=1)
@@ -162,39 +163,54 @@ async def miniapp_upload(request: Request, lang: str = "ru") -> dict:
     conf = load_yaml("service")
     cap = int(conf["upload"]["max_mb"] * 1024 * 1024)
     declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > cap:
+    size_said = int(declared) if declared is not None and declared.isdigit() else None
+    if size_said is not None and size_said > cap:
         raise HTTPException(413, "file too large")
     if not get_inbox().attempt(tk, int(conf["miniapp"]["max_uploads_per_ticket"])):
         raise HTTPException(401, "invalid, expired or used ticket")
-    chunks, size, known = [], 0, False
-    async for chunk in request.stream():
-        size += len(chunk)
-        if size > cap:
-            raise HTTPException(413, "file too large")
-        chunks.append(chunk)
-        if not known and size >= 8:
-            if f"image/{image_kind(b''.join(chunks)[:8])}" not in conf["upload"]["mime"]:
-                raise HTTPException(415, "not a photo the scanner reads")
-            known = True
-    data = b"".join(chunks)
-    if not data:
-        raise HTTPException(400, "empty file")
-    if not known:
-        raise HTTPException(415, "not a photo the scanner reads")
-    why = size_refusal(data)              # before any decoding: the declared size, not the file's, costs memory
-    if why == "UNREADABLE_HEADER":
-        raise HTTPException(415, "not a photo the scanner reads")
-    if why:
-        raise HTTPException(413, "the picture is too large or too small")
-    info = await asyncio.get_running_loop().run_in_executor(_hint_pool(), photo_hints, data, _lang(lang))
-    try:
-        part = get_inbox().add(tk, data)
+    try:                                  # SD-147 review: the record's and the store's room is taken before reading
+        allowed = get_inbox().reserve(tk, size_said, cap, int(conf["miniapp"]["max_inflight"]))
     except TooMuch:
-        raise HTTPException(413, "this record already holds as many photos as it may") from None
+        raise HTTPException(413, RECORD_FULL) from None
     except InboxFull:
         raise HTTPException(429, "too many photos are waiting") from None
     except KeyError:
         raise HTTPException(401, "invalid, expired or used ticket") from None
+    added = False
+    try:
+        chunks, size, known = [], 0, False
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > allowed:
+                raise HTTPException(413, "file too large" if size > cap else RECORD_FULL)
+            chunks.append(chunk)
+            if not known and size >= 8:
+                if f"image/{image_kind(b''.join(chunks)[:8])}" not in conf["upload"]["mime"]:
+                    raise HTTPException(415, "not a photo the scanner reads")
+                known = True
+        data = b"".join(chunks)
+        if not data:
+            raise HTTPException(400, "empty file")
+        if not known:
+            raise HTTPException(415, "not a photo the scanner reads")
+        why = size_refusal(data)          # before any decoding: the declared size, not the file's, costs memory
+        if why == "UNREADABLE_HEADER":
+            raise HTTPException(415, "not a photo the scanner reads")
+        if why:
+            raise HTTPException(413, "the picture is too large or too small")
+        info = await asyncio.get_running_loop().run_in_executor(_hint_pool(), photo_hints, data, _lang(lang))
+        try:
+            part = get_inbox().add(tk, data, reserved=allowed)
+            added = True
+        except TooMuch:
+            raise HTTPException(413, RECORD_FULL) from None
+        except InboxFull:
+            raise HTTPException(429, "too many photos are waiting") from None
+        except KeyError:
+            raise HTTPException(401, "invalid, expired or used ticket") from None
+    finally:
+        if not added:
+            get_inbox().release(tk, allowed)
     return {**info, "part": part}
 
 
@@ -399,14 +415,19 @@ def miniapp_take(ticket_id: str, who: str = Depends(actor)) -> Response:
     if got is None:
         return Response(status_code=204)
     conf = load_yaml("service")
+    file_cap = int(conf["upload"]["max_mb"] * 1024 * 1024)
+    # The record must still fit the analysis after the turns (a JPEG at q95 can be larger than the phone's own):
+    # the turned photos share what the unturned ones leave of the record's limit, in proportion to their size.
+    budget = int(conf["miniapp"]["max_total_mb"] * 1024 * 1024) - sum(len(d) for d, r in got if not r)
+    turned = sum(len(d) for d, r in got if r) or 1
     parts = []
     for data, rotate in got:
         if rotate:
             try:
                 data = turn_photo(data, rotate, int(conf["miniapp"]["turn_jpeg_quality"]),
-                                  int(conf["upload"]["max_mb"] * 1024 * 1024))
+                                  min(file_cap, max(1, budget * len(data) // turned)))
             except ValueError:
-                log.warning("capture page: a photo could not be turned, it goes as it was sent")
+                log.warning("capture page: a photo could not be turned within the record's limit, it goes as it was sent")
         parts.append(data)
     return Response(b"".join(parts), media_type="application/octet-stream",
                     headers={"Cache-Control": "no-store", SIZES_HEADER: ",".join(str(len(b)) for b in parts)})
