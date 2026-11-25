@@ -15,16 +15,19 @@ import contextlib
 import io
 import logging
 import os
+import types
 
 from ecgscan.i18n import t
 from ecgscan_bot.access import AccessStore
 from ecgscan_bot.logic import (
+    AGENT_NAMES,
     GROUP_CHAT_TYPES,
     AnalyzeApi,
     BotConfig,
     HourlyLimit,
     PaperScale,
     ScanApi,
+    agent_take,
     allowed,
     analyse,
     apply_choice,
@@ -57,6 +60,7 @@ from ecgscan_bot.logic import (
     watched_group,
 )
 from ecgscan_bot.texts import tr
+from ecgscan_service.agent import issue_agent_key, new_agent_id
 
 TOKEN_ENV = "ECGSCAN_BOT_TOKEN"
 ALBUM_WAIT_S = 2.0          # Telegram delivers an album's files one by one; wait this long after the last
@@ -454,10 +458,71 @@ def build(cfg: BotConfig, bot, api, store: AccessStore):
                 with contextlib.suppress(Exception):
                     await send_report(uid, store.lang(uid) or "ru", cfg.report_days)
 
+    class _Chat:
+        """What begin() needs of a message, for a record that came with no message (SD-152: the desk agent)."""
+
+        def __init__(self, chat_id: int):
+            self.chat = types.SimpleNamespace(id=chat_id, type="private")
+
+        async def answer(self, text: str, **kw):
+            return await bot.send_message(self.chat.id, text, **kw)
+
+    async def agent_pull() -> bool:
+        """SD-152: take one record the desk agents sent and answer it in its doctor's chat; False when none."""
+        got = await asyncio.to_thread(agent_take, api)
+        if got is None:
+            return False
+        aid, kind, data = got
+        chat = store.agent_chat(aid)
+        if chat is None or not allowed(cfg, chat, "private", store):
+            log.warning("agent: a record from an agent no chat takes now, dropped")
+            return True
+        lang = store.lang(chat) or "ru"
+        log.info("agent: a %s record of %d bytes", kind, len(data))
+        shim = _Chat(chat)
+        await shim.answer(tr("agent_got", lang))
+        if cfg.mode == "analyze":
+            await begin(shim, [(AGENT_NAMES.get(kind, "ecg.bin"), data)], None, lang)
+        return True
+
+    dp["agent_pull"] = agent_pull
+
+    async def agent_loop() -> None:
+        while True:
+            try:
+                while await agent_pull():
+                    pass
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("agent: a record was not handled")
+            await asyncio.sleep(cfg.agent_poll_s)
+
+    @dp.message(Command("agent"))
+    async def agent_cmd(message: Message, command: CommandObject) -> None:
+        """SD-152: a key for the desk agent (one per call), or ``/agent off`` to stop hearing this chat's agents."""
+        lang = guard(message)             # None outside a private chat too (in a group the bot is silent, SD-107)
+        if lang is None:
+            await message.answer(not_allowed(message))
+            return
+        if (command.args or "").strip().lower() == "off":
+            n = store.revoke_agents(message.chat.id)
+            await message.answer(tr("agent_off", lang, n=n) if n else tr("agent_none", lang))
+            return
+        if not cfg.api_key:
+            await message.answer(tr("agent_unset", lang))
+            return
+        aid = new_agent_id()
+        key, _ = issue_agent_key(cfg.api_key, aid, cfg.agent_key_days)
+        store.add_agent(message.chat.id, aid)
+        await message.answer(tr("agent_key", lang, days=f"{cfg.agent_key_days:g}", agent_key=key), parse_mode="HTML")
+
     @dp.startup()
     async def on_startup() -> None:
         if cfg.report_weekly and cfg.mode == "analyze":
             dp["weekly_reports"] = asyncio.create_task(weekly_reports())
+        if cfg.api_key:
+            dp["agent_loop"] = asyncio.create_task(agent_loop())
 
     async def menu_button(message: Message, lang: str) -> None:
         """SD-142: the chat's menu button opens the site as a Mini App (a private chat of one let in)."""

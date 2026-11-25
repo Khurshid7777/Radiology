@@ -35,6 +35,15 @@ miniapp:                           # SD-137: capture on the Telegram Mini App pa
   small_side_px: 2000              # no grid found and the long side below this: say the photo is small
   turn_jpeg_quality: 95            # SD-138: the doctor's quarter turn is made on a copy saved as JPEG at this quality (as the site's, D194)
 
+agent:                             # SD-152: records the desk agent sends from the recorder program's folder
+  max_key_days: 400                # an agent key valid for longer than this from now is refused, whoever signed it
+  kinds: [pdf, xml, dicom, jpeg, png, tiff]   # what is taken, by the file's first bytes; more after the owner's samples
+  max_items: 50                    # records waiting in memory for the bot, all agents together; more -> 429
+  max_store_mb: 300                # ... and their bytes together
+  per_agent: 10                    # ... and from one agent
+  keep_minutes: 60                 # a record the bot did not take is forgotten after this
+  body_timeout_s: 120              # a record's body must arrive within this; then 408
+
 public_url: null                   # base URL for result links in the bot, e.g. https://clinic.example/
 
 confirm:

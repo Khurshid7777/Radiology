@@ -31,6 +31,19 @@ _T = {
     "cmd_scan": ("Снять ЭКГ в полном качестве", "EKGni to‘liq sifatda suratga olish"),
     "cmd_app": ("Открыть CardioVision", "CardioVision'ni ochish"),
     "cmd_probe": ("Замер камеры телефона", "Telefon kamerasini o‘lchash"),
+    "agent_key": (("Ключ для программы на ноутбуке (действует {days} дн.). Скопируйте строку ниже целиком и вставьте в "
+                   "программу при настройке — больше ничего вводить не нужно:\n\n<code>{agent_key}</code>\n\n"
+                   "Записи с аппарата будут приходить сюда. Отключить: /agent off. Никому не пересылайте этот ключ."),
+                  ("Noutbukdagi dastur uchun kalit ({days} kun amal qiladi). Quyidagi qatorni to‘liq nusxalab, sozlashda "
+                   "dasturga qo‘ying — boshqa hech narsa kiritish shart emas:\n\n<code>{agent_key}</code>\n\n"
+                   "Apparatdagi yozuvlar shu yerga keladi. O‘chirish: /agent off. Bu kalitni hech kimga yubormang.")),
+    "agent_off": ("Программы на ноутбуке отключены: {n}. Записи от них больше не принимаются.",
+                  "Noutbukdagi dasturlar o‘chirildi: {n}. Ulardan yozuvlar endi qabul qilinmaydi."),
+    "agent_none": ("Нет подключённых программ.", "Ulangan dasturlar yo‘q."),
+    "agent_got": ("Получена запись с аппарата (через программу на ноутбуке).",
+                  "Apparatdan yozuv olindi (noutbukdagi dastur orqali)."),
+    "agent_unset": ("Программа на ноутбуке не настроена: у бота нет ключа для сервера.",
+                    "Noutbukdagi dastur sozlanmagan: botda server kaliti yo‘q."),
     "admin_only": ("Команда только для администратора.", "Faqat administrator uchun."),
     "invite": ("Новый код: {code} (метка: {label})\nСсылка для входа: {link}\nОтозвать: /revoke {code}",
                "Yangi kod: {code} ({label})\nKirish havolasi: {link}\nBekor qilish: /revoke {code}"),

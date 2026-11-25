@@ -222,6 +222,65 @@ async def miniapp_upload(request: Request, lang: str = "ru") -> dict:
     return {**info, "part": part}
 
 
+@lru_cache(maxsize=1)
+def get_agent_queue():
+    from ecgscan_service.agent import AgentQueue
+
+    c = load_yaml("service")["agent"]
+    return AgentQueue(max_items=int(c["max_items"]), max_bytes=int(c["max_store_mb"] * 1024 * 1024),
+                      per_agent=int(c["per_agent"]), keep_s=float(c["keep_minutes"]) * 60)
+
+
+@public_router.post("/agent/upload")
+async def agent_upload(request: Request) -> dict:
+    """SD-152: one record the desk agent found in the recorder program's folder. The agent key, the declared size and
+    the queue's room are checked before the body is read; what the file is, its first bytes say (allowed kinds in
+    service.yaml). The record waits in memory for the bot, which answers in the doctor's chat."""
+    import asyncio
+
+    from ecgscan_service.agent import AGENT_HEADER, kind_of, verify_agent_key
+
+    conf = load_yaml("service")
+    a = conf["agent"]
+    key = verify_agent_key(request.headers.get(AGENT_HEADER), _keys(), max_days=float(a["max_key_days"]))
+    if key is None:
+        raise HTTPException(401, "invalid or expired agent key")
+    cap = int(conf["upload"]["max_mb"] * 1024 * 1024)
+    declared = request.headers.get("content-length")
+    size_said = int(declared) if declared is not None and declared.isdigit() else None
+    if size_said is None:
+        raise HTTPException(411, "Content-Length required")
+    if size_said > cap:
+        raise HTTPException(413, "file too large")
+    if not get_agent_queue().room(key, size_said):
+        raise HTTPException(429, "too many records are waiting")
+    chunks, size, kind = [], 0, None
+    try:
+        async with asyncio.timeout(float(a["body_timeout_s"])):
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > min(cap, size_said):
+                    raise HTTPException(413, "file too large")
+                chunks.append(chunk)
+                if kind is None and size >= 132:
+                    kind = kind_of(b"".join(chunks)[:132], list(a["kinds"]))
+                    if kind is None:
+                        raise HTTPException(415, "not a kind of record the service takes")
+    except TimeoutError:
+        raise HTTPException(408, "the record came too slowly") from None
+    data = b"".join(chunks)
+    if kind is None:
+        kind = kind_of(data[:132], list(a["kinds"]))
+        if not data or kind is None:
+            raise HTTPException(415, "not a kind of record the service takes")
+    try:
+        get_agent_queue().put(key, kind, data)
+    except Exception:
+        raise HTTPException(429, "too many records are waiting") from None
+    log.info("agent: a %s record of %d bytes queued", kind, len(data))
+    return {"queued": True, "kind": kind}
+
+
 @public_router.post("/turn")
 def miniapp_turn(request: Request, part: int, rotate: int) -> dict:
     """SD-147: the doctor's quarter turn of one photo of the record (SD-138)."""
@@ -409,6 +468,18 @@ def capture_qc_config(who: str = Depends(actor)) -> dict:
                                           for lang in LANGS},
             # SD-133: a more exact text for the "frame" hint, by FrameQC.frame_advice
             "frame_advice": {lang: {a: strings(lang)[f"qc.frame_{a}"] for a in FRAME_ADVICE} for lang in LANGS}}
+
+
+@router.get("/agent/inbox")
+def agent_take(who: str = Depends(actor)) -> Response:
+    """SD-152: the oldest record from the agents of this key (the bot's): 200 the bytes with ``X-Agent-Id`` and
+    ``X-Agent-Kind`` (the server forgets it), 204 none waiting."""
+    got = get_agent_queue().take(who)
+    if got is None:
+        return Response(status_code=204)
+    aid, kind, data = got
+    return Response(data, media_type="application/octet-stream",
+                    headers={"Cache-Control": "no-store", "X-Agent-Id": aid, "X-Agent-Kind": kind})
 
 
 @router.get("/miniapp/inbox/{ticket_id}")

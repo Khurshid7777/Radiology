@@ -81,6 +81,8 @@ class BotConfig:
     miniapp_ticket_minutes: float = 10.0     # SD-137
     miniapp_poll_s: float = 2.0
     miniapp_max_buttons: int = 5
+    agent_key_days: float = 180.0    # SD-152
+    agent_poll_s: float = 3.0
 
     @classmethod
     def load(cls) -> BotConfig:
@@ -104,7 +106,9 @@ class BotConfig:
                    report_days=int(rep.get("days", 7)),
                    miniapp_ticket_minutes=float(mini.get("ticket_minutes", 10)),
                    miniapp_poll_s=float(mini.get("poll_s", 2.0)),
-                   miniapp_max_buttons=int(mini.get("max_buttons", 5)))
+                   miniapp_max_buttons=int(mini.get("max_buttons", 5)),
+                   agent_key_days=float((c.get("agent") or {}).get("key_days", 180)),
+                   agent_poll_s=float((c.get("agent") or {}).get("poll_s", 3.0)))
 
 
 # The photo's caption names the patient: "54 м", "ж 7", "erkak 63" (D161).
@@ -391,6 +395,22 @@ def split_parts(body: bytes, sizes: str | None) -> list[bytes]:
         out.append(body[at:at + k])
         at += k
     return out
+
+
+def agent_take(api) -> tuple[str, str, bytes] | None:
+    """SD-152: the oldest record the desk agents sent: (agent id, kind, bytes); None when none (or no answer)."""
+    try:
+        r = api.http.get("/scans/agent/inbox", headers=api.headers)
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    h = getattr(r, "headers", None) or {}
+    aid, kind = h.get("X-Agent-Id"), h.get("X-Agent-Kind")
+    return (aid, kind, r.content) if aid and kind else None
+
+
+AGENT_NAMES = {"pdf": "ecg.pdf", "xml": "ecg.xml", "dicom": "ecg.dcm", "jpeg": "ecg.jpg", "png": "ecg.png", "tiff": "ecg.tiff"}
 
 
 def photo_name(data: bytes) -> str:
