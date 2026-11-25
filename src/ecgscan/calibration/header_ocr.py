@@ -34,6 +34,19 @@ SPEED_RE = re.compile(rf"{_NUM}\s*{_MM}\s*/\s*(?:sec|s|[cс][eе][kк]|[cс]){_E
 SPEED_SPLIT_RE = re.compile(rf"{_NUM}\s*{_MM}\s*/\s*[mnм]{{1,2}}\s*/\s*(?:s|[cс]){_END}", re.IGNORECASE)
 GAIN_RE = re.compile(rf"{_NUM}\s*{_MM}\s*/\s*[mм][vвb]{_END}", re.IGNORECASE)
 _ZERO = re.compile(r"(?<=\d)[OoОоQ]|[OoОоQ](?=\d)")    # O, о, Q next to a digit: a misread 0
+# SD-153: "10/5 mm/mV" - limb leads at the first gain, chest leads at the second (mixed gain).
+MIXED_RE = re.compile(rf"(?<![\d.,]){_NUM}\s*/\s*{_NUM}\s*{_MM}\s*/\s*[mм][vвb]{_END}", re.IGNORECASE)
+
+
+def mixed_gain(texts: list[str], gains: list[float]) -> tuple[float, float] | None:
+    """(limb, chest) gain when the header prints a mixed setting "A/B mm/mV" with A twice B, both allowed gains."""
+    allowed = {float(g) for g in gains} | {2.5}
+    for t in texts:
+        for a, b in MIXED_RE.findall(_ZERO.sub("0", t)):
+            limb, chest = _number(a), _number(b)
+            if limb in allowed and chest in allowed and abs(limb - 2 * chest) < 1e-6:
+                return limb, chest
+    return None
 
 
 def _number(v: str) -> float:

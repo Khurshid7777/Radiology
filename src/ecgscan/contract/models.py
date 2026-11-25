@@ -32,7 +32,7 @@ WARNING_CODES = (
     "LAYOUT_UNCERTAIN", "LABEL_ORDER_CONFLICT", "LIMB_LEADS_INCONSISTENT", "TRACE_GAPS",
     "LEAD_INCOMPLETE", "BEATS_INCONSISTENT", "QRS_UNSTABLE", "PR_UNSTABLE", "RHYTHM_INCONSISTENT", "LOW_LIGHT", "LEAD_OVERLAP", "LOW_RESOLUTION_MARGINAL", "FADED_PAPER", "STITCHED",
     "LOW_RESOLUTION_COARSE", "PAGES_STITCHED", "SEAM_UNCERTAIN", "GRID_IN_TRACE",
-    "SEGMENTER_FALLBACK", "RHYTHM_STRIP_ABSENT", "LEAD_INCOHERENT", "NARROW_FILTER",
+    "SEGMENTER_FALLBACK", "RHYTHM_STRIP_ABSENT", "LEAD_INCOHERENT", "NARROW_FILTER", "MIXED_GAIN",
 )
 DIGITIZED_FLAG = "digitized_from_image"
 STANDARD_LEADS = ("I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6")
@@ -112,6 +112,7 @@ class Calibration(_Strict):
     grid_residual_mm: float | None = Field(default=None, ge=0)
     paper_speed_mm_s: Literal[25, 50] | None = None
     gain_mm_mv: Literal[5, 10, 20] | None = None
+    gain_chest_mm_mv: Literal[2.5, 5, 10] | None = None   # SD-153: mixed gain, chest leads (already rescaled)
     speed_source: CalSource = None
     gain_source: CalSource = None
     speed_candidates: list[Candidate] = Field(default_factory=list)

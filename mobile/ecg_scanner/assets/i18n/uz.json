@@ -25,6 +25,7 @@
   "warning.SPEED_SOURCES_DISAGREE": "Qog‘oz tezligi manbalari bir-biriga zid — tezlikni tasdiqlang.",
   "warning.GAIN_SOURCES_DISAGREE": "Kuchaytirish manbalari bir-biriga zid — kuchaytirishni tasdiqlang.",
   "warning.NARROW_FILTER": "Lentada yozuv chastotasini toraytiruvchi filtr yoqilgan (sarlavhaga ko‘ra): tishchalar amplitudasi va ST segmenti buzilgan bo‘lishi mumkin.",
+  "warning.MIXED_GAIN": "V1–V6 ko‘krak tarmoqlari boshqa masshtabda bosilgan (aralash kuchaytirish) — ularning amplitudalari qayta hisoblandi.",
   "warning.LAYOUT_UNCERTAIN": "Ulanishlar joylashuvi ishonchsiz aniqlandi — yozuvlarni tekshiring.",
   "warning.LABEL_ORDER_CONFLICT": "Ulanishlar yozuvlari kutilgan joylashuvga mos emas.",
   "warning.LIMB_LEADS_INCONSISTENT": "Qo‘l-oyoq ulanishlari bir-biriga mos kelmaydi — chiziqlar ustma-ustligini tekshiring.",

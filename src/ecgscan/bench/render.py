@@ -45,6 +45,7 @@ class RenderSpec:
     px_per_mm: float = 12.0
     speed_mm_s: float = 25.0
     gain_mm_mv: float = 10.0
+    gain_chest_mm_mv: float | None = None   # SD-153: V1-V6 at this gain (mixed 10/5, 20/10); the header says "A/B mm/mV"
     grid: str = "red"
     grid_style: str = "solid"       # "dotted": a dot on every 1-mm crossing, dashed 5-mm lines (SD-128)
     trace_mm: float = 0.25          # printed stroke width
@@ -205,7 +206,8 @@ def render_page(signals_mv: dict[str, np.ndarray], fs_in: float, layout: LayoutS
         _text(img, "Name: TEST PATIENT   ID: 0000000   Age: 45   Sex: M", layout.margin_mm * ppm,
               y0 + 5 * ppm, 3.0 * ppm, text_ink)
         if spec.header_settings:
-            _text(img, f"{speed:g} mm/s   {gain:g} mm/mV   0.05-150 Hz   50 Hz", layout.margin_mm * ppm,
+            g_txt = f"{gain:g}/{spec.gain_chest_mm_mv:g}" if spec.gain_chest_mm_mv else f"{gain:g}"
+            _text(img, f"{speed:g} mm/s   {g_txt} mm/mV   0.05-150 Hz   50 Hz", layout.margin_mm * ppm,
                   y0 + 11 * ppm, 3.0 * ppm, text_ink)
 
     def baseline(r: int) -> float:
@@ -216,7 +218,8 @@ def render_page(signals_mv: dict[str, np.ndarray], fs_in: float, layout: LayoutS
         seg = sig[lead][i0:i1]
         x0 = (trace_x0_mm + (t0 * speed if x_mm is None else x_mm)) * ppm
         xs = x0 + np.arange(len(seg)) / fs * speed * ppm
-        ys = baseline(row) - seg * gain * ppm
+        g = spec.gain_chest_mm_mv if (spec.gain_chest_mm_mv and lead.startswith("V")) else gain
+        ys = baseline(row) - seg * g * ppm
         _polyline(img, xs, ys, ink, thick)
         gt.traces.append(TraceGT(lead=lead, kind=kind, start_s=t0, samples_mv=seg.copy(), x0_px=x0,
                                  baseline_px=baseline(row)))

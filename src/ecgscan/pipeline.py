@@ -30,7 +30,7 @@ import numpy as np
 from ecgscan import PIPELINE_VERSION
 from ecgscan.board import compose_zone, detect_board, load_boards, warp_zone
 from ecgscan.calibration.header_fields import parse_fields
-from ecgscan.calibration.header_ocr import group_lines, read_bands
+from ecgscan.calibration.header_ocr import group_lines, mixed_gain, read_bands
 from ecgscan.calibration.pulse import (
     dark_ink,
     extend_pulses,
@@ -85,6 +85,7 @@ class ScanHints:
     device_profile: str | None = None    # the recording machine's profile id (configs/scanner/devices, S2)
     piece: bool = False              # a sheet of a multi-page study (S2): shorter than its layout by design
     pages: bool = False              # a list of photos is a multi-page study (S2), not one page in parts on a board
+    gain_chest_mm_mv: float | None = None   # SD-153: the doctor says the chest leads were printed at this gain (mixed)
 
 
 @dataclass
@@ -390,6 +391,25 @@ def header_ocr_fields(reading, device_models: list[str]) -> HeaderOcr:
         device_measurements=DeviceMeasurements(**vars(m)) if m.any() else None,
         device_text_conclusion=(f.conclusion or None) and f.conclusion[:500], phi_lines_dropped=f.phi_lines_dropped)
 
+
+
+def chest_gain(mixed: tuple[float, float] | None, hint: float | None, sheet_gain: float | None) -> float | None:
+    """SD-153: the chest leads' own gain, when it differs from the sheet's: the doctor's word first, else the header's
+    "A/B mm/mV" when its A is the gain the sheet was read at (the pulse is printed for the limb leads)."""
+    if not sheet_gain:
+        return None
+    if hint:                              # the doctor's word wins, "the same as the sheet" included
+        return float(hint) if abs(hint - sheet_gain) > 1e-6 else None
+    if mixed and abs(mixed[0] - sheet_gain) < 1e-6:
+        return float(mixed[1])
+    return None
+
+
+def rescale_chest(readings, factor: float) -> None:
+    """V1-V6 (panels and rhythm strips) read at the sheet's gain, brought to their own: samples times ``factor``."""
+    for r in readings:
+        if r.panel.lead.startswith("V"):
+            r.trace.samples_mv = [None if v is None else round(v * factor, 5) for v in r.trace.samples_mv]
 
 
 def narrow_filter(header: HeaderOcr | None, q_cfg: dict) -> bool:
@@ -756,6 +776,7 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
                       layout=Layout(name=layout_name, confidence=layout_conf, **mine))
     # Header / footer OCR only outside the trace rows (TZ §5.4: never on the trace).
     ocr_speeds: list[float] = []
+    mixed: tuple[float, float] | None = None
     ocr_gains: list[float] = []
     h_img = rect.bgr.shape[0]
     o_cfg = c_cfg["ocr"]
@@ -778,6 +799,9 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
                              whole_header=bool(o_cfg.get("whole_header", False)))
         dbg.ocr_texts = reading.texts            # in-process only: may hold a name; never stored or logged
         ocr_speeds, ocr_gains = reading.speeds, reading.gains
+        mixed = mixed_gain(reading.texts, c_cfg["gains_mm_mv"])
+        if mixed:                         # "10/5 mm/mV": the sheet's gain is the limb leads' (SD-153), not the 5
+            ocr_gains = [mixed[0]]
         if reading.available and reading.boxes:
             header = header_ocr_fields(reading, o_cfg.get("device_models", []))
             if narrow_filter(header, q_cfg):
@@ -825,6 +849,13 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
             stop = max(0, int(round((end_s - tr.start_s) * fs_out)))
             if stop < len(tr.samples_mv):
                 tr.samples_mv = tr.samples_mv[:stop] + [None] * (len(tr.samples_mv) - stop)
+    chest = chest_gain(mixed, hints.gain_chest_mm_mv, decision.gain_for_traces)
+    if chest is not None:
+        rescale_chest(readings, decision.gain_for_traces / chest)
+        decision.calibration.gain_chest_mm_mv = chest
+        warnings.append("MIXED_GAIN")
+    elif mixed and decision.gain_for_traces and abs(mixed[0] - decision.gain_for_traces) > 1e-6:
+        warnings.append("GAIN_SOURCES_DISAGREE")      # the header's limb gain is not the sheet's: nothing rescaled
     leads = {r.panel.lead: r.trace for r in readings if r.panel.kind == "panel"}
     rhythm = [r.trace for r in readings if r.panel.kind == "rhythm"]
     val = cfg.get("validate", {})
