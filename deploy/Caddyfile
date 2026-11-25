@@ -6,11 +6,19 @@
 	reverse_proxy cardiolens:8000
 }
 
-# D352: the owner's landing page — static files only, never proxied to the app.
-{$LANDING_DOMAIN:vision-ai.uz} {
+# D352: the owner's landing (vision-ai.uz) — the same block the owner's /opt/vision-ai/ensure-caddy.sh adds; its first
+# line must start with the domain, or that script appends a second block and Caddy refuses to start (both sites down).
+# Site files: /var/www/vision-ai.uz on the server (the owner updates them); /api/* → the owner's lead bot container.
+vision-ai.uz, www.vision-ai.uz {
 	encode gzip
-	root * /srv/landing
-	file_server {
-		hide .*
+	handle /api/* {
+		reverse_proxy vision-ai-lead-bot:8081
+	}
+	handle {
+		root * /srv/vision-ai
+		file_server {
+			hide .*
+		}
+		header /index.html Cache-Control "no-cache"
 	}
 }

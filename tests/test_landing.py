@@ -25,28 +25,24 @@ def _blocks(caddyfile: str) -> dict[str, str]:
     return out
 
 
-def test_landing_is_static_and_app_site_unchanged():
-    blocks = _blocks((DEPLOY / "Caddyfile").read_text())
-    assert set(blocks) == {"{$DOMAIN}", "{$LANDING_DOMAIN:vision-ai.uz}"}
-    app, landing = blocks["{$DOMAIN}"], blocks["{$LANDING_DOMAIN:vision-ai.uz}"]
+LANDING = "vision-ai.uz, www.vision-ai.uz"
+
+
+def test_landing_block_matches_the_owner_setup_and_app_site_unchanged():
+    text = (DEPLOY / "Caddyfile").read_text()
+    blocks = _blocks(text)
+    assert set(blocks) == {"{$DOMAIN}", LANDING}
+    app, landing = blocks["{$DOMAIN}"], blocks[LANDING]
     assert "reverse_proxy cardiolens:8000" in app and "max_size 110MB" in app
-    assert "file_server" in landing and "hide .*" in landing and "root * /srv/landing" in landing
-    assert "reverse_proxy" not in landing and "cardiolens" not in landing
+    # the owner's /opt/vision-ai/ensure-caddy.sh appends a second block unless a line starts with the domain;
+    # two blocks for one domain stop Caddy (both sites down)
+    assert re.search(r"(?m)^vision-ai\.uz", text)
+    assert "root * /srv/vision-ai" in landing and "hide .*" in landing
+    assert "cardiolens" not in landing
+    assert re.findall(r"reverse_proxy\s+(\S+)", landing) == ["vision-ai-lead-bot:8081"]
 
 
-def test_landing_mounted_read_only():
+def test_landing_files_mounted_read_only_from_the_owner_folder():
     compose = (DEPLOY / "docker-compose.yml").read_text()
-    assert "- ./landing:/srv/landing:ro" in compose
-
-
-def test_landing_files_present_and_clean():
-    land = DEPLOY / "landing"
-    for page in ("index.html", "uz/index.html", "en/index.html", "ru/index.html", "sitemap.xml"):
-        assert (land / page).is_file(), page
-    allowed = {".html", ".xml", ".svg", ".png", ".webmanifest", ".txt", ".ico"}
-    for f in land.rglob("*"):
-        if f.is_file():
-            assert f.suffix in allowed, f
-            if f.suffix in {".html", ".xml"}:
-                text = f.read_text()
-                assert not re.search(r"(?i)(api[_-]?key|bot\d+:|sk-ant|password)", text), f
+    assert "- /var/www/vision-ai.uz:/srv/vision-ai:ro" in compose
+    assert not (DEPLOY / "landing").exists()     # one copy of the site: the owner's folder on the server

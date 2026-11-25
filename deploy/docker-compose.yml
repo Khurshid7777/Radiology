@@ -114,7 +114,7 @@ services:
       - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./landing:/srv/landing:ro
+      - /var/www/vision-ai.uz:/srv/vision-ai:ro
       - caddy_data:/data
       - caddy_config:/config
 
