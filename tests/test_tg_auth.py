@@ -105,7 +105,8 @@ def test_the_page_sends_telegram_data_only_in_a_header_d350():
     for leak in ("tgWebAppData=", "initData=", "?init", "&init"):
         assert leak not in page
     caddy = (Path(__file__).resolve().parents[1] / "deploy" / "Caddyfile").read_text().lower()
-    assert "telegram" not in caddy and "log" not in caddy.split("#")[0]     # the proxy neither logs nor rewrites it
+    code = "\n".join(line.split("#")[0] for line in caddy.splitlines())
+    assert "telegram" not in caddy and "log" not in code     # the proxy neither logs nor rewrites it
 
 
 def test_deploy_passes_the_derived_secret_not_the_token():
