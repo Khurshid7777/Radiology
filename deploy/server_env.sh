@@ -32,7 +32,8 @@ set_var() {  # set_var NAME VALUE: replace the line or append it
 set_var DOMAIN "$domain"
 # D352: where the landing page's files are on the host (deploy/target.env, not secret). Only a plain absolute path is
 # taken, so nothing odd reaches sed or compose; anything else falls back to /opt/landing.
-landing=$(sed -n 's/^LANDING_DIR=//p' target.env 2>/dev/null | head -1 | tr -d '\r')
+landing=""      # no target.env beside the script: the default
+if [ -f target.env ]; then landing=$(sed -n 's/^LANDING_DIR=//p' target.env | head -1 | tr -d '\r'); fi
 if ! printf '%s' "$landing" | grep -Eq '^(/[A-Za-z0-9_][A-Za-z0-9._-]*)+$'; then
   [ -z "$landing" ] || echo "LANDING_DIR ignored: a plain absolute path expected; using /opt/landing" >&2
   landing=/opt/landing

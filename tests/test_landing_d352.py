@@ -59,7 +59,8 @@ def run_server_env(tmp_path, target_env):
     d = tmp_path / "deploy"
     d.mkdir()
     shutil.copy(ROOT / "deploy/server_env.sh", d / "server_env.sh")
-    (d / "target.env").write_text(target_env)
+    if target_env is not None:
+        (d / "target.env").write_text(target_env)
     (d / ".env").write_text("DOMAIN=old.example\nECGSCAN_API_KEYS=clinic1:x,agents:y\nCARDIOLENS_SHARE_SECRET=z\n")
     r = subprocess.run(["bash", str(d / "server_env.sh"), "cardio.vision-ai.uz"], stdin=subprocess.DEVNULL,
                        capture_output=True, text=True, check=False)
@@ -75,6 +76,7 @@ def run_server_env(tmp_path, target_env):
     ("LANDING_DIR=/opt/../etc\n", "/opt/landing", True),
     ("LANDING_DIR=/opt/x|e touch /tmp/p\n", "/opt/landing", True),              # nothing odd reaches sed
     ("LANDING_DIR=/\n", "/opt/landing", True),
+    (None, "/opt/landing", False),                                              # no target.env at all: still works
 ])
 def test_server_env_passes_landing_dir_to_compose(tmp_path, target, want, warned):
     lines, err = run_server_env(tmp_path, target)
