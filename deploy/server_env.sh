@@ -10,6 +10,7 @@
 #   AGENTS_TG_COORD ... AGENTS_TG_AUDIT               -> the same names (D298: a bot per agent)
 #   AGENTS_API_KEY        -> the "agents:<key>" entry of ECGSCAN_API_KEYS (D274: a read-only key for the triage
 #                            agent — the server lets it read GET /api/quality/summary only, without comments)
+#   LANDING_DIR is read from deploy/target.env (D352: the landing page's folder on the host)
 # Usage: printf 'NAME=VALUE\n...' | server_env.sh DOMAIN
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -29,6 +30,14 @@ set_var() {  # set_var NAME VALUE: replace the line or append it
   if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi
 }
 set_var DOMAIN "$domain"
+# D352: where the landing page's files are on the host (deploy/target.env, not secret). Only a plain absolute path is
+# taken, so nothing odd reaches sed or compose; anything else falls back to /opt/landing.
+landing=$(sed -n 's/^LANDING_DIR=//p' target.env 2>/dev/null | head -1 | tr -d '\r')
+if ! printf '%s' "$landing" | grep -Eq '^(/[A-Za-z0-9_][A-Za-z0-9._-]*)+$'; then
+  [ -z "$landing" ] || echo "LANDING_DIR ignored: a plain absolute path expected; using /opt/landing" >&2
+  landing=/opt/landing
+fi
+set_var LANDING_DIR "$landing"
 # D197: the share-link signing secret, made here once and never printed; kept across deploys
 # so links outlive a restart.
 if ! grep -q "^CARDIOLENS_SHARE_SECRET=..*" .env; then

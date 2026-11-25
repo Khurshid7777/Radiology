@@ -114,6 +114,8 @@ services:
       - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # D352: the landing page's files (vision-ai.uz), a host folder, read-only; LANDING_DIR comes from deploy/target.env
+      - ${LANDING_DIR:-/opt/landing}:/srv/landing:ro
       - caddy_data:/data
       - caddy_config:/config
 

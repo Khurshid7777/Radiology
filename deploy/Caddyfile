@@ -9,3 +9,14 @@
 	reverse_proxy cardiolens:8000
 }
 
+# D352: the landing page vision-ai.uz lives on this server (the owner, 25.11; D341 cancelled). Static files only, from the
+# host folder LANDING_DIR (deploy/target.env), mounted read-only at /srv/landing; the files are not in git.
+vision-ai.uz {
+	encode gzip
+	root * /srv/landing
+	file_server
+}
+
+www.vision-ai.uz {
+	redir https://vision-ai.uz{uri} permanent
+}
