@@ -261,6 +261,19 @@
         },
         "confidence": {
           "$ref": "#/$defs/unit"
+        },
+        "gain_chest_mm_mv": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "enum": [
+            2.5,
+            5,
+            10,
+            null
+          ],
+          "description": "SD-153: chest leads V1-V6 printed at this gain while the limb leads use gain_mm_mv (mixed 10/5, 20/10); the traces are already rescaled. null = one gain for the sheet."
         }
       }
     },
@@ -966,7 +979,9 @@
         "SEGMENTER_FALLBACK",
         "RHYTHM_STRIP_ABSENT",
         "PR_UNSTABLE",
-        "LEAD_INCOHERENT"
+        "LEAD_INCOHERENT",
+        "NARROW_FILTER",
+        "MIXED_GAIN"
       ]
     },
     "capture": {
