@@ -162,7 +162,7 @@ def get_live_gate() -> LiveGate:
                     max_parallel=int(c["max_parallel"]))
 
 
-def live_hints(data: bytes, lang: str, final_width: int, parts: bool) -> dict:
+def live_hints(data: bytes, lang: str, final_width: int, parts: bool, frame_width: int = 1600) -> dict:
     """SD-156: what the frame check says about one camera frame, for the photo the shot will be (``final_width`` px wide):
     the same check as an upload's, plus the perspective (``scale_spread``) and how sure the grid is. Nothing is kept."""
     import copy
@@ -175,6 +175,9 @@ def live_hints(data: bytes, lang: str, final_width: int, parts: bool) -> dict:
     bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     if bgr is None:
         raise ValueError("not a frame")
+    if max(bgr.shape[:2]) > frame_width:  # SD-159: the check never runs on more than the page is asked to send
+        k = frame_width / max(bgr.shape[:2])
+        bgr = cv2.resize(bgr, (round(bgr.shape[1] * k), round(bgr.shape[0] * k)), interpolation=cv2.INTER_AREA)
     h, w = bgr.shape[:2]
     cfg = copy.deepcopy(config())
     if parts:                             # a long strip in parts: each part runs off the frame by design (SD-147)
@@ -196,10 +199,14 @@ def live_hints(data: bytes, lang: str, final_width: int, parts: bool) -> dict:
 
 @public_router.post("/live")
 async def miniapp_live(request: Request, lang: str = "ru", final_width: int = 0, parts: int = 0) -> dict:
-    """SD-156: one camera frame while the doctor aims (grey JPEG ~1600 px from the page): is the shot going to pass? The
+    """SD-156: one camera frame while the doctor aims (a JPEG ~1600 px from the page): is the shot going to pass? The
     frame is checked in memory and dropped; the ticket's uploads are not counted. ``final_width``: the width of the photo
-    the shot will make (the camera's full size), so px/mm is said for that photo."""
+    the shot will make (the camera's full size), so px/mm is said for that photo. SD-159 (review of D355): the body is
+    read before a place is taken; only a JPEG whose header says at most ``frame_width`` x 1.25 px is decoded; the place
+    is held while the check runs in its thread, so the pool never queues more than ``max_parallel`` checks."""
     import asyncio
+
+    from ecgscan.io import image_size
 
     tk = _ticket(request)
     c = load_yaml("service")["miniapp"]["live"]
@@ -207,31 +214,39 @@ async def miniapp_live(request: Request, lang: str = "ru", final_width: int = 0,
     declared = request.headers.get("content-length")
     if declared is not None and declared.isdigit() and int(declared) > cap:
         raise HTTPException(413, "frame too large")
+    chunks, size = [], 0
+    try:
+        async with asyncio.timeout(float(c["body_timeout_s"])):
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > cap:
+                    raise HTTPException(413, "frame too large")
+                chunks.append(chunk)
+    except TimeoutError:
+        raise HTTPException(408, "the frame came too slowly") from None
+    data = b"".join(chunks)
+    if image_kind(data[:8]) != "jpeg":
+        raise HTTPException(415, "not a frame")
+    dims = image_size(data)
+    if dims is None or min(dims) < 1:
+        raise HTTPException(415, "not a frame")
+    if max(dims) > float(c["frame_width"]) * float(c["max_side_factor"]):
+        raise HTTPException(413, "frame too large")              # before any decoding: pixels, not bytes, cost memory
     gate = get_live_gate()
     if not gate.enter(tk):
         raise HTTPException(429, "busy")
+    width = final_width if 320 <= final_width <= 10_000 else None
     try:
-        chunks, size = [], 0
-        try:
-            async with asyncio.timeout(float(c["body_timeout_s"])):
-                async for chunk in request.stream():
-                    size += len(chunk)
-                    if size > cap:
-                        raise HTTPException(413, "frame too large")
-                    chunks.append(chunk)
-        except TimeoutError:
-            raise HTTPException(408, "the frame came too slowly") from None
-        data = b"".join(chunks)
-        if image_kind(data[:8]) not in ("jpeg", "png") or size_refusal(data):
-            raise HTTPException(415, "not a frame")
-        width = final_width if 320 <= final_width <= 10_000 else None
-        try:
-            return await asyncio.get_running_loop().run_in_executor(
-                _live_pool(), live_hints, data, _lang(lang), width or int(c["frame_width"]), bool(parts))
-        except ValueError:
-            raise HTTPException(415, "not a frame") from None
-    finally:
+        job = _live_pool().submit(live_hints, data, _lang(lang), width or int(c["frame_width"]), bool(parts),
+                                  int(c["frame_width"]))
+    except BaseException:
         gate.leave()
+        raise
+    job.add_done_callback(lambda _f: gate.leave())               # the place is given back when the thread is done
+    try:
+        return await asyncio.wrap_future(job)
+    except ValueError:
+        raise HTTPException(415, "not a frame") from None
 
 
 @public_router.api_route("/capture", methods=["GET", "HEAD"], response_class=HTMLResponse)

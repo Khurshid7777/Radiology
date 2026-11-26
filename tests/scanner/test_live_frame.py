@@ -244,3 +244,134 @@ def test_a_weak_grid_is_said_in_words(monkeypatch):
         assert got["codes"] == ["grid"] and got["hints"] == [strings(lang)["qc.grid"]]
     monkeypatch.setattr("ecgscan.capture_qc.check_frame", lambda *a, **k: FrameQC(**{**weak.to_dict(), "period_strength": 0.3}))
     assert router.photo_hints(data, "ru")["codes"] == []
+
+
+# --- SD-159: the review of D355 ------------------------------------------------------------------------
+
+def _jpeg(w: int, h: int) -> bytes:
+    return cv2.imencode(".jpg", np.full((h, w, 3), 200, np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 50])[1].tobytes()
+
+
+def test_only_a_jpeg_of_a_frames_size_is_decoded(client, monkeypatch):
+    from ecgscan_service import router
+
+    head, _ = _head()
+    png = cv2.imencode(".png", np.full((7700, 7700), 255, np.uint8))[1].tobytes()
+    assert len(png) < 600 * 1024
+    assert client.post("/miniapp/live", content=png, headers=head).status_code == 415
+    big = _jpeg(2100, 1000)                                    # 2100 > 1600 x 1.25
+    assert len(big) < 600 * 1024
+
+    def boom(*a, **k):
+        raise AssertionError("decoded")
+
+    decode = cv2.imdecode
+    monkeypatch.setattr(cv2, "imdecode", boom)
+    assert client.post("/miniapp/live", content=big, headers=head).status_code == 413
+    monkeypatch.setattr(cv2, "imdecode", decode)              # (undo() would also drop the fixture's keys)
+    router.get_live_gate.cache_clear()
+    seen = {}
+    from ecgscan import capture_qc
+
+    orig = capture_qc.check_frame
+
+    def spy(rgb, **k):
+        seen["w"] = rgb.shape[1]
+        return orig(rgb, **k)
+
+    monkeypatch.setattr(capture_qc, "check_frame", spy)
+    assert client.post("/miniapp/live", content=_jpeg(1900, 1000), headers=head).status_code == 200
+    assert seen["w"] == 1600                                  # brought down to frame_width before the check
+
+
+def _asgi_post(app, ticket: str, body_parts, on_receive=None, path="/miniapp/live"):
+    import asyncio
+
+    sent, parts = [], list(body_parts)
+
+    async def receive():
+        if on_receive:
+            await on_receive()
+        if parts:
+            chunk = parts.pop(0)
+            return {"type": "http.request", "body": chunk, "more_body": bool(parts)}
+        await asyncio.sleep(3600)
+        return {"type": "http.disconnect"}
+
+    async def send(msg):
+        sent.append(msg)
+
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "https",
+             "path": path, "raw_path": path.encode(), "query_string": b"", "root_path": "",
+             "headers": [(b"x-miniapp-ticket", ticket.encode())], "client": ("203.0.113.1", 1), "server": ("site", 443)}
+    return app(scope, receive, send), sent
+
+
+def test_a_slow_body_does_not_hold_the_place(client):
+    import asyncio
+
+    from ecgscan_service import router
+    from ecgscan_service.app import app
+
+    data, _ = _frame()
+    head, _ = _head()
+    other = Ticket("o" * 24, "bot", 10 ** 10)
+    checked = []
+
+    async def while_reading():
+        g = router.get_live_gate()
+        checked.append(g._busy)
+        if g.enter(other):                                      # another doctor gets the place meanwhile
+            checked.append("other in")
+            g.leave()
+
+    coro, sent = _asgi_post(app, head[TICKET_HEADER], [data[: len(data) // 2], data[len(data) // 2:]], while_reading)
+    asyncio.run(coro)
+    assert sent[0]["status"] == 200 and checked[:2] == [0, "other in"]
+
+
+def test_a_cancelled_check_keeps_its_place_until_its_thread_ends(client, monkeypatch):
+    import asyncio
+    import threading
+
+    from ecgscan_service import router
+    from ecgscan_service.app import app
+
+    go, started = threading.Event(), threading.Event()
+
+    def slow(*a, **k):
+        started.set()
+        go.wait(10)
+        return {"ready": False, "codes": [], "hints": [], "px_per_mm": None, "corners": None, "scale_spread": None,
+                "tilt_deg": None}
+
+    monkeypatch.setattr(router, "live_hints", slow)
+    data, _ = _frame()
+    gate = router.get_live_gate()
+
+    async def scene():
+        h1, _ = _head()
+        coro, _ = _asgi_post(app, h1[TICKET_HEADER], [data])
+        task = asyncio.ensure_future(coro)
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+        task.cancel()                                           # the doctor closed the page mid-check
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert gate._busy == 1                                  # the thread still runs: the place stays taken
+        h2, _ = _head()
+        coro2, sent2 = _asgi_post(app, h2[TICKET_HEADER], [data])
+        await coro2
+        assert sent2[0]["status"] == 429                        # nothing queued behind it
+        go.set()
+        for _ in range(200):
+            if gate._busy == 0:
+                break
+            await asyncio.sleep(0.01)
+        assert gate._busy == 0
+        h3, _ = _head()
+        coro3, sent3 = _asgi_post(app, h3[TICKET_HEADER], [data])
+        await coro3
+        assert sent3[0]["status"] == 200
+
+    asyncio.run(scene())
