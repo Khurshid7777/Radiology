@@ -312,3 +312,32 @@ class Inbox:
     def __len__(self) -> int:
         with self._lock:
             return len(self._items)
+
+
+class LiveGate:
+    """SD-156: the camera frames a page sends while the doctor aims. Per ticket: not faster than ``min_interval_s``, at
+    most ``max_frames`` frames; on the whole service ``max_parallel`` checks at a time (a busy service refuses, it never
+    queues: the page simply sends the next frame). Nothing of a frame is kept here: only counts and times."""
+
+    def __init__(self, *, min_interval_s: float, max_frames: int, max_parallel: int = 1):
+        self.min_interval_s, self.max_frames, self.max_parallel = min_interval_s, max_frames, max_parallel
+        self._lock = threading.Lock()
+        self._busy = 0
+        self._seen: dict[str, list[float]] = {}  # ticket id -> [expiry, last frame time, frames so far]
+
+    def enter(self, ticket: Ticket, now: float | None = None) -> bool:
+        """Room for this frame's check; False: too fast, too many, or another check runs. ``leave`` after a True."""
+        now = time.time() if now is None else now
+        with self._lock:
+            for k in [k for k, v in self._seen.items() if v[0] <= now]:
+                del self._seen[k]
+            seen = self._seen.setdefault(ticket.id, [float(ticket.expiry), -1e18, 0])
+            if self._busy >= self.max_parallel or seen[2] >= self.max_frames or now - seen[1] < self.min_interval_s:
+                return False
+            seen[1], seen[2] = now, seen[2] + 1
+            self._busy += 1
+            return True
+
+    def leave(self) -> None:
+        with self._lock:
+            self._busy = max(0, self._busy - 1)

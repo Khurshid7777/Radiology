@@ -28,6 +28,7 @@ from ecgscan_service.miniapp import (
     TURNS,
     Inbox,
     InboxFull,
+    LiveGate,
     Ticket,
     TooMuch,
     image_kind,
@@ -69,7 +70,10 @@ CAPTURE_HEADERS = {**PROBE_HEADERS,
 _PAGE_TEXTS = ("title", "lead", "tips", "shoot", "pick", "uploading", "checking", "size", "hints_title", "retake",
                "send_anyway", "sent", "no_ticket", "expired", "too_big", "bad_format", "busy", "failed", "retry",
                "turn_title", "turn_lead", "turn_left", "turn_right", "turn_keep", "add_more", "pick_more", "drop_last",
-               "send_n", "list_item", "list_ok", "parts_hint", "too_many", "record_full", "bad_size")
+               "send_n", "list_item", "list_ok", "parts_hint", "too_many", "record_full", "bad_size",
+               "live_open", "live_close", "live_shoot", "live_wait", "live_ready", "live_parts", "live_moving",
+               "live_denied", "live_lead")
+_LIVE_PAGE = ("frame_width", "jpeg_quality", "interval_ms", "ready_frames", "still_diff")   # SD-156: what the page needs
 
 
 @lru_cache(maxsize=1)
@@ -138,6 +142,94 @@ def photo_hints(data: bytes, lang: str) -> dict:
     return {"checked": True, "width": w, "height": h, "px_per_mm": qc.px_per_mm, "hints": hints, "codes": codes, "turn": bool(turn)}
 
 
+@lru_cache(maxsize=1)
+def _live_pool():
+    """SD-156: the camera frames' checks run on their own workers: aiming never slows the uploads' checks."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    return ThreadPoolExecutor(max_workers=int(load_yaml("service")["miniapp"]["live"]["max_parallel"]),
+                              thread_name_prefix="miniapp-live")
+
+
+@lru_cache(maxsize=1)
+def get_live_gate() -> LiveGate:
+    c = load_yaml("service")["miniapp"]["live"]
+    return LiveGate(min_interval_s=float(c["min_interval_s"]), max_frames=int(c["max_frames_per_ticket"]),
+                    max_parallel=int(c["max_parallel"]))
+
+
+def live_hints(data: bytes, lang: str, final_width: int, parts: bool) -> dict:
+    """SD-156: what the frame check says about one camera frame, for the photo the shot will be (``final_width`` px wide):
+    the same check as an upload's, plus the perspective (``scale_spread``) and how sure the grid is. Nothing is kept."""
+    import copy
+
+    import cv2
+    import numpy as np
+
+    from ecgscan.capture_qc import check_frame, config
+
+    bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise ValueError("not a frame")
+    h, w = bgr.shape[:2]
+    cfg = copy.deepcopy(config())
+    if parts:                             # a long strip in parts: each part runs off the frame by design (SD-147)
+        cfg["thresholds"]["require_whole_sheet"] = False
+    scale = final_width / w
+    qc = check_frame(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), scale_to_capture=scale, cfg=cfg)
+    live = cfg["live"]
+    codes = [c for c in qc.hints if not (parts and c == "frame" and qc.sheet_area >= cfg["thresholds"]["min_sheet"])]
+    if qc.px_per_mm is not None and (qc.period_strength or 0.0) < float(live["min_period_strength"]):
+        codes.append("grid")
+    if qc.scale_spread is not None and qc.scale_spread > float(live["max_scale_spread"]):
+        codes.append("skew")
+    s = strings(lang)
+    hints = [s[f"qc.frame_{qc.frame_advice}"] if c == "frame" and qc.frame_advice else s[f"qc.{c}"] for c in codes]
+    corners = None if qc.corners is None else [[round(x / (w * scale), 4), round(y / (h * scale), 4)] for x, y in qc.corners]
+    return {"ready": not codes, "codes": codes, "hints": hints, "px_per_mm": qc.px_per_mm, "corners": corners,
+            "scale_spread": qc.scale_spread, "tilt_deg": qc.tilt_deg}
+
+
+@public_router.post("/live")
+async def miniapp_live(request: Request, lang: str = "ru", final_width: int = 0, parts: int = 0) -> dict:
+    """SD-156: one camera frame while the doctor aims (grey JPEG ~1600 px from the page): is the shot going to pass? The
+    frame is checked in memory and dropped; the ticket's uploads are not counted. ``final_width``: the width of the photo
+    the shot will make (the camera's full size), so px/mm is said for that photo."""
+    import asyncio
+
+    tk = _ticket(request)
+    c = load_yaml("service")["miniapp"]["live"]
+    cap = int(c["max_frame_kb"]) * 1024
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > cap:
+        raise HTTPException(413, "frame too large")
+    gate = get_live_gate()
+    if not gate.enter(tk):
+        raise HTTPException(429, "busy")
+    try:
+        chunks, size = [], 0
+        try:
+            async with asyncio.timeout(float(c["body_timeout_s"])):
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > cap:
+                        raise HTTPException(413, "frame too large")
+                    chunks.append(chunk)
+        except TimeoutError:
+            raise HTTPException(408, "the frame came too slowly") from None
+        data = b"".join(chunks)
+        if image_kind(data[:8]) not in ("jpeg", "png") or size_refusal(data):
+            raise HTTPException(415, "not a frame")
+        width = final_width if 320 <= final_width <= 10_000 else None
+        try:
+            return await asyncio.get_running_loop().run_in_executor(
+                _live_pool(), live_hints, data, _lang(lang), width or int(c["frame_width"]), bool(parts))
+        except ValueError:
+            raise HTTPException(415, "not a frame") from None
+    finally:
+        gate.leave()
+
+
 @public_router.api_route("/capture", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def miniapp_capture(lang: str = "ru") -> HTMLResponse:
     """The capture page: the texts of the language and the upload limit are put into the static page."""
@@ -148,6 +240,7 @@ def miniapp_capture(lang: str = "ru") -> HTMLResponse:
     page = {"lang": lang, "max_mb": load_yaml("service")["upload"]["max_mb"], "telegram_web": TELEGRAM_WEB,
             "max_files": int(load_yaml("service")["miniapp"]["max_files"]),
             "max_total_mb": load_yaml("service")["miniapp"]["max_total_mb"],
+            "live": {k: load_yaml("service")["miniapp"]["live"][k] for k in _LIVE_PAGE},
             "texts": {f"miniapp.{k}": s[f"miniapp.{k}"] for k in _PAGE_TEXTS}}
     blob = json.dumps(page, ensure_ascii=False).replace("</", "<\\/")
     html = (_STATIC / "miniapp_capture.html").read_text(encoding="utf-8").replace("/*__PAGE__*/{}", blob, 1)

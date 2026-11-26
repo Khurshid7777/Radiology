@@ -31,5 +31,9 @@
   "consecutive_frames": 5,
   "stable_ms": 700,
   "corner_jitter": 0.02
+ },
+ "live": {
+  "max_scale_spread": 0.08,
+  "min_period_strength": 0.15
  }
 }

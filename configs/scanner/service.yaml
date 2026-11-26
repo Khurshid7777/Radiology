@@ -35,6 +35,17 @@ miniapp:                           # SD-137: capture on the Telegram Mini App pa
   check_width: 1280                # the frame check runs on a copy this wide (as the site's camera preview)
   small_side_px: 2000              # no grid found and the long side below this: say the photo is small
   turn_jpeg_quality: 95            # SD-138: the doctor's quarter turn is made on a copy saved as JPEG at this quality (as the site's, D194)
+  live:                            # SD-156: camera frames checked while the doctor aims (never kept, never logged)
+    frame_width: 1600              # the page sends frames this wide, in grey (the check needs >= ~4 px/mm on the frame)
+    jpeg_quality: 0.75             # ... as JPEG of this quality (~150-250 KB)
+    interval_ms: 1000              # one frame at most this often from the page
+    min_interval_s: 0.7            # the server refuses (429) a ticket's frames coming faster than this
+    max_frame_kb: 600              # a bigger frame -> 413
+    max_frames_per_ticket: 600     # ~10 minutes of aiming on one button; then 429 (uploads are not counted here)
+    max_parallel: 1                # checks at once on the whole service (~0.4 s each: ~2 doctors aiming at 1 frame/s)
+    body_timeout_s: 10             # a frame must arrive within this; then 408
+    ready_frames: 2                # green after this many good answers in a row
+    still_diff: 6.0                # mean grey difference of two small copies (64 px) above this = the phone moves
 
 public_url: null                   # base URL for result links in the bot, e.g. https://clinic.example/
 

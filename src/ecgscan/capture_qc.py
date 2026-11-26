@@ -122,6 +122,7 @@ class FrameQC:
     grid_zones_agree: float | None = None       # SD-143: share of the 3 x 3 zones (with a grid) that agree with that model
     grid_zones: int | None = None               # SD-143: zones in which a grid is seen
     sideways: bool | None = None     # SD-138: the sheet stands on end in the frame (by its corners); None: no sheet found
+    scale_spread: float | None = None   # SD-156: the 5-mm period's spread over the sheet's thirds (shot at an angle)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -248,6 +249,11 @@ def clip_spikes(profiles: np.ndarray, k: float = 4.0) -> np.ndarray:
 
 
 def refine_period(profiles: np.ndarray, period: float, *, max_share: float = 0.6) -> float:
+    found = _refine(profiles, period, max_share=max_share)
+    return float(period) if found is None else found
+
+
+def _refine(profiles: np.ndarray, period: float, *, max_share: float = 0.6) -> float | None:
     """SD-143: the period to a fraction of a pixel from the autocorrelation's peaks at its multiples h * P: a peak found to
     a third of a pixel at h = 10 gives the period to 0.03 px. The estimate of the farthest multiples that still have a
     clear peak (within ``max_share`` of the profile) is taken; the sheet's edges, the traces and the spectral leakage
@@ -255,11 +261,11 @@ def refine_period(profiles: np.ndarray, period: float, *, max_share: float = 0.6
     n = profiles.shape[1]
     top = int(max_share * n)
     if profiles.size == 0 or top < 3 * period:
-        return float(period)
+        return None
     spec = np.fft.rfft(profiles, 2 * n, axis=1)                    # the bands' autocorrelations at once, by FFT
     a = np.fft.irfft((spec * spec.conj()).real.sum(axis=0), 2 * n)[: top + 2] / (n - np.arange(top + 2))
     if a[0] <= 0:
-        return float(period)
+        return None
     ests, wts = [], []
     half = max(1, int(period // 4))
     for h in range(2, int(top / period)):
@@ -273,7 +279,7 @@ def refine_period(profiles: np.ndarray, period: float, *, max_share: float = 0.6
         ests.append((m + _parabola(a[m - 1], a[m], a[m + 1])) / h)
         wts.append(h * float(a[m]))
     if len(ests) < 2:
-        return float(period)
+        return None
     order = np.argsort(ests)
     cum = np.cumsum(np.array(wts)[order])
     return float(np.array(ests)[order][int(np.searchsorted(cum, cum[-1] / 2))])
@@ -322,6 +328,31 @@ def grid_geometry(q: np.ndarray, period: float | None, *, band: int, detrend: in
             agree += all(ok)
     return {"period": period, "phase": (lx[0], ly[0]), "slope": (lx[1], ly[1]),
             "agree": None if seen == 0 else agree / seen, "zones": seen}
+
+
+def scale_spread(q: np.ndarray, period: float | None, corners: list[tuple[float, float]] | None, *, band: int,
+                 detrend: int, smooth: int) -> float | None:
+    """SD-156: how far the sheet was shot at an angle: the 5-mm period of the vertical lines in the sheet's left and
+    right thirds (the phone turned about the vertical) and in its top and bottom thirds (about the horizontal), the larger
+    relative difference. 0 on a sheet shot square; at A4 across the frame, 0.04 is about 2.7 degrees. None: not measured."""
+    if period is None or not corners:
+        return None
+    xs, ys = [c[0] for c in corners], [c[1] for c in corners]
+    x0, x1 = max(0, int(min(xs))), min(q.shape[1], int(max(xs)))
+    y0, y1 = max(0, int(min(ys))), min(q.shape[0], int(max(ys)))
+    w3, h3 = (x1 - x0) // 3, (y1 - y0) // 3
+
+    def per(sub: np.ndarray) -> float | None:
+        if sub.shape[0] < 2 * band or sub.shape[1] < 6 * period:
+            return None
+        return _refine(clip_spikes(band_profiles(sub, band=band, detrend=detrend, smooth=smooth)), period)
+
+    out = []
+    for a, b in ((q[y0:y1, x0:x0 + w3], q[y0:y1, x1 - w3:x1]), (q[y0:y0 + h3, x0:x1], q[y1 - h3:y1, x0:x1])):
+        pa, pb = per(a), per(b)
+        if pa and pb:
+            out.append(abs(pa / pb - 1.0))
+    return round(max(out), 4) if out else None
 
 
 def tilt_deg(profiles: np.ndarray, period: float, *, band: int) -> float | None:
@@ -555,4 +586,6 @@ def check_frame(rgb: np.ndarray, *, scale_to_capture: float = 1.0, cfg: dict | N
                    grid_phase=None if geo is None else [round(v / geo["period"], 4) for v in geo["phase"]],
                    grid_slope=None if geo is None else [round(v, 5) for v in geo["slope"]],
                    grid_zones_agree=None if geo is None or geo["agree"] is None else round(geo["agree"], 4),
-                   grid_zones=None if geo is None else geo["zones"])
+                   grid_zones=None if geo is None else geo["zones"],
+                   scale_spread=scale_spread(q, period, corners_w, band=a["band"], detrend=a["detrend"],
+                                             smooth=a["smooth"]) if grid else None)
