@@ -58,3 +58,18 @@ def test_the_page_is_served_open_with_headers_that_forbid_any_network(monkeypatc
     assert client.get("/scans/config/capture-qc").status_code == 401
     assert client.get("/miniapp/").status_code == 404 and client.get("/miniapp/probe/x").status_code == 404
     assert client.post("/miniapp/probe").status_code == 405
+
+
+def test_probe_says_whether_the_live_frame_will_go_green_on_a_whole_sheet():
+    """SD-160: the verdict uses the live frame's own numbers (capture_qc min_px_per_mm, LIVE_FRAME.md fill)."""
+    import importlib.util
+
+    src = PAGE.read_text(encoding="utf-8")
+    qc = yaml.safe_load((ROOT / "configs/scanner/capture_qc.yaml").read_text(encoding="utf-8"))
+    spec = importlib.util.spec_from_file_location("calc", ROOT / "tools/scanner/live_frame_calc.py")
+    calc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(calc)
+    assert float(re.search(r"LIVE_PX_MM = ([0-9.]+)", src).group(1)) == qc["thresholds"]["min_px_per_mm"]
+    assert float(re.search(r"LIVE_FILL = ([0-9.]+)", src).group(1)) == calc.FILL
+    assert "getCapabilities" in src and "liveVerdict(photoLong, 'полное фото')" in src
+    assert "лист A4 целиком пройдёт" in src and "только частями" in src

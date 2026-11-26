@@ -49,6 +49,8 @@
 'use strict';
 const A4_LONG_MM = 297;        // an A4 sheet filling the long side of the photo
 const FULL_READ_PX_MM = 7;     // the scanner's full reading needs this much (below: rate and rhythm only)
+const LIVE_PX_MM = 8;          // SD-160: the live frame (SD-156) turns green at this, on the sheet filling 90 % of the shot
+const LIVE_FILL = 0.9;
 const lines = [];
 const $ = id => document.getElementById(id);
 function say(s) { lines.push(s); $('out').value = lines.join('\n'); }
@@ -57,6 +59,13 @@ function pxmm(w, h) {
   return `${v.toFixed(1)} px/мм на листе A4 (${v >= FULL_READ_PX_MM ? 'хватает' : 'НЕ хватает'} для полного чтения)`;
 }
 function shape(w, h) { return w >= h ? 'горизонтальный' : 'вертикальный'; }
+// SD-160: what the live frame will make of a shot this size (docs/scanner/LIVE_FRAME.md: A4 297 mm across 90 % of it).
+function liveVerdict(long, source) {
+  const v = long * LIVE_FILL / A4_LONG_MM;
+  const parts = Math.ceil(A4_LONG_MM / (LIVE_FILL * long / LIVE_PX_MM));
+  return `  «Камера с подсказками» снимет ${source}, ${long} точек по длинной стороне: ${v.toFixed(1)} т/мм на листе A4 — ` +
+         (v >= LIVE_PX_MM ? 'лист A4 целиком пройдёт' : `лист A4 целиком НЕ пройдёт, только частями: ${parts}`);
+}
 
 // Telegram passes launch parameters after '#': tgWebAppPlatform, tgWebAppVersion (and signed user
 // data, which this page does not touch).
@@ -104,6 +113,18 @@ async function camOpen() {
   const st = stream.getVideoTracks()[0].getSettings();
   say(`  живой кадр: ${v.videoWidth}×${v.videoHeight} (${shape(v.videoWidth, v.videoHeight)}), ${pxmm(v.videoWidth, v.videoHeight)}`);
   say(`  камера: ${st.facingMode || 'сторона неизвестна'}, частота ${st.frameRate ? Math.round(st.frameRate) : '?'} к/с`);
+  const track = stream.getVideoTracks()[0];
+  const cc = track.getCapabilities ? track.getCapabilities() : {};
+  say(`  камера заявляет видео до: ${(cc.width && cc.width.max) || '?'}×${(cc.height && cc.height.max) || '?'}`);
+  let photoLong = 0;
+  if ('ImageCapture' in window) {
+    try {
+      const pc = await new ImageCapture(track).getPhotoCapabilities();
+      photoLong = Math.max((pc.imageWidth && pc.imageWidth.max) || 0, (pc.imageHeight && pc.imageHeight.max) || 0);
+    } catch (e) { photoLong = 0; }
+  }
+  const videoLong = Math.max(v.videoWidth, v.videoHeight);
+  say(photoLong > videoLong ? liveVerdict(photoLong, 'полное фото') : liveVerdict(videoLong, 'кадр видео'));
   $('b_shot').style.display = 'block';
 }
 async function camShot() {
