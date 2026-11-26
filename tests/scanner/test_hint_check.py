@@ -41,3 +41,15 @@ def test_report_groups_by_phone_and_reads_scale_ratios(tmp_path):
     assert rep["all"]["n"] == 2 and rep["photos_iphone"]["n"] == 1 and rep["photos_samsung"]["n"] == 1
     assert rep["ppm_check_over_scan"]["median"] == 0.8 or rep["ppm_check_over_scan"]["n"] == 1
     assert rep["refusal_reasons"] == {"LAYOUT_UNKNOWN": 1}
+
+
+def test_sd157_doubled_without_hints_and_the_weak_grid_rule():
+    import numpy as np
+
+    rows = [{"hints": [], "ppm_check": 20.0, "ppm_scan": 10.0}, {"hints": ["frame"], "ppm_check": 20.0, "ppm_scan": 10.0},
+            {"hints": [], "ppm_check": 10.5, "ppm_scan": 10.0}, {"hints": [], "ppm_check": None, "ppm_scan": 10.0}]
+    assert hc.doubled_silent(rows) == 1
+    assert "grid" in hc.HINTS
+    blank = np.full((600, 900, 3), 255, np.uint8)                  # no grid: no px/mm, so no 'grid' either
+    hints, ppm, _, sec = hc.check_hints(blank, 1600, 0.15)
+    assert ppm is None and "grid" not in hints and sec >= 0
