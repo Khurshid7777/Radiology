@@ -9263,3 +9263,4 @@ www.vision-ai.uz`, `/api/*` → `vision-ai-lead-bot:8081`, статика из `
 блоком владельца. cardio.vision-ai.uz: `/` 200, `/health` 200, `/miniapp/probe|capture` 200, `/miniapp/upload|send` без
 билета 401, `/api/quality/summary` и `/scans/config/capture-qc` без ключа 401. vision-ai.uz из сессии недоступен — открытие
 лендинга и отправку формы проверяет владелец.
+**D352 — принято владельцем (25.11):** «всё работает, лендинг открылся».
