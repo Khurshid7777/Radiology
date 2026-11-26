@@ -602,7 +602,7 @@ LEAD_INCOHERENT_UZ = ("Bitta tarmoqda kompleks shakli urishdan urishga takrorlan
 
 # D353 (SD-151/153): what the scanner read from the sheet's header — not a doubt about the page's scale, said at any status.
 HEADER_NOTES_RU = {
-    "MIXED_GAIN": "ℹ️ Грудные отведения V1–V6 напечатаны в другом масштабе (по шапке) — их амплитуды пересчитаны.",
+    "MIXED_GAIN": "ℹ️ Грудные отведения V1–V6 напечатаны в другом масштабе — их амплитуды пересчитаны.",
     "NARROW_FILTER": "⚠️ На ленте включён узкий фильтр (по шапке) — амплитуды зубцов и сегмент ST могут быть искажены.",
 }
 
