@@ -600,6 +600,13 @@ LEAD_INCOHERENT_RU = ("Форма комплексов в одном из отв
 LEAD_INCOHERENT_UZ = ("Bitta tarmoqda kompleks shakli urishdan urishga takrorlanmaydi — tarmoq noto‘g‘ri o‘qilgan "
                       "bo‘lishi mumkin, uni rasmda tekshiring.")
 
+# D353 (SD-151/153): what the scanner read from the sheet's header — not a doubt about the page's scale, said at any status.
+HEADER_NOTES_RU = {
+    "MIXED_GAIN": "ℹ️ Грудные отведения V1–V6 напечатаны в другом масштабе (по шапке) — их амплитуды пересчитаны.",
+    "NARROW_FILTER": "⚠️ На ленте включён узкий фильтр (по шапке) — амплитуды зубцов и сегмент ST могут быть искажены.",
+}
+
+
 def format_card(rec: Record, result: PipelineResult | None, error: str | None = None) -> str:
     head = f"📷 ЭКГ из «{rec.chat_title or rec.chat_id}» · {rec.date[:16]} · id {rec.id}"
     if rec.caption:
@@ -623,13 +630,14 @@ def format_card(rec: Record, result: PipelineResult | None, error: str | None = 
                      f"QTc {_fmt(s['qtc_bazett_ms'])} мс · ось {_fmt(s['qrs_axis_deg'], '°')}"
                      + (" (по ненадёжному снимку)" if unreliable is not None else ""))
     scanner = next((n for n in result.signal.provenance.notes if n.startswith("ecgscan scan_id=")), None)
+    warn = next((n for n in result.signal.provenance.notes if n.startswith("warnings: ")), "") if scanner else ""
+    codes = {w.strip() for w in warn[10:].replace(",", " ").split()}
+    lines.extend(HEADER_NOTES_RU[c] for c in sorted(codes & HEADER_NOTES_RU.keys()))
     if scanner and "status=needs_confirmation" in scanner:   # D139: the scanner read it but asks to check
-        warn = next((n for n in result.signal.provenance.notes if n.startswith("warnings: ")), "")
-        codes = {w.strip() for w in warn[10:].replace(",", " ").split()}
         if "LEAD_INCOHERENT" in codes:      # D311: one lead's beats do not repeat — say what to check, not "scale"
             lines.append("⚠️ " + LEAD_INCOHERENT_RU)
-        others = sorted(codes - {"LEAD_INCOHERENT"})
-        if others or not codes:
+        others = sorted(codes - {"LEAD_INCOHERENT"} - HEADER_NOTES_RU.keys())
+        if others or not codes - HEADER_NOTES_RU.keys():   # header notes alone do not explain the doubt
             lines.append("⚠️ Сканер просит проверить масштаб и раскладку по снимку" + (f" ({', '.join(others)})" if others else ""))
     lines.append("Находки: " + "; ".join(findings))
     lines.append("Коды: " + (", ".join(sorted(result.findings.codes())) or "—"))
