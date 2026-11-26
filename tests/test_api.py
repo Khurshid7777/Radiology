@@ -518,3 +518,31 @@ def test_a_flat_good_frame_keeps_its_auto_capture_with_the_grid_overlay_d344():
     f = Path(__file__).resolve().parent / "scanner" / "fixtures" / "capture_qc" / "grey_grid.jpg"
     d = client.post("/api/capture/check", files={"frame": ("g.jpg", f.read_bytes(), "image/jpeg")}).json()
     assert "parallel" not in {h["code"] for h in d["hints"]}
+
+
+# --- D355: the chest leads' own gain from the bot's button (SD-154) reaches the scanner ------------
+
+def test_chest_gain_given_by_the_bot_reaches_the_scanner(tmp_path, monkeypatch):
+    import cardiolens.telegram.analyze as an
+
+    seen = []
+
+    def fake(scan, path, hints):
+        seen.append(hints.gain_chest_mm_mv)
+        raise ValueError("stop here")
+
+    monkeypatch.setattr(an, "scan_keeping_overlay", fake)
+
+    def post(**form):
+        with open(_page_png(tmp_path), "rb") as f:
+            return client.post("/api/analyze", data={"mode": "A", **form}, files={"files": ("page.png", f, "image/png")})
+
+    seen.clear()
+    post(gain_chest_mm_mv="5")
+    assert seen and set(seen) == {5.0}
+    seen.clear()
+    post()
+    assert seen and set(seen) == {None}
+    seen.clear()
+    bad = post(gain_chest_mm_mv="20")
+    assert bad.status_code == 400 and "20" in bad.json()["detail"] and not seen

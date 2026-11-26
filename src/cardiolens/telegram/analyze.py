@@ -201,13 +201,14 @@ def scan_keeping_overlay(scan, image, hints=None):
 
 
 def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: float | None = None,
-                   gain_mm_mv: float | None = None) -> SignalRepresentation:
+                   gain_mm_mv: float | None = None, gain_chest_mm_mv: float | None = None) -> SignalRepresentation:
     """A small single picture is enlarged first (D219, ``image_prep``); then ``_digitize_photo``."""
     if isinstance(path, list):
-        return _digitize_photo(path, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+        return _digitize_photo(path, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv,
+                               gain_chest_mm_mv=gain_chest_mm_mv)
     from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, prepared, reduced
 
-    kw = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv}
+    kw = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv, "gain_chest_mm_mv": gain_chest_mm_mv}
     with prepared(path) as p:
         try:
             sig = _digitize_photo(p, **kw)
@@ -236,7 +237,7 @@ def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: flo
 
 
 def _digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: float | None = None,
-                    gain_mm_mv: float | None = None) -> SignalRepresentation:
+                    gain_mm_mv: float | None = None, gain_chest_mm_mv: float | None = None) -> SignalRepresentation:
     """The bot's photo reader (D139): the ECG scanner first — on its benchmark it reads paper
     pages at r 0.98 with no unflagged bad case, where the CardioLens readers have 23 % —
     then, when the scanner refuses the layout, the CardioLens readers (device screens,
@@ -256,7 +257,9 @@ def _digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: fl
 
     # D179: the speed and gain printed on the strip, given by the user, go to the scanner as
     # its hints and are applied to the CardioLens readers' record (they assume 25 / 10).
-    hints = ScanHints(paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+    # D355: the chest leads' own gain (the bot's button) — the scanner checks it against the sheet (SD-153/155);
+    # the CardioLens readers below do not know mixed gain.
+    hints = ScanHints(paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv, gain_chest_mm_mv=gain_chest_mm_mv)
     result, overlay = scan_keeping_overlay(scan, [str(p) for p in path] if in_parts else path, hints)
     readers = None if in_parts else (lambda: apply_paper_scale(
         _guard_orientation(path, digitize_auto_to_signal(path)), paper_speed_mm_s, gain_mm_mv))
@@ -397,13 +400,13 @@ def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[
 
 
 def digitize_photos(paths: list[str | Path], *, paper_speed_mm_s: float | None = None,
-                    gain_mm_mv: float | None = None) -> SignalRepresentation:
+                    gain_mm_mv: float | None = None, gain_chest_mm_mv: float | None = None) -> SignalRepresentation:
     """Photos sent together as one record — the bot's album, the web page's upload (D155).
     Photos of one recorder's pages — TeleECG's limb page and chest page — become one record
     (D123), as do photos of the parts of one three-channel strip (D125); one page in parts on
     the capture board is composed by the scanner (D145); anything else is read from the
     first photo that digitises. Raises ValueError with the reason in words (D142)."""
-    scale = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv}
+    scale = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv, "gain_chest_mm_mv": gain_chest_mm_mv}
     if len(paths) == 1:
         try:
             return digitize_photo(paths[0], **scale)

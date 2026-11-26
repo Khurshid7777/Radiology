@@ -456,6 +456,7 @@ async def analyze(
     client: str | None = Form(default=None),     # "telegram": refusals keep the bot's wording (D161)
     paper_speed_mm_s: float | None = Form(default=None),   # D179: printed on the strip, given by the user
     gain_mm_mv: float | None = Form(default=None),
+    gain_chest_mm_mv: float | None = Form(default=None),   # D355: the chest leads' own gain (the bot's button, SD-154)
     files: list[UploadFile] = File(default=[]),
     who: str = Depends(site_actor),
 ) -> JSONResponse:
@@ -473,6 +474,7 @@ async def analyze(
                 service.signal_from_uploads, uploads, sampling_rate_hz=sampling_rate_hz, unit=unit,
                 paper_speed_mm_s=_allowed(paper_speed_mm_s, (12.5, 25.0, 50.0, 100.0)),
                 gain_mm_mv=_allowed(gain_mm_mv, (2.5, 5.0, 10.0, 20.0, 40.0)),
+                gain_chest_mm_mv=_allowed(gain_chest_mm_mv, (2.5, 5.0, 10.0)),
                 wording="bot" if client == "telegram" else "web",
             )
         elif case:
