@@ -208,3 +208,39 @@ def test_the_live_texts_exist_in_both_languages(lang):
               "miniapp.live_parts", "miniapp.live_moving", "miniapp.live_denied", "miniapp.live_lead"):
         assert s[k].strip(), k
     assert "{ppm}" in s["miniapp.live_ready"]
+
+
+# --- SD-158: the upload check at 1600 px and the weak-grid hint ---------------------------------------
+
+def _hd_a4_frame() -> bytes:
+    """A 1080p camera frame of an A4 sheet across it: ~4.7 px/mm, the scanner refuses it."""
+    src = cv2.imread(str(FIX / "clean_12.jpg"))
+    k = min(0.9 * 1920 / src.shape[1], 0.9 * 1080 / src.shape[0])
+    img = cv2.resize(src, (round(src.shape[1] * k), round(src.shape[0] * k)), interpolation=cv2.INTER_CUBIC)
+    canvas = np.full((1080, 1920, 3), (70, 80, 90), np.uint8)
+    y0, x0 = (1080 - img.shape[0]) // 2, (1920 - img.shape[1]) // 2
+    canvas[y0:y0 + img.shape[0], x0:x0 + img.shape[1]] = img
+    return cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, 95])[1].tobytes()
+
+
+def test_a_small_a4_frame_is_never_all_good_on_upload():
+    from ecgscan_service.router import photo_hints
+
+    got = photo_hints(_hd_a4_frame(), "ru")
+    assert got["codes"] and {"closer", "grid"} & set(got["codes"])
+    assert got["px_per_mm"] is None or got["px_per_mm"] < 8
+
+
+def test_a_weak_grid_is_said_in_words(monkeypatch):
+    from ecgscan.capture_qc import FrameQC
+    from ecgscan_service import router
+
+    weak = FrameQC(width=1600, height=1000, factor=1, brightness=200.0, glare=0.0, sharpness=100.0, tilt_deg=0.0,
+                   period_px=30.0, px_per_mm=9.3, sheet=0.6, hints=[], ok=True, period_strength=0.1)
+    monkeypatch.setattr("ecgscan.capture_qc.check_frame", lambda *a, **k: weak)
+    data = cv2.imencode(".jpg", np.full((1000, 1600, 3), 230, np.uint8))[1].tobytes()
+    for lang in ("ru", "uz"):
+        got = router.photo_hints(data, lang)
+        assert got["codes"] == ["grid"] and got["hints"] == [strings(lang)["qc.grid"]]
+    monkeypatch.setattr("ecgscan.capture_qc.check_frame", lambda *a, **k: FrameQC(**{**weak.to_dict(), "period_strength": 0.3}))
+    assert router.photo_hints(data, "ru")["codes"] == []
