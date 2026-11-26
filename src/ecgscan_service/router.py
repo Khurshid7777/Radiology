@@ -133,6 +133,10 @@ def photo_hints(data: bytes, lang: str) -> dict:
     hints = [s[f"qc.frame_{qc.frame_advice}"] if code == "frame" and qc.frame_advice else s[f"qc.{code}"]
              for code in qc.hints]
     codes = list(qc.hints)               # SD-147: the page leaves out "frame" when the record is shot in parts
+    # SD-158: a scale read from a weakly repeating grid may be twice the true one (SD-140): say so, never "all good"
+    if qc.px_per_mm is not None and (qc.period_strength or 0.0) < float(config()["live"]["min_period_strength"]):
+        hints.append(s["qc.grid"])
+        codes.append("grid")
     if qc.px_per_mm is None and max(w, h) < int(c["small_side_px"]):
         hints.append(s["miniapp.small"].format(px=f"{max(w, h) / 297:.1f}"))
         codes.append("small")

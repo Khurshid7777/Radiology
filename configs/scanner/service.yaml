@@ -32,7 +32,7 @@ miniapp:                           # SD-137: capture on the Telegram Mini App pa
   max_files: 10                    # SD-147: photos of one record on one button (a long strip in parts), as a Telegram album
   max_total_mb: 60                 # SD-147: all photos of one record together (the analysis takes 64 MB)
   max_store_mb: 300                # SD-147: all records waiting in memory together; more -> 429
-  check_width: 1280                # the frame check runs on a copy this wide (as the site's camera preview)
+  check_width: 1600                # the frame check runs on a copy this wide; SD-158: 1280 read a 1080p A4 frame's 10-mm lines as 5 mm
   small_side_px: 2000              # no grid found and the long side below this: say the photo is small
   turn_jpeg_quality: 95            # SD-138: the doctor's quarter turn is made on a copy saved as JPEG at this quality (as the site's, D194)
   live:                            # SD-156: camera frames checked while the doctor aims (never kept, never logged)
