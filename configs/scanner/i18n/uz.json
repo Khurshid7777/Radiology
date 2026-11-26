@@ -132,6 +132,7 @@
   "bot.scale_given": "Masshtab siz tomoningizdan berilgan: {values}.",
   "bot.scale_speed": "tezlik {speed} mm/s",
   "bot.scale_gain": "kuchaytirish {gain} mm/mV",
+  "bot.scale_chest": "ko‘krak tarmoqlari {gain} mm/mV",
   "bot.speed_assumed": "Lenta tezligi rasmdan o‘qilmadi — 25 mm/s qabul qilindi. Agar lentada 50 mm/s yozilgan bo‘lsa, quyidagi «50 mm/s» tugmasini bosing: aks holda YuUS ikki baravar past, intervallar ikki baravar uzun bo‘ladi.",
   "bot.recalc": "Boshqa tezlik yoki kuchaytirishmi? Bosing — o‘sha rasmni qayta hisoblayman:",
   "bot.recalc_expired": "Rasm endi saqlanmagan — uni qayta yuboring, izohda masalan «50 mm/s 20 mm/mV» deb yozing.",

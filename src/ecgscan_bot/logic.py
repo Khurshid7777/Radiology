@@ -133,6 +133,8 @@ class Patient:
 
 SPEEDS_MM_S = (12.5, 25.0, 50.0)
 GAINS_MM_MV = (5.0, 10.0, 20.0)
+CHEST_GAINS_MM_MV = (2.5, 5.0, 10.0)          # SD-154 = the scanner's contract (gain_chest_mm_mv)
+_MIXED_RE = re.compile(r"(?<![\d.,])(\d+(?:[.,]\d)?)\s*/\s*(\d+(?:[.,]\d)?)\s*(?:мм|mm)\s*/\s*(?:мв|mv)")
 _SPEED_RE = re.compile(r"(\d{1,2}(?:[.,]5)?)\s*(?:мм|mm)\s*/\s*(?:сек|с|sec|s)(?![\w])", re.IGNORECASE)
 _GAIN_RE = re.compile(r"(\d{1,2})\s*(?:мм|mm)\s*/\s*(?:мв|mv)(?![\w])", re.IGNORECASE)
 
@@ -144,6 +146,7 @@ class PaperScale:
 
     paper_speed_mm_s: float | None = None
     gain_mm_mv: float | None = None
+    gain_chest_mm_mv: float | None = None     # SD-154: chest leads at their own gain (mixed 10/5)
 
 
 def parse_scale(text: str | None) -> PaperScale:
@@ -152,8 +155,16 @@ def parse_scale(text: str | None) -> PaperScale:
         return PaperScale()
     low = text.lower()
     speeds = [float(v.replace(",", ".")) for v in _SPEED_RE.findall(low)]
+    limb = chest = None
+    for a, b in _MIXED_RE.findall(low):            # "10/5 мм/мВ": limb leads, then chest leads at half (SD-154)
+        a, b = float(a.replace(",", ".")), float(b.replace(",", "."))
+        if a in GAINS_MM_MV and b in CHEST_GAINS_MM_MV and abs(a - 2 * b) < 1e-6:
+            limb, chest = a, b
+            break
+    low = _MIXED_RE.sub(" ", low)
     gains = [float(v) for v in _GAIN_RE.findall(low)]
-    return PaperScale(next((v for v in speeds if v in SPEEDS_MM_S), None), next((v for v in gains if v in GAINS_MM_MV), None))
+    gain = limb if limb is not None else next((v for v in gains if v in GAINS_MM_MV), None)
+    return PaperScale(next((v for v in speeds if v in SPEEDS_MM_S), None), gain, chest)
 
 
 def parse_caption(text: str | None) -> Patient:
@@ -162,7 +173,7 @@ def parse_caption(text: str | None) -> Patient:
     else is ignored, anything missing stays None. Speed and gain ("50 мм/с") are not ages."""
     if not text:
         return Patient()
-    low = _GAIN_RE.sub(" ", _SPEED_RE.sub(" ", text.lower())).replace(",", ".")
+    low = _GAIN_RE.sub(" ", _SPEED_RE.sub(" ", _MIXED_RE.sub(" ", text.lower()))).replace(",", ".")
     age_years = age_days = None
     for m in re.finditer(r"(\d+(?:\.\d+)?)\s*([^\W\d_]*)", low):
         value, unit = float(m.group(1)), m.group(2)
@@ -516,6 +527,8 @@ class AnalyzeApi:
             form["paper_speed_mm_s"] = f"{scale.paper_speed_mm_s:g}"
         if scale.gain_mm_mv is not None:
             form["gain_mm_mv"] = f"{scale.gain_mm_mv:g}"
+        if scale.gain_chest_mm_mv is not None:
+            form["gain_chest_mm_mv"] = f"{scale.gain_chest_mm_mv:g}"
         if patient.age_years is not None:
             form["age_years"] = str(patient.age_years)
         if patient.age_days is not None:
@@ -590,6 +603,8 @@ def scale_line(body: dict, scale: PaperScale, lang: str) -> str | None:
         parts.append(t("bot.scale_speed", lang, speed=f"{scale.paper_speed_mm_s:g}"))
     if scale.gain_mm_mv is not None:
         parts.append(t("bot.scale_gain", lang, gain=f"{scale.gain_mm_mv:g}"))
+    if scale.gain_chest_mm_mv is not None:
+        parts.append(t("bot.scale_chest", lang, gain=f"{scale.gain_chest_mm_mv:g}"))
     if parts:
         return t("bot.scale_given", lang, values=", ".join(parts))
     if body.get("speed_note_ru"):
@@ -607,7 +622,10 @@ def scale_buttons(scale: PaperScale, lang: str = "ru") -> list[list[tuple[str, s
         out += [(("✓ " if current == v else "") + f"{v:g} {unit}", f"{key}={v:g}") for v in values]
         return out
 
-    return [row((25.0, 50.0), scale.paper_speed_mm_s, speed_unit, "s"), row((10.0, 20.0), scale.gain_mm_mv, gain_unit, "g")]
+    chest = row((5.0, 10.0), scale.gain_chest_mm_mv, gain_unit, "c")
+    chest[0] = (("✓ " if scale.gain_chest_mm_mv is None else "") + ("ko‘krak: avto" if lang == "uz" else "грудные: авто"), "c=")
+    return [row((25.0, 50.0), scale.paper_speed_mm_s, speed_unit, "s"), row((10.0, 20.0), scale.gain_mm_mv, gain_unit, "g"),
+            chest]
 
 
 def apply_choice(scale: PaperScale, choice: str) -> PaperScale:
@@ -615,9 +633,11 @@ def apply_choice(scale: PaperScale, choice: str) -> PaperScale:
     key, _, value = choice.partition("=")
     v = float(value) if value else None
     if key == "s" and (v is None or v in SPEEDS_MM_S):
-        return PaperScale(v, scale.gain_mm_mv)
+        return PaperScale(v, scale.gain_mm_mv, scale.gain_chest_mm_mv)
     if key == "g" and (v is None or v in GAINS_MM_MV):
-        return PaperScale(scale.paper_speed_mm_s, v)
+        return PaperScale(scale.paper_speed_mm_s, v, scale.gain_chest_mm_mv)
+    if key == "c" and (v is None or v in CHEST_GAINS_MM_MV):
+        return PaperScale(scale.paper_speed_mm_s, scale.gain_mm_mv, v)
     return scale
 
 
