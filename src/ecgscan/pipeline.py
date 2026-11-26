@@ -392,6 +392,16 @@ def header_ocr_fields(reading, device_models: list[str]) -> HeaderOcr:
 
 
 
+def narrow_filter(header: HeaderOcr | None, q_cfg: dict) -> bool:
+    """SD-151: the header says the recorder filtered the trace beyond what keeps amplitudes and ST true (AHA 2007: high
+    cut-off at least 150 Hz in adults, low cut-off at most 0.67 Hz for ST). Unread filters say nothing."""
+    if header is None:
+        return False
+    lp, hp = header.filter_lp_hz, header.filter_hp_hz
+    return bool((lp is not None and lp < float(q_cfg.get("narrow_filter_lp_hz", 150.0)))
+                or (hp is not None and hp > float(q_cfg.get("wide_filter_hp_hz", 0.67))))
+
+
 def rhythm_strip_absent(spec, min_s: float | None) -> bool:
     """SD-106: the page has no lead as long as ``min_s`` (a rhythm strip spans the record; a
     panel only its column). None or 0: the check is off."""
@@ -770,6 +780,8 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         ocr_speeds, ocr_gains = reading.speeds, reading.gains
         if reading.available and reading.boxes:
             header = header_ocr_fields(reading, o_cfg.get("device_models", []))
+            if narrow_filter(header, q_cfg):
+                warnings.append("NARROW_FILTER")
     t = tick("ocr", t)
     decision = resolve(px_per_mm=ppm, grid_residual_mm=rect.residual_mm, pulse=summarize_pulses(pulses),
                        ocr_speeds=ocr_speeds, ocr_gains=ocr_gains, cfg=c_cfg,

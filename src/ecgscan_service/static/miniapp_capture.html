@@ -106,7 +106,7 @@ function failure(code, body) {
   if (code === 401) { status(text('miniapp.expired')); closed = true; render(); return; }
   if (code === 413) {
     const full = parts.length >= MAX || (body && /record/.test(String(body.detail || '')));
-    status(full ? text('miniapp.record_full', { max: MAX }) : text('miniapp.too_big', { mb: PAGE.max_mb })); return;
+    status(full ? text('miniapp.record_full', { max: MAX, total: PAGE.max_total_mb }) : text('miniapp.too_big', { mb: PAGE.max_mb })); return;
   }
   if (code === 415) { status(text('miniapp.bad_format')); return; }
   if (code === 429) { status(text('miniapp.busy')); show('b_retry', !!retryFiles); return; }
@@ -155,16 +155,21 @@ function askTurn(file) {
 async function uploadAll(files) {
   if (busy || !files.length) return;
   busy = true; retryFiles = null; show('b_retry', false); render();
+  let skipped = false;
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     if (parts.length >= MAX) { status(text('miniapp.too_many', { max: MAX })); break; }
-    if (file.size > PAGE.max_mb * 1024 * 1024) { failure(413); continue; }
+    if (file.size > PAGE.max_mb * 1024 * 1024) { failure(413); skipped = true; continue; }   // this one only; go on
     status(text('miniapp.uploading', { percent: 0 }));
     const r = await post('upload', file, share => {
       progress(share);
       status(share < 1 ? text('miniapp.uploading', { percent: Math.round(100 * share) }) : text('miniapp.checking'));
     });
-    if (r.status !== 200 || !r.body) { retryFiles = r.status === 413 ? null : files.slice(i); failure(r.status, r.body); break; }
+    if (r.status !== 200 || !r.body) {
+      const full = r.status === 413 && r.body && /record/.test(String(r.body.detail || ''));
+      if (r.status === 413 && !full) { failure(413, r.body); skipped = true; continue; }   // too big: skip it, go on
+      retryFiles = full ? null : files.slice(i); failure(r.status, r.body); break;
+    }
     const d = r.body;
     parts.push({ width: d.width, height: d.height, mb: (file.size / 1048576).toFixed(1), hints: d.hints || [], codes: d.codes || [] });
     render();
@@ -173,12 +178,13 @@ async function uploadAll(files) {
       const deg = await askTurn(file);
       if (deg) {
         const t = await post('turn', null, null, '&part=' + d.part + '&rotate=' + deg);
-        if (t.status !== 200) { failure(t.status, t.body); break; }    // the photo stays as it was shot
+        if (t.status !== 200) { retryFiles = files.slice(i + 1); failure(t.status, t.body); break; }   // kept as shot
       }
     }
-    progress(0); status('');
+    if (!skipped) { progress(0); status(''); }
   }
   busy = false; render();
+  show('b_retry', !!(retryFiles && retryFiles.length));
 }
 async function dropLast() {
   if (busy || !parts.length) return;

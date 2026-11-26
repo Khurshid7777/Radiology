@@ -153,11 +153,15 @@ class Inbox:
         self._used: dict[str, int] = {}          # ticket id -> expiry: taken by the bot, never accepted again
         self._tries: dict[str, list[int]] = {}   # ticket id -> [expiry, uploads so far]
         self._flying: dict[str, list[int]] = {}  # ticket id -> bytes reserved by uploads still being read
+        self._flying_until: dict[str, int] = {}  # ticket id -> its expiry: a reservation never outlives its ticket
 
     def _purge(self, now: float) -> None:
-        for d, expiry in ((self._items, lambda v: v.expiry), (self._used, lambda v: v), (self._tries, lambda v: v[0])):
+        for d, expiry in ((self._items, lambda v: v.expiry), (self._used, lambda v: v), (self._tries, lambda v: v[0]),
+                          (self._flying_until, lambda v: v)):
             for k in [k for k, v in d.items() if expiry(v) <= now]:
                 del d[k]
+        for k in [k for k in self._flying if k not in self._flying_until]:
+            del self._flying[k]
 
     def _now(self, now: float | None) -> None:
         self._purge(time.time() if now is None else now)
@@ -178,7 +182,7 @@ class Inbox:
             return tid in self._used
 
     def reserve(self, ticket: Ticket, declared: int | None, file_cap: int, max_inflight: int,
-                now: float | None = None) -> int:
+                now: float | None = None, per_ticket: int = 2) -> int:
         """Before a byte of the body is read (the core's review, SD-147): room for one more photo of this record. Returns
         how many bytes this upload may read (the declared size, or what the record and the store have left, at most
         ``file_cap``) and keeps them reserved until ``add`` or ``release``. KeyError: the ticket is spent; TooMuch: the
@@ -191,6 +195,8 @@ class Inbox:
                 raise InboxFull
             item = self._items.get(ticket.id)
             flying = self._flying.get(ticket.id, [])
+            if len(flying) >= per_ticket:     # one button cannot hold the service's uploads (the core's review)
+                raise InboxFull
             if (len(item.parts) if item else 0) + len(flying) >= self.max_files:
                 raise TooMuch
             held = (sum(len(b) for b in item.parts) if item else 0) + sum(flying)
@@ -204,6 +210,7 @@ class Inbox:
             if item is None and not flying and len(self._items) + len(self._flying) >= self.max_waiting:
                 raise InboxFull
             self._flying.setdefault(ticket.id, []).append(want)
+            self._flying_until[ticket.id] = ticket.expiry
             return want
 
     def release(self, ticket: Ticket, reserved: int) -> None:
@@ -216,6 +223,7 @@ class Inbox:
             flying.remove(reserved)
             if not flying:
                 del self._flying[tid]
+                self._flying_until.pop(tid, None)
 
     def add(self, ticket: Ticket, data: bytes, now: float | None = None, reserved: int | None = None) -> int:
         """Keep one more photo of the ticket's record; its number (0, 1, ...). KeyError: the ticket is spent;
