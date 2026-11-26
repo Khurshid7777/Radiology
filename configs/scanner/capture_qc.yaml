@@ -37,3 +37,8 @@ auto_capture:
   consecutive_frames: 5    # all checks pass this many frames in a row
   stable_ms: 700           # ... and the sheet's corners stay put this long (TZ §18.2: ~0.7 s)
   corner_jitter: 0.02      # a corner moving more than this share of the sheet's diagonal restarts the wait
+
+live:                        # SD-156: the live capture frame on the Mini App page (the server's check of camera frames)
+  max_scale_spread: 0.08     # the 5-mm period's spread over the sheet's thirds; above: "hold the phone parallel" (PROVISIONAL:
+                             # stand sheets with 2 % corner perspective reach 0.069 and are read right; ~2.8 deg left-right on A4)
+  min_period_strength: 0.15  # SD-141: below this the px/mm is unsure, the frame is not green

@@ -248,5 +248,16 @@
   "bot.scan_got_many": "To‘liq sifatdagi suratlar olindi: {n}. Ularni bitta yozuv sifatida, tartib bo‘yicha tahlil qilaman.",
   "bot.scan_expired": "Suratga olish tugmasi endi ishlamaydi. Surat kelmagan bo‘lsa, /scan buyrug‘ini yana yuboring.",
   "bot.recapture": "Yoki quyidagi tugmani bosing: suratga olish sahifasi ochiladi va surat siqilmasdan, asl holida yuboriladi.",
-  "bot.recapture_btn": "To‘liq sifatda qayta suratga olish"
+  "bot.recapture_btn": "To‘liq sifatda qayta suratga olish",
+  "qc.grid": "To‘r ishonchsiz ko‘rinmoqda: kamerani to‘g‘ri varaqqa qarating, yaltirashsiz.",
+  "qc.skew": "Telefonni varaqqa parallel tuting: varaq qiya holda olingan.",
+  "miniapp.live_open": "Maslahatli kamera",
+  "miniapp.live_close": "Kamerani yopish",
+  "miniapp.live_shoot": "Suratga olish",
+  "miniapp.live_wait": "Kamerani varaqqa qarating…",
+  "miniapp.live_ready": "Suratga olish mumkin: mm ga {ppm} nuqta.",
+  "miniapp.live_parts": "Uzun lentani qismlarga bo‘lib olaman",
+  "miniapp.live_moving": "Telefonni qimirlatmay tuting.",
+  "miniapp.live_denied": "Sahifadagi kamera mavjud emas. Quyidagi «EKGni suratga olish» tugmasi bilan oling.",
+  "miniapp.live_lead": "Surat tekshiruvdan o‘tadigan bo‘lganda ramka yashil bo‘ladi: yaqinlashing yoki uzoqlashing, telefonni tekis va varaqqa parallel tuting."
 }

@@ -219,7 +219,8 @@ def test_the_page_talks_to_its_own_two_addresses_only():
     assert not re.search(r"https?://|//[a-z]", src.replace("// ", "").replace("/*", ""))        # no outside address
     assert "PAGE.telegram_web" in src and src.count("postMessage(") == 1                        # Telegram Web's frame, by the server's word
     assert "<script src" not in src
-    assert set(re.findall(r"post\('([^']+)'", src)) == {"upload", "turn", "drop", "send"}     # SD-147: its own four addresses
+    # SD-147: its own four addresses; SD-156: and the live camera's frames
+    assert set(re.findall(r"post\('([^']+)'", src)) == {"upload", "turn", "drop", "send", "live"}
     assert src.count("XMLHttpRequest") == 1 and src.count(".open(") == 1
     assert src.count('type="file"') == 2 and 'capture="environment"' in src
     assert TICKET_HEADER in src                                         # the page and the server name the header alike
@@ -427,7 +428,9 @@ def test_the_turn_choice_is_on_the_page():
     for part in ('id="turnbox"', 'id="b_cw"', 'id="b_ccw"', 'id="b_keep"', "createImageBitmap(", "pick(90)", "pick(270)",
                  "pick(0)", "'&rotate=' + deg"):
         assert part in src, part
-    assert "toBlob" not in src and "toDataURL" not in src            # the page shows the turn, the server makes it
+    # the page shows the turn, the server makes it; the one JPEG the page makes is the live camera's (SD-156): a frame
+    # for the check and, where the browser gives no full photo, the shot itself
+    assert "toDataURL" not in src and src.count("toBlob(") == 1 and "canvas.toBlob(r, 'image/jpeg', quality)" in src
 
 
 # --- the core's review of SD-137/138: a declared size costs memory, a read-only key signs nothing -------

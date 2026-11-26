@@ -12,6 +12,9 @@
   A sheet that stands on end (SD-138): the doctor picks the upright one of two small turned copies drawn
   here from the chosen file; the turn itself is made by the server.
   Several photos of one record (SD-147): a long strip shot in parts, in order; the doctor sends them all at once.
+  The live camera (SD-156): where Telegram lets a page use the camera, the frames are sent about once a second to this
+  site's check (in memory, never kept) and the frame turns green when the shot will pass; the shot itself is the
+  camera's full-size photo and goes the same way as a chosen file. Without the camera in the page, the buttons above.
 -->
 <style>
   :root { color-scheme: light dark; }
@@ -33,6 +36,13 @@
   #parts li { margin: 4px 0; }
   #parts .warn { color: #b26a00; }
   [hidden] { display: none !important; }
+  #stage { position: relative; border: 6px solid #b33; border-radius: 12px; overflow: hidden; background: #000; }
+  #stage.ok { border-color: #2a9d4b; }
+  #stage video { display: block; width: 100%; height: auto; }
+  #overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; max-width: none; margin: 0; border-radius: 0; pointer-events: none; }
+  #live_msg { font-weight: 600; min-height: 2.6em; }
+  #b_shoot.ok { background: #2a9d4b; border-color: #2a9d4b; }
+  label.chk { display: block; margin: 8px 0; }
 </style>
 </head>
 <body>
@@ -42,6 +52,16 @@
 <p id="parts_hint" class="note"></p>
 
 <ol id="parts"></ol>
+
+<button id="b_live" hidden></button>
+<div id="livebox" hidden>
+  <p id="live_lead" class="note"></p>
+  <div id="stage"><video id="video" playsinline muted autoplay></video><canvas id="overlay"></canvas></div>
+  <p id="live_msg"></p>
+  <label class="chk"><input type="checkbox" id="c_parts"> <span id="s_parts"></span></label>
+  <button id="b_shoot"></button>
+  <button id="b_live_close" class="alt"></button>
+</div>
 
 <div id="pickers">
   <label class="btn" for="f_cam" id="l_cam"></label>
@@ -67,7 +87,7 @@
 
 <script>
 'use strict';
-const PAGE = /*__PAGE__*/{};          // {texts, max_mb, max_files, lang, telegram_web}: put in by the server
+const PAGE = /*__PAGE__*/{};          // {texts, max_mb, max_files, lang, telegram_web, live}: put in by the server
 const T = PAGE.texts || {};
 const $ = id => document.getElementById(id);
 const ticket = new URLSearchParams(location.search).get('t');
@@ -75,6 +95,8 @@ const TG_WEB = PAGE.telegram_web;
 const MAX = PAGE.max_files || 10;
 const parts = [];                      // what the server holds, in order: {width, height, mb, hints}
 let busy = false, closed = false, retryFiles = null;
+const LIVE = PAGE.live || {};
+let live = null;                       // the open camera: {stream, capture, scale, timer, sending, good, thumb}
 
 function text(key, vars) {
   return (T[key] || key).replace(/\{(\w+)\}/g, (m, k) => (vars && k in vars ? String(vars[k]) : m));
@@ -125,7 +147,8 @@ function render() {
     list.appendChild(li);
   });
   const open = !closed && !busy;
-  show('pickers', !closed && parts.length < MAX);
+  show('pickers', !closed && parts.length < MAX && !live);   // the live camera has its own button
+  show('b_live', !closed && !live && parts.length < MAX && liveSupported());
   $('l_cam').textContent = parts.length ? text('miniapp.add_more') : text('miniapp.shoot');
   $('l_gal').textContent = parts.length ? text('miniapp.pick_more') : text('miniapp.pick');
   $('b_send').textContent = text('miniapp.send_n', { n: parts.length });
@@ -187,6 +210,110 @@ async function uploadAll(files) {
   busy = false; render();
   show('b_retry', !!(retryFiles && retryFiles.length));
 }
+// SD-156: the live camera. Only counts and the frame's verdict come back; the frame is not kept anywhere.
+function liveSupported() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
+function blobOf(canvas, quality) { return new Promise(r => canvas.toBlob(r, 'image/jpeg', quality)); }
+async function openLive() {
+  if (live || busy || closed) return;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } } });
+  } catch (e) { status(text('miniapp.live_denied')); show('b_live', false); return; }
+  const v = $('video');
+  v.srcObject = stream;
+  try { await v.play(); } catch (e) { /* autoplay: shown on the first frame */ }
+  if (!v.videoWidth) await new Promise(r => v.addEventListener('loadedmetadata', r, { once: true }));
+  const track = stream.getVideoTracks()[0];
+  let capture = null, long = Math.max(v.videoWidth, v.videoHeight);
+  // The shot is the camera's full photo where the browser gives it; px/mm is said for that photo (long side to long side).
+  if (window.ImageCapture && track) {
+    try {
+      capture = new ImageCapture(track);
+      const pc = await capture.getPhotoCapabilities();
+      if (pc && pc.imageWidth && pc.imageWidth.max) long = Math.max(long, pc.imageWidth.max);
+    } catch (e) { capture = null; }
+  }
+  live = { stream, capture, scale: long / Math.max(v.videoWidth, v.videoHeight), timer: 0, sending: false, good: 0,
+           thumb: null, frame: document.createElement('canvas') };
+  $('live_msg').textContent = text('miniapp.live_wait');
+  show('livebox', true); render();
+  tick();
+}
+function closeLive() {
+  if (!live) return;
+  clearTimeout(live.timer);
+  for (const t of live.stream.getTracks()) t.stop();
+  $('video').srcObject = null;
+  live = null;
+  show('livebox', false); $('stage').className = ''; $('b_shoot').className = '';
+  render();
+}
+function tick() {
+  if (!live) return;
+  live.timer = setTimeout(tick, LIVE.interval_ms || 1000);
+  if (!live.sending && !busy) sendFrame();
+}
+function moving(c) {
+  // The phone moves when two small grey copies of the frame differ much (a blurred shot would be refused).
+  const t = document.createElement('canvas'); t.width = 64; t.height = Math.max(1, Math.round(64 * c.height / c.width));
+  const g = t.getContext('2d', { willReadFrequently: true }); g.drawImage(c, 0, 0, t.width, t.height);
+  const d = g.getImageData(0, 0, t.width, t.height).data, grey = new Float32Array(d.length / 4);
+  for (let i = 0; i < grey.length; i++) grey[i] = 0.299 * d[4 * i] + 0.587 * d[4 * i + 1] + 0.114 * d[4 * i + 2];
+  const prev = live.thumb; live.thumb = grey;
+  if (!prev || prev.length !== grey.length) return false;
+  let sum = 0; for (let i = 0; i < grey.length; i++) sum += Math.abs(grey[i] - prev[i]);
+  return sum / grey.length > (LIVE.still_diff || 6);
+}
+function outline(corners, ok) {
+  const o = $('overlay'), v = $('video');
+  o.width = v.videoWidth; o.height = v.videoHeight;
+  const g = o.getContext('2d'); g.clearRect(0, 0, o.width, o.height);
+  if (!corners || corners.length !== 4) return;
+  g.lineWidth = Math.max(4, o.width / 200); g.strokeStyle = ok ? '#2a9d4b' : '#e0a000';
+  g.beginPath();
+  corners.forEach(([x, y], i) => (i ? g.lineTo : g.moveTo).call(g, x * o.width, y * o.height));
+  g.closePath(); g.stroke();
+}
+async function sendFrame() {
+  const v = $('video'), c = live.frame;
+  if (!v.videoWidth) return;
+  const k = Math.min(1, (LIVE.frame_width || 1600) / Math.max(v.videoWidth, v.videoHeight));
+  c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  const still = !moving(c);
+  live.sending = true;
+  const blob = await blobOf(c, LIVE.jpeg_quality || 0.75);
+  const finalWidth = Math.round(v.videoWidth * live.scale);
+  const r = blob ? await post('live', blob, null, '&final_width=' + finalWidth + '&parts=' + ($('c_parts').checked ? 1 : 0)) : null;
+  if (!live) return;
+  live.sending = false;
+  if (!r || r.status === 429 || r.status === 0) return;              // busy or no network: the next frame
+  if (r.status === 401) { closeLive(); failure(401); return; }
+  if (r.status !== 200 || !r.body) return;
+  const d = r.body;
+  live.good = d.ready && still ? live.good + 1 : 0;
+  const ok = live.good >= (LIVE.ready_frames || 2);
+  $('stage').className = ok ? 'ok' : ''; $('b_shoot').className = ok ? 'ok' : '';
+  outline(d.corners, ok);
+  $('live_msg').textContent = ok ? text('miniapp.live_ready', { ppm: d.px_per_mm ? d.px_per_mm.toFixed(1) : '?' })
+    : !still ? text('miniapp.live_moving') : (d.hints && d.hints.length ? d.hints.join(' ') : text('miniapp.live_wait'));
+}
+async function shoot() {
+  if (!live || busy) return;
+  let blob = null;
+  if (live.capture) { try { blob = await live.capture.takePhoto(); } catch (e) { blob = null; } }
+  if (!blob) {                          // no full photo from the browser: the video frame at the camera's size
+    const v = $('video'), c = document.createElement('canvas');
+    c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0);
+    blob = await blobOf(c, 0.95);
+  }
+  if (!blob) { status(text('miniapp.failed')); return; }
+  const inParts = $('c_parts').checked;
+  if (!inParts) closeLive();            // one sheet: the camera is done; a strip in parts keeps it open for the next part
+  await uploadAll([new File([blob], 'ecg.jpg', { type: blob.type || 'image/jpeg' })]);
+  if (live && parts.length >= MAX) closeLive();
+}
 async function dropLast() {
   if (busy || !parts.length) return;
   busy = true; render();
@@ -219,10 +346,16 @@ function start() {
   $('b_keep').textContent = text('miniapp.turn_keep');
   $('s_ccw').textContent = text('miniapp.turn_left'); $('b_ccw').setAttribute('aria-label', text('miniapp.turn_left'));
   $('s_cw').textContent = text('miniapp.turn_right'); $('b_cw').setAttribute('aria-label', text('miniapp.turn_right'));
+  $('b_live').textContent = text('miniapp.live_open'); $('b_live_close').textContent = text('miniapp.live_close');
+  $('b_shoot').textContent = text('miniapp.live_shoot'); $('s_parts').textContent = text('miniapp.live_parts');
+  $('live_lead').textContent = text('miniapp.live_lead');
+  $('b_live').addEventListener('click', openLive); $('b_live_close').addEventListener('click', closeLive);
+  $('b_shoot').addEventListener('click', shoot);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) closeLive(); });   // the camera is let go
   for (const id of ['f_cam', 'f_gal']) {
     $(id).addEventListener('change', ev => { const f = [...(ev.target.files || [])]; ev.target.value = ''; uploadAll(f); });
   }
-  $('b_send').addEventListener('click', send);
+  $('b_send').addEventListener('click', () => { closeLive(); send(); });
   $('b_drop').addEventListener('click', dropLast);
   $('b_retry').addEventListener('click', () => uploadAll(retryFiles || []));
   if (!ticket) { status(text('miniapp.no_ticket')); closed = true; }
