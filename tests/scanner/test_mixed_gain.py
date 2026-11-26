@@ -65,3 +65,8 @@ def test_a_mixed_sheet_is_read_at_its_own_scales(layout):
     data, gt = mg.sheet(901, layout, chest=5.0, header_pair=False)                # nothing says the gain is mixed
     res = scan(data, hints=ScanHints(paper_speed_mm_s=25))
     assert res.calibration.gain_chest_mm_mv is None and mg.r_peak_error(gt, res)["chest"] > 0.4
+
+
+def test_a_doctors_chest_gain_the_contract_does_not_know_is_ignored():
+    assert chest_gain(None, 20.0, 10.0) is None and chest_gain(None, 7.0, 10.0) is None    # review of D353
+    assert chest_gain(None, 10.0, 20.0) == 10.0 and chest_gain(None, 2.5, 5.0) == 2.5

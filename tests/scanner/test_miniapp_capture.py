@@ -731,7 +731,7 @@ def test_a_reservation_does_not_outlive_its_ticket():
     tk = Ticket("a" * 24, "bot", 2000)
     assert box.reserve(tk, 100, 10_000, 4, now=1000.0) == 100
     assert box._flying
-    box.used("x", 2001.0)                                         # any call after the ticket ran out
+    box.used("x", 2001.0 + box.flying_grace_s)                    # after the ticket ran out and a body's longest wait
     assert not box._flying and not box._flying_until
 
 
@@ -760,3 +760,20 @@ def test_the_page_goes_on_past_a_photo_too_big_and_keeps_the_rest_after_a_failed
     assert "total: PAGE.max_total_mb" in src
     for lang in ("ru", "uz"):
         assert "{total}" in strings(lang)["miniapp.record_full"]
+
+
+def test_an_upload_keeps_its_room_while_its_body_may_still_come():
+    box = Inbox(5, flying_grace_s=120)
+    tk = Ticket("a" * 24, "bot", 2000)
+    box.reserve(tk, 100, 10_000, 4, now=1000.0)
+    box.used("x", 2050.0)                                        # the ticket ran out mid-upload
+    assert box._flying                                           # ... its room is still held
+    box.used("x", 2200.0)
+    assert not box._flying
+
+
+def test_a_picture_refused_by_its_pixels_is_told_apart_on_the_page():
+    src = PAGE.read_text(encoding="utf-8")
+    assert "/picture/.test(" in src and "miniapp.bad_size" in src
+    for lang in ("ru", "uz"):
+        assert strings(lang)["miniapp.bad_size"]

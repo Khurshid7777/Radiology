@@ -106,6 +106,7 @@ function failure(code, body) {
   if (code === 401) { status(text('miniapp.expired')); closed = true; render(); return; }
   if (code === 413) {
     const full = parts.length >= MAX || (body && /record/.test(String(body.detail || '')));
+    if (!full && body && /picture/.test(String(body.detail || ''))) { status(text('miniapp.bad_size')); return; }
     status(full ? text('miniapp.record_full', { max: MAX, total: PAGE.max_total_mb }) : text('miniapp.too_big', { mb: PAGE.max_mb })); return;
   }
   if (code === 415) { status(text('miniapp.bad_format')); return; }

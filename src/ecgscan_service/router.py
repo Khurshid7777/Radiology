@@ -69,7 +69,7 @@ CAPTURE_HEADERS = {**PROBE_HEADERS,
 _PAGE_TEXTS = ("title", "lead", "tips", "shoot", "pick", "uploading", "checking", "size", "hints_title", "retake",
                "send_anyway", "sent", "no_ticket", "expired", "too_big", "bad_format", "busy", "failed", "retry",
                "turn_title", "turn_lead", "turn_left", "turn_right", "turn_keep", "add_more", "pick_more", "drop_last",
-               "send_n", "list_item", "list_ok", "parts_hint", "too_many", "record_full")
+               "send_n", "list_item", "list_ok", "parts_hint", "too_many", "record_full", "bad_size")
 
 
 @lru_cache(maxsize=1)
@@ -89,7 +89,8 @@ def _pool():
 def get_inbox() -> Inbox:
     c = load_yaml("service")["miniapp"]
     return Inbox(int(c["max_waiting"]), max_files=int(c["max_files"]), max_ticket_bytes=int(c["max_total_mb"] * 1024 * 1024),
-                 max_store_bytes=int(c["max_store_mb"] * 1024 * 1024))
+                 max_store_bytes=int(c["max_store_mb"] * 1024 * 1024),
+                 flying_grace_s=float(c["body_timeout_s"]) + 60)
 
 
 def _lang(lang: str | None) -> str:
