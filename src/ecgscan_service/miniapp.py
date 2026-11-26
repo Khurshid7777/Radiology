@@ -145,21 +145,22 @@ class Inbox:
     (a long strip shot in parts); the bot takes them all at once."""
 
     def __init__(self, max_waiting: int, *, max_files: int = 10, max_ticket_bytes: int = 60 << 20,
-                 max_store_bytes: int = 300 << 20, flying_grace_s: float = 120.0):
+                 max_store_bytes: int = 300 << 20, flying_max_s: float = 900.0):
         self.max_waiting, self.max_files = max_waiting, max_files
         self.max_ticket_bytes, self.max_store_bytes = max_ticket_bytes, max_store_bytes
-        self.flying_grace_s = flying_grace_s
+        self.flying_max_s = flying_max_s
         self._lock = threading.Lock()
         self._items: dict[str, _Item] = {}
         self._used: dict[str, int] = {}          # ticket id -> expiry: taken by the bot, never accepted again
         self._tries: dict[str, list[int]] = {}   # ticket id -> [expiry, uploads so far]
         self._flying: dict[str, list[int]] = {}  # ticket id -> bytes reserved by uploads still being read
-        self._flying_until: dict[str, int] = {}  # ticket id -> its expiry: a reservation never outlives its ticket
+        self._flying_until: dict[str, float] = {}  # ticket id -> when its reservations go even if never given back
 
     def _purge(self, now: float) -> None:
-        # An upload still being read keeps its room past its ticket's end, for as long as a body may take (review of D353).
+        # An upload gives its room back itself (add, or release in its finally) whatever its ticket's end: the frame check
+        # may wait in its pool (review of D354, SD-155). The time bound only covers a bug: flying_max_s from the reservation.
         for d, expiry in ((self._items, lambda v: v.expiry), (self._used, lambda v: v), (self._tries, lambda v: v[0]),
-                          (self._flying_until, lambda v: v + self.flying_grace_s)):
+                          (self._flying_until, lambda v: v)):
             for k in [k for k, v in d.items() if expiry(v) <= now]:
                 del d[k]
         for k in [k for k in self._flying if k not in self._flying_until]:
@@ -212,7 +213,7 @@ class Inbox:
             if item is None and not flying and len(self._items) + len(self._flying) >= self.max_waiting:
                 raise InboxFull
             self._flying.setdefault(ticket.id, []).append(want)
-            self._flying_until[ticket.id] = ticket.expiry
+            self._flying_until[ticket.id] = (time.time() if now is None else now) + self.flying_max_s
             return want
 
     def release(self, ticket: Ticket, reserved: int) -> None:
