@@ -393,13 +393,19 @@ def header_ocr_fields(reading, device_models: list[str]) -> HeaderOcr:
 
 
 
+CHEST_GAINS = (2.5, 5.0, 10.0)          # = Calibration.gain_chest_mm_mv
+
+
 def chest_gain(mixed: tuple[float, float] | None, hint: float | None, sheet_gain: float | None) -> float | None:
     """SD-153: the chest leads' own gain, when it differs from the sheet's: the doctor's word first, else the header's
     "A/B mm/mV" when its A is the gain the sheet was read at (the pulse is printed for the limb leads)."""
     if not sheet_gain:
         return None
     if hint:                              # the doctor's word wins, "the same as the sheet" included
-        return float(hint) if abs(hint - sheet_gain) > 1e-6 else None
+        if abs(hint - sheet_gain) < 1e-6:
+            return None
+        # Only a chest gain the contract knows and smaller than the sheet's (review of D353): anything else is ignored.
+        return float(hint) if any(abs(hint - g) < 1e-6 for g in CHEST_GAINS) and hint < sheet_gain else None
     if mixed and abs(mixed[0] - sheet_gain) < 1e-6:
         return float(mixed[1])
     return None
