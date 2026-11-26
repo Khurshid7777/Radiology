@@ -70,3 +70,10 @@ def test_a_mixed_sheet_is_read_at_its_own_scales(layout):
 def test_a_doctors_chest_gain_the_contract_does_not_know_is_ignored():
     assert chest_gain(None, 20.0, 10.0) is None and chest_gain(None, 7.0, 10.0) is None    # review of D353
     assert chest_gain(None, 10.0, 20.0) == 10.0 and chest_gain(None, 2.5, 5.0) == 2.5
+
+
+def test_a_word_the_contract_does_not_know_leaves_the_header_to_decide():
+    """SD-155 (review of D354)."""
+    assert chest_gain((10.0, 5.0), 20.0, 10.0) == 5.0 and chest_gain((10.0, 5.0), 7.0, 10.0) == 5.0
+    assert chest_gain((10.0, 5.0), 10.0, 10.0) is None              # "the same as the sheet" still cancels the pair
+    assert chest_gain(None, 20.0, 10.0) is None

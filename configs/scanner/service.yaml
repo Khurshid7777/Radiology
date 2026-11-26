@@ -28,6 +28,7 @@ miniapp:                           # SD-137: capture on the Telegram Mini App pa
   max_inflight: 4                  # SD-147 review: uploads being read at once on the whole service; more -> 429 before reading
   max_inflight_per_ticket: 2       # ... and on one button (slow uploads of one button cannot hold everyone's)
   body_timeout_s: 60               # a photo's body must arrive within this; then 408 and its room is freed
+  flying_max_s: 900                # SD-155: a reservation not given back by its upload goes after this (a bug guard only)
   max_files: 10                    # SD-147: photos of one record on one button (a long strip in parts), as a Telegram album
   max_total_mb: 60                 # SD-147: all photos of one record together (the analysis takes 64 MB)
   max_store_mb: 300                # SD-147: all records waiting in memory together; more -> 429

@@ -90,7 +90,7 @@ def get_inbox() -> Inbox:
     c = load_yaml("service")["miniapp"]
     return Inbox(int(c["max_waiting"]), max_files=int(c["max_files"]), max_ticket_bytes=int(c["max_total_mb"] * 1024 * 1024),
                  max_store_bytes=int(c["max_store_mb"] * 1024 * 1024),
-                 flying_grace_s=float(c["body_timeout_s"]) + 60)
+                 flying_max_s=float(c["flying_max_s"]))
 
 
 def _lang(lang: str | None) -> str:

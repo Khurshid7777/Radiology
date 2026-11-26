@@ -404,8 +404,10 @@ def chest_gain(mixed: tuple[float, float] | None, hint: float | None, sheet_gain
     if hint:                              # the doctor's word wins, "the same as the sheet" included
         if abs(hint - sheet_gain) < 1e-6:
             return None
-        # Only a chest gain the contract knows and smaller than the sheet's (review of D353): anything else is ignored.
-        return float(hint) if any(abs(hint - g) < 1e-6 for g in CHEST_GAINS) and hint < sheet_gain else None
+        # Only a chest gain the contract knows and smaller than the sheet's (review of D353); any other word is no word,
+        # and the header decides (review of D354, SD-155).
+        if any(abs(hint - g) < 1e-6 for g in CHEST_GAINS) and hint < sheet_gain:
+            return float(hint)
     if mixed and abs(mixed[0] - sheet_gain) < 1e-6:
         return float(mixed[1])
     return None
