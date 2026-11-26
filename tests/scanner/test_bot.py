@@ -187,7 +187,7 @@ def test_caption_gives_speed_and_gain_and_they_are_not_the_age():
 def test_buttons_mark_the_choice_and_apply_it():
     from ecgscan_bot.logic import PaperScale, apply_choice, scale_buttons
 
-    speed_row, gain_row = scale_buttons(PaperScale(50.0, None))
+    speed_row, gain_row, _ = scale_buttons(PaperScale(50.0, None))     # the third row: SD-154, chest leads
     assert [c for _, c in speed_row] == ["s=", "s=25", "s=50"] and speed_row[2][0].startswith("✓")
     assert gain_row[0][0].startswith("✓") and [c for _, c in gain_row] == ["g=", "g=10", "g=20"]
     s = apply_choice(PaperScale(), "s=50")
@@ -230,3 +230,59 @@ def test_a_given_speed_changes_the_analysis(analyze_api, tmp_path):
     hr = [analyze_api.analyze([("p.png", page)], patient=Patient(54.0, None, "male"), scale=s)["measurements"]["heart_rate_bpm"]
           for s in (PaperScale(25.0, 10.0), PaperScale(50.0, 10.0))]
     assert hr[1] == pytest.approx(2 * hr[0], rel=0.1), hr
+
+
+def test_the_chest_leads_own_gain_by_caption_and_button():
+    """SD-154: "10/5 мм/мВ" in a caption, a third row of buttons, the form field to the analysis."""
+    from ecgscan.i18n import t
+    from ecgscan_bot.logic import (
+        PaperScale,
+        apply_choice,
+        parse_caption,
+        parse_scale,
+        scale_buttons,
+        scale_line,
+    )
+
+    assert parse_scale("54 м 10/5 мм/мВ") == PaperScale(None, 10.0, 5.0)
+    assert parse_scale("25 mm/s 20/10 mm/mV") == PaperScale(25.0, 20.0, 10.0)
+    assert parse_scale("10/4 мм/мВ").gain_chest_mm_mv is None and parse_scale("5/10 мм/мВ").gain_chest_mm_mv is None
+    assert parse_scale("10 мм/мВ") == PaperScale(None, 10.0, None)
+    assert parse_caption("54 м 10/5 мм/мВ").age_years == 54                # the fraction is no age
+    rows = scale_buttons(PaperScale(None, 10.0, 5.0))
+    assert [c for _, c in rows[2]] == ["c=", "c=5", "c=10"] and rows[2][1][0].startswith("✓")
+    assert scale_buttons(PaperScale())[2][0][0].startswith("✓ ")
+    assert apply_choice(PaperScale(25.0, 10.0), "c=5") == PaperScale(25.0, 10.0, 5.0)
+    assert apply_choice(PaperScale(25.0, 10.0, 5.0), "c=") == PaperScale(25.0, 10.0, None)
+    assert apply_choice(PaperScale(), "c=20") == PaperScale()             # not a chest gain of the contract
+    assert t("bot.scale_chest", "ru", gain="5") in scale_line({}, PaperScale(None, 10.0, 5.0), "ru")
+
+
+def test_the_chest_gain_goes_to_the_analysis_as_a_form_field():
+    import contextlib
+
+    from ecgscan_bot.logic import AnalyzeApi, BotConfig, PaperScale
+
+    sent = {}
+
+    class Http:
+        def post(self, path, files=None, data=None, headers=None):
+            sent.update(data or {})
+
+            class R:
+                status_code = 400
+                text = "{}"
+
+                def json(self):
+                    return {"detail": "x"}
+            return R()
+
+    api = AnalyzeApi(BotConfig(api_url="http://x", max_mb=25, poll_interval_s=1, poll_timeout_s=1, send_overlay=False,
+                               public_url=None), http=Http())
+    with contextlib.suppress(Exception):                                  # the answer is a refusal; the form is what counts
+        api.analyze([("ecg.jpg", b"\xff\xd8\xff")], scale=PaperScale(25.0, 10.0, 5.0))
+    assert sent.get("gain_chest_mm_mv") == "5" and sent.get("gain_mm_mv") == "10"
+    sent.clear()
+    with contextlib.suppress(Exception):                                  # the answer is a refusal; the form is what counts
+        api.analyze([("ecg.jpg", b"\xff\xd8\xff")], scale=PaperScale(25.0, 10.0))
+    assert "gain_chest_mm_mv" not in sent
