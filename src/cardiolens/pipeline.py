@@ -231,6 +231,9 @@ def run_pipeline(
                 and "atrial_fibrillation" in findings.codes()):
             findings.findings = [f for f in findings.findings if f.code != "atrial_fibrillation"]
             audit.append(f"[L4] AF withdrawn: RR CV {cv_left:.3f} without the PVC intervals (D106)")
+    # D361: a false AF is withdrawn before the ectopy and sinus-arrhythmia rules, so they name what made the rhythm
+    # irregular (and a compensatory pause stays one); again after the AF model's second path below.
+    _withdraw_af_on_same_p(sig, m, findings, audit)
     # Supraventricular premature beats and sinus arrhythmia (D204): only over an organised atrial
     # rhythm — in AF or flutter every beat is "early" or "late" by chance.
     pac_idx: list[int] = []
@@ -247,6 +250,7 @@ def run_pipeline(
                     findings.findings = [f for f in findings.findings if f.code != "irregular_rhythm"]
                 audit.append("[L4] sinus arrhythmia")
     _af_second_path(sig, m, findings, audit)
+    _withdraw_af_on_same_p(sig, m, findings, audit)
     # Paced rhythm (TZ §7.1): the spike must be time-locked to the QRS (an artifact
     # spike lands at random), or seen by many leads at once and QRS-locked (D75).
     r_times = [r / sig.sampling_rate_hz for r in (m.r_peaks_samples or [])]
@@ -818,6 +822,49 @@ def _hf_amplitude_uv(sig: SignalRepresentation) -> float:
 
 
 AF_PVC_RECHECK = True   # D106: accepted on the held-out check (fold 10 + Georgia g6-g11)
+
+
+# D358 / D359 / D361: thresholds chosen on even ids (D357 tuning); see DECISIONS D361 for the acceptance.
+AF_SAME_P_WITHDRAW = True     # D361: accepted by the owner (27.11) with criterion 3 not met (3 / 761)
+AF_SAME_P_SHARE = 0.60
+AF_SAME_P_PR_IQR_S = 0.03
+AF_SAME_P_SHAPE_II = 0.75
+AF_SAME_P_SHAPE_V1 = 0.70
+AF_SAME_P_FWAVE_MAX = 0.8      # D359: visible atrial activity (f-waves or an atrial rate) keeps the AF
+
+
+def _withdraw_af_on_same_p(sig, m, findings: FindingSet, audit: list[str]) -> None:
+    """D358: the same P wave at a constant PR before most QRS is not atrial fibrillation (extrasystoles or sinus
+    arrhythmia made the rhythm irregular); AF / possible AF is withdrawn and the irregular rhythm says so."""
+    if not AF_SAME_P_WITHDRAW or not findings.codes() & {"atrial_fibrillation", "possible_atrial_fibrillation"}:
+        return
+    if m.atrial_rate_bpm is not None or (m.fwave_index is not None and m.fwave_index >= AF_SAME_P_FWAVE_MAX):
+        return                     # D359: flutter waves or f-waves are seen — the "P" may be an F wave
+    from cardiolens.layer3_measure.atrial_map import LEADS, conducted_p
+
+    f = conducted_p({ln: sig.lead(ln) for ln in LEADS if ln in sig.lead_names}, m.r_peaks_samples or [],
+                    sig.sampling_rate_hz)
+    if (f is None or f["share"] < AF_SAME_P_SHARE or f["pr_iqr_s"] is None or f["pr_iqr_s"] > AF_SAME_P_PR_IQR_S
+            or f["shape_ii"] is None or f["shape_ii"] < AF_SAME_P_SHAPE_II
+            or f["shape_v1"] is None or f["shape_v1"] < AF_SAME_P_SHAPE_V1):
+        return
+    findings.findings = [x for x in findings.findings
+                         if x.code not in ("atrial_fibrillation", "possible_atrial_fibrillation")]
+    ru = ("Нерегулярный ритм; перед большинством комплексов — одинаковый зубец P с постоянным PR: ФП не "
+          "подтверждается; вероятны экстрасистолы или синусовая аритмия — проверьте по записи")
+    uz = ("Notekis ritm; ko'pchilik komplekslar oldidan bir xil P tishi, PR o'zgarmas: BF tasdiqlanmaydi; "
+          "ekstrasistolalar yoki sinus aritmiyasi ehtimoli — yozuv bo'yicha tekshiring")
+    irr = findings.by_code("irregular_rhythm")
+    if irr is not None:
+        irr.label_ru, irr.label_uz = ru, uz
+    else:
+        findings.findings.append(Finding(
+            code="irregular_rhythm", group="rhythm", label_ru=ru, label_uz=uz,
+            evidence=[Evidence(feature="conducted_p_share", value=f"{f['share']:.2f}"),
+                      Evidence(feature="pr_iqr_ms", value=f"{f['pr_iqr_s'] * 1000:.0f}"),
+                      Evidence(feature="p_shape_ii", value=f"{f['shape_ii']:.2f}")], confidence=0.6))
+    audit.append(f"[L4] AF withdrawn: same P before {f['share']:.2f} of QRS, PR IQR {f['pr_iqr_s'] * 1000:.0f} ms, "
+                 f"shape II {f['shape_ii']:.2f} V1 {f['shape_v1']:.2f} (D358)")
 
 
 def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
