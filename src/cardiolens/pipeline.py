@@ -231,6 +231,7 @@ def run_pipeline(
                 and "atrial_fibrillation" in findings.codes()):
             findings.findings = [f for f in findings.findings if f.code != "atrial_fibrillation"]
             audit.append(f"[L4] AF withdrawn: RR CV {cv_left:.3f} without the PVC intervals (D106)")
+            _qt_after_af_withdrawn(findings, audit)        # D365
     # D361: a false AF is withdrawn before the ectopy and sinus-arrhythmia rules, so they name what made the rhythm
     # irregular (and a compensatory pause stays one); again after the AF model's second path below.
     same_p: dict = {}             # D361: the conducted-P features, computed once for both calls
@@ -885,9 +886,11 @@ def _qt_after_af_withdrawn(findings: FindingSet, audit: list[str]) -> None:
         if f.code == "qtc_unreliable_af":
             ev = {e.feature: e.value for e in f.evidence}
             qtc, formula = ev.get("qtc_ms"), ev.get("formula")
+            adj = "qrs_adjustment" in ev          # the same label as the long-QT rule's (rules.py)
             findings.findings[i] = Finding(
                 code="long_qt", group="interval",
-                label_ru=f"Удлинение QT (QTc {qtc} мс, {formula})", label_uz=f"QT uzayishi (QTc {qtc} ms, {formula})",
+                label_ru=f"Удлинение QT (QTc {qtc} мс, {formula}" + (", с поправкой на широкий QRS" if adj else "") + ")",
+                label_uz=f"QT uzayishi (QTc {qtc} ms, {formula}" + (", keng QRS uchun tuzatilgan" if adj else "") + ")",
                 evidence=[e for e in f.evidence if e.feature != "af_long_min"], confidence=0.85)
             audit.append(f"[L4] QTc {qtc} ms assessed as in a regular rhythm after the AF was withdrawn (D365)")
         elif f.code == "long_qt":

@@ -90,3 +90,19 @@ def test_qt_is_assessed_as_in_a_regular_rhythm_after_the_af_goes():
                                        label_uz="QT uzayishi (QTc 520 ms, Bazett, BF da taxminiy)")])
     P._qt_after_af_withdrawn(fs2, [])
     assert fs2.by_code("long_qt").label_ru.endswith("Bazett)") and "BF" not in fs2.by_code("long_qt").label_uz
+
+
+def test_qt_conversion_keeps_upper_and_the_wide_qrs_adjustment():
+    """D365 review: the converted long QT carries `upper` (D219 reads it) and says the QTc was adjusted for a wide QRS."""
+    from cardiolens.contracts.findings import Evidence
+
+    fs = FindingSet(findings=[
+        Finding(code="qtc_unreliable_af", group="interval", label_ru="x", label_uz="x", confidence=0.5,
+                evidence=[Evidence(feature=k, value=v) for k, v in (("qtc_ms", "470"), ("formula", "Bazett"),
+                          ("af_long_min", "500"), ("upper", "450"), ("qtc_measured_ms", "520"),
+                          ("qrs_adjustment", "bogossian"))])])
+    P._qt_after_af_withdrawn(fs, [])
+    qt = fs.by_code("long_qt")
+    ev = {e.feature: e.value for e in qt.evidence}
+    assert ev["upper"] == "450" and "af_long_min" not in ev
+    assert "с поправкой на широкий QRS" in qt.label_ru and "keng QRS uchun tuzatilgan" in qt.label_uz

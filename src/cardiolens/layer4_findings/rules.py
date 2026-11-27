@@ -612,7 +612,10 @@ def _qt_findings(iv, norms, is_pediatric, sig, fs: FindingSet) -> None:
             code="qtc_unreliable_af", group="interval",
             label_ru=f"QTc при фибрилляции предсердий не оценивается (QTc {qtc} мс, {formula})",
             label_uz=f"Bo'lmachalar fibrillyatsiyasida QTc baholanmaydi (QTc {qtc} ms, {formula})",
-            evidence=_ev(qtc_ms=qtc, formula=formula, af_long_min=af_min), confidence=0.5,
+            # D365: upper / the wide-QRS adjustment ride along, for when the AF is withdrawn later (pipeline)
+            evidence=_ev(qtc_ms=qtc, formula=formula, af_long_min=af_min, upper=upper)
+                     + (_ev(qtc_measured_ms=adjusted_from, qrs_adjustment="bogossian") if adjusted_from is not None else []),
+            confidence=0.5,
         ))
     elif upper and qtc > upper:
         in_af = bool(af_min) and "atrial_fibrillation" in fs.codes()
