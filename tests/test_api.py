@@ -434,3 +434,115 @@ def test_assumed_paper_speed_is_said_and_a_given_one_is_not(tmp_path):
     assumed = note()
     assert assumed is None or "25 мм/с" in assumed
     assert note(paper_speed_mm_s="25") is None
+
+
+# --- D344: how far from the sheet, the sheet's outline, where to move the phone -------------------------------------
+
+def test_capture_check_says_how_much_closer_only_when_the_scale_is_sure_d344(tmp_path, monkeypatch):
+    import cv2
+
+    from ecgscan import capture_qc as cq
+    page = cv2.imread(str(_page_png(tmp_path, px_per_mm=4)))
+    page = cv2.copyMakeBorder(page, 60, 60, 80, 80, cv2.BORDER_CONSTANT, value=(60, 50, 40))   # the sheet on a desk, whole
+    buf = cv2.imencode(".jpg", page)[1].tobytes()
+    real = cq.check_frame
+
+    def with_strength(strength):
+        def fake(*a, **k):
+            qc = real(*a, **k)
+            qc.period_strength = strength
+            return qc
+        return fake
+    # a clearly repeating grid at 4 px/mm, the parts mode off: the number and the percentage are said
+    monkeypatch.setattr(cq, "check_frame", with_strength(0.4))
+    d = client.post("/api/capture/check", data={"capture_width": str(page.shape[1]), "parts": "true"},
+                    files={"frame": ("f.jpg", buf, "image/jpeg")}).json()
+    dist = d["distance"]
+    assert dist["sure"] and dist["need"] == 8.0 and 40 <= dist["closer_pct"] <= 60 and "ближе" in dist["ru"].lower()
+    assert "%" in dist["uz"] and d["ok"] is False and "sheet_whole" in d
+    assert "closer" not in {h["code"] for h in d["hints"]}           # review: no «Приблизьтесь» beside the numbered line
+    # a weak grid: no number, no auto-capture, a plain advice
+    monkeypatch.setattr(cq, "check_frame", with_strength(0.05))
+    d = client.post("/api/capture/check", data={"capture_width": str(page.shape[1]), "parts": "true"},
+                    files={"frame": ("f.jpg", buf, "image/jpeg")}).json()
+    assert d["distance"]["sure"] is False and d["distance"]["px_per_mm"] is None and d["ok"] is False
+    assert "нечётко" in d["distance"]["ru"]
+    # the same frame 3x wider on the photo: the distance is good
+    monkeypatch.setattr(cq, "check_frame", with_strength(0.4))
+    d = client.post("/api/capture/check", data={"capture_width": str(3 * page.shape[1]), "parts": "true"},
+                    files={"frame": ("f.jpg", buf, "image/jpeg")}).json()
+    assert d["distance"]["closer_pct"] == 0 and "хорошее" in d["distance"]["ru"]
+
+
+def test_the_sheet_outline_only_when_whole_and_frame_advice_d344():
+    from pathlib import Path
+
+    page = (Path(__file__).resolve().parents[1] / "src" / "cardiolens" / "api" / "static" / "index.html").read_text()
+    assert "d.corners && d.sheet_whole !== false" in page
+    src = (Path(__file__).resolve().parents[1] / "src" / "cardiolens" / "api" / "app.py").read_text()
+    assert 'f"qc.frame_{qc.frame_advice}"' in src
+
+
+def test_the_grid_overlay_is_returned_only_when_one_sure_grid_fits_the_frame_d344(tmp_path):
+    """D344 part 2: the server's grid (SD-143) for the page to draw — on a flat sheet it matches the true 5-mm grid;
+    under a strong perspective it is not given and the phone is asked to be held parallel."""
+    import cv2
+    import numpy as np
+
+    page = cv2.imread(str(_page_png(tmp_path, px_per_mm=6)))
+    flat = cv2.copyMakeBorder(page, 60, 60, 80, 80, cv2.BORDER_CONSTANT, value=(60, 50, 40))
+    d = client.post("/api/capture/check", data={"capture_width": str(flat.shape[1]), "parts": "true"},
+                    files={"frame": ("f.jpg", cv2.imencode(".jpg", flat)[1].tobytes(), "image/jpeg")}).json()
+    if d["grid"] is not None:                                        # a sure grid: its period is the true 5 mm
+        assert abs(d["grid"]["period_px"] - 30) < 1.5 and d["grid"]["agree"] >= 0.9
+        # the page's grid starts at the sheet's corner (80, 60) on a 6-px/mm grid: phase within 0.1 of a step
+        for got, edge in zip(d["grid"]["phase_px"], (80, 60)):
+            off = (got - edge) % d["grid"]["period_px"]
+            assert min(off, d["grid"]["period_px"] - off) <= 0.1 * d["grid"]["period_px"] + 1
+    else:                                                            # unsure on this synthetic page: nothing drawn
+        assert "parallel" not in {h["code"] for h in d["hints"]} or d["ok"] is False
+    h, w = flat.shape[:2]
+    src = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
+    dst = np.float32([[0.18 * w, 0], [0.82 * w, 0], [w, h], [0, h]])              # a strong tilt of the phone
+    tilted = cv2.warpPerspective(flat, cv2.getPerspectiveTransform(src, dst), (w, h))
+    t = client.post("/api/capture/check", data={"capture_width": str(w), "parts": "true"},
+                    files={"frame": ("t.jpg", cv2.imencode(".jpg", tilted)[1].tobytes(), "image/jpeg")}).json()
+    assert t["grid"] is None
+    assert "grid" in t and "grid" in d
+
+
+def test_a_flat_good_frame_keeps_its_auto_capture_with_the_grid_overlay_d344():
+    """Review of D344 part 2: the scanner's flat grey-grid fixture was ok before and must stay ok (no «parallel»)."""
+    from pathlib import Path
+
+    f = Path(__file__).resolve().parent / "scanner" / "fixtures" / "capture_qc" / "grey_grid.jpg"
+    d = client.post("/api/capture/check", files={"frame": ("g.jpg", f.read_bytes(), "image/jpeg")}).json()
+    assert "parallel" not in {h["code"] for h in d["hints"]}
+
+
+# --- D355: the chest leads' own gain from the bot's button (SD-154) reaches the scanner ------------
+
+def test_chest_gain_given_by_the_bot_reaches_the_scanner(tmp_path, monkeypatch):
+    import cardiolens.telegram.analyze as an
+
+    seen = []
+
+    def fake(scan, path, hints):
+        seen.append(hints.gain_chest_mm_mv)
+        raise ValueError("stop here")
+
+    monkeypatch.setattr(an, "scan_keeping_overlay", fake)
+
+    def post(**form):
+        with open(_page_png(tmp_path), "rb") as f:
+            return client.post("/api/analyze", data={"mode": "A", **form}, files={"files": ("page.png", f, "image/png")})
+
+    seen.clear()
+    post(gain_chest_mm_mv="5")
+    assert seen and set(seen) == {5.0}
+    seen.clear()
+    post()
+    assert seen and set(seen) == {None}
+    seen.clear()
+    bad = post(gain_chest_mm_mv="20")
+    assert bad.status_code == 400 and "20" in bad.json()["detail"] and not seen

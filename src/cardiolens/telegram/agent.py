@@ -113,7 +113,7 @@ class Collector:
             rec.error = error
         else:
             rec.status = "analysed"
-            rec.predicted = sorted(result.findings.codes())
+            rec.predicted = sorted(c for c in result.findings.codes() if c != "photos_not_all_used")   # D351: not a diagnosis
             rec.critical = [a.code for a in result.safety.alerts]
             rec.confidences = {f.code: round(f.confidence, 3) for f in result.findings.findings}
             rec.measurements = summarize(result)

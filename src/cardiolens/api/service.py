@@ -143,6 +143,7 @@ def signal_from_uploads(
     unit: str = "uv",
     paper_speed_mm_s: float | None = None,
     gain_mm_mv: float | None = None,
+    gain_chest_mm_mv: float | None = None,
     wording: str = "web",
 ):
     """Persist uploaded files to a temp dir and dispatch to a parser.
@@ -177,7 +178,8 @@ def signal_from_uploads(
 
             try:
                 return digitize_photos([as_photo(p, c) for p, c in images],
-                                       paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+                                       paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv,
+                                       gain_chest_mm_mv=gain_chest_mm_mv)
             except ValueError as e:
                 # The Telegram bot keeps "send it as a file" (D161); the page says "the gallery".
                 raise ValueError(str(e) if wording == "bot" else web_wording(str(e))) from e

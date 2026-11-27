@@ -10,13 +10,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./
+COPY deploy/constraints.txt ./deploy/constraints.txt
 COPY src ./src
 COPY configs ./configs
 COPY models ./models
 COPY data/samples ./data/samples
-RUN pip install --upgrade pip && pip install -e ".[digitize,scanner,llm,dicom,bot]"
+RUN pip install --upgrade pip && pip install -c deploy/constraints.txt -e ".[digitize,scanner,llm,dicom,bot]"
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD python -c \
   "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"
+# D348 (review 2): OpenCV itself refuses to decode a picture over 60 MP, whatever its header says (the pipeline's own
+# limit, configs/scanner/pipeline.yaml quality.max_megapixels; D136) — a guard below every header check.
+ENV OPENCV_IO_MAX_IMAGE_PIXELS=60000000
 CMD ["uvicorn", "cardiolens.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

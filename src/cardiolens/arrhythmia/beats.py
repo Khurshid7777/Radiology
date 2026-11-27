@@ -513,6 +513,8 @@ _RUN_RECOVERED_SHIFT_MS = 40.0
 # shifted match is near-perfect: the same shape displaced, not a wide complex that
 # partly lines up (a plain shift for every beat cost INCART VT 46 -> 42, D87).
 _RUN_SHIFTED_RESCUE_MIN = 0.95
+_RUN_RECOVER = False                          # D314 (under test): recover missed complexes before the run search
+_RUN_TEMPLATE_NARROW_MS: float | None = 20.0   # D307: template from beats within this (ms) of the narrowest QRS
 # D265 (tuned in D264 on MIT-BIH + even INCART): a run at the strip's start or end (no beat before or
 # after it): at least this many abnormal beats, inner RR <= this share of the reference RR. 0 turns it off.
 _RUN_EDGE_MIN_BEATS = 4
@@ -530,6 +532,17 @@ def _best_corr(x: np.ndarray, tmpl: np.ndarray, shift: int) -> float:
     return best
 
 
+def _beat_widths(segs: dict, leads, fs: float) -> np.ndarray:
+    """QRS width (ms) of each beat window: span where the summed |slope| over the leads stays >= 30 % of its peak."""
+    env = sum(np.abs(np.diff(segs[n], axis=1)) / (np.abs(np.diff(segs[n], axis=1)).max(axis=1, keepdims=True) + 1e-9)
+              for n in leads)
+    out = np.empty(env.shape[0])
+    for k, e in enumerate(env):
+        above = np.flatnonzero(e >= 0.3 * e.max())
+        out[k] = (above[-1] - above[0]) / fs * 1000.0 if above.size >= 2 else 0.0
+    return out
+
+
 def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tuple[int, int, float]]:
     """Runs of >= 3 consecutive premature, abnormally shaped beats at >= 100/min.
 
@@ -541,6 +554,10 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
     rp = np.asarray(rpeaks, dtype=int)
     if rp.size < 6:
         return []
+    if _RUN_RECOVER:
+        # D314: wide complexes inside a run are what the R detector misses most (10 of 18 missed 3-beat runs); the
+        # couplet rule's recovery (D254) adds complexes the multi-lead envelope shows but the detector skipped
+        rp = _with_missed_complexes(sig, rp, fs)
     leads = [n for n in _RUN_LEADS if n in sig.lead_names] or list(sig.lead_names[:3])
     half = int(_PVC_HALF_S * fs)
     n_samples = sig.signal.shape[1]
@@ -553,6 +570,17 @@ def detect_ventricular_runs(sig, rpeaks, fs: float, recovered=None) -> list[tupl
     med = float(np.percentile(rr, _RUN_TEMPLATE_RR_PCT)) or 1.0
     timing_normal = [k for k, i in enumerate(ok) if i >= 1 and rr[i - 1] >= _RUN_TEMPLATE_PRE_MIN * med]
     pick = timing_normal if len(timing_normal) >= 3 else list(range(len(ok)))
+    if _RUN_TEMPLATE_NARROW_MS is not None:
+        # D307: when the run is most of the strip, its own beats are "not premature" and become the template
+        # (D306: 7 of 13 missed runs); a sinus / conducted beat is the narrowest QRS of the strip.
+        width = _beat_widths(segs, leads, fs)
+        narrow = [k for k in range(len(ok)) if width[k] <= float(np.min(width)) + _RUN_TEMPLATE_NARROW_MS]
+        if len(narrow) >= 3:
+            pick = narrow
+            # ... and the reference cycle is the one that ends on those beats, not the strip's (fast) RR
+            ends = [rr[ok[k] - 1] for k in narrow if ok[k] >= 1]
+            if ends:
+                med = float(np.median(ends)) or med
     tmpl = {n: np.median(segs[n][pick], axis=0) for n in leads}
     corr = np.ones(len(rp))
     shift = int(_RUN_RECOVERED_SHIFT_MS / 1000.0 * fs)

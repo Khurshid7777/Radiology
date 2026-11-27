@@ -92,6 +92,8 @@ ATRIAL_P_TRAIN = True
 AV_DISSOCIATION_MIN_P_RATIO = 0.3
 
 
+P_GRID_BLOCK = False   # D316: atrial grid route for complete AV block (off until accepted)
+
 def _lacks_organised_p(p_wave_ratio: float | None, n_beats: int) -> bool:
     """Too few beats with an organised P for AV dissociation (AF with a slow response).
 
@@ -198,6 +200,12 @@ RECOVER_ENV_FRACTION = 0.5    # a recovered QRS reaches half the accepted beats'
 RECOVER_MIN_GAP_S = 0.25      # ... and lies a refractory period from every accepted beat: a wide
                               # (LBBB) QRS has two envelope peaks ~130 ms apart (PTB-XL 13820)
 RECOVER_REF_HALF_S = 0.15     # an accepted beat's envelope level = max within this of its R (QRS search half-width)
+R_EDGE_PAD_S = 1.0            # D322: a second detector run on the lead with this much mirrored padding at each end
+R_EDGE_ZONE_S = 0.6           # ... adds only beats in the first / last this many seconds, missing from the plain run,
+R_EDGE_START_S = 0.3          # ... not closer than this to the start (room for P) ...
+R_EDGE_END_S = 0.15           # ... nor this to the end (a whole QRS); plain-run beats are never removed
+R_EDGE_MIN_RECORD_S = 5.0     # ... and only on records at least this long
+R_EDGE_MIN_RR = 0.6           # ... at least this share of the median RR from every plain-run beat
 RECOVER_MAX_FLOOR = 0.25      # no recovery when the envelope between beats is this high relative
                               # to the beats: noise, not QRS, reaches half their level (PTB-XL 15973)
 
@@ -258,6 +266,41 @@ def _move_off_pacing_spikes(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
         merged.append(r)
     return np.asarray(merged, dtype=rpeaks.dtype), moved
 
+
+
+def _edge_beats(cleaned: np.ndarray, rpeaks: np.ndarray, fs: float, nk) -> np.ndarray:
+    """D322: beats the detector misses in the first / last seconds of a strip (its smoothing and thresholds start up
+    there; 70 % of the missed beats on the Holter bench, D319). A second run on the lead with mirrored padding finds
+    them; only beats absent from the plain run are added, inside the edge zones and clear of the very edges."""
+    if not R_EDGE_PAD_S or len(cleaned) < R_EDGE_MIN_RECORD_S * fs:
+        return rpeaks
+    pad = int(R_EDGE_PAD_S * fs)
+    padded = np.concatenate([cleaned[pad:0:-1], cleaned, cleaned[-2:-pad - 2:-1]])
+    try:
+        _, info = nk.ecg_peaks(padded, sampling_rate=fs)
+    except Exception:
+        return rpeaks
+    cand = np.asarray(info["ECG_R_Peaks"], dtype=int) - pad
+    n, tol = len(cleaned), int(0.075 * fs)
+    lo, hi = int(R_EDGE_START_S * fs), n - int(R_EDGE_END_S * fs)
+    zone = int(R_EDGE_ZONE_S * fs)
+    add = [int(c) for c in cand
+           if lo <= c < hi and (c < zone or c >= n - zone)
+           and (rpeaks.size == 0 or np.min(np.abs(rpeaks - c)) > tol)]
+    if add and rpeaks.size >= 2:
+        # D322 review: the padded run marks another point of the same wide / paced QRS (90-130 ms off) or a tall T
+        # wave; a missed beat sits a plausible cycle away (>= 0.6 x the median RR, as PAGE_BEAT_ADD_MIN_RR) and
+        # reaches half the accepted beats' envelope (D75's RECOVER_ENV_FRACTION)
+        med = float(np.median(np.diff(np.sort(rpeaks))))
+        env = spatial_velocity(cleaned[None, :], fs)
+        w = int(RECOVER_REF_HALF_S * fs)
+        lvl = lambda r: float(env[max(0, r - w):r + w].max())
+        ref = float(np.median([lvl(int(r)) for r in rpeaks]))
+        add = [c for c in add if np.min(np.abs(rpeaks - c)) >= R_EDGE_MIN_RR * med
+               and lvl(c) >= RECOVER_ENV_FRACTION * ref]
+    elif add:
+        add = []                                       # nothing to compare a new beat with
+    return np.unique(np.concatenate([rpeaks, np.asarray(add, dtype=int)])) if add else rpeaks
 
 def _recover_missed_qrs(signal: np.ndarray, rpeaks: np.ndarray, fs: float,
                         notes: list[str] | None = None) -> tuple[np.ndarray, int]:
@@ -671,6 +714,7 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
     try:
         _, info = nk.ecg_peaks(cleaned, sampling_rate=fs)
         rpeaks = np.asarray(info["ECG_R_Peaks"], dtype=int)
+        rpeaks = _edge_beats(cleaned, rpeaks, fs, nk)
     except Exception:
         rpeaks = np.array([], dtype=int)
     rpeaks, n_moved = _move_off_pacing_spikes(sig.signal, rpeaks, fs, pacing_spikes_s)
@@ -946,6 +990,15 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                             not P_MB_CONSENSUS or abs(mb_pr - m.intervals.pr_ms) <= 20.0):
                         m.intervals.pr_ms = mb_pr
             m.p_wave_amplitude_uv = _p_amplitude(sig, p_on, p_off)
+        # D290: the amplitude-refined P onset lands late (PR 7 ms short against LUDB, half the first-degree AV
+        # blocks under 200 ms). Corrected only when the multi-lead PR (D250) agrees with the corrected value — a
+        # plain offset added false first-degree blocks on PTB-XL (D288). Recordings only: a photo's PR has its own error.
+        from_photo = bool(getattr(sig.provenance, "digitized", False)) or sig.source in ("image", "telegram-photo")
+        pr0, multi = m.intervals.pr_ms, m.pr_multilead_ms
+        if (not from_photo and pr0 is not None and multi is not None
+                and abs(multi - (pr0 + PR_ONSET_OFFSET_MS)) <= PR_OFFSET_AGREE_MS):
+            m.intervals.pr_ms = round(pr0 + PR_ONSET_OFFSET_MS, 1)
+            m.pr_onset_offset_ms = PR_ONSET_OFFSET_MS
 
         # ST measured off the envelope QRS offsets (J points), PR-segment baseline.
         _measure_st(sig, rpeaks, qrs_on, qrs_off, m)
@@ -991,6 +1044,15 @@ def measure(sig: SignalRepresentation, pacing_spikes_s: list[float] | None = Non
                 rate = round(train["rate_bpm"], 1)
                 notes.append(f"atrial activity: P train {rate}/min, PR spread "
                              f"{round(1000 * train['pr_iqr_s'])} ms -> AV dissociation")
+            if not av and not flutter and P_GRID_BLOCK:
+                # D316 (owner, 19.11): the atrial grid on the residual (D313), when the P train found nothing
+                from cardiolens.layer3_measure.p_grid import grid_block
+                g = grid_block({ln: sig.lead(ln) for ln in ("II", "V1") if ln in sig.lead_names}, rpeaks, fs,
+                               m.intervals.qrs_ms, m.heart_rate_bpm)
+                if g is not None:
+                    av, rate = True, round(g["rate"], 1)
+                    notes.append(f"atrial activity: atrial grid {rate}/min in {g['lead']}, PR spread "
+                                 f"{round(1000 * g['pr_iqr_s'])} ms -> AV dissociation (D316)")
         m.atrial_rate_bpm, m.av_dissociation = rate, av
         m.fwave_index = fwave_index(atrial_leads, rpeaks, fs, qrs_on=qrs_on, qrs_off=qrs_off)
         m.notes.extend(notes)
@@ -1070,6 +1132,8 @@ def _qrs_net_deflection(sig: SignalRepresentation, lead: str, rpeaks: np.ndarray
     return float(np.median(vals)) if vals else None
 
 
+PR_ONSET_OFFSET_MS = 10.0  # D290: chosen on even LUDB ids
+PR_OFFSET_AGREE_MS = 10.0  # D290: the multi-lead PR must agree with the corrected PR within this
 P_MEDIAN_BEAT = True       # D111: accepted on the held-out check (fold 10)
 P_MB_FRACTION = 0.20       # P bounds: 20 % of the P peak above the window's 10th percentile
 P_MB_CONSENSUS = 1         # use the median-beat value only near the per-beat one (D111)

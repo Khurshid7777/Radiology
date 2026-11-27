@@ -27,6 +27,7 @@ import asyncio
 import functools
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import shutil
@@ -36,7 +37,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.background import BackgroundTask
 
@@ -62,6 +63,7 @@ from cardiolens.outputs import (
 )
 from ecgscan.config import load_yaml
 from ecgscan_service.router import actor
+from ecgscan_service.router import public_router as miniapp_router
 from ecgscan_service.router import router as scans_router
 
 app = FastAPI(title="CardioVision", version="0.1.0")
@@ -73,6 +75,22 @@ _SCANS_MAX_BYTES = int(_scan_upload["max_mb"] * 1024 * 1024) * int(_scan_upload.
 app.add_middleware(RequestGuard, max_body_bytes=max(service.MAX_UPLOAD_BYTES, _SCANS_MAX_BYTES) + 1024 * 1024)
 # ECG scanner (photo/scan input, TZ scanner §4, SD-004): /scans, own API-key auth.
 app.include_router(scans_router)
+# D345: the Mini App probe page (SD-136): open and static, reads nothing, its headers forbid any connection.
+app.include_router(miniapp_router)
+
+
+class MiniappQueryFilter(logging.Filter):
+    """D348: the capture page's address carries a one-time ticket in its query (Telegram keeps only the part
+    before «#» for the app); the access log keeps the path of /miniapp/* addresses, never their query."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str) and args[2].startswith("/miniapp/"):
+            record.args = (*args[:2], args[2].split("?", 1)[0], *args[3:])
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(MiniappQueryFilter())
 
 _STATIC = Path(__file__).parent / "static"
 
@@ -101,9 +119,26 @@ def _feedback_store() -> FeedbackStore:
     return FeedbackStore.at(os.environ.get("CARDIOLENS_FEEDBACK_PATH", DEFAULT_FEEDBACK_PATH))
 
 
+# D349 (review): the page may be put in a frame only by itself and by Telegram Web (the Mini App); nowhere else.
+PAGE_HEADERS = {"Content-Security-Policy": "frame-ancestors 'self' https://web.telegram.org",
+                "Referrer-Policy": "same-origin"}
+
+
 @app.get("/", response_class=HTMLResponse)
-def index() -> str:
-    return (_STATIC / "index.html").read_text(encoding="utf-8")
+def index() -> HTMLResponse:
+    return HTMLResponse((_STATIC / "index.html").read_text(encoding="utf-8"), headers=PAGE_HEADERS)
+
+
+_FONTS = {p.name for p in (_STATIC / "fonts").glob("*.woff2")}
+
+
+@app.get("/fonts/{name}")
+def font(name: str) -> FileResponse:
+    """D273: the brand fonts (Manrope, Sora; OFL-1.1) served from this server — no third-party request."""
+    if name not in _FONTS:
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(_STATIC / "fonts" / name, media_type="font/woff2",
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.get("/health")
@@ -125,9 +160,27 @@ def health() -> dict:
 CAPTURE_FRAME_MAX_BYTES = 2_000_000
 
 
+def site_actor(x_api_key: str | None = Header(default=None),
+               x_telegram_init_data: str | None = Header(default=None)) -> str:
+    """D350: the clinic key, or — for the site opened from the bot as a Telegram Mini App, without a key — the doctor's
+    signed Telegram launch data (only the bot's own users). The quality summary and calibration stay key-only."""
+    if x_api_key is not None or x_telegram_init_data is None:
+        return actor(x_api_key)
+    from cardiolens.api.tg_auth import telegram_actor
+
+    who = telegram_actor(x_telegram_init_data)
+    if who is None:
+        raise HTTPException(401, "Telegram sign-in refused: open the app from the bot, with access given there")
+    return who
+
+
+GRID_SURE = 0.15        # D344: period_strength from which the frame check's px/mm is trusted (SD-141 aggregates)
+GRID_AGREE = 0.9        # D344 part 2: the 3 x 3 zones agree with one grid (SD-143: flat 32/32, perspective <= 0.6 44/44)
+
+
 @app.post("/api/capture/check")
 async def capture_check(frame: UploadFile = File(...), capture_width: int = Form(default=0),
-                        parts: bool = Form(default=False), who: str = Depends(actor)) -> dict:
+                        parts: bool = Form(default=False), who: str = Depends(site_actor)) -> dict:
     """One preview frame from the page's camera, checked as the phone app checks it (the
     scanner's ``capture_qc``, SD-014/SD-070), with what is in view told apart (D177): a
     device screen (no paper grid to check — light, glare and blur only), a sheet or a strip
@@ -208,6 +261,44 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
         if sheet_mm[0] > max(zw, zh) + 2 or sheet_mm[1] > min(zw, zh) + 2:
             hints.append("board_small")
             texts.append({"code": "board_small", "ru": _board_advice(sheet_mm, fit.spec.name)})
+    # D344: where to move the phone when the sheet runs off the frame (the scanner's frame_advice, SD-133).
+    if qc.frame_advice:
+        for item in texts:                # («h» is the frame's height here)
+            if item["code"] == "frame":
+                item["ru"] = ru.get(f"qc.frame_{qc.frame_advice}", item["ru"])
+                item["uz"] = uz.get(f"qc.frame_{qc.frame_advice}", item["uz"])
+    # D344: how far from the sheet — a number only when the scale is sure (the board, or a grid that clearly repeats:
+    # period_strength >= 0.15, SD-141); a doubled period otherwise hides a needed «closer».
+    distance = None
+    # review: a sheet wider than the frame AND too coarse — «farther» and «closer» at once; no number then
+    if ppm is not None and not suggest_parts and not (qc.frame_advice == "farther" and ppm < min_ppm):
+        sure = board or (qc.period_strength is not None and qc.period_strength >= GRID_SURE)
+        if sure:
+            pct = max(1, round((1 - ppm / min_ppm) * 100)) if ppm < min_ppm else 0
+            far = pct > 75                     # review: «94 % closer» reads as a misreading — say «much closer»
+            distance = {"px_per_mm": round(ppm, 1), "need": min_ppm, "closer_pct": pct, "sure": True,
+                        "ru": (f"Подойдите намного ближе: сейчас {ppm:.1f} точек/мм, нужно {min_ppm:g}." if far else
+                               f"Ближе: сейчас {ppm:.1f} точек/мм, нужно {min_ppm:g} — подойдите примерно на {pct} % ближе."
+                               if pct else f"Расстояние хорошее: {ppm:.1f} точек/мм."),
+                        "uz": (f"Ancha yaqinroq keling: hozir {ppm:.1f} nuqta/mm, {min_ppm:g} kerak." if far else
+                               f"Yaqinroq: hozir {ppm:.1f} nuqta/mm, {min_ppm:g} kerak — taxminan {pct} % yaqinroq keling."
+                               if pct else f"Masofa yaxshi: {ppm:.1f} nuqta/mm.")}
+            if pct:                            # review: the numbered line replaces the plain «closer» text
+                texts = [item for item in texts if item["code"] != "closer"]
+        else:
+            distance = {"px_per_mm": None, "need": min_ppm, "closer_pct": None, "sure": False,
+                        "ru": "Сетка видна нечётко — держите телефон ровно над листом, без тени.",
+                        "uz": "To‘r aniq ko‘rinmayapti — telefonni varaq ustida tekis, soyasiz tuting."}
+            hints.append("grid_unsure")   # no auto-capture on an unsure scale; a manual shot is still possible
+    # D344 part 2: the grid as the server sees it, for the page to draw over the video (SD-143) — only when it is sure
+    # and one grid fits the whole frame. (Review: a «hold the phone parallel» hint fired on flat sheets — one zone of nine
+    # off, or a misread period — and stopped auto-capture that worked before; it is not said until measured on real frames.)
+    grid = None
+    strong = qc.period_strength is not None and qc.period_strength >= GRID_SURE
+    if (strong and qc.grid_period_px and qc.grid_phase_px and qc.grid_slope and qc.grid_zones_agree is not None
+            and qc.grid_zones_agree >= GRID_AGREE):
+        grid = {"period_px": qc.grid_period_px, "phase_px": qc.grid_phase_px, "slope": qc.grid_slope,
+                "agree": qc.grid_zones_agree}
     if "parts" in hints:
         texts.append({"code": "parts", "ru": "Лист большой: снимите его частями, каждая часть с перекрытием "
                                            "соседней — режим «частями» включён.",
@@ -227,6 +318,9 @@ async def capture_check(frame: UploadFile = File(...), capture_width: int = Form
         "board": board,
         "suggest_parts": suggest_parts,
         "frame": [w, h],
+        "distance": distance,                 # D344
+        "sheet_whole": qc.sheet_whole,        # D344: the page draws the sheet's outline only when it is whole
+        "grid": grid,                         # D344 part 2: the 5-mm grid in frame px, drawn over the video
     }
 
 
@@ -362,8 +456,9 @@ async def analyze(
     client: str | None = Form(default=None),     # "telegram": refusals keep the bot's wording (D161)
     paper_speed_mm_s: float | None = Form(default=None),   # D179: printed on the strip, given by the user
     gain_mm_mv: float | None = Form(default=None),
+    gain_chest_mm_mv: float | None = Form(default=None),   # D355: the chest leads' own gain (the bot's button, SD-154)
     files: list[UploadFile] = File(default=[]),
-    who: str = Depends(actor),
+    who: str = Depends(site_actor),
 ) -> JSONResponse:
     try:
         if files:
@@ -379,6 +474,7 @@ async def analyze(
                 service.signal_from_uploads, uploads, sampling_rate_hz=sampling_rate_hz, unit=unit,
                 paper_speed_mm_s=_allowed(paper_speed_mm_s, (12.5, 25.0, 50.0, 100.0)),
                 gain_mm_mv=_allowed(gain_mm_mv, (2.5, 5.0, 10.0, 20.0, 40.0)),
+                gain_chest_mm_mv=_allowed(gain_chest_mm_mv, (2.5, 5.0, 10.0)),
                 wording="bot" if client == "telegram" else "web",
             )
         elif case:
@@ -449,7 +545,7 @@ def _share_target(token: str) -> str | None:
 
 
 @app.post("/api/analysis/{analysis_id}/share")
-def share(analysis_id: str, who: str = Depends(actor)) -> JSONResponse:
+def share(analysis_id: str, who: str = Depends(site_actor)) -> JSONResponse:
     _require(analysis_id, who)                  # only the owner's analysis
     exp = int(time.time()) + SHARE_DAYS * 86400
     return JSONResponse({"url": f"/s/{share_token(analysis_id, exp)}", "expires_at": exp})
@@ -473,7 +569,7 @@ def shared_pdf(token: str):
 
 
 @app.get("/api/analysis/{analysis_id}/report.pdf")
-def report_pdf(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
+def report_pdf(analysis_id: str, who: str = Depends(site_actor)) -> FileResponse:
     result = _require(analysis_id, who)
     tmp = tempfile.mkdtemp()
     path = str(Path(tmp) / f"{analysis_id}.pdf")
@@ -484,7 +580,7 @@ def report_pdf(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/overlay.jpg")
-def overlay_jpg(analysis_id: str, who: str = Depends(actor)) -> Response:
+def overlay_jpg(analysis_id: str, who: str = Depends(site_actor)) -> Response:
     """The scanner's confirmation overlay of a photo (D163): the traces it read, drawn over
     the page, patient header blanked. 404 for a signal file, a synthetic case, or a photo
     the CardioLens readers read instead of the scanner."""
@@ -496,7 +592,7 @@ def overlay_jpg(analysis_id: str, who: str = Depends(actor)) -> Response:
 
 
 @app.get("/api/analysis/{analysis_id}/waveform.svg")
-def waveform_svg(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
+def waveform_svg(analysis_id: str, who: str = Depends(site_actor)) -> FileResponse:
     result = _require(analysis_id, who)
     tmp = tempfile.mkdtemp()
     path = str(Path(tmp) / f"{analysis_id}.svg")
@@ -505,7 +601,7 @@ def waveform_svg(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/waveform.json")
-def waveform_json(analysis_id: str, who: str = Depends(actor)) -> JSONResponse:
+def waveform_json(analysis_id: str, who: str = Depends(site_actor)) -> JSONResponse:
     """D210 UI P3: the waveform SVG's samples for the page's viewer (crosshair, ruler); none under a gate."""
     from cardiolens.outputs.display import waveform_samples
 
@@ -513,7 +609,7 @@ def waveform_json(analysis_id: str, who: str = Depends(actor)) -> JSONResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/graph.png")
-def graph_png(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
+def graph_png(analysis_id: str, who: str = Depends(site_actor)) -> FileResponse:
     result = _require(analysis_id, who)
     tmp = tempfile.mkdtemp()
     path = str(Path(tmp) / f"{analysis_id}.png")
@@ -522,13 +618,13 @@ def graph_png(analysis_id: str, who: str = Depends(actor)) -> FileResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/conclusion", response_class=PlainTextResponse)
-def conclusion(analysis_id: str, lang: str = "ru", who: str = Depends(actor)) -> str:
+def conclusion(analysis_id: str, lang: str = "ru", who: str = Depends(site_actor)) -> str:
     result = _require(analysis_id, who)
     return format_conclusion(result, "uz" if lang == "uz" else "ru")
 
 
 @app.post("/api/analysis/{analysis_id}/feedback")
-def submit_feedback(analysis_id: str, fb: Feedback, who: str = Depends(actor)) -> dict:
+def submit_feedback(analysis_id: str, fb: Feedback, who: str = Depends(site_actor)) -> dict:
     """Capture physician corrections for future fine-tuning/calibration (TZ §13)."""
     fb.analysis_id = analysis_id
     result = _require(analysis_id, who)

@@ -68,8 +68,21 @@ data/ecg-arrhythmia-extra/
 # D212: owner library (copyrighted), local only
 data/books/
 data/ptbxl_st/
-data/ptbxl_st/
+data/ptbxl_mi/
+data/ptbxl_isch/
 data/mitdb/
 data/incartdb/
 # D268: SVT bench (Chapman / Ningbo subset), downloaded by tools/svt_bench/fetch.py
 data/svt_bench/
+# D271: fresh PTB-XL acceptance records (tools/p_morph/fetch_fresh.py)
+data/ptbxl_fresh/
+data/ptbxl_fresh2/
+# D293: Chapman AV-block bench (downloaded, git-ignored)
+data/avb_bench/
+# D295: QT Database (downloaded, git-ignored)
+data/qtdb/
+data/slowvt_bench/
+data/untaken_bench/
+data/junctional_bench/
+data/af_bench/
+data/af_bench2/

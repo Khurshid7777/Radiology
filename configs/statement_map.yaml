@@ -37,9 +37,14 @@ wide_complex_tachycardia:   {aha: rhythm, snomed: [], scp: [], code15: []}
 wide_qrs_tachycardia:       {aha: rhythm, snomed: [], scp: [], code15: []}   # D252
 ventricular_couplets:       {aha: rhythm, snomed: [], scp: [], code15: []}   # D254 (finding defined, not wired yet)
 sinus_pause:                {aha: rhythm, snomed: [], scp: [], code15: []}
+rr_pause_af:                {aha: rhythm, snomed: [], scp: [], code15: []}   # D258: a long RR in AF / flutter
 irregular_rhythm:           {aha: rhythm, snomed: [], scp: [], code15: []}
+electrical_alternans:       {aha: rhythm, snomed: [], scp: [], code15: []}   # D282; no scored label in our sets
+ectopic_atrial_rhythm:      {aha: rhythm, snomed: [], scp: [], code15: []}   # D284; no scored label in our sets
+probable_av_block_2to1:     {aha: av_conduction, snomed: [], scp: [], code15: []}   # D292; PTB-XL 2AVB mixes Mobitz I / 2:1
 first_degree_av_block:      {aha: av_conduction, snomed: ["270492004"], scp: [1AVB, LPR], code15: ["1dAVb"]}   # LPR = prolonged PR, the same statement (D150)
 pr_borderline:              {aha: av_conduction, snomed: [], scp: [], code15: []}   # PR 200-210 ms: named, not a block (D150)
+short_pr:                   {aha: av_conduction, snomed: [], scp: [], code15: []}   # D283: rule kept, not wired
 slow_wide_escape_rhythm:    {aha: av_conduction, snomed: [], scp: [], code15: []}   # D206: a warning, not a block
 complete_av_block:          {aha: av_conduction, snomed: ["27885002"], scp: [3AVB], code15: []}
 wpw_preexcitation:          {aha: av_conduction, snomed: ["74390002"], scp: [WPW], code15: []}
@@ -61,6 +66,7 @@ right_atrial_enlargement:   {aha: chamber_hypertrophy, snomed: ["446358003"], sc
 long_qt:                    {aha: st_t_u, snomed: ["111975006"], scp: [LNGQT], code15: []}
 long_qt_approximate:        {aha: st_t_u, snomed: ["111975006"], scp: [LNGQT], code15: []}   # D219
 photo_low_resolution:       {aha: technical, snomed: [], scp: [], code15: []}   # D219
+photos_not_all_used:        {aha: technical, snomed: [], scp: [], code15: []}   # D351
 short_qt:                   {aha: st_t_u, snomed: ["77867006"], scp: [], code15: []}
 qtc_unreliable_af:          {aha: st_t_u, snomed: [], scp: [], code15: []}   # a note, not a diagnosis (D146)
 st_elevation:               {aha: st_t_u, snomed: ["164931005"], scp: [STE_], code15: []}

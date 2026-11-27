@@ -37,3 +37,20 @@ def test_an_existing_env_without_the_secret_gets_one(tmp_path):
     _run(tmp_path)
     assert len(_secret(tmp_path)) == 64
     assert (tmp_path / ".env").read_text().count("CARDIOLENS_SHARE_SECRET=") == 1
+
+
+def test_images_and_ci_install_pinned_versions():
+    """D303: the site's image must not pick up a new release on its own (OpenCV 5.1 broke photo reading, D302)."""
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    pins = dict(ln.split("==") for ln in (root / "deploy/constraints.txt").read_text().splitlines() if "==" in ln)
+    assert pins["opencv-python-headless"] == "5.0.0.93" and pins["opencv-python"] == "5.0.0.93"
+    for must in ("numpy", "scipy", "neurokit2", "fastapi", "pydantic", "onnxruntime", "pillow", "aiogram"):
+        assert must in pins, must
+    for name in ("deploy/Dockerfile", "deploy/Dockerfile.agents"):
+        text = (root / name).read_text()
+        assert "COPY deploy/constraints.txt" in text
+        installs = re.findall(r"pip install [^&\n]*-e ", text)
+        assert installs and all("-c deploy/constraints.txt" in i for i in installs), name
+    assert "-c deploy/constraints.txt" in (root / ".github/workflows/ci.yml").read_text()

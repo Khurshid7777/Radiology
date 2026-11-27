@@ -73,3 +73,32 @@ def detect_vf(signal: np.ndarray, fs: float) -> tuple[bool, list[dict | None]]:
         return False, mts
     hits = sum(lead_is_vf(m) for m in usable)
     return bool(hits >= 1 and hits / len(usable) >= VF_LEAD_SHARE_MIN), mts
+
+
+VF_SOFT_SHARE_MIN = 0.5    # D281: same per-lead criteria, half the leads, only over AF / quality-gated windows
+
+
+def vf_soft_share(mts: list[dict | None]) -> float:
+    """Share of usable leads that meet the per-lead VF criteria (0 when none is usable)."""
+    usable = [m for m in mts if m is not None]
+    return sum(lead_is_vf(m) for m in usable) / len(usable) if usable else 0.0
+
+
+VF_HARMONIC_MIN_BEATS = 6     # D324: a regular R train ...
+VF_HARMONIC_RR_CV_MAX = 0.08  # ... (RR spread at most this) ...
+VF_HARMONIC_TOL_HZ = 0.25     # ... with the VF leads' dominant frequency at 2x or 3x the beat rate
+
+
+def vf_is_harmonic(mts: list[dict | None], r_peaks, fs: float) -> bool:
+    """D323/D324: the 'VF' waves are a harmonic of a regular beat train (regular wide tachycardia, flutter 2:1).
+
+    Only the alarm's wording depends on it — the alarm itself stays (D323: the same pattern is true VT)."""
+    rp = np.asarray(r_peaks if r_peaks is not None else [], dtype=float)
+    f = [m["f_dom"] for m in mts if lead_is_vf(m)]
+    if rp.size < VF_HARMONIC_MIN_BEATS or not f:
+        return False
+    rr = np.diff(np.sort(rp)) / fs
+    if rr.mean() <= 0 or rr.std() / rr.mean() > VF_HARMONIC_RR_CV_MAX:
+        return False
+    fb, fv = 1.0 / float(np.median(rr)), float(np.median(f))
+    return any(abs(fv - k * fb) <= VF_HARMONIC_TOL_HZ for k in (2, 3))

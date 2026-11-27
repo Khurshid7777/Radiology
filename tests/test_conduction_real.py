@@ -35,7 +35,10 @@ def test_normal_qrs_is_narrow_and_not_a_block():
 @pytest.mark.parametrize("pr", [150, 240, 280, 300])
 def test_pr_tracks_stimulus(pr):
     r = _run(heart_rate_bpm=70, pr_ms=pr, seed=21)
-    assert r.measurements.intervals.pr_ms == pytest.approx(pr, abs=12)
+    # D290: the P onset is calibrated to the LUDB annotators' (they mark it ~10 ms before the generator's onset), so
+    # on the synthetic stimulus the PR reads that much longer; the 200-ms boundary below still holds.
+    from cardiolens.layer3_measure.measure import PR_ONSET_OFFSET_MS
+    assert r.measurements.intervals.pr_ms == pytest.approx(pr + PR_ONSET_OFFSET_MS, abs=12)
     assert ("first_degree_av_block" in r.findings.codes()) == (pr > 200)
 
 

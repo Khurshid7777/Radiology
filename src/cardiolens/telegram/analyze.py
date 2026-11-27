@@ -66,6 +66,11 @@ def is_ecg_photo(path: str | Path, min_pitch_px: float = 3.0) -> tuple[bool, flo
     return bool(ok), None if pitch is None else float(pitch)
 
 
+class ScannerRefusal(ValueError):
+    """D275: the ECG scanner refused the picture itself (low resolution, glare, blur, ...): the answer is to retake
+    it, not to read it again from another copy of the same pixels."""
+
+
 # Scanner refusals about the picture itself (D139): the CardioLens readers would read the
 # same picture worse, so the refusal stands. Refusals about the layout (a screen, a report
 # sheet, part of a strip: GRID_NOT_FOUND, LAYOUT_UNKNOWN, PAGE_INCOMPLETE, SCREEN_PHOTO, ...)
@@ -196,21 +201,43 @@ def scan_keeping_overlay(scan, image, hints=None):
 
 
 def digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: float | None = None,
-                   gain_mm_mv: float | None = None) -> SignalRepresentation:
+                   gain_mm_mv: float | None = None, gain_chest_mm_mv: float | None = None) -> SignalRepresentation:
     """A small single picture is enlarged first (D219, ``image_prep``); then ``_digitize_photo``."""
     if isinstance(path, list):
-        return _digitize_photo(path, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
-    from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, prepared
+        return _digitize_photo(path, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv,
+                               gain_chest_mm_mv=gain_chest_mm_mv)
+    from cardiolens.layer1_ingestion.image_prep import ENLARGED_NOTE, prepared, reduced
 
+    kw = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv, "gain_chest_mm_mv": gain_chest_mm_mv}
     with prepared(path) as p:
-        sig = _digitize_photo(p, paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+        try:
+            sig = _digitize_photo(p, **kw)
+        except ValueError as first:
+            # D275: a refusal of the enlarged copy is not final (the enlargement can lose a fine grid: owner's
+            # Medius photo, GRID_NOT_FOUND): the picture is read as it is. A refusal that is not the scanner's own
+            # verdict on the picture (a grid or layout it could not find: a small photo stretched in an editor to
+            # 3000 x 4000) is tried once more from a reduced copy, which the scanner's coarse mode can read. The
+            # scanner's own refusals (low resolution, glare, blur) stay: retake the photo. The last refusal is
+            # the one shown.
+            last = first
+            if str(p) != str(path):
+                try:
+                    return _digitize_photo(path, **kw)
+                except ValueError as again:
+                    last = again
+            if isinstance(last, ScannerRefusal):
+                raise last
+            with reduced(path) as small:
+                if small is None:
+                    raise last
+                return _digitize_photo(small, **kw)
         if str(p) != str(path):
             sig.provenance.notes.append(ENLARGED_NOTE)
         return sig
 
 
 def _digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: float | None = None,
-                    gain_mm_mv: float | None = None) -> SignalRepresentation:
+                    gain_mm_mv: float | None = None, gain_chest_mm_mv: float | None = None) -> SignalRepresentation:
     """The bot's photo reader (D139): the ECG scanner first — on its benchmark it reads paper
     pages at r 0.98 with no unflagged bad case, where the CardioLens readers have 23 % —
     then, when the scanner refuses the layout, the CardioLens readers (device screens,
@@ -230,7 +257,9 @@ def _digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: fl
 
     # D179: the speed and gain printed on the strip, given by the user, go to the scanner as
     # its hints and are applied to the CardioLens readers' record (they assume 25 / 10).
-    hints = ScanHints(paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv)
+    # D355: the chest leads' own gain (the bot's button) — the scanner checks it against the sheet (SD-153/155);
+    # the CardioLens readers below do not know mixed gain.
+    hints = ScanHints(paper_speed_mm_s=paper_speed_mm_s, gain_mm_mv=gain_mm_mv, gain_chest_mm_mv=gain_chest_mm_mv)
     result, overlay = scan_keeping_overlay(scan, [str(p) for p in path] if in_parts else path, hints)
     readers = None if in_parts else (lambda: apply_paper_scale(
         _guard_orientation(path, digitize_auto_to_signal(path)), paper_speed_mm_s, gain_mm_mv))
@@ -271,7 +300,8 @@ def _digitize_photo(path: str | Path | list[str | Path], *, paper_speed_mm_s: fl
         return sig
     final = [r for r in result.reject_reasons if r in SCANNER_FINAL_REFUSALS]
     if final or readers is None:
-        raise ValueError("; ".join(scanner_text(f"reject.{r}") for r in (final or result.reject_reasons)))
+        text = "; ".join(scanner_text(f"reject.{r}") for r in (final or result.reject_reasons))
+        raise (ScannerRefusal(text) if final else ValueError(text))
     return readers()
 
 
@@ -370,13 +400,13 @@ def analyse_photo(path: str | Path, *, mode: str = "A", provider=None) -> tuple[
 
 
 def digitize_photos(paths: list[str | Path], *, paper_speed_mm_s: float | None = None,
-                    gain_mm_mv: float | None = None) -> SignalRepresentation:
+                    gain_mm_mv: float | None = None, gain_chest_mm_mv: float | None = None) -> SignalRepresentation:
     """Photos sent together as one record — the bot's album, the web page's upload (D155).
     Photos of one recorder's pages — TeleECG's limb page and chest page — become one record
     (D123), as do photos of the parts of one three-channel strip (D125); one page in parts on
     the capture board is composed by the scanner (D145); anything else is read from the
     first photo that digitises. Raises ValueError with the reason in words (D142)."""
-    scale = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv}
+    scale = {"paper_speed_mm_s": paper_speed_mm_s, "gain_mm_mv": gain_mm_mv, "gain_chest_mm_mv": gain_chest_mm_mv}
     if len(paths) == 1:
         try:
             return digitize_photo(paths[0], **scale)
@@ -396,18 +426,10 @@ def digitize_photos(paths: list[str | Path], *, paper_speed_mm_s: float | None =
             sigs.append(digitize_photo(p, **scale))
         except Exception as e:
             errors.append((Path(p).name, error_text(e)))
-    screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]
-    strips = [s for s in sigs if any(n.startswith(("three-channel strip photo", "3x4+rhythm strip photo"))
-                                     for n in s.provenance.notes)]
-    try:
-        if len(screens) >= 2:
-            return combine_screen_signals(screens)
-        if len(strips) >= 2:       # parts of one strip, in the order sent (D125)
-            return combine_screen_signals(strips, drop_repeats=True)
-    except ValueError:            # the pages repeat leads: two photos of the same page
-        return sigs[0]
-    if sigs:
-        return sigs[0]
+    out, parts = _combine(sigs, combine_screen_signals)
+    if out is not None and len(paths) > 1:
+        _note_used(out, parts, len(paths), unread=[name for name, _ in errors])
+        return out
     # One reason for all the photos is said once (D142: three parts of one strip
     # repeated the same refusal three times).
     reasons = {t.split(_PPM_NOTE)[0] for _, t in errors}
@@ -416,6 +438,47 @@ def digitize_photos(paths: list[str | Path], *, paper_speed_mm_s: float | None =
         raise ValueError(reasons.pop() + (f"{_PPM_NOTE}{'–'.join(ppm[::max(1, len(ppm) - 1)])} точки на мм."
                                           if ppm else ""))
     raise ValueError("; ".join(f"{name}: {t}" for name, t in errors))
+
+
+PHOTOS_USED_NOTE = "photos used: "     # D351: «photos used: K of N»
+
+
+def _leads(s) -> set[str]:
+    return set((s.provenance.lead_windows or {}).keys()) or set(s.lead_names or [])
+
+
+def _note_used(out, parts: list, total: int, *, unread: list[str]) -> None:
+    """D351: how many of the photos sent went into the record — the pages actually combined (those that brought new
+    leads, D123/D125), or the one photo read; and which photos could not be read at all."""
+    if len(parts) <= 1:
+        used = 1
+    else:
+        seen: set[str] = set()
+        used = 0
+        for s in parts:
+            if _leads(s) - seen:
+                used += 1
+                seen |= _leads(s)
+    note = f"{PHOTOS_USED_NOTE}{min(max(used, 1), total)} of {total}"
+    if unread:
+        note += f"; unread: {len(unread)}"
+    out.provenance.notes = [*(out.provenance.notes or []), note]
+
+
+def _combine(sigs, combine_screen_signals):
+    """(the record from several read photos (D123, D125) or the first read one, the photos that went into it);
+    (None, []) when none was read."""
+    screens = [s for s in sigs if any(n.startswith("device screen photo") for n in s.provenance.notes)]
+    strips = [s for s in sigs if any(n.startswith(("three-channel strip photo", "3x4+rhythm strip photo"))
+                                     for n in s.provenance.notes)]
+    try:
+        if len(screens) >= 2:
+            return combine_screen_signals(screens), screens
+        if len(strips) >= 2:       # parts of one strip, in the order sent (D125)
+            return combine_screen_signals(strips, drop_repeats=True), strips
+    except ValueError:            # the pages repeat leads: two photos of the same page
+        return sigs[0], [sigs[0]]
+    return (sigs[0], [sigs[0]]) if sigs else (None, [])
 
 
 def analyse_photos(paths: list[str | Path], *, mode: str = "A",
@@ -534,6 +597,19 @@ VERDICT_HELP = (
 )
 
 
+# D311 (owner via the scanner session, 18.11): the scanner's LEAD_INCOHERENT (SD-117/118) gets its own text.
+LEAD_INCOHERENT_RU = ("Форма комплексов в одном из отведений не повторяется от удара к удару — отведение могло быть "
+                      "прочитано неверно, проверьте его на снимке.")
+LEAD_INCOHERENT_UZ = ("Bitta tarmoqda kompleks shakli urishdan urishga takrorlanmaydi — tarmoq noto‘g‘ri o‘qilgan "
+                      "bo‘lishi mumkin, uni rasmda tekshiring.")
+
+# D353 (SD-151/153): what the scanner read from the sheet's header — not a doubt about the page's scale, said at any status.
+HEADER_NOTES_RU = {
+    "MIXED_GAIN": "ℹ️ Грудные отведения V1–V6 напечатаны в другом масштабе — их амплитуды пересчитаны.",
+    "NARROW_FILTER": "⚠️ На ленте включён узкий фильтр (по шапке) — амплитуды зубцов и сегмент ST могут быть искажены.",
+}
+
+
 def format_card(rec: Record, result: PipelineResult | None, error: str | None = None) -> str:
     head = f"📷 ЭКГ из «{rec.chat_title or rec.chat_id}» · {rec.date[:16]} · id {rec.id}"
     if rec.caption:
@@ -557,9 +633,15 @@ def format_card(rec: Record, result: PipelineResult | None, error: str | None = 
                      f"QTc {_fmt(s['qtc_bazett_ms'])} мс · ось {_fmt(s['qrs_axis_deg'], '°')}"
                      + (" (по ненадёжному снимку)" if unreliable is not None else ""))
     scanner = next((n for n in result.signal.provenance.notes if n.startswith("ecgscan scan_id=")), None)
+    warn = next((n for n in result.signal.provenance.notes if n.startswith("warnings: ")), "") if scanner else ""
+    codes = {w.strip() for w in warn[10:].replace(",", " ").split()}
+    lines.extend(HEADER_NOTES_RU[c] for c in sorted(codes & HEADER_NOTES_RU.keys()))
     if scanner and "status=needs_confirmation" in scanner:   # D139: the scanner read it but asks to check
-        warn = next((n for n in result.signal.provenance.notes if n.startswith("warnings: ")), "")
-        lines.append("⚠️ Сканер просит проверить масштаб и раскладку по снимку" + (f" ({warn[10:]})" if warn else ""))
+        if "LEAD_INCOHERENT" in codes:      # D311: one lead's beats do not repeat — say what to check, not "scale"
+            lines.append("⚠️ " + LEAD_INCOHERENT_RU)
+        others = sorted(codes - {"LEAD_INCOHERENT"} - HEADER_NOTES_RU.keys())
+        if others or not codes - HEADER_NOTES_RU.keys():   # header notes alone do not explain the doubt
+            lines.append("⚠️ Сканер просит проверить масштаб и раскладку по снимку" + (f" ({', '.join(others)})" if others else ""))
     lines.append("Находки: " + "; ".join(findings))
     lines.append("Коды: " + (", ".join(sorted(result.findings.codes())) or "—"))
     lines.append(f"Уверенность {s['confidence']:.2f} · оцифровка {_fmt(s['digitiser_coverage'], '', 2)}"

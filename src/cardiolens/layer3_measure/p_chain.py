@@ -69,3 +69,37 @@ def p_chain(leads: dict[str, np.ndarray], rpeaks, fs: float, qrs_ms: float | Non
         if best is None or (out["score"], out["cover"]) > (best["score"], best["cover"]):
             best = out
     return best
+
+
+def p_signed_cover(x: np.ndarray, rpeaks, fs: float, qrs_ms: float | None = None,
+                   qt_ms: float | None = None) -> dict | None:
+    """D284: the same diastole search as :func:`p_chain`, the two polarities kept apart — share of diastoles with a
+    positive P (``pos``) and with a negative P (``neg``), and the median P -> next R interval of each (ms)."""
+    rp = np.asarray(rpeaks, int)
+    if len(rp) < 4:
+        return None
+    qrs = (qrs_ms or 90.0) / 1000.0
+    qt = (qt_ms or 400.0) / 1000.0
+    t_end = qt - qrs / 2 + 0.02
+    nyq = fs / 2.0
+    bb, aa = butter(2, [P_CHAIN_BAND_HZ[0] / nyq, min(P_CHAIN_BAND_HZ[1] / nyq, 0.99)], btype="band")
+    y = filtfilt(bb, aa, np.asarray(x, float))
+    wmax = int(0.16 * fs)
+    wins = [(int(rp[i] + t_end * fs), int(rp[i + 1] - (qrs / 2 + 0.02) * fs), int(rp[i + 1])) for i in range(len(rp) - 1)]
+    wins = [(a, b, r) for a, b, r in wins if b - a >= int(0.12 * fs) and a >= 0 and b <= len(y)]
+    if len(wins) < 3:
+        return None
+    dia = np.concatenate([y[a:b] - np.median(y[a:b]) for a, b, _ in wins])
+    h = max(P_CHAIN_SD_K * 1.4826 * float(np.median(np.abs(dia - np.median(dia)))), P_CHAIN_MIN_UV)
+    out: dict = {"n": len(wins)}
+    for tag, pol in (("pos", 1.0), ("neg", -1.0)):
+        cv, pr = 0, []
+        for a, b, r in wins:
+            seg = pol * (y[a:b] - np.median(y[a:b]))
+            pk, _ = find_peaks(seg, height=h, prominence=h, width=(int(0.02 * fs), wmax), distance=int(0.2 * fs))
+            if len(pk):
+                cv += 1
+                pr.append((r - (a + int(pk[np.argmax(seg[pk])]))) / fs * 1000.0)
+        out[tag] = round(cv / len(wins), 3)
+        out[f"{tag}_pr"] = round(float(np.median(pr)), 0) if pr else None
+    return out

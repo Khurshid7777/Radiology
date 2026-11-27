@@ -47,6 +47,8 @@ OVERLAY_NOTE_UZ = ("Manba — qog‘oz EKG surati, raqamlashtirilgan. Rangli chi
 
 
 UNRELIABLE_CODES = frozenset({"photo_unreliable", "no_ecg_signal", "amplitude_implausible"})
+NO_TRACE_RU = "Кривая не показана: снимок прочитан ненадёжно, нарисованное по нему не было бы ЭКГ пациента."
+NO_TRACE_UZ = "Egri chiziq ko‘rsatilmaydi: surat ishonchsiz o‘qildi, undan chizilgan narsa bemor EKGsi bo‘lmas edi."
 
 
 _SPEED_KNOWN = ("(header_ocr)", "(user)")
@@ -167,8 +169,15 @@ def write_pdf(result: PipelineResult, path: str, *, include_photo: bool = True) 
     flow.append(Paragraph(measurement_line(result, "uz"), body))
     flow.append(Spacer(1, 0.3 * cm))
 
-    flow.append(Paragraph("Кривая ЭКГ", h2))
-    flow.append(Image(wave_png, width=17 * cm, height=17 * cm * 0.5))
+    if result.signal.provenance.digitized and result.findings.codes() & UNRELIABLE_CODES:
+        # D343: a PHOTO under a reliability gate gets no drawn trace: what was read off it is not the patient's ECG and
+        # must not look like one. A recording keeps its trace (review: VF from a monitor comes with no_ecg_signal —
+        # the doctor needs the picture to tell VF from artefact).
+        flow.append(Paragraph(NO_TRACE_RU, body))
+        flow.append(Paragraph(NO_TRACE_UZ, body))
+    else:
+        flow.append(Paragraph("Кривая ЭКГ", h2))
+        flow.append(Image(wave_png, width=17 * cm, height=17 * cm * 0.5))
     flow.append(Spacer(1, 0.2 * cm))
 
     overlay = result.signal.provenance.overlay_jpeg if include_photo else None
@@ -206,9 +215,10 @@ def write_pdf(result: PipelineResult, path: str, *, include_photo: bool = True) 
             flow.append(Spacer(1, 0.2 * cm))
             heading = None
 
-    flow.append(Paragraph("Причинно-следственный граф", h2))
-    flow.append(Image(graph_png, width=15 * cm, height=15 * cm * 0.55))
-    flow.append(Spacer(1, 0.2 * cm))
+    if result.causal_graph.edges:        # D343: an empty graph is not printed
+        flow.append(Paragraph("Причинно-следственный граф", h2))
+        flow.append(Image(graph_png, width=15 * cm, height=15 * cm * 0.55))
+        flow.append(Spacer(1, 0.2 * cm))
 
     flow.append(Paragraph("Заключение (RU)", h2))
     for line in format_conclusion(result, "ru").split("\n"):

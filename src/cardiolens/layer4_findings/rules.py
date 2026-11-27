@@ -38,6 +38,10 @@ _ST_CONTIGUOUS = [("I", "aVL"), ("I", "V5"), ("I", "V6"), ("aVL", "V5"), ("aVL",
                   ("V1", "V2"), ("V2", "V3"), ("V3", "V4"), ("V4", "V5")]
 
 
+_AF_SLOW_RU = "; исключите АВ-блокаду II–III степени (проверьте зубцы P)"
+_AF_SLOW_UZ = "; II–III darajali AV blokadani istisno qiling (P tishlarini tekshiring)"
+
+
 def _has_contiguous(leads: list[str]) -> bool:
     s = set(leads)
     return any(a in s and b in s for a, b in _ST_CONTIGUOUS)
@@ -251,7 +255,12 @@ def detect_findings(
             and (m.rr_mad_cv or 0) >= pc_route["rr_mad_cv_min"]:
         pc = p_window_consistency(sig, m.r_peaks_samples)
         unrepeated = pc is not None and pc[0] < pc_route["corr_max"] and pc[1] < pc_route["keep_max"]
+    af_slow_note = False
     if unrepeated or ((m.rr_cv or 0) > af_cv and (no_p or fwaves) and not conducted_p):
+        # D305: a slow ventricular rate in an irregular rhythm is AV block II-III as often as AF (Chapman: block named
+        # AF had HR < 55 in 10 / 19); the AF stays, the text asks to rule the block out.
+        af_slow_note = rh.get("af_slow_av_block_note_bpm") is not None and m.heart_rate_bpm is not None \
+            and m.heart_rate_bpm < float(rh["af_slow_av_block_note_bpm"])
         fs.findings.append(Finding(
             code="atrial_fibrillation", group="rhythm",
             label_ru="Фибрилляция предсердий (нерегулярный ритм, отсутствие P)",
@@ -364,6 +373,11 @@ def detect_findings(
     # "sinus rhythm at 80" is wrong in AF, and the rate qualifier belongs to the
     # arrhythmia label instead (rapid/slow ventricular response).
     _replace_sinus_codes_if_non_sinus(fs, hr, hr_range)
+    if af_slow_note:      # D305: after the rate qualifier, so the note ends the AF text (review of 18.11)
+        for f in fs.findings:
+            if f.code == "atrial_fibrillation":
+                f.label_ru += _AF_SLOW_RU
+                f.label_uz += _AF_SLOW_UZ
 
     # ------------------------------------------------------------------ #
     # Hypertrophy — LVH (TZ §7.4)
@@ -438,7 +452,7 @@ def detect_findings(
     # Pathological Q (old MI) and the Brugada type-1 pattern on the median beat (ported
     # from claude/vibrant-curie-ro1zsz D36, D89, D90). LBBB suppresses Brugada as in the source.
     _q_wave_findings(m, norms, fs)
-    if fs.by_code("lbbb") is None:
+    if fs.by_code("lbbb") is None or _lbbb_by_v1_st(fs):   # D336: that LBBB label does not hide a Brugada V1
         _brugada_pattern(m, fs)
 
     # D265: a regular tachycardia >= the SVT rate whose complexes carry a bundle-branch-block pattern is a
@@ -598,7 +612,10 @@ def _qt_findings(iv, norms, is_pediatric, sig, fs: FindingSet) -> None:
             code="qtc_unreliable_af", group="interval",
             label_ru=f"QTc при фибрилляции предсердий не оценивается (QTc {qtc} мс, {formula})",
             label_uz=f"Bo'lmachalar fibrillyatsiyasida QTc baholanmaydi (QTc {qtc} ms, {formula})",
-            evidence=_ev(qtc_ms=qtc, formula=formula, af_long_min=af_min), confidence=0.5,
+            # D365: upper / the wide-QRS adjustment ride along, for when the AF is withdrawn later (pipeline)
+            evidence=_ev(qtc_ms=qtc, formula=formula, af_long_min=af_min, upper=upper)
+                     + (_ev(qtc_measured_ms=adjusted_from, qrs_adjustment="bogossian") if adjusted_from is not None else []),
+            confidence=0.5,
         ))
     elif upper and qtc > upper:
         in_af = bool(af_min) and "atrial_fibrillation" in fs.codes()
@@ -826,15 +843,17 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
     # block in a patient whose PR is short. Pre-excitation slurs the upstroke,
     # so the classic route needs the delta descriptor too, at a lower bar than
     # the delta route (D65: true classic calls had delta 53-90 ms, false 21-55).
+    # D290: the WPW thresholds were chosen on the PR before the onset correction — read them on that PR.
+    wpr = None if iv.pr_ms is None else iv.pr_ms - (getattr(m, "pr_onset_offset_ms", 0.0) or 0.0)
     classic_delta = wpw.get("classic_delta_ms")
-    classic = (wide and bool(pr_lo) and iv.pr_ms is not None and iv.pr_ms < pr_lo
+    classic = (wide and bool(pr_lo) and wpr is not None and wpr < pr_lo
                and (classic_delta is None or delta is None or delta >= float(classic_delta)))
     # A definite-LBBB width with a PR that is not short is a block whose slow
     # initial activation looks like a delta wave (D65: 13 such false calls in
     # MIMIC at QRS 136-200 ms; the trade on PTB-XL is 4 true calls).
     lbbb_width = ivn.get("qrs_lbbb_definite")
-    block_like = (bool(lbbb_width) and bool(pr_lo) and iv.pr_ms is not None
-                  and iv.pr_ms >= pr_lo and iv.qrs_ms >= float(lbbb_width))
+    block_like = (bool(lbbb_width) and bool(pr_lo) and wpr is not None
+                  and wpr >= pr_lo and iv.qrs_ms >= float(lbbb_width))
     # ... unless the slurred start reaches V1-V3 too (D234): LBBB starts fast there (QS / rS; PTB-XL
     # CLBBB median 22 ms, p90 < 33), pre-excitation slurs every lead (WPW read as LBBB: median 66 ms).
     # Such a record also gets a longer PR allowance (some had PR 146-180 ms).
@@ -844,7 +863,7 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
         block_like = False
         pr_max = wpw.get("v1v3_pr_max", pr_max)
     by_delta = (delta is not None and wpw.get("delta_ms") is not None and delta >= wpw["delta_ms"]
-                and iv.pr_ms is not None and iv.pr_ms <= pr_max
+                and wpr is not None and wpr <= pr_max
                 and iv.qrs_ms >= wpw.get("qrs_min", 90)
                 and not (wide and m.qrs_v1_terminal_positive is True)
                 and not block_like)
@@ -880,6 +899,9 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
                     or (lbbb_idt is not None and idt is not None and idt >= lbbb_idt))
     if term is False and not lbbb_support:
         term = None
+    via_v1_st = term is True and _lbbb_read_as_rbbb(m)
+    if via_v1_st:
+        term = False   # D336
     if term is True:
         fs.findings.append(Finding(
             code="rbbb", group="interval",
@@ -893,7 +915,8 @@ def _conduction_findings(m: Measurements, norms, fs: FindingSet, patient=None) -
             code="lbbb", group="interval",
             label_ru=f"Полная блокада левой ножки (QRS {iv.qrs_ms} мс)",
             label_uz=f"Chap oyoqcha to'liq blokadasi (QRS {iv.qrs_ms} ms)",
-            evidence=_ev(qrs_ms=iv.qrs_ms, v1_terminal="negative", v6_terminal="positive"),
+            evidence=_ev(qrs_ms=iv.qrs_ms, v1_terminal="positive_st" if via_v1_st else "negative", v6_terminal="positive",
+                         **({"route": D336_ROUTE} if via_v1_st else {})),
             confidence=0.72,
         ))
     else:
@@ -1014,6 +1037,34 @@ _SECONDARY_ST_CONTEXT = {"rbbb", "lbbb", "wpw_preexcitation", "lvh"}
 _ELEVATION_MIMIC_CONTEXT = {"lbbb", "wpw_preexcitation", "lvh"}
 
 
+LBBB_V1_ST_QRS_MS = 150.0       # D336: a "positive V1 terminal" is LBBB's discordant ST, not an R', when the QRS is at least
+LBBB_V1_ST_IDT_MS = 65.0        # ... this wide, the V5-V6 R peaks at least this late (intrinsicoid deflection),
+LBBB_V1_ST_R_EQ_J_UV = 60.0     # ... V1 is net negative (deep S) and its "R" is no taller than its J point (+- this)
+
+
+D336_ROUTE = "v1_st_as_r_prime"
+
+
+def _lbbb_by_v1_st(fs: FindingSet) -> bool:
+    f = fs.by_code("lbbb")
+    return f is not None and any(e.feature == "route" and e.value == D336_ROUTE for e in f.evidence)
+
+
+def _lbbb_read_as_rbbb(m: Measurements) -> bool:
+    """D336: complete LBBB typed as RBBB — the discordant ST elevation in V1 fills the terminal window like an R'.
+
+    PTB-XL CLBBB named rbbb (19 / 329): V1 deep S (net -600 ... -4 200 uV) and its "R" equal to the J level, QRS 150-208 ms,
+    V5-V6 intrinsicoid 68-116 ms. An anterior STEMI whose elevation makes V1 read as RBBB has a short intrinsicoid
+    deflection (30-47 ms) and QRS 111-129 ms (elevation added to 240 PTB-XL anterior-MI records), true RBBB a real R'."""
+    qrs, idt = m.intervals.qrs_ms, (m.voltages.intrinsicoid_v5_v6_ms if m.voltages is not None else None)
+    if qrs is None or idt is None or qrs < LBBB_V1_ST_QRS_MS or idt < LBBB_V1_ST_IDT_MS or m.qrs_width_from_retry:
+        return False
+    v1 = next((st for st in m.morphology.st if st.lead == "V1"), None)
+    if v1 is None or None in (v1.qrs_net_uv, v1.r_height_uv, v1.j_point_uv):
+        return False
+    return v1.qrs_net_uv < 0 and abs(v1.r_height_uv - v1.j_point_uv) <= LBBB_V1_ST_R_EQ_J_UV
+
+
 def _st_thresholds(norms, patient, lead: str) -> tuple[float | None, float | None]:
     """(elevation, depression) thresholds for one lead from the norm table."""
     thr = norms.get("st_uv", {})
@@ -1087,8 +1138,11 @@ def _st_findings(m: Measurements, norms, fs: FindingSet, patient=None) -> None:
     proportional: list[str] = []
     # With a bundle branch block, pre-excitation or LVH the expected repolarisation
     # is discordant to the QRS; only concordant deviations count as primary.
-    secondary_ctx = bool(fs.codes() & _SECONDARY_ST_CONTEXT)
-    elevation_mimic_ctx = bool(fs.codes() & _ELEVATION_MIMIC_CONTEXT)
+    # D336: an LBBB named only because V1's "R'" was its discordant ST is a report label; for ST it stays what it was
+    # (RBBB — no mimic context), since anterior ST elevation itself can produce that reading (review D336: STEMI lost).
+    st_codes = (fs.codes() - {"lbbb"}) | {"rbbb"} if _lbbb_by_v1_st(fs) else fs.codes()
+    secondary_ctx = bool(st_codes & _SECONDARY_ST_CONTEXT)
+    elevation_mimic_ctx = bool(st_codes & _ELEVATION_MIMIC_CONTEXT)
     # Early repolarisation (D66, pediatric table): elevation that is small next to
     # the lead's own T wave and upsloping is the juvenile normal variant.
     er_ratio = thr.get("early_repolarisation_j_t_ratio_max")

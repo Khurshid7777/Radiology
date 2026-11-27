@@ -18,6 +18,18 @@ import json
 PROTECTED_PREFIXES = ("/api/analyze", "/api/analysis", "/api/calibration", "/scans")
 
 
+TELEGRAM_PREFIXES = ("/api/analyze", "/api/analysis")    # D350: never /scans, never calibration
+
+
+def _telegram_ok(raw: bytes) -> bool:
+    from cardiolens.api.tg_auth import telegram_actor
+
+    try:
+        return telegram_actor(raw.decode("utf-8")) is not None
+    except UnicodeDecodeError:
+        return False
+
+
 class _TooLarge(Exception):
     pass
 
@@ -47,6 +59,10 @@ class RequestGuard:
         if scope["path"].startswith(PROTECTED_PREFIXES):
             key = headers.get(b"x-api-key")
             status = key_name(key.decode("latin-1") if key is not None else None)
+            tg = headers.get(b"x-telegram-init-data")
+            if (isinstance(status, int) and key is None and tg is not None and scope["path"].startswith(TELEGRAM_PREFIXES)
+                    and _telegram_ok(tg)):
+                status = "telegram"           # D350: the Mini App's doctor, signed by Telegram (the site's routes only)
             if isinstance(status, int):
                 return await _send_json(send, status, "invalid or missing X-API-Key" if status == 401
                                         else "API keys are not configured")

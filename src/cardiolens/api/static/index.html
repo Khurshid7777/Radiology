@@ -5,26 +5,48 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CardioVision — заключение по ЭКГ</title>
 <meta name="description" content="CardioVision: заключение по фото или файлу ЭКГ — поддержка решений врача, не заменяет врача.">
-<meta name="theme-color" content="#0a172b">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a172b'/%3E%3Cpath d='M3 18h8l2-7 3 13 3-9 2 3h8' fill='none' stroke='%23a0bdcf' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#070D1A">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23070D1A'/%3E%3Cpath d='M21.5 11.2a7 7 0 1 0 0 9.6' fill='none' stroke='%23FB7185' stroke-width='4.6' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
   /* D210 (UI P1): the brief's two-colour base — navy #0a172b and steel #a0bdcf; red only for what is
      critical; green / orange / red of the read traces are drawn by the server and not restyled here. */
+  /* D273: Vision AI brand book v1.0 — Deep Navy #070D1A, Signal Cyan #22D3EE, Prism Violet #8B5CF6, Mist #E6EDF7;
+     CardioVision module colour: Cardio Rose #FB7185 / #E11D48. Text: Manrope; Latin logotype: Sora. */
+  @font-face { font-family:"Manrope"; font-weight:200 800; font-display:swap;
+    src:url("/fonts/manrope-cyrillic-wght-normal.woff2") format("woff2"); unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116; }
+  @font-face { font-family:"Manrope"; font-weight:200 800; font-display:swap;
+    src:url("/fonts/manrope-latin-wght-normal.woff2") format("woff2"); }
+  @font-face { font-family:"Sora"; font-weight:300; font-display:swap; src:url("/fonts/sora-latin-300-normal.woff2") format("woff2"); }
+  @font-face { font-family:"Sora"; font-weight:500; font-display:swap; src:url("/fonts/sora-latin-500-normal.woff2") format("woff2"); }
   :root {
-    --navy-900: #0a172b; --navy-700: #1c2e4a; --navy-500: #3d5675; --steel-300: #a0bdcf;
-    --steel-100: #dce6ee; --steel-050: #f1f5f8;
-    --bg: var(--steel-050); --card: #ffffff; --ink: var(--navy-900); --muted: #4a5d74;
-    --line: var(--steel-100); --brand: var(--navy-900); --brand2: #1d5f99; --on-brand: #ffffff;
-    --ok: #2e7d32; --ok-ink: #256b29; --warn: #8a5a00; --crit: #b00020; --focus: #1d5f99;
+    --deep-navy:#070D1A; --cyan:#22D3EE; --violet:#8B5CF6; --mist:#E6EDF7; --rose:#FB7185; --rose-2:#E11D48;
+    /* earlier names kept for the rules below, now on brand values */
+    --navy-900: var(--deep-navy); --navy-700: #111a2e; --navy-500: #5b46c9; --steel-300: #b9c6dc;
+    --steel-100: #dbe3f0; --steel-050: #f4f6fb;
+    --bg: var(--steel-050); --card: #ffffff; --ink: var(--deep-navy); --muted: #4b5873;
+    --line: var(--steel-100); --brand: var(--deep-navy); --brand2: #6d3fe0; --on-brand: #ffffff;
+    --ok: #2e7d32; --ok-ink: #256b29; --warn: #8a5a00; --crit: #be123c; --focus: #6d3fe0;
     --dur-fast: 150ms; --dur-base: 250ms; --dur-slow: 400ms; --ease: cubic-bezier(.2,.7,.2,1);
     --grid-1: color-mix(in srgb, var(--steel-300) 22%, transparent);
     --grid-5: color-mix(in srgb, var(--steel-300) 40%, transparent);
   }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#0a172b; --card:#13233b; --ink:#e7eef4; --muted:#a0bdcf;
-      --line:#26395a; --brand:#a0bdcf; --brand2:#8cc3ef; --on-brand:#0a172b; --focus:#8cc3ef;
-      --ok:#7bc67e; --ok-ink:#7bc67e; --warn:#f0b257; --crit:#ff8a95; }
-  }
+  /* D272: light by default; dark only when the user picks it (the theme button), not by the device setting. */
+  :root[data-theme="dark"] { --bg:#070D1A; --card:#0c1426; --ink:#E6EDF7; --muted:#93a0b8;
+      --line:#1c2740; --brand:#22D3EE; --brand2:#22D3EE; --on-brand:#070D1A; --focus:#22D3EE;
+      --navy-500:#8B5CF6; --steel-300:#33415c; --steel-100:#1c2740;
+      --ok:#7bc67e; --ok-ink:#7bc67e; --warn:#f0b257; --crit:#FB7185; }
+  /* D272: the consent gate — nothing on the page works until the terms are accepted. */
+  #consent { position:fixed; inset:0; z-index:1000; background:color-mix(in srgb, var(--navy-900) 82%, transparent);
+    display:flex; align-items:center; justify-content:center; padding:16px; }
+  #consent[hidden] { display:none; }
+  #consent .box { background:var(--card); color:var(--ink); border-radius:12px; max-width:640px; width:100%;
+    max-height:90vh; overflow:auto; padding:22px; border:1px solid var(--line); }
+  #consent h2 { margin:0 0 10px; font-size:19px; }
+  #consent li { margin:6px 0; }
+  #consent label { display:flex; gap:10px; align-items:flex-start; margin:14px 0; font-weight:600; }
+  #consent input[type=checkbox] { width:22px; height:22px; flex:none; margin-top:2px; }
+  .legal { color:var(--muted); font-size:12px; padding:14px 16px 22px; max-width:1100px; margin:0 auto; }
+  .legal b { color:var(--ink); }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important;
       transition-duration: 1ms !important; scroll-behavior: auto !important; }
@@ -33,11 +55,14 @@
   :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
   html { -webkit-text-size-adjust: 100%; }
   .num, table td, #meas { font-variant-numeric: tabular-nums; }
-  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  body { margin:0; font-family: Manrope, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
     background: var(--bg); color: var(--ink); line-height: 1.45; }
   header { background: var(--card); border-bottom: 1px solid var(--line);
     padding: 14px 16px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
-  header h1 { margin:0; font-size: 20px; }
+  header h1 { margin:0; font-size: 18px; font-family: Sora, Manrope, sans-serif; font-weight:300; letter-spacing:.22em; text-transform:uppercase; }
+  header h1 b { font-weight:500; }
+  header .mark { width:54px; height:28px; flex:none; align-self:center; }
+  button, input, select, textarea { font-family: inherit; }
   header .sub { color: var(--muted); font-size: 13px; }
   header .llm { margin-left:auto; font-size:12px; padding:3px 10px; border-radius:999px;
     border:1px solid var(--line); color:var(--muted); max-width:100%; overflow-wrap:anywhere; }
@@ -250,16 +275,42 @@
   h3 { font-size:14px; margin:14px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
   @media (min-width:1024px) { .card .stepnav { display:none; } }   /* both cards side by side: no step buttons */
   ::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--dur-base); }
+.linkbtn { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 6px; font-size: 1em; }   /* D351 */
 </style>
 </head>
 <body data-step="1">
 <header>
-  <svg class="pulse" viewBox="0 0 96 24" aria-hidden="true" focusable="false"><path d="M0 14 H30 L34 14 L37 5 L41 21 L45 9 L48 14 H96"/></svg>
-  <h1>CardioVision</h1>
+  <svg class="mark" viewBox="0 0 108 56" role="img" aria-label="CardioVision">
+    <defs>
+      <linearGradient id="lg_c" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FB7185"/><stop offset="1" stop-color="#E11D48"/></linearGradient>
+      <linearGradient id="lg_d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#CFFAFE"/><stop offset=".45" stop-color="#22D3EE"/><stop offset="1" stop-color="#0EA5C4"/></linearGradient>
+      <linearGradient id="lg_a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EDE9FE"/><stop offset=".45" stop-color="#A78BFA"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
+    </defs>
+    <path d="M39 15.5a17 17 0 1 0 0 25" fill="none" stroke="url(#lg_c)" stroke-width="11" stroke-linecap="round"/>
+    <path d="M64 12 L80 44" fill="none" stroke="url(#lg_d)" stroke-width="11" stroke-linecap="round"/>
+    <path d="M96 12 L80 44" fill="none" stroke="url(#lg_a)" stroke-width="11" stroke-linecap="round" opacity=".92"/>
+  </svg>
+  <h1>Cardio<b>Vision</b></h1>
   <span class="sub">заключение по фото ЭКГ · поддержка решений врача</span>
-  <span class="llm" id="llm" title="Кто пишет текст заключения (/health)">Текст заключения: …</span>
-  <span class="langsw"><button type="button" id="lang_ru">RU</button><button type="button" id="lang_uz">UZ</button></span>
+  <span class="langsw" style="margin-left:auto"><button type="button" id="theme_btn" aria-label="Светлая / тёмная тема">Тема</button><button type="button" id="lang_ru">RU</button><button type="button" id="lang_uz">UZ</button></span>
 </header>
+
+<div id="consent" role="dialog" aria-modal="true" aria-labelledby="consent_h">
+  <div class="box">
+    <h2 id="consent_h">Условия использования CardioVision</h2>
+    <div>Перед началом работы прочитайте и подтвердите:</div>
+    <ul>
+      <li>CardioVision — вспомогательный инструмент поддержки решений врача. Результат — это не медицинское заключение и не диагноз.</li>
+      <li>Система может ошибаться: пропустить находку или показать ложную. Каждый результат врач обязан проверить по исходной записи ЭКГ.</li>
+      <li>Решения о диагнозе, лечении и тактике принимает только врач. Ответственность за эти решения несёт врач и медицинская организация.</li>
+      <li>Нельзя принимать клинические решения только на основании результата CardioVision. При угрозе жизни действуйте по клиническим протоколам, не дожидаясь разбора.</li>
+      <li>Сервис предназначен для медицинских работников. Он не предназначен для самодиагностики пациентами.</li>
+      <li>Не загружайте данные, по которым можно установить личность пациента (ФИО, номер карты).</li>
+    </ul>
+    <label><input type="checkbox" id="consent_chk"><span>Я медицинский работник, прочитал(а) условия и принимаю их</span></label>
+    <button type="button" id="consent_ok" disabled>Принимаю</button>
+  </div>
+</div>
 
 <div class="wrap">
   <ol id="stepper" aria-label="Шаги">
@@ -494,6 +545,8 @@
     <button type="button" id="camdone">Готово</button>
   </div>
 </div>
+<div class="legal"><b>Не является медицинским заключением.</b> CardioVision — инструмент поддержки решений врача; результат может быть ошибочным и требует проверки по записи ЭКГ. Окончательное решение принимает врач.</div>
+
 <script>
 // D200: the page in Uzbek (Latin). Russian phrase -> Uzbek; a phrase missing here stays Russian.
 // A draft translation: to be read by a native speaker before wide use.
@@ -522,7 +575,19 @@ const UZ = {
   'Служебное': 'Xizmat uchun', 'Когда начались симптомы': 'Belgilar qachon boshlangan',
   'заключение по фото ЭКГ · поддержка решений врача': 'EKG surati bo\'yicha xulosa · shifokor qarorini qo\'llab-quvvatlash',
   'Кто пишет текст заключения (/health)': 'Xulosa matnini kim yozadi (/health)',
-  'Текст заключения: …': 'Xulosa matni: …',
+  'Условия использования CardioVision': 'CardioVision dan foydalanish shartlari',
+  'Перед началом работы прочитайте и подтвердите:': 'Ishni boshlashdan oldin o\'qing va tasdiqlang:',
+  'CardioVision — вспомогательный инструмент поддержки решений врача. Результат — это не медицинское заключение и не диагноз.': 'CardioVision — shifokor qarorlarini qo\'llab-quvvatlovchi yordamchi vosita. Natija tibbiy xulosa ham, tashxis ham emas.',
+  'Система может ошибаться: пропустить находку или показать ложную. Каждый результат врач обязан проверить по исходной записи ЭКГ.': 'Tizim xato qilishi mumkin: topilmani o\'tkazib yuborishi yoki noto\'g\'ri ko\'rsatishi mumkin. Har bir natijani shifokor asl EKG yozuvi bo\'yicha tekshirishi shart.',
+  'Решения о диагнозе, лечении и тактике принимает только врач. Ответственность за эти решения несёт врач и медицинская организация.': 'Tashxis, davolash va taktika bo\'yicha qarorlarni faqat shifokor qabul qiladi. Bu qarorlar uchun javobgarlik shifokor va tibbiy muassasa zimmasida.',
+  'Нельзя принимать клинические решения только на основании результата CardioVision. При угрозе жизни действуйте по клиническим протоколам, не дожидаясь разбора.': 'Faqat CardioVision natijasi asosida klinik qaror qabul qilish mumkin emas. Hayotga xavf bo\'lsa, tahlilni kutmasdan klinik protokollar bo\'yicha harakat qiling.',
+  'Сервис предназначен для медицинских работников. Он не предназначен для самодиагностики пациентами.': 'Xizmat tibbiyot xodimlari uchun mo\'ljallangan. U bemorlarning o\'z-o\'ziga tashxis qo\'yishi uchun emas.',
+  'Не загружайте данные, по которым можно установить личность пациента (ФИО, номер карты).': 'Bemor shaxsini aniqlash mumkin bo\'lgan ma\'lumotlarni (F.I.Sh., karta raqami) yuklamang.',
+  'Я медицинский работник, прочитал(а) условия и принимаю их': 'Men tibbiyot xodimiman, shartlarni o\'qidim va qabul qilaman',
+  'Принимаю': 'Qabul qilaman',
+  'Тема': 'Mavzu',
+  'Не является медицинским заключением.': 'Tibbiy xulosa emas.',
+  'CardioVision — инструмент поддержки решений врача; результат может быть ошибочным и требует проверки по записи ЭКГ. Окончательное решение принимает врач.': 'CardioVision — shifokor qarorlarini qo\'llab-quvvatlash vositasi; natija xato bo\'lishi mumkin va EKG yozuvi bo\'yicha tekshirishni talab qiladi. Yakuniy qarorni shifokor qabul qiladi.',
   'Снимок или файл ЭКГ': 'EKG surati yoki fayli',
   'Нажмите, чтобы выбрать фото': 'Suratni tanlash uchun bosing',
   'с телефона или компьютера — или перетащите сюда': 'telefon yoki kompyuterdan — yoki shu yerga torting',
@@ -543,6 +608,16 @@ const UZ = {
   '↺ Повернуть влево': '↺ Chapga burish',
   '↻ Повернуть вправо': '↻ O\'ngga burish',
   'Строки уже идут слева направо': 'Qatorlar allaqachon chapdan o\'ngga boradi',
+  'Вход через Telegram — ключ не нужен.': 'Telegram orqali kirish — kalit kerak emas.',
+  'Нет доступа: откройте приложение из бота, где вам дан доступ.':
+    'Ruxsat yo\'q: ilovani sizga ruxsat berilgan bot orqali oching.',
+  'Выбрано: ': 'Tanlandi: ',
+  'нажмите ещё раз, чтобы добавить фото': 'yana surat qo\'shish uchun yana bosing',
+  'Убрать': 'Olib tashlash',
+  'Ссылка содержит другой ключ клиники. Заменить сохранённый ключ?':
+    'Havolada boshqa klinika kaliti bor. Saqlangan kalit almashtirilsinmi?',
+  'Введите ключ клиники один раз — он сохранится в Telegram на этом устройстве.':
+    'Klinika kalitini bir marta kiriting — u shu qurilmadagi Telegram\'da saqlanadi.',
   'Фото всё ещё вертикальное — поверните ещё раз.': 'Surat hali ham vertikal — yana bir marta burang.',
   'Повёрнуто. Проверьте по предпросмотру: строки идут слева направо и подписи отведений не вверх ногами. Если перевёрнуто — нажмите поворот ещё два раза.':
     'Burildi. Oldindan ko\'rishda tekshiring: qatorlar chapdan o\'ngga boradi va tarmoq yozuvlari teskari emas. Agar teskari bo\'lsa — burishni yana ikki marta bosing.',
@@ -650,10 +725,16 @@ const KEY = 'cardiolens_key';
 (function () {
   try {
     const u = new URL(location.href);
-    const hk = (u.hash.match(/[#&]key=([^&]+)/) || [])[1];
-    const k = u.searchParams.get('key') || (hk ? decodeURIComponent(hk) : null);
-    if (k) { localStorage.setItem(KEY, k); u.searchParams.delete('key');
-      history.replaceState(null, '', u.pathname + u.search); }
+    // D349 (review): inside Telegram a link never sets the key (any bot can open the site with its own address), and
+    // anywhere a link never silently replaces a different key already kept here — the doctor is asked first.
+    const inTelegram = /[#&]tgWebApp(Platform|Version)=/.test(u.hash);
+    const hk = inTelegram ? null : (u.hash.match(/[#&]key=([^&]+)/) || [])[1];
+    const k = inTelegram ? null : (u.searchParams.get('key') || (hk ? decodeURIComponent(hk) : null));
+    const had = localStorage.getItem(KEY);
+    if (k && (!had || had === k || confirm(t('Ссылка содержит другой ключ клиники. Заменить сохранённый ключ?')))) {
+      localStorage.setItem(KEY, k);
+    }
+    if (k) { u.searchParams.delete('key'); history.replaceState(null, '', u.pathname + u.search); }
     $('apikey').value = localStorage.getItem(KEY) || '';
   } catch (e) {}
   keyStatus();
@@ -662,13 +743,28 @@ $('apikey').addEventListener('change', () => {
   try { localStorage.setItem(KEY, $('apikey').value.trim()); } catch (e) {}
   keyStatus();
 });
+function tgInitData() {
+  try { return new URLSearchParams((location.hash || '').replace(/^#/, '')).get('tgWebAppData') || null; } catch (e) { return null; }
+}
 function keyStatus() {
+  if (!$('apikey').value.trim() && tgInitData()) {       // D350: signed in by Telegram, no key needed
+    $('keyhint').textContent = t('Вход через Telegram — ключ не нужен.');
+    return;
+  }
   const has = !!$('apikey').value.trim();
-  $('keyhint').textContent = t(has ? 'Ключ сохранён в этом браузере.' : 'Без ключа клиники анализ не запустится.');
+  const inTg = /[#&]tgWebApp(Platform|Version)=/.test(location.hash);
+  $('keyhint').textContent = t(has ? 'Ключ сохранён в этом браузере.'
+    : inTg ? 'Введите ключ клиники один раз — он сохранится в Telegram на этом устройстве.' : 'Без ключа клиники анализ не запустится.');
   if (!has) $('svc').open = true;
 }
 function authed(url, opts = {}) {
-  return fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-API-Key': $('apikey').value.trim() } });
+  // D272: no request leaves the page before the terms are accepted.
+  if (typeof termsAccepted === 'function' && !termsAccepted()) { showConsent(); return Promise.reject(new Error('terms not accepted')); }
+  // D350: inside Telegram without a key the doctor signs in with Telegram's signed launch data — sent to this server
+  // only, in a header only (never in an address, a log, a link or the history).
+  const key = $('apikey').value.trim(), init = key ? null : tgInitData();
+  const auth = key ? { 'X-API-Key': key } : init ? { 'X-Telegram-Init-Data': init } : { 'X-API-Key': '' };
+  return fetch(url, { ...opts, headers: { ...(opts.headers || {}), ...auth } });
 }
 async function blobUrl(url) {
   const r = await authed(url);
@@ -678,9 +774,35 @@ async function blobUrl(url) {
 
 // Step 1: the file picker and the drop zone.
 const drop = $('drop'), files = $('files');
+// D351: the photos of one ECG are gathered — a new choice ADDS to the earlier ones (Telegram's file window gives one
+// at a time), the same file is not added twice, any one can be removed. The input always holds the whole set.
+let kept = [];
+const sameFile = (a, b) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+function syncFiles() {
+  const dt = new DataTransfer(); kept.forEach(f => dt.items.add(f)); files.files = dt.files; showChosen();
+}
+let freshSet = false;    // D351 (review): after a result the next choice starts a new set — never another patient's photo
+function addFiles(list) {
+  if (freshSet) { kept = []; freshSet = false; }
+  for (const f of list) if (!kept.some(k => sameFile(k, f))) kept.push(f);
+  syncFiles();
+}
 function showChosen() {
   const names = [...files.files].map(f => f.name);
-  $('chosen').textContent = names.length ? '✓ ' + names.join(', ') : '';
+  const box = $('chosen'); box.textContent = '';
+  if (names.length) {
+    const head = document.createElement('div');
+    head.textContent = t('Выбрано: ') + names.length + (names.length > 1 ? '' : ' · ' + t('нажмите ещё раз, чтобы добавить фото'));
+    box.appendChild(head);
+    kept.forEach((f, i) => {
+      const row = document.createElement('div');
+      row.textContent = '✓ ' + f.name + ' ';
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'linkbtn'; x.textContent = '✕'; x.setAttribute('aria-label', t('Убрать'));
+      x.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); kept.splice(i, 1); syncFiles(); });
+      row.appendChild(x); box.appendChild(row);
+    });
+  }
   if (names.length) $('case').value = '';
   // D210 (UI P1): rate and units matter for a CSV record only.
   $('csvrow').classList.toggle('hidden', !names.some(n => /\.(csv|txt)$/i.test(n)));
@@ -727,8 +849,7 @@ async function rotateBy(deg) {
     if (!blob) throw new Error('no blob');
     const f = new File([blob], rot.file.name.replace(/\.[^.]+$/, '') + '_rotated.jpg', { type: 'image/jpeg' });
     rot.file = f;
-    const dt = new DataTransfer(); dt.items.add(f); files.files = dt.files;
-    $('chosen').textContent = '✓ ' + f.name;
+    kept = [f]; syncFiles();
     showRotPreview(f);
     rot.pending = c.height > 1.15 * c.width;
     // The upside-down page reads too, with mirrored QRS (SD-074): the user checks it.
@@ -818,7 +939,8 @@ async function camCheck() {
     fd.append('parts', $('campartsbox').checked ? 'true' : 'false');
     const r = await authed('/api/capture/check', { method: 'POST', body: fd });
     if (!r.ok) { $('camhint').textContent = r.status === 401 || r.status === 403
-        ? 'Нужен ключ клиники (раздел «Служебное»).' : t('Проверка кадра недоступна — можно снять вручную.'); return; }
+        ? (tgInitData() && !$('apikey').value.trim() ? t('Нет доступа: откройте приложение из бота, где вам дан доступ.')
+           : 'Нужен ключ клиники (раздел «Служебное»).') : t('Проверка кадра недоступна — можно снять вручную.'); return; }
     const d = await r.json();
     camDraw(d, c.width, c.height);
     // D177: what is in view is told apart on the server; a sheet too big to take whole
@@ -833,6 +955,10 @@ async function camCheck() {
     } else {
       cam.okRun = 0; hint.classList.remove('ok');
       hint.textContent = d.hints.map(h => L(h.ru, h.uz || h.ru)).join(' ');
+    }
+    if (d.distance && !d.ok) {                 // D344: how far from the sheet, in numbers when the scale is sure
+      const dl = L(d.distance.ru, d.distance.uz || d.distance.ru);
+      if (!hint.textContent.includes(dl)) hint.textContent = (hint.textContent + ' ' + dl).trim();
     }
   } catch (e) { /* a lost frame: the next one tries again */ }
   finally { cam.busy = false; }
@@ -852,7 +978,18 @@ function camDraw(d, fw, fh) {
   for (const [x, y, sx, sy] of [[gx, gy, 1, 1], [gx + gw, gy, -1, 1], [gx, gy + gh, 1, -1], [gx + gw, gy + gh, -1, -1]]) {
     g.beginPath(); g.moveTo(x, y + sy * c); g.lineTo(x, y); g.lineTo(x + sx * c, y); g.stroke();
   }
-  if (d.corners) {
+  if (d.grid && d.grid.period_px > 2) {          // D344 part 2: the 5-mm grid as the server reads it, over the video
+    const P = d.grid.period_px, [px, py] = d.grid.phase_px, [sx, sy] = d.grid.slope;
+    g.strokeStyle = 'rgba(76,175,80,0.45)'; g.lineWidth = 1; g.beginPath();
+    for (let x0 = px - Math.ceil((px + Math.abs(sx) * fh) / P) * P; x0 < fw + Math.abs(sx) * fh; x0 += P) {
+      g.moveTo(ox + x0 * k, oy); g.lineTo(ox + (x0 + sx * fh) * k, oy + fh * k);
+    }
+    for (let y0 = py - Math.ceil((py + Math.abs(sy) * fw) / P) * P; y0 < fh + Math.abs(sy) * fw; y0 += P) {
+      g.moveTo(ox, oy + y0 * k); g.lineTo(ox + fw * k, oy + (y0 + sy * fw) * k);
+    }
+    g.stroke();
+  }
+  if (d.corners && d.sheet_whole !== false) {     // D344: an outline of a sheet that is not whole misled the owner
     g.strokeStyle = d.ok ? '#4caf50' : '#ffb300'; g.lineWidth = 4; g.beginPath();
     d.corners.forEach(([x, y], i) => (i ? g.lineTo : g.moveTo).call(g, ox + x * k, oy + y * k));
     g.closePath(); g.stroke();
@@ -871,9 +1008,7 @@ async function camShot() {
 }
 function camDone() {
   if (cam.shots.length) {
-    const dt = new DataTransfer();
-    cam.shots.forEach(f => dt.items.add(f));
-    files.files = dt.files; showChosen();
+    addFiles(cam.shots);                      // D351: the camera's shots join the chosen photos
   }
   camClose();
 }
@@ -882,10 +1017,10 @@ $('camopen').addEventListener('click', camOpen);
 $('camclose').addEventListener('click', camClose);
 $('camshot').addEventListener('click', camShot);
 $('camdone').addEventListener('click', camDone);
-files.addEventListener('change', showChosen);
+files.addEventListener('change', () => addFiles([...files.files]));   // D351: added to, not replaced
 ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
-drop.addEventListener('drop', e => { files.files = e.dataTransfer.files; showChosen(); });
+drop.addEventListener('drop', e => { addFiles(e.dataTransfer.files); });
 
 // D210 P4: speed and gain segments write the hidden selects the form reads (D179).
 document.querySelectorAll('.seg4').forEach(grp => {
@@ -949,23 +1084,7 @@ async function loadCases() {
   } catch (e) {}
 }
 
-const PROVIDER_RU = { local: 'локальная модель', claude: 'Claude', stub: 'офлайн-шаблон' };
-const PROVIDER_UZ = { local: 'mahalliy model', claude: 'Claude', stub: 'oflayn shablon' };
-function providerLabel(name, model) {
-  return (L(PROVIDER_RU[name], PROVIDER_UZ[name]) || name) + (model ? ' · ' + model : '');
-}
-async function loadHealth() {
-  try {
-    const r = await fetch('/health'); const d = await r.json(); const l = d.llm || {};
-    const el = $('llm'); el.className = 'llm ' + (l.active || 'stub');
-    const ml = d.ml || {};
-    el.textContent = L('Текст заключения: ', 'Xulosa matni: ') + providerLabel(l.active, l.model) +
-      L(' · анализ: ', ' · tahlil: ') + (ml.model === 'loaded' ? L('правила + обученная модель', 'qoidalar + o\'qitilgan model')
-                                                            : L('правила (модель не загружена)', 'qoidalar (model yuklanmagan)'));
-    el.title = L('Анализ ЭКГ делает CardioVision; эта модель только пишет текст по его находкам',
-                 'EKG tahlilini CardioVision bajaradi; bu model faqat uning topilmalari bo\'yicha matn yozadi');
-  } catch (e) { $('llm').textContent = L('Текст заключения: ?', 'Xulosa matni: ?'); }
-}
+async function loadHealth() { /* D272: the model badge is gone from the page; /health stays for monitoring. */ }
 
 // What the page says while the server works (D210 P2). The server reports no stages, so none are
 // invented: one sentence, the elapsed seconds, and after 10 s that it takes longer than usual. The
@@ -1010,7 +1129,7 @@ $('run').addEventListener('click', async () => {
   const age = parseFloat($('age').value);
   if (!(age >= 0 && age <= 120)) { $('err').textContent = t('Укажите возраст пациента.'); $('age').focus(); return; }
   if (!sex) { $('err').textContent = t('Укажите пол пациента.'); return; }
-  if (!$('apikey').value.trim()) { $('err').textContent = t('Нужен ключ клиники — его выдаёт администратор (раздел «Служебное»).'); $('svc').open = true; return; }
+  if (!$('apikey').value.trim() && !tgInitData()) { $('err').textContent = t('Нужен ключ клиники — его выдаёт администратор (раздел «Служебное»).'); $('svc').open = true; return; }
 
   fd.append('mode', $('mode').value);
   // D179: the speed and gain printed on the strip, when the user gives them.
@@ -1030,7 +1149,10 @@ $('run').addEventListener('click', async () => {
   let ok = false;
   try {
     const r = await authed('/api/analyze', { method: 'POST', body: fd });
-    if (r.status === 401) { $('svc').open = true; throw new Error(t('ключ клиники не подходит — проверьте его в разделе «Служебное»')); }
+    if (r.status === 401) {
+      if (!$('apikey').value.trim() && tgInitData()) throw new Error(t('Нет доступа: откройте приложение из бота, где вам дан доступ.'));
+      $('svc').open = true; throw new Error(t('ключ клиники не подходит — проверьте его в разделе «Служебное»'));
+    }
     if (!r.ok) {
       let detail = r.statusText;
       try { detail = (await r.json()).detail || detail; } catch (e) {}
@@ -1049,6 +1171,7 @@ let lastData = null;
 function render(d, redraw = false) {
   $('results').classList.remove('hidden');
   lastData = d;                                           // D200: re-drawn on a language switch
+  if (!redraw) freshSet = true;                                        // D351: a new result — the next photo chosen begins a new set
   const modeLabel = { A: 'Готово — заключение для врача', B: 'Готово — автономное заключение',
     escalate: '⚠ Требуется просмотр врача' };
   const b = $('banner'); b.className = 'banner ' + d.mode;
@@ -1072,11 +1195,9 @@ function render(d, redraw = false) {
   const rate = gate && (gate.evidence || []).find(e => e.feature === 'rate_released_bpm');
   if (unreliable && rate && (d.findings || []).every(f => !['no_ecg_signal', 'amplitude_implausible'].includes(f.code))) {
     $('meas').innerHTML = `<tr><td>${L('ЧСС', 'YuQS')}</td><td>${esc(rate.value)} ${L('/мин', '/daq')}</td><td colspan="2" class="muted">${L('по полосе II', 'II tasma bo\'yicha')}</td></tr>
-    <tr><td colspan="4">${L('Ось, вольтаж и интервалы не приводятся: отведения конечностей прочитаны ненадёжно. Переснимите ЭКГ.', 'O\'q, voltaj va intervallar keltirilmaydi: oyoq-qo\'l tarmoqlari ishonchsiz o\'qildi. EKGni qayta suratga oling.')}</td></tr>
-    <tr><td>${L('Уверенность', 'Ishonch')}</td><td colspan="3">${d.interpretation.confidence.value} (${L(d.interpretation.confidence.word_ru, d.interpretation.confidence.word_uz)})</td></tr>`;
+    <tr><td colspan="4">${L('Ось, вольтаж и интервалы не приводятся: отведения конечностей прочитаны ненадёжно. Переснимите ЭКГ.', 'O\'q, voltaj va intervallar keltirilmaydi: oyoq-qo\'l tarmoqlari ishonchsiz o\'qildi. EKGni qayta suratga oling.')}</td></tr>`;
   } else if (unreliable) {
-    $('meas').innerHTML = `<tr><td colspan="4">${L('Измерения не приводятся: снимок распознан ненадёжно. Переснимите ЭКГ.', 'O\'lchovlar keltirilmaydi: surat ishonchsiz o\'qildi. EKGni qayta suratga oling.')}</td></tr>
-    <tr><td>${L('Уверенность', 'Ishonch')}</td><td colspan="3">${d.interpretation.confidence.value} (${L(d.interpretation.confidence.word_ru, d.interpretation.confidence.word_uz)})</td></tr>`;
+    $('meas').innerHTML = `<tr><td colspan="4">${L('Измерения не приводятся: снимок распознан ненадёжно. Переснимите ЭКГ.', 'O\'lchovlar keltirilmaydi: surat ishonchsiz o\'qildi. EKGni qayta suratga oling.')}</td></tr>`;
   } else $('meas').innerHTML = `
     <tr><td>${L('ЧСС', 'YuQS')}</td><td>${m.heart_rate_bpm ?? '—'} ${L('/мин', '/daq')}</td>
         <td>PR</td><td>${iv.pr_ms ?? '—'} ${L('мс', 'ms')}</td></tr>
@@ -1093,21 +1214,26 @@ function render(d, redraw = false) {
     .map(f => `<span class="chip ${f.critical ? 'crit' : ''}">${esc(L(f.label_ru, f.label_uz) + leadSuffix(f))}</span>`).join('') || '<span class="muted">—</span>';
 
   if (!redraw) { $('wave').removeAttribute('src'); $('graph').removeAttribute('src'); }
-  blobUrl(`/api/analysis/${d.analysis_id}/waveform.svg`).then(u => { $('wave').src = u; }).catch(() => {});
-  blobUrl(`/api/analysis/${d.analysis_id}/graph.png`).then(u => { $('graph').src = u; }).catch(() => {});
+  // D343: a PHOTO under a reliability gate gets no drawn trace (it is not the patient's ECG); an empty graph is not shown.
+  const noTrace = unreliable && d.digitized_from_image;
+  const hasGraph = ((d.causal_graph || {}).edges || []).length > 0;
+  $('wave').parentElement.classList.toggle('hidden', !!noTrace);
+  $('graph').parentElement.classList.toggle('hidden', !hasGraph);
+  if (!noTrace) blobUrl(`/api/analysis/${d.analysis_id}/waveform.svg`).then(u => { $('wave').src = u; }).catch(() => {});
+  if (hasGraph) blobUrl(`/api/analysis/${d.analysis_id}/graph.png`).then(u => { $('graph').src = u; }).catch(() => {});
   $('concl_ru').textContent = (concLang === 'uz') ? d.conclusion_uz : d.conclusion_ru;   // D210 P2: RU | UZ switch
   $('cl_ru').setAttribute('aria-pressed', String(concLang === 'ru'));
   $('cl_uz').setAttribute('aria-pressed', String(concLang === 'uz'));
   $('concl_uz').textContent = L(d.conclusion_uz, d.conclusion_ru);
   const it = d.interpretation;
-  $('narr_src').textContent = L('Текст: ', 'Matn: ') + providerLabel(it.provider, it.provider_model) +
-    L(' · каждое утверждение проверено по находкам', ' · har bir da\'vo topilmalar bo\'yicha tekshirilgan');
+  $('narr_src').textContent = L('Каждое утверждение текста проверено по находкам', 'Matndagi har bir da\'vo topilmalar bo\'yicha tekshirilgan');
   // A photo the scanner read (D163): the traces it read, drawn over the page.
   $('overlay_box').classList.toggle('hidden', !d.overlay_available);
   $('overlay').removeAttribute('src');
   if (d.overlay_available) blobUrl(`/api/analysis/${d.analysis_id}/overlay.jpg`)
     .then(u => { $('overlay').src = u; }).catch(() => $('overlay_box').classList.add('hidden'));
-  $('trace').innerHTML = (it.reasoning_trace || []).map(t => `<li>${esc(t)}</li>`).join('');
+  // D343: the engine's raw log (codes, model line) is for the JSON; under a gate there is no reasoning to show.
+  $('trace').innerHTML = unreliable ? '' : (it.reasoning_trace || []).filter(t => !t.startsWith('narrative by ')).map(t => `<li>${esc(t)}</li>`).join('');
   $('pdf').removeAttribute('href');
   blobUrl(`/api/analysis/${d.analysis_id}/report.pdf`).then(u => {
     $('pdf').href = u; $('pdf').download = `cardiolens_${d.analysis_id}.pdf`;
@@ -1212,7 +1338,7 @@ function showCursor(x, y) {
   if (!V.data) return;
   const a = viewerAt(x, y); V.cursor = { x: a.x, y };
   const H = 25 * V.px * V.rows.length;
-  $('ecgcur').innerHTML = `<line x1="${a.x}" x2="${a.x}" y1="0" y2="${H}" stroke="#1d5f99" stroke-width="1"/>`;
+  $('ecgcur').innerHTML = `<line x1="${a.x}" x2="${a.x}" y1="0" y2="${H}" stroke="#8B5CF6" stroke-width="1"/>`;
   // The ruler's result stays; the crosshair's reading goes after it.
   const cur = `${a.row.name}: t = ${Math.round((a.row.t0 + a.t) * 1000)} ${L('мс', 'ms')}, ${a.mv.toFixed(2)} ${L('мВ', 'mV')}`;
   $('ecgread').textContent = V.ruler ? `${V.ruler} · ${cur}` : cur;
@@ -1325,7 +1451,7 @@ for (const [id, other] of [['tab_res', 'tab_lab'], ['tab_lab', 'tab_res']])
 // D210 P2: "re-take" keeps the patient (and says so, so the data never drift to another patient);
 // "new patient" clears the form and the result. The clinic key, the language and the mode stay.
 function clearFile() {
-  files.value = ''; $('chosen').textContent = ''; $('filewarn').textContent = '';
+  kept = []; files.value = ''; $('chosen').textContent = ''; $('filewarn').textContent = '';
   rot.pending = false; $('rotbox').classList.add('hidden'); $('csvrow').classList.add('hidden');
   $('results').classList.add('hidden'); $('err').textContent = ''; lastData = null; lastId = null;
 }
@@ -1469,17 +1595,66 @@ function setLang(l) {
   lang = l; concLang = l;
   try { localStorage.setItem('cardiolens_lang_v1', l); } catch (e) {}
   applyLang(); fillPrior(); fillHistory(); loadHealth();
-  const hasKey = !!$('apikey').value.trim();
-  $('keyhint').textContent = t(hasKey ? 'Ключ сохранён в этом браузере.' : 'Без ключа клиники анализ не запустится.');
+  keyStatus();                                   // D350: the Telegram sign-in line survives a language change
   if (lastData) render(lastData, true);
 }
+// D272: the consent gate. The acceptance is kept in this browser with the terms' version; a new version asks again.
+const TERMS_KEY = 'cardiovision_terms_v1';
+function termsAccepted() { try { return localStorage.getItem(TERMS_KEY) === 'yes'; } catch (e) { return false; } }
+function showConsent() {
+  const ok = termsAccepted();
+  $('consent').hidden = ok;
+  document.querySelector('.wrap').inert = !ok;
+}
+$('consent_chk').addEventListener('change', () => { $('consent_ok').disabled = !$('consent_chk').checked; });
+$('consent_ok').addEventListener('click', () => {
+  if (!$('consent_chk').checked) return;
+  try { localStorage.setItem(TERMS_KEY, 'yes'); } catch (e) {}
+  $('consent').hidden = true; document.querySelector('.wrap').inert = false;
+  document.dispatchEvent(new Event('cardiovision-consent'));
+});
+showConsent();
+// D272: light by default, dark by the button.
+function setTheme(th) {
+  if (th === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  try { localStorage.setItem('cardiovision_theme_v1', th); } catch (e) {}
+}
+try { if (localStorage.getItem('cardiovision_theme_v1') === 'dark') setTheme('dark'); } catch (e) {}
+$('theme_btn').addEventListener('click', () => setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
 $('lang_ru').addEventListener('click', () => setLang('ru'));
 $('lang_uz').addEventListener('click', () => setLang('uz'));
 applyLang();
 
+// D349: the same page opened from the bot as a Telegram Mini App. Telegram puts its launch parameters after «#»;
+// only the platform and the version are read here; the signed user data (tgWebAppData) is read by tgInitData() alone
+// and sent only to this server in the X-Telegram-Init-Data header (D350).
+const TG_WEB = 'https://web.telegram.org';
+const tgApp = (function () {
+  try {
+    const q = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+    const platform = q.get('tgWebAppPlatform'), version = q.get('tgWebAppVersion');
+    return platform || version ? { platform: platform || '', version: version || '' } : null;
+  } catch (e) { return null; }
+})();
+function tgEvent(name) {
+  const body = JSON.stringify({ eventType: name, eventData: {} });
+  try {
+    if (window.TelegramWebviewProxy) { window.TelegramWebviewProxy.postEvent(name, '{}'); return; }
+    if (window.parent !== window) window.parent.postMessage(body, TG_WEB);    // Telegram Web shows the app in a frame
+  } catch (e) { /* not Telegram after all */ }
+}
+if (tgApp) {
+  document.body.classList.add('tg');
+  tgEvent('web_app_ready');
+  tgEvent('web_app_expand');
+  keyStatus();                                   // D350: no key panel needed — Telegram signs the doctor in
+}
+
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
-loadCases();
+// D272: even the list of demo cases waits for the consent.
+if (termsAccepted()) loadCases(); else document.addEventListener('cardiovision-consent', loadCases, { once: true });
 loadHealth();
 </script>
 </body>

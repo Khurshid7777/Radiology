@@ -21,6 +21,19 @@ from cardiolens.layer6_interpret.provider import InterpretationInput, LLMProvide
 from cardiolens.layer6_interpret.stub import StubProvider
 from cardiolens.safety.critical import SafetyResult
 
+GATED_CODES = ("photo_unreliable", "no_ecg_signal", "amplitude_implausible")     # as outputs.display.GATED
+RETAKE_PAPER = (
+    ("Переснимите ЭКГ: весь лист в кадре и ближе — клетки сетки должны быть чётко видны; ровно, без бликов и теней. "
+    "Отправьте как файл (не сжатое фото) и повторите анализ."),
+    ("EKGni qayta suratga oling: varaq kadrga to‘liq sig‘sin va yaqinroqdan — katak chiziqlari aniq ko‘rinsin; tekis, "
+    "yaltirashsiz va soyasiz. Fayl sifatida yuboring (siqilgan rasm emas) va tahlilni takrorlang."))
+RETAKE_SCREEN = (
+    "Переснимите экран прибора: экран целиком в кадре, резко и без бликов; затем повторите анализ.",
+    "Qurilma ekranini qayta suratga oling: ekran kadrga to‘liq sig‘sin, aniq va yaltirashsiz; so‘ng tahlilni takrorlang.")
+RECHECK_RECORD = (
+    "Сначала оцените пациента; затем проверьте запись (электроды, единицы и масштаб файла) и повторите анализ.",
+    "Avval bemorni baholang; so‘ng yozuvni tekshiring (elektrodlar, fayl birliklari va masshtabi) va tahlilni takrorlang.")
+
 
 def default_provider(prefer_claude: bool = True, llm=None) -> LLMProvider:
     """Pick the narrative provider from the ``llm`` config (or auto-detect)."""
@@ -72,9 +85,18 @@ def interpret(
     min_overall: float,
     quality_ok: bool,
     digitized: bool = False,
+    screen: bool = False,
 ) -> InterpretationReport:
     provider = provider or default_provider()
+    # D343: a record under a reliability gate has nothing to interpret (measurements are withheld) — the narrative is the
+    # deterministic one and the next step is fixed: a model's free text there printed internal field names and told the
+    # owner of a paper strip to "fill the frame with the screen".
+    gated = bool(data.findings.codes() & set(GATED_CODES))
+    if gated:
+        provider = StubProvider()
     report = provider.generate(data)
+    if gated:
+        report.next_step_ru, report.next_step_uz = (RETAKE_SCREEN if screen else RETAKE_PAPER) if digitized else RECHECK_RECORD
 
     validate_grounding(report, data)
 

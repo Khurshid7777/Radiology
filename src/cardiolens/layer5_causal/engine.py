@@ -138,6 +138,9 @@ def _standalone_codes() -> set[str]:
         "left_atrial_enlargement", "right_atrial_enlargement",
         "st_elevation_nonspecific", "secondary_st_t_change", "st_elevation_any",
         "lvh_probable", "rvh",
+        # Descriptive findings that stand alone by design (pre-deploy review 16.11: without this they read as
+        # "implausible, maybe an artefact" — D258 rr_pause_af, D282, D284, D292).
+        "rr_pause_af", "electrical_alternans", "ectopic_atrial_rhythm", "probable_av_block_2to1",
     }
 
 

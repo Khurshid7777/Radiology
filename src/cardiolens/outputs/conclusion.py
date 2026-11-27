@@ -6,7 +6,10 @@ and Uzbek, with the visible reasoning trace (TZ §9 "Reasoning trace обяза�
 
 from __future__ import annotations
 
+from cardiolens.outputs.display import GATED
 from cardiolens.pipeline import PipelineResult
+
+MODEL_LINE = ("narrative by ",)
 
 _MODE_LABEL = {
     "A": ("Режим A — поддержка решений врача", "A rejim — shifokor qarorini qo'llab-quvvatlash"),
@@ -88,11 +91,13 @@ def format_conclusion(result: PipelineResult, lang: str = "ru") -> str:
                          if is_ru else f"  QTcΔ = {result.serial.qtc_delta_ms} ms")
 
     lines.append("")
-    conf_word = r.confidence_word_ru if is_ru else r.confidence_word_uz
-    lines.append(
-        (f"Уверенность: {r.confidence_value:.2f} ({conf_word})") if is_ru
-        else (f"Ishonch: {r.confidence_value:.2f} ({conf_word})")
-    )
+    gated = bool(result.findings.codes() & set(GATED))
+    if not gated:        # D343: under a reliability gate there is no conclusion to be confident in
+        conf_word = r.confidence_word_ru if is_ru else r.confidence_word_uz
+        lines.append(
+            (f"Уверенность: {r.confidence_value:.2f} ({conf_word})") if is_ru
+            else (f"Ishonch: {r.confidence_value:.2f} ({conf_word})")
+        )
     lines.append(("Следующий шаг: " if is_ru else "Keyingi qadam: ")
                  + (r.next_step_ru if is_ru else r.next_step_uz))
 
@@ -102,9 +107,13 @@ def format_conclusion(result: PipelineResult, lang: str = "ru") -> str:
         # The offline narrative's trace is the engine's own log (finding codes, edge ids):
         # kept in the JSON for audit, said here in words (D174).
         lines.append("  - " + _offline_trace_line(result, is_ru))
-    else:
+    elif is_ru:
         for t in r.reasoning_trace:
-            lines.append("  - " + t)
+            if not t.startswith(MODEL_LINE):     # D343: which model wrote it stays in the JSON (audit), not in the text
+                lines.append("  - " + t)
+    else:                # D343: the model reasons in one language; its Russian lines are not printed as Uzbek
+        lines.append("  - Mulohaza til modeli yordamida tuzilgan (tafsilotlari rus tilida). "
+                     "Har bir da‘vo yozuv o‘lchovlariga tayanadi.")
 
     lines.append("")
     lines.append(r.disclaimer_ru if is_ru else r.disclaimer_uz)

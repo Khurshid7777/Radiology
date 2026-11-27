@@ -50,7 +50,8 @@ def test_sharp_strip_has_no_conflict(sig, tmp_path):
     assert "(по ненадёжному снимку)" not in _card(r)
 
 
-def test_narrative_model_gets_no_numbers_from_an_unreliable_photo(sig, tmp_path):
+def test_narrative_model_gets_no_numbers_from_an_unreliable_photo(sig, tmp_path, monkeypatch):
+    import cardiolens.layer6_interpret as layer6
     from cardiolens.layer6_interpret.claude import ClaudeProvider
     from cardiolens.layer6_interpret.stub import StubProvider
 
@@ -59,10 +60,20 @@ def test_narrative_model_gets_no_numbers_from_an_unreliable_photo(sig, tmp_path)
             self.sent = self._payload(data)
             return StubProvider().generate(data)
 
+    seen = []
+
+    class Recording(StubProvider):
+        def generate(self, data):
+            seen.append(data)
+            return super().generate(data)
+
+    monkeypatch.setattr(layer6, "StubProvider", Recording)
     blurred = degrade_image(render_ecg_strip(sig, tmp_path / "s.png", px_per_mm=4), tmp_path / "b.png", blur_px=3)
     cap = Capture()
     run_pipeline(digitize_strip_to_signal(blurred), mode="A", provider=cap)
-    assert set(cap.sent["measurements"]) == {"withheld"}
+    # D343: under a reliability gate the model is not called at all; were it called, its payload still carries no numbers
+    assert not hasattr(cap, "sent") and len(seen) == 1
+    assert set(cap._payload(seen[0])["measurements"]) == {"withheld"}
     sharp = Capture()
     run_pipeline(sig, mode="A", provider=sharp)
     assert abs(sharp.sent["measurements"]["heart_rate_bpm"] - 60) <= 2

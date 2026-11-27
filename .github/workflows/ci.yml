@@ -25,7 +25,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          # D303: 3.11 is the Python of the site's image and is tested on the exact pinned versions; 3.12 takes the
+          # newest releases on purpose — a red 3.12 with a green 3.11 means "a new release breaks us", the site is safe.
+          if [ "${{ matrix.python-version }}" = "3.11" ]; then
+            pip install -c deploy/constraints.txt -e ".[dev]"
+          else
+            pip install -e ".[dev]"
+          fi
 
       - name: Lint (ruff)
         run: ruff check src tests

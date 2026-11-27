@@ -1,0 +1,14 @@
+--- a/src/cardiolens/pipeline.py	2026-11-15 19:18:19.628194371 +0000
++++ b/src/cardiolens/pipeline.py	2026-11-15 19:18:19.616173287 +0000
+@@ -305,8 +305,9 @@
+     # D282-D284: descriptive wave-5 findings, recordings only (a photo's beat amplitudes and P are the digitiser's).
+     if not sig.provenance.digitized:
+         _codes = findings.codes()
+-        # short_pr_finding (D283) is not wired: not accepted (NORM 3.7 % on fresh PTB-XL, half right on LUDB).
+-        for _f in (alternans_finding(sig, m, _codes), ectopic_atrial_finding(sig, m, _codes)):
++        _adult = sig.patient.age_years is None or sig.patient.age_years >= 18
++        for _f in (alternans_finding(sig, m, _codes), short_pr_finding(m, _codes, _adult),
++                   ectopic_atrial_finding(sig, m, _codes)):
+             if _f is not None:
+                 findings.findings.append(_f)
+                 audit.append(f"[L4] {_f.code} (D282-D284)")

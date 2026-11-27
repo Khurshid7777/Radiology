@@ -1,0 +1,121 @@
+diff --git a/src/cardiolens/layer3_measure/p_morph.py b/src/cardiolens/layer3_measure/p_morph.py
+new file mode 100644
+index 0000000..058671b
+--- /dev/null
++++ b/src/cardiolens/layer3_measure/p_morph.py
+@@ -0,0 +1,63 @@
++"""P-wave morphology from the median beat (D270): is the P sinus-shaped?
++
++Sinus P points down and to the left: upright in II, inverted in aVR, frontal axis about 0-75 deg. A P inverted
++in II (retrograde, low atrial) or with an odd axis and an upright aVR is not sinus. Measured on the median beat
++in the window 300-40 ms before the QRS onset (not earlier than 45 % of the RR), detrended against the straight
++line across the window so a T-wave tail is not taken for P (as the P axis, D99). Chosen on the even Chapman
++records (tools/p_morph/study.py).
++"""
++from __future__ import annotations
++
++import numpy as np
++
++_LIMB_DEG = {"I": 0.0, "II": 60.0, "III": 120.0, "aVR": -150.0, "aVL": -30.0, "aVF": 90.0}
++P_MIN_UV = 10.0          # a P peak below this is not read
++P_SNR_MIN = 2.0          # peak / (5 x the window's sample-to-sample noise)
++SINUS_AXIS = (-15.0, 90.0)
++
++
++def p_morphology(signal: np.ndarray, lead_names: list[str], rpeaks, fs: float) -> dict | None:
++    """Signed P peak and its noise ratio in II and aVR, the P axis; None when it cannot be read."""
++    from cardiolens.layer3_measure.global_beat import global_fiducials, median_beats
++
++    rp = np.asarray(rpeaks, int)
++    if rp.size < 4 or "II" not in lead_names:
++        return None
++    X, a = median_beats(signal, rp, fs)
++    if X is None:
++        return None
++    rr_s = float(np.median(np.diff(rp))) / fs
++    on = global_fiducials(X, a, fs, rr_s)["qrs_on"]
++    p0 = max(0, on - int(0.30 * fs), a - int(0.45 * rr_s * fs))
++    p1 = on - int(0.04 * fs)
++    if p1 - p0 < int(0.04 * fs):
++        return None
++    out: dict = {}
++    area = {}
++    for ln in set(_LIMB_DEG) & set(lead_names):
++        raw = X[lead_names.index(ln)][p0:p1].astype(float)
++        seg = raw - np.linspace(raw[0], raw[-1], raw.size)
++        noise = float(np.std(np.diff(raw))) + 1e-6
++        k = int(np.argmax(np.abs(seg)))
++        out[ln] = (float(seg[k]), float(abs(seg[k]) / (noise * 5)))
++        area[ln] = float(np.mean(seg))
++    xs = sum(v * np.cos(np.radians(_LIMB_DEG[ln])) for ln, v in area.items())
++    ys = sum(v * np.sin(np.radians(_LIMB_DEG[ln])) for ln, v in area.items())
++    axis = float(np.degrees(np.arctan2(ys, xs))) if abs(xs) + abs(ys) > 1e-6 else None
++    return {"II": out.get("II"), "aVR": out.get("aVR"), "axis": axis}
++
++
++def non_sinus_p(pm: dict | None) -> str | None:
++    """'inverted_II' / 'odd_axis' when the P is clearly not sinus-shaped, else None."""
++    if not pm or pm.get("II") is None:
++        return None
++    p2, s2 = pm["II"]
++    if p2 < -P_MIN_UV and s2 >= P_SNR_MIN:
++        return "inverted_II"
++    avr = pm.get("aVR")
++    ax = pm.get("axis")
++    # As tuned: the noise ratio is lead II's (aVR mirrors it), the aVR P only has to be upright.
++    if (avr is not None and ax is not None and avr[0] > P_MIN_UV and s2 >= P_SNR_MIN
++            and not SINUS_AXIS[0] <= ax <= SINUS_AXIS[1]):
++        return "odd_axis"
++    return None
+diff --git a/src/cardiolens/layer4_findings/rules.py b/src/cardiolens/layer4_findings/rules.py
+index f9ed734..539b78a 100644
+--- a/src/cardiolens/layer4_findings/rules.py
++++ b/src/cardiolens/layer4_findings/rules.py
+@@ -115,6 +115,15 @@ def _hr_range(norms: dict[str, Any], patient) -> tuple[float, float] | None:
+     return None
+ 
+ 
++NON_SINUS_P_SVT = True   # D270
++
++
++def _non_sinus_p_kind(sig: SignalRepresentation, m: Measurements) -> str | None:
++    from cardiolens.layer3_measure.p_morph import non_sinus_p, p_morphology
++
++    return non_sinus_p(p_morphology(sig.signal, list(sig.lead_names), m.r_peaks_samples or [], sig.sampling_rate_hz))
++
++
+ WCT_FROM_BBB_PATTERN = True   # D265
+ _BBB_PATTERN_CODES = frozenset({"lbbb", "rbbb", "wide_qrs_nonspecific"})
+ 
+@@ -185,6 +194,20 @@ def detect_findings(
+                              f"ko'rsating: qorincha taxikardiyasini istisno qiling",
+                     evidence=_ev(heart_rate_bpm=hr, qrs_ms=qrs, qrs_min=block, urgent="yes"), confidence=0.6,
+                 ))
++            elif (NON_SINUS_P_SVT and not is_pediatric and qrs is not None and qrs < block
++                    and (kind := _non_sinus_p_kind(sig, m)) is not None):
++                # D270: a tachycardia under the SVT rate whose P is not sinus-shaped (inverted in II, or an odd
++                # axis with an upright aVR P) is an SVT or an atrial tachycardia, not sinus tachycardia.
++                why_ru = "инвертирован во II" if kind == "inverted_II" else "необычная ось"
++                why_uz = "II da manfiy" if kind == "inverted_II" else "g'ayrioddiy o'q"
++                fs.findings.append(Finding(
++                    code="supraventricular_tachycardia", group="rhythm",
++                    label_ru=f"Регулярная тахикардия с несинусовым зубцом P ({why_ru}, ЧСС {hr}/мин) — вероятна НЖТ "
++                             f"или предсердная тахикардия, проверьте по записи",
++                    label_uz=f"Sinusdan tashqari P tishli taxikardiya ({why_uz}, YUT {hr}/daq) — ehtimol SVT yoki "
++                             f"bo'lmacha taxikardiyasi, yozuv bo'yicha tekshiring",
++                    evidence=_ev(heart_rate_bpm=hr, p_shape=kind), confidence=0.6,
++                ))
+             else:
+                 fs.findings.append(Finding(
+                     code="sinus_tachycardia", group="rhythm",
+@@ -441,6 +464,10 @@ def detect_findings(
+     if fs.by_code("lbbb") is None:
+         _brugada_pattern(m, fs)
+ 
++    # D270: the P-shape SVT is a reading of a regular rhythm; where AF / flutter is named it stands down.
++    if fs.codes() & {"atrial_fibrillation", "possible_atrial_fibrillation", "atrial_flutter"}:
++        fs.findings = [f for f in fs.findings if not (f.code == "supraventricular_tachycardia"
++                                                      and any(e.feature == "p_shape" for e in f.evidence))]
+     # D265: a regular tachycardia >= the SVT rate whose complexes carry a bundle-branch-block pattern is a
+     # wide-complex tachycardia — VT until proven otherwise — even when the measured width falls short of
+     # the block threshold (INCART I42: VT 160-184/min, QRS 112-118 ms, read "SVT + LBBB").

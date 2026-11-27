@@ -27,16 +27,19 @@ dependencies = [
 llm = ["anthropic"]
 validation = ["pandas"]
 # Photos of paper ECG; HEIC (iPhone) and PDF are rendered to PNG first (D158).
-digitize = ["opencv-python-headless", "pillow-heif", "pymupdf"]
-telegram = ["telethon", "opencv-python-headless"]
+digitize = ["opencv-python-headless==5.0.0.93", "pillow-heif", "pymupdf"]
+telegram = ["telethon", "opencv-python-headless==5.0.0.93"]
 # DICOM waveform ECG input (D132) and network receiver (D134); MIT.
 dicom = ["pydicom>=2.4", "pynetdicom>=2", "httpx"]
+# D302: OpenCV pinned — 5.1.0.95 (17.11.2026) changed image operations enough that a phone photo of an AF record
+# came out «photo_unreliable» (tests/test_digitize_page.py). rapidocr pulls opencv-python, so both wheels are pinned.
 # ECG scanner (src/ecgscan, docs/scanner): image I/O, ScanResult schema check, header OCR (Apache-2.0).
 # rapidocr-onnxruntime pinned (SD-098): header_ocr swaps in its 1.2.x recogniser; 1.3+ (pip picks
 # 1.4 on Python < 3.13) moved it, which silently turned header OCR off in CI and on the server.
-scanner = ["opencv-python-headless", "jsonschema", "rapidocr-onnxruntime==1.2.3", "cryptography"]
+scanner = ["opencv-python-headless==5.0.0.93", "jsonschema", "rapidocr-onnxruntime==1.2.3", "opencv-python==5.0.0.93", "cryptography"]
 bot = ["aiogram>=3", "httpx"]
-dev = ["pytest", "ruff", "httpx", "opencv-python-headless", "jsonschema", "rapidocr-onnxruntime==1.2.3", "cryptography",
+agents = ["aiogram>=3", "httpx"]   # D279: the agents bot (deploy/Dockerfile.agents)
+dev = ["pytest", "ruff", "httpx", "opencv-python-headless==5.0.0.93", "jsonschema", "rapidocr-onnxruntime==1.2.3", "opencv-python==5.0.0.93", "cryptography",
        "pydicom>=2.4", "pynetdicom>=2", "pillow-heif", "pymupdf", "pypdfium2", "pypdf"]
 
 [tool.setuptools.packages.find]
@@ -44,6 +47,8 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 ecgscan = ["contract/*.json"]
+cardiolens = ["api/static/*.html", "api/static/fonts/*"]
+ecgscan_service = ["static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

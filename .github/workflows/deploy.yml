@@ -99,18 +99,52 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_BOT_ALLOWED: ${{ secrets.TELEGRAM_BOT_ALLOWED }}
+          AGENTS_API_KEY: ${{ secrets.AGENTS_API_KEY }}
+          AGENTS_TG_TOKEN: ${{ secrets.AGENTS_TG_TOKEN }}
+          AGENTS_OWNER_ID: ${{ secrets.AGENTS_OWNER_ID }}
+          AGENTS_GH_TOKEN: ${{ secrets.AGENTS_GH_TOKEN }}
+          AGENTS_TG_COORD: ${{ secrets.AGENTS_TG_COORD }}
+          AGENTS_TG_DEV: ${{ secrets.AGENTS_TG_DEV }}
+          AGENTS_TG_SCAN: ${{ secrets.AGENTS_TG_SCAN }}
+          AGENTS_TG_REVIEW: ${{ secrets.AGENTS_TG_REVIEW }}
+          AGENTS_TG_SEC: ${{ secrets.AGENTS_TG_SEC }}
+          AGENTS_TG_TRIAGE: ${{ secrets.AGENTS_TG_TRIAGE }}
+          AGENTS_TG_NEWS: ${{ secrets.AGENTS_TG_NEWS }}
+          AGENTS_TG_AUDIT: ${{ secrets.AGENTS_TG_AUDIT }}
         run: |
-          printf 'ANTHROPIC_API_KEY=%s\nTELEGRAM_BOT_TOKEN=%s\nTELEGRAM_BOT_ALLOWED=%s\n' \
-            "$ANTHROPIC_API_KEY" "$TELEGRAM_BOT_TOKEN" "$TELEGRAM_BOT_ALLOWED" \
+          printf 'ANTHROPIC_API_KEY=%s\nTELEGRAM_BOT_TOKEN=%s\nTELEGRAM_BOT_ALLOWED=%s\nAGENTS_API_KEY=%s\nAGENTS_TG_TOKEN=%s\nAGENTS_OWNER_ID=%s\nAGENTS_GH_TOKEN=%s\nAGENTS_TG_COORD=%s\nAGENTS_TG_DEV=%s\nAGENTS_TG_SCAN=%s\nAGENTS_TG_REVIEW=%s\nAGENTS_TG_SEC=%s\nAGENTS_TG_TRIAGE=%s\nAGENTS_TG_NEWS=%s\nAGENTS_TG_AUDIT=%s\n' \
+            "$ANTHROPIC_API_KEY" "$TELEGRAM_BOT_TOKEN" "$TELEGRAM_BOT_ALLOWED" "$AGENTS_API_KEY" \
+            "$AGENTS_TG_TOKEN" "$AGENTS_OWNER_ID" "$AGENTS_GH_TOKEN" \
+            "$AGENTS_TG_COORD" "$AGENTS_TG_DEV" "$AGENTS_TG_SCAN" "$AGENTS_TG_REVIEW" "$AGENTS_TG_SEC" "$AGENTS_TG_TRIAGE" "$AGENTS_TG_NEWS" "$AGENTS_TG_AUDIT" \
             | ssh server "cd $APP_DIR && $SUDO bash deploy/server_env.sh $DOMAIN"
           # The bot runs only when its token is set (compose profile "bot", D161).
-          if [ "${{ secrets.TELEGRAM_BOT_TOKEN != '' }}" = "true" ]; then echo "PROFILES=--profile bot" >> "$GITHUB_ENV"; else echo "PROFILES=" >> "$GITHUB_ENV"; fi
+          PROFILES=""
+          if [ "${{ secrets.TELEGRAM_BOT_TOKEN != '' }}" = "true" ]; then PROFILES="--profile bot"; fi
+          echo "PROFILES=$PROFILES" >> "$GITHUB_ENV"
+          # D279: the agents step below runs only when their bot token and the owner's Telegram id are set
+          # (a step's "if" cannot read secrets, so the answer goes through the environment).
+          echo "AGENTS_ON=${{ (secrets.AGENTS_TG_TOKEN != '' || secrets.AGENTS_TG_COORD != '') && secrets.AGENTS_OWNER_ID != '' }}" >> "$GITHUB_ENV"
 
       - name: Build and start
         run: |
           ssh server "cd $APP_DIR && $SUDO bash deploy/server_setup.sh && \
             $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env $PROFILES up -d --build --remove-orphans && \
             $SUDO docker image prune -f"
+          # D341: the Caddyfile is a bind-mounted file — a changed one is not seen until Caddy restarts (compose does not
+          # recreate the container for it). Restart only when the running copy differs (a second of HTTPS downtime).
+          ssh server "cd $APP_DIR && if ! $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env \
+            exec -T caddy cat /etc/caddy/Caddyfile | cmp -s - deploy/Caddyfile; then echo 'Caddyfile changed: restarting caddy'; \
+            $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env restart caddy; fi"
+
+      # D279: the agents container in its own step, after the site is up: if its build fails, the site and the
+      # bot are already updated and running; the deploy is marked, not stopped. Only when the agents bot token and
+      # the owner's Telegram id are set.
+      - name: Agents (separate, does not block the site)
+        if: env.AGENTS_ON == 'true'
+        continue-on-error: true
+        run: |
+          ssh server "cd $APP_DIR && $SUDO docker compose -f deploy/docker-compose.yml --env-file deploy/.env \
+            --profile agents up -d --build --no-deps agents"
 
       - name: The site answers
         run: |

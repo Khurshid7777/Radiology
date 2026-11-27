@@ -11,6 +11,7 @@ from __future__ import annotations
 import functools
 import itertools
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 
 from cardiolens.arrhythmia import (
@@ -24,7 +25,12 @@ from cardiolens.arrhythmia import (
     sinus_arrhythmia_finding,
     vt_run_finding,
 )
-from cardiolens.arrhythmia.vf import detect_vf
+from cardiolens.arrhythmia.descriptive import (
+    alternans_finding,
+    avb_2to1_finding,
+    ectopic_atrial_finding,
+)
+from cardiolens.arrhythmia.vf import VF_SOFT_SHARE_MIN, detect_vf, vf_is_harmonic, vf_soft_share
 from cardiolens.calibration import TemperatureScaler
 from cardiolens.clinical_context import ESCALATING, Advice, advise
 from cardiolens.config import (
@@ -66,7 +72,7 @@ from cardiolens.layer5_causal import analyze
 from cardiolens.layer6_interpret import InterpretationInput, default_provider, interpret
 from cardiolens.layer6_interpret.provider import LLMProvider
 from cardiolens.safety import SafetyResult, scan_critical
-from cardiolens.safety.critical import CriticalAlert
+from cardiolens.safety.critical import SLOW_HINT, CriticalAlert
 from cardiolens.serial import SerialComparison, compare
 from cardiolens.serial.compare import UNRELIABLE as SERIAL_UNRELIABLE
 from cardiolens.serial.compare import skipped as serial_skipped
@@ -130,8 +136,10 @@ def run_pipeline(
     # Ventricular fibrillation / flutter (D204): read off the raw signal, before any QRS search —
     # VF has no QRS, and the R-peak path called it "no ECG signal" or nothing. Not on a photo: a
     # digitised trace's own noise is not a rhythm, and photos stay under their gates (D178).
-    vf_on = (not sig.provenance.digitized) and detect_vf(sig.signal.astype("float64"),
-                                                         sig.sampling_rate_hz)[0]
+    vf_on, vf_mts = (False, [])
+    if not sig.provenance.digitized:
+        vf_on, vf_mts = detect_vf(sig.signal.astype("float64"), sig.sampling_rate_hz)
+    vf_soft = (not sig.provenance.digitized) and not vf_on and vf_soft_share(vf_mts) >= VF_SOFT_SHARE_MIN
     spike_times = pacing_spike_times(sig) if pacing_ratio >= cfg.pacing.spike_ratio_min else []
     ml_spike_times = pacing_multilead_spike_times(sig, cfg.pacing.multilead_k,
                                                   cfg.pacing.multilead_min_leads)
@@ -223,8 +231,14 @@ def run_pipeline(
                 and "atrial_fibrillation" in findings.codes()):
             findings.findings = [f for f in findings.findings if f.code != "atrial_fibrillation"]
             audit.append(f"[L4] AF withdrawn: RR CV {cv_left:.3f} without the PVC intervals (D106)")
+            _qt_after_af_withdrawn(findings, audit)        # D365
+    # D361: a false AF is withdrawn before the ectopy and sinus-arrhythmia rules, so they name what made the rhythm
+    # irregular (and a compensatory pause stays one); again after the AF model's second path below.
+    same_p: dict = {}             # D361: the conducted-P features, computed once for both calls
+    withdrawn = _withdraw_af_on_same_p(sig, m, findings, audit, same_p)
     # Supraventricular premature beats and sinus arrhythmia (D204): only over an organised atrial
     # rhythm — in AF or flutter every beat is "early" or "late" by chance.
+    pac_idx: list[int] = []
     if not runs and not findings.codes() & {"atrial_fibrillation", "atrial_flutter"}:
         pac_idx = detect_pac_beats(sig, m.r_peaks_samples or [], sig.sampling_rate_hz, skip=pvc_idx)
         if pac_idx:
@@ -237,7 +251,10 @@ def run_pipeline(
                 if (m.p_onset_ratio or 0) >= SA_SURE_P_ONSET and (m.pr_std_ms or 99) < SA_SURE_PR_STD_MS:
                     findings.findings = [f for f in findings.findings if f.code != "irregular_rhythm"]
                 audit.append("[L4] sinus arrhythmia")
-    _af_second_path(sig, m, findings, audit)
+    if not withdrawn:             # D361: a withdrawn AF is not offered back by the AF model
+        _af_second_path(sig, m, findings, audit)
+        _withdraw_af_on_same_p(sig, m, findings, audit, same_p)
+    _af_wide_note(m, norms, findings, audit)
     # Paced rhythm (TZ §7.1): the spike must be time-locked to the QRS (an artifact
     # spike lands at random), or seen by many leads at once and QRS-locked (D75).
     r_times = [r / sig.sampling_rate_hz for r in (m.r_peaks_samples or [])]
@@ -283,20 +300,26 @@ def run_pipeline(
                      f"multilead_coupling={ml_coupling}; withheld {dropped}")
     # Pause / dropped beat (TZ §7.1, §10) — R-peak based.
     pc = cfg.pause
-    if m.max_rr_ms is not None and (m.max_rr_ms >= pc.finding_ms
-                                    or (m.pause_ratio or 0) >= pc.ratio):
-        findings.findings.append(Finding(
-            code="sinus_pause", group="rhythm",
-            label_ru=f"Пауза ритма {m.max_rr_ms:.0f} мс (RR ×{m.pause_ratio})",
-            label_uz=f"Ritm pauzasi {m.max_rr_ms:.0f} ms (RR ×{m.pause_ratio})",
-            evidence=[Evidence(feature="max_rr_ms", value=f"{m.max_rr_ms:.0f}"),
-                      Evidence(feature="pause_ratio", value=str(m.pause_ratio))],
-            confidence=0.8, critical=m.max_rr_ms >= pc.critical_ms))
-        audit.append(f"[L4] pause: max_rr={m.max_rr_ms} ms ratio={m.pause_ratio}")
+    pause = _pause_finding(m, pc, findings.codes(), set(pvc_idx) | set(pac_idx))
+    if pause is not None:
+        findings.findings.append(pause)
+        audit.append(f"[L4] pause ({pause.code}): max_rr={m.max_rr_ms} ms ratio={m.pause_ratio}")
     _withhold_rhythm_without_strip(sig, findings, audit)
     # Signal-organization gate (§5) — after all finding emission. If the QRS complexes
     # are not self-consistent, R-peaks (hence HR, intervals, rhythm) are unreliable:
     # withhold the findings and report poor quality; mode B escalates.
+    # D282-D284: descriptive wave-5 findings, recordings only (a photo's beat amplitudes and P are the digitiser's).
+    if not sig.provenance.digitized:
+        _codes = findings.codes()
+        # short_pr_finding (D283) is not wired: not accepted (NORM 3.7 % on fresh PTB-XL, half right on LUDB).
+        for _f in (alternans_finding(sig, m, _codes), ectopic_atrial_finding(sig, m, _codes),
+                   avb_2to1_finding(sig, m, _codes)):
+            if _f is not None:
+                findings.findings.append(_f)
+                audit.append(f"[L4] {_f.code} (D282-D284, D292)")
+        if "probable_av_block_2to1" in findings.codes():
+            # D292: the ventricular rate is half the atrial one — the bradycardia is not sinus.
+            findings.findings = [f for f in findings.findings if f.code != "sinus_bradycardia"]
     tc = m.qrs_template_consistency
     pc = m.qrs_partner_consistency
     # Too few complexes to judge (fewer than 3 away from the edges) is not "consistent":
@@ -505,17 +528,53 @@ def run_pipeline(
         findings.findings = [Finding(
             code="no_ecg_signal", group="quality",
             # D192: on a photo the electrodes are not the problem; the advice is about the shot.
+            # D278: on a recording, the patient comes first (fine VF / asystole read as "no signal").
             label_ru=NO_TRACE_ON_PHOTO_RU if sig.provenance.digitized else
-                     "ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении) — проверьте электроды"
+                     ("ЭКГ-сигнал не обнаружен (нет комплексов QRS ни в одном отведении). Если пациент без сознания — "
+                      "сразу проверьте пульс: возможны асистолия или мелковолновая ФЖ; если в сознании — "
+                      "проверьте электроды")
                      + (_UNITS_HINT_RU if sig.source in _FILE_SOURCES else ""),
             label_uz=NO_TRACE_ON_PHOTO_UZ if sig.provenance.digitized else
-                     "EKG signali aniqlanmadi (hech bir tarmoqda QRS yo'q) — elektrodlarni tekshiring"
+                     ("EKG signali aniqlanmadi (hech bir tarmoqda QRS yo'q). Bemor hushsiz bo'lsa — darhol pulsni "
+                      "tekshiring: asistoliya yoki mayda to'lqinli qorinchalar fibrillyatsiyasi bo'lishi mumkin; "
+                      "hushida bo'lsa — elektrodlarni tekshiring")
                      + (_UNITS_HINT_UZ if sig.source in _FILE_SOURCES else ""),
             evidence=[Evidence(feature="hf_peak_to_peak_uv", value=f"{hf_uv:.0f}")],
             confidence=0.95)]
         quality_ok = False
         audit.append("[L2] no ECG signal (8-40 Hz below threshold in every lead) — all findings and alerts withheld")
-    if vf_on:
+    # D281: the strict detector missed it, but half the leads show VF and the window was read as AF / flutter or
+    # closed by a quality gate — the alert, not AF and not "no signal" (D277: 59 + 55 + 21 VT / VF windows).
+    # D324: the "VF" waves are a 2nd / 3rd harmonic of a regular R train — a regular tachycardia (VT, flutter 2:1).
+    # D323: the alarm stays (the same pattern is true VT on VFDB); only its wording says what is seen.
+    vf_regular = (vf_on or vf_soft) and vf_is_harmonic(vf_mts, m.r_peaks_samples, sig.sampling_rate_hz)
+    vf_regular_finding = Finding(
+        code="ventricular_fibrillation", group="rhythm",
+        label_ru="Правильная тахикардия: волны похожи на ФЖ, но комплексы идут ровным рядом — возможна ЖТ "
+                 "(или трепетание предсердий 2:1). Немедленно оцените пациента (сознание, пульс); если пульса нет — "
+                 "реанимация и дефибрилляция",
+        label_uz="To'g'ri ritmli taxikardiya: to'lqinlar qorinchalar fibrillyatsiyasiga o'xshaydi, lekin "
+                 "komplekslar bir tekis qatorda — JT bo'lishi mumkin (yoki bo'lmachalar titrashi 2:1). Bemorni zudlik "
+                 "bilan baholang (hush, puls); puls bo'lmasa — reanimatsiya va defibrillyatsiya",
+        evidence=[Evidence(feature="vf_pattern", value="regular_harmonic")],
+        confidence=0.7 if vf_on else 0.5, critical=True)
+    if vf_soft and vf_regular and findings.codes() & _VF_SOFT_GATES:
+        findings.findings.insert(0, vf_regular_finding)
+        audit.append("[L4] regular tachycardia with VF-like harmonic waves: VT / VF to exclude (D324, soft tier)")
+    elif vf_soft and findings.codes() & _VF_SOFT_GATES:
+        findings.findings.insert(0, Finding(
+            code="ventricular_fibrillation", group="rhythm",
+            label_ru="Возможна фибрилляция желудочков / полиморфная ЖТ: хаотичные волны в части отведений — немедленно "
+                     "оцените пациента (сознание, пульс); если это не артефакт — реанимация и дефибрилляция",
+            label_uz="Qorinchalar fibrillyatsiyasi / polimorf QT bo'lishi mumkin: ayrim tarmoqlarda xaotik to'lqinlar — "
+                     "bemorni zudlik bilan baholang (hush, puls); artefakt bo'lmasa — reanimatsiya va defibrillyatsiya",
+            evidence=[Evidence(feature="vf_detector", value=f"soft: {vf_soft_share(vf_mts):.2f} of leads")],
+            confidence=0.5, critical=True))
+        audit.append("[L4] possible VF / polymorphic VT: soft VF tier over an AF / quality-gated window (D281)")
+    if vf_on and vf_regular:
+        findings.findings.insert(0, vf_regular_finding)
+        audit.append("[L4] regular tachycardia with VF-like harmonic waves: VT / VF to exclude (D324)")
+    elif vf_on:
         findings.findings.insert(0, Finding(
             code="ventricular_fibrillation", group="rhythm",
             label_ru="Фибрилляция / трепетание желудочков: хаотичные волны без комплексов QRS — немедленно оцените "
@@ -576,13 +635,15 @@ def run_pipeline(
     # alerts (recall first, TZ §10) and says so (scanner branch D97, now D135).
     hard_gate = no_ecg or bad_photo or bad_units
     _approximate_long_qt(sig, findings, audit)
+    _photos_not_all_used(sig, findings, audit)
     _pr_unstable(sig, findings, audit)
     safety = scan_critical(findings, Measurements() if hard_gate else m)
     if not quality_ok and not hard_gate:
         for a in safety.alerts:
             a.unverified = True
-            a.label_ru += " — сигнал низкого качества, проверить по записи"
-            a.label_uz += " — signal sifati past, yozuv bo'yicha tekshiring"
+            # D330: the quality caveat goes right after the alert's name, before a D327 hint
+            a.label_ru = _before_hint(a.label_ru, " — сигнал низкого качества, проверить по записи", SLOW_HINT[0])
+            a.label_uz = _before_hint(a.label_uz, " — signal sifati past, yozuv bo'yicha tekshiring", SLOW_HINT[1])
     # New critical dynamics on serial comparison force escalation (TZ §8.4, §10).
     if serial is not None:
         for d in serial.deltas:
@@ -624,7 +685,7 @@ def run_pipeline(
     report = interpret(
         data, safety, provider=provider or default_provider(llm=cfg.llm),
         min_overall=cfg.confidence.autonomous_min_overall, quality_ok=quality_ok,
-        digitized=prov.digitized,
+        digitized=prov.digitized, screen=bool(screen),
     )
     audit.append(f"[L6] provider={report.mode} escalation={report.escalation_reason}")
 
@@ -718,7 +779,7 @@ RHYTHM_MIN_S = 5.0        # D259: the scanner's validate.rhythm_min_s — no lea
 # D259: findings that rest on RR irregularity; on a page of 2.5-s columns the RR series is
 # stitched across column edges and its irregularity is the digitisation's, not the heart's.
 _IRREGULARITY_CODES = ("atrial_fibrillation", "possible_atrial_fibrillation", "atrial_flutter",
-                       "irregular_rhythm", "sinus_arrhythmia", "sinus_pause", "supraventricular_ectopy",
+                       "irregular_rhythm", "sinus_arrhythmia", "sinus_pause", "rr_pause_af", "supraventricular_ectopy",
                        "atrial_bigeminy", "atrial_trigeminy", "ventricular_ectopy", "ventricular_bigeminy",
                        "ventricular_trigeminy", "ventricular_couplets")
 
@@ -735,12 +796,16 @@ def _withhold_rhythm_without_strip(sig: SignalRepresentation, findings: FindingS
         return
     dropped = [f.code for f in findings.findings if f.code in _IRREGULARITY_CODES and not f.critical]
     if dropped:
+        # D364's note speaks of AF: it goes with the AF it was added to
         findings.findings = [f for f in findings.findings
-                             if f.code not in _IRREGULARITY_CODES or f.critical]
+                             if (f.code not in _IRREGULARITY_CODES or f.critical)
+                             and not any(e.feature == "af_wide_note" for e in f.evidence)]
         audit.append(f"[L4] no lead >= {RHYTHM_MIN_S:.0f} s on the page (longest {longest:.1f} s): "
                      f"rhythm irregularity not assessed, withheld {dropped} (D259)")
 
 
+_VF_SOFT_GATES = frozenset({"atrial_fibrillation", "possible_atrial_fibrillation", "atrial_flutter",
+                            "poor_quality_signal", "no_ecg_signal"})   # D281
 SHORT_WINDOW_S = 4.0     # D122: below this, one visible QRS bounds the rate instead of measuring it
 SHORT_WINDOW_EDGE_S = 0.5
 _FILE_SOURCES = {"csv", "edf"}
@@ -763,6 +828,100 @@ def _hf_amplitude_uv(sig: SignalRepresentation) -> float:
 
 
 AF_PVC_RECHECK = True   # D106: accepted on the held-out check (fold 10 + Georgia g6-g11)
+
+
+# D358 / D359 / D361: thresholds chosen on even ids (D357 tuning); see DECISIONS D361 for the acceptance.
+AF_SAME_P_WITHDRAW = True     # D361: accepted by the owner (27.11) with criterion 3 not met (3 / 761)
+AF_SAME_P_SHARE = 0.60
+AF_SAME_P_PR_IQR_S = 0.03
+AF_SAME_P_SHAPE_II = 0.75
+AF_SAME_P_SHAPE_V1 = 0.70
+AF_SAME_P_FWAVE_MAX = 0.8      # D359: visible atrial activity (f-waves or an atrial rate) keeps the AF
+
+
+def _withdraw_af_on_same_p(sig, m, findings: FindingSet, audit: list[str], cache: dict | None = None) -> bool:
+    """D358: the same P wave at a constant PR before most QRS is not atrial fibrillation (extrasystoles or sinus
+    arrhythmia made the rhythm irregular); AF / possible AF is withdrawn and the irregular rhythm says so.
+    True when it withdrew. ``cache`` keeps the conducted-P features between the two calls (D361)."""
+    if not AF_SAME_P_WITHDRAW or not findings.codes() & {"atrial_fibrillation", "possible_atrial_fibrillation"}:
+        return False
+    if m.atrial_rate_bpm is not None or (m.fwave_index is not None and m.fwave_index >= AF_SAME_P_FWAVE_MAX):
+        return False               # D359: flutter waves or f-waves are seen — the "P" may be an F wave
+    from cardiolens.layer3_measure.atrial_map import LEADS, conducted_p
+
+    cache = {} if cache is None else cache
+    if "f" not in cache:
+        cache["f"] = conducted_p({ln: sig.lead(ln) for ln in LEADS if ln in sig.lead_names},
+                                 m.r_peaks_samples or [], sig.sampling_rate_hz)
+    f = cache["f"]
+    if (f is None or f["share"] < AF_SAME_P_SHARE or f["pr_iqr_s"] is None or f["pr_iqr_s"] > AF_SAME_P_PR_IQR_S
+            or f["shape_ii"] is None or f["shape_ii"] < AF_SAME_P_SHAPE_II
+            or f["shape_v1"] is None or f["shape_v1"] < AF_SAME_P_SHAPE_V1):
+        return False
+    findings.findings = [x for x in findings.findings
+                         if x.code not in ("atrial_fibrillation", "possible_atrial_fibrillation")]
+    ru = ("Нерегулярный ритм; перед большинством комплексов — одинаковый зубец P с постоянным PR: ФП не "
+          "подтверждается; вероятны экстрасистолы или синусовая аритмия — проверьте по записи")
+    uz = ("Notekis ritm; ko'pchilik komplekslar oldidan bir xil P tishi, PR o'zgarmas: BF tasdiqlanmaydi; "
+          "ekstrasistolalar yoki sinus aritmiyasi ehtimoli — yozuv bo'yicha tekshiring")
+    irr = findings.by_code("irregular_rhythm")
+    if irr is not None:
+        irr.label_ru, irr.label_uz = ru, uz
+    else:
+        findings.findings.append(Finding(
+            code="irregular_rhythm", group="rhythm", label_ru=ru, label_uz=uz,
+            evidence=[Evidence(feature="conducted_p_share", value=f"{f['share']:.2f}"),
+                      Evidence(feature="pr_iqr_ms", value=f"{f['pr_iqr_s'] * 1000:.0f}"),
+                      Evidence(feature="p_shape_ii", value=f"{f['shape_ii']:.2f}")], confidence=0.6))
+    audit.append(f"[L4] AF withdrawn: same P before {f['share']:.2f} of QRS, PR IQR {f['pr_iqr_s'] * 1000:.0f} ms, "
+                 f"shape II {f['shape_ii']:.2f} V1 {f['shape_v1']:.2f} (D358)")
+    _qt_after_af_withdrawn(findings, audit)
+    return True
+
+
+def _qt_after_af_withdrawn(findings: FindingSet, audit: list[str]) -> None:
+    """D365: the QT rules ran while AF was still named — "QTc not assessable in AF" becomes a long QT with the same
+    QTc (it was above the upper limit), and a long QT loses "approximate in AF"."""
+    for i, f in enumerate(findings.findings):
+        if f.code == "qtc_unreliable_af":
+            ev = {e.feature: e.value for e in f.evidence}
+            qtc, formula = ev.get("qtc_ms"), ev.get("formula")
+            adj = "qrs_adjustment" in ev          # the same label as the long-QT rule's (rules.py)
+            findings.findings[i] = Finding(
+                code="long_qt", group="interval",
+                label_ru=f"Удлинение QT (QTc {qtc} мс, {formula}" + (", с поправкой на широкий QRS" if adj else "") + ")",
+                label_uz=f"QT uzayishi (QTc {qtc} ms, {formula}" + (", keng QRS uchun tuzatilgan" if adj else "") + ")",
+                evidence=[e for e in f.evidence if e.feature != "af_long_min"], confidence=0.85)
+            audit.append(f"[L4] QTc {qtc} ms assessed as in a regular rhythm after the AF was withdrawn (D365)")
+        elif f.code == "long_qt":
+            f.label_ru = f.label_ru.replace(", при ФП ориентировочно)", ")")
+            f.label_uz = f.label_uz.replace(", BF da taxminiy)", ")")
+
+
+AF_WIDE_NOTE = True              # D364
+_VT_FAMILY = frozenset({"ventricular_tachycardia", "wide_complex_tachycardia", "wide_qrs_tachycardia",
+                        "ventricular_fibrillation"})
+
+
+def _af_wide_note(m, norms: dict, findings: FindingSet, audit: list[str]) -> None:
+    """D364: AF with wide QRS at >= 100/min keeps the AF and adds "urgent: rule out VT" (no red alert, as D252) — a
+    wide irregular tachycardia is AF with a bundle-branch block or pre-excitation, or VT, until shown otherwise."""
+    codes = findings.codes()
+    hr, qrs = m.heart_rate_bpm, m.intervals.qrs_ms
+    if (not AF_WIDE_NOTE or not codes & {"atrial_fibrillation", "possible_atrial_fibrillation"} or codes & _VT_FAMILY
+            or norms.get("age_group") == "pediatric" or hr is None or qrs is None or hr < 100 or qrs < 120):
+        return
+    findings.findings.append(Finding(
+        code="wide_qrs_tachycardia", group="rhythm",
+        label_ru=f"Нерегулярная тахикардия с широкими QRS (ЧСС {hr:.0f}/мин, QRS {qrs:.0f} мс): ФП с блокадой ножки или "
+                 f"предвозбуждением либо желудочковая тахикардия — срочно покажите врачу, исключите ЖТ",
+        label_uz=f"Keng QRS li notekis taxikardiya (YUT {hr:.0f}/daq, QRS {qrs:.0f} ms): oyoqcha blokadasi yoki "
+                 f"preeksitatsiya (WPW) bilan BF yoki qorincha taxikardiyasi — zudlik bilan shifokorga ko'rsating, "
+                 f"qorincha taxikardiyasini istisno qiling",
+        evidence=[Evidence(feature="heart_rate_bpm", value=f"{hr:.0f}"), Evidence(feature="qrs_ms", value=f"{qrs:.0f}"),
+                  Evidence(feature="urgent", value="yes"), Evidence(feature="af_wide_note", value="D364")],
+        confidence=0.6))
+    audit.append(f"[L4] AF with wide QRS {qrs:.0f} ms at {hr:.0f}/min: urgent, rule out VT (D364)")
 
 
 def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
@@ -806,6 +965,36 @@ def _pr_unstable(sig, findings: FindingSet, audit: list[str]) -> None:
                  "baholanmaydi",
         confidence=0.9))
     audit.append(f"[L4] PR_UNSTABLE from the scanner: withheld {dropped} (D263)")
+
+
+def _photos_not_all_used(sig, findings: FindingSet, audit: list[str]) -> None:
+    """D351: of several photos sent as one ECG, not all went into the record — some repeat the same leads (a record by
+    time is not joined yet), some could not be read. The doctor is told, not left to think all of them were read.
+    A note on how the record was read («quality»): nothing in the heart explains it (review: «other» made it an
+    implausible finding with a false «artefact or swapped electrodes» line)."""
+    import re
+
+    note = next((n for n in (sig.provenance.notes or []) if n.startswith("photos used: ")), None)
+    m = re.fullmatch(r"photos used: (\d+) of (\d+)(?:; unread: (\d+))?", note or "")
+    if not m or int(m.group(1)) >= int(m.group(2)):
+        return
+    k, n, unread = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+    repeat = n - k - unread
+    ru, uz = [f"Разобрано {k} фото из {n}"], [f"{n} ta suratdan {k} tasi tahlil qilindi"]
+    if unread:
+        ru.append(f"не прочитано: {unread}")
+        uz.append(f"o'qilmadi: {unread}")
+    if repeat > 0:
+        ru.append(f"повторяют уже прочитанные отведения: {repeat} — длинная запись по времени пока не склеивается")
+        uz.append(f"allaqachon o'qilgan tarmoqlarni takrorlaydi: {repeat} — uzun yozuv vaqt bo'yicha hali birlashtirilmaydi")
+    if k == 1:
+        ru.append("разбор сделан по одному фото")
+        uz.append("tahlil bitta surat bo'yicha")
+    findings.findings.append(Finding(
+        code="photos_not_all_used", group="quality",
+        label_ru="; ".join(ru), label_uz="; ".join(uz),
+        evidence=[Evidence(feature="photos_used", value=f"{k}/{n}")], confidence=1.0))
+    audit.append(f"[L4] photos used {k} of {n}, unread {unread} (D351)")
 
 
 def _approximate_long_qt(sig, findings: FindingSet, audit: list[str]) -> None:
@@ -865,6 +1054,44 @@ def _af_second_path(sig, m, findings: FindingSet, audit: list[str]) -> None:
         evidence=[Evidence(feature="af_model_p", value=f"{p:.2f}")], confidence=round(min(0.7, p), 2)))
     audit.append(f"[L4] AF second path (D205): p={p:.2f}; withdrew {dropped}")
 
+
+
+def _before_hint(label: str, note: str, hint: str) -> str:
+    """``label`` + ``note``, with ``note`` placed before a trailing ``hint`` (D330)."""
+    return label[: -len(hint)] + note + hint if hint and label.endswith(hint) else label + note
+
+
+def _pause_finding(m, pc, codes: set[str], ectopic: set[int]):
+    """The pause finding (D258). AF / flutter: a long RR is a pause of the ventricular response, not a sinus pause
+    (named from finding_ms). Sinus: a long RR right after a premature beat is its compensatory pause (not named
+    below critical_ms); the ratio trigger (RR < finding_ms) not where sinus arrhythmia is named. The >= 3 s alert
+    is raised by the safety layer whatever the rhythm."""
+    if m.max_rr_ms is None:
+        return None
+    rp = list(m.r_peaks_samples or [])
+    long_after = None
+    if len(rp) >= 2:
+        rr = [b - a for a, b in pairwise(rp)]
+        long_after = int(max(range(len(rr)), key=rr.__getitem__))   # the beat before the longest RR
+    ev = [Evidence(feature="max_rr_ms", value=f"{m.max_rr_ms:.0f}"),
+          Evidence(feature="pause_ratio", value=str(m.pause_ratio))]
+    if codes & {"atrial_fibrillation", "possible_atrial_fibrillation", "atrial_flutter"}:
+        if m.max_rr_ms < pc.finding_ms:
+            return None
+        return Finding(code="rr_pause_af", group="rhythm",
+                       label_ru=f"Пауза желудочкового ритма {m.max_rr_ms:.0f} мс при фибрилляции / трепетании предсердий",
+                       label_uz=f"BF / bo'lmachalar titrashida qorincha ritmi pauzasi {m.max_rr_ms:.0f} ms",
+                       evidence=ev, confidence=0.7, critical=m.max_rr_ms >= pc.critical_ms)
+    if long_after is not None and long_after in ectopic and m.max_rr_ms < pc.critical_ms:
+        return None
+    # The ratio trigger (RR < finding_ms): not where sinus arrhythmia explains the long cycle (PTB-XL NORM SARRH
+    # at 1.82-1.87); the compensatory pause is excluded above.
+    if m.max_rr_ms < pc.finding_ms and ((m.pause_ratio or 0) < pc.ratio or "sinus_arrhythmia" in codes):
+        return None
+    return Finding(code="sinus_pause", group="rhythm",
+                   label_ru=f"Пауза ритма {m.max_rr_ms:.0f} мс (RR ×{m.pause_ratio})",
+                   label_uz=f"Ritm pauzasi {m.max_rr_ms:.0f} ms (RR ×{m.pause_ratio})",
+                   evidence=ev, confidence=0.8, critical=m.max_rr_ms >= pc.critical_ms)
 
 _PACED_EXCLUDES = ("lbbb", "rbbb", "wide_qrs_nonspecific", "lvh", "lvh_probable",
                    "first_degree_av_block", "sinus_rhythm", "left_axis_deviation", "st_depression",
