@@ -52,8 +52,8 @@ def test_on_withdraws_af_and_says_why(sinus, monkeypatch):
     if f is None or f["n_p"] == 0:
         pytest.skip("P detector model not available")
     monkeypatch.setattr(P, "AF_SAME_P_WITHDRAW", True)
-    fs, audit = _af_set(), []
-    P._withdraw_af_on_same_p(sig, m, fs, audit)
+    fs, audit, cache = _af_set(), [], {}
+    assert P._withdraw_af_on_same_p(sig, m, fs, audit, cache) is True and "f" in cache
     assert "atrial_fibrillation" not in fs.codes()
     irr = fs.by_code("irregular_rhythm")
     assert irr is not None and "ФП не подтверждается" in irr.label_ru and "D358" in audit[-1]
