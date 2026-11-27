@@ -133,9 +133,10 @@ void main() {
     expect(find.text('Лист 2'), findsOneWidget);
     // The screen's file work (the sealed sheets on disk) runs in real time: the taps too.
     // A fixed pause lost the race on a slow CI runner (the send button still disabled):
-    // wait in real time until the screen shows the result, up to 5 s.
+    // wait in real time until the screen shows the result, up to 20 s (SD-165: 5 s lost on a slow runner,
+    // one CI run in three, the send button still disabled while the removal's disk work ran).
     Future<void> settleReal(bool Function() done) async {
-      for (var i = 0; i < 100 && !done(); i++) {
+      for (var i = 0; i < 400 && !done(); i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
         await tester.pump();
       }
@@ -153,8 +154,9 @@ void main() {
     bool sendEnabled() =>
         tester.widget<ButtonStyleButton>(find.byKey(const Key('send_study'))).onPressed != null;
 
+    // Done when the screen is free again (the removal's file work over), not only when the sheet is gone.
     await tapReal(find.byKey(const Key('remove_0')),
-        () => app.queue.draft!.partIds.length == 1 && find.text('Лист 2').evaluate().isEmpty);
+        () => app.queue.draft!.partIds.length == 1 && find.text('Лист 2').evaluate().isEmpty && sendEnabled());
     expect(find.text('Лист 2'), findsNothing);
     expect(app.queue.draft!.partIds, hasLength(1));
     await tester.tap(find.text('50 мм/с'));
