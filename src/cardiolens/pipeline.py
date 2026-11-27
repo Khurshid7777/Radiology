@@ -253,6 +253,7 @@ def run_pipeline(
     if not withdrawn:             # D361: a withdrawn AF is not offered back by the AF model
         _af_second_path(sig, m, findings, audit)
         _withdraw_af_on_same_p(sig, m, findings, audit, same_p)
+    _af_wide_note(m, norms, findings, audit)
     # Paced rhythm (TZ §7.1): the spike must be time-locked to the QRS (an artifact
     # spike lands at random), or seen by many leads at once and QRS-locked (D75).
     r_times = [r / sig.sampling_rate_hz for r in (m.r_peaks_samples or [])]
@@ -872,6 +873,31 @@ def _withdraw_af_on_same_p(sig, m, findings: FindingSet, audit: list[str], cache
     audit.append(f"[L4] AF withdrawn: same P before {f['share']:.2f} of QRS, PR IQR {f['pr_iqr_s'] * 1000:.0f} ms, "
                  f"shape II {f['shape_ii']:.2f} V1 {f['shape_v1']:.2f} (D358)")
     return True
+
+
+AF_WIDE_NOTE = True              # D364
+_VT_FAMILY = frozenset({"ventricular_tachycardia", "wide_complex_tachycardia", "wide_qrs_tachycardia",
+                        "ventricular_fibrillation"})
+
+
+def _af_wide_note(m, norms: dict, findings: FindingSet, audit: list[str]) -> None:
+    """D364: AF with wide QRS at >= 100/min keeps the AF and adds "urgent: rule out VT" (no red alert, as D252) — a
+    wide irregular tachycardia is AF with a bundle-branch block or pre-excitation, or VT, until shown otherwise."""
+    codes = findings.codes()
+    hr, qrs = m.heart_rate_bpm, m.intervals.qrs_ms
+    if (not AF_WIDE_NOTE or not codes & {"atrial_fibrillation", "possible_atrial_fibrillation"} or codes & _VT_FAMILY
+            or norms.get("age_group") == "pediatric" or hr is None or qrs is None or hr < 100 or qrs < 120):
+        return
+    findings.findings.append(Finding(
+        code="wide_qrs_tachycardia", group="rhythm",
+        label_ru=f"Нерегулярная тахикардия с широкими QRS (ЧСС {hr:.0f}/мин, QRS {qrs:.0f} мс): ФП с блокадой ножки или "
+                 f"предвозбуждением либо желудочковая тахикардия — срочно покажите врачу, исключите ЖТ",
+        label_uz=f"Keng QRS li notekis taxikardiya (YUT {hr:.0f}/daq, QRS {qrs:.0f} ms): oyoqcha blokadasi yoki "
+                 f"oldindan qo'zg'alish bilan BF yoki qorincha taxikardiyasi — zudlik bilan shifokorga ko'rsating, "
+                 f"qorincha taxikardiyasini istisno qiling",
+        evidence=[Evidence(feature="heart_rate_bpm", value=f"{hr:.0f}"), Evidence(feature="qrs_ms", value=f"{qrs:.0f}"),
+                  Evidence(feature="urgent", value="yes")], confidence=0.6))
+    audit.append(f"[L4] AF with wide QRS {qrs:.0f} ms at {hr:.0f}/min: urgent, rule out VT (D364)")
 
 
 def _rr_cv_without(rpeaks, pvc_idx) -> float | None:
