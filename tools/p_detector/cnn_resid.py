@@ -65,7 +65,8 @@ def prep(out: Path) -> None:
                 p = ROOT / "data/qtdb" / it["id"]
                 rec = wfdb.rdrecord(str(p))
                 sc = FS / rec.fs
-                cache[it["id"]] = _qrs(wfdb.rdann(str(p), "atr"), sc)
+                ext = "atr" if p.with_suffix(".atr").exists() else "q1c"   # a few QTDB records have no .atr
+                cache[it["id"]] = _qrs(wfdb.rdann(str(p), ext), sc)
             it["rp"] = cache[it["id"]]
     import csv
     rhythm = {int(r["ID"]): r["Rhythms"].strip() for r in csv.DictReader(open(ROOT / "data/ludb/ludb.csv"))}
@@ -113,7 +114,9 @@ def train(data: Path, out: Path, seed: int) -> None:
     torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "3")))
     rng = np.random.default_rng(seed)
     items = [i for i in pickle.load((data / "items2.pkl").open("rb")) if i["split"] == "train"]
-    ludb = [i for i in items if i["src"] == "ludb" and not i["af"]]
+    # LUDB complete AV block records (34, 74, 90, 104, 111) carry no P labels at all: as "no P" they would teach the
+    # opposite of what is wanted, so non-AF leads without a single P label are left out (D366)
+    ludb = [i for i in items if i["src"] == "ludb" and not i["af"] and len(i["peaks"])]
     af = [i for i in items if i["af"]]
     qtdb = [i for i in items if i["src"] == "qtdb" and i.get("spans")]
     bank = p_bank(ludb, rng)
@@ -195,7 +198,7 @@ def evaluate(data: Path, model: Path, thr: float, split: str, seed: int) -> dict
     for src, lead in (("ludb", "ii"), ("ludb", "all"), ("qtdb", "all")):
         g = tp = fp = 0
         for it in items:
-            if it["src"] != src or (lead != "all" and it["lead"] != lead) or it["af"]:
+            if it["src"] != src or (lead != "all" and it["lead"] != lead) or it["af"] or (src == "ludb" and not len(it["peaks"])):
                 continue
             if src == "ludb":
                 d = peaks_from_prob(predict(sess, two(it["x"], it["rp"])), it["x"], thr)
@@ -227,7 +230,7 @@ def evaluate(data: Path, model: Path, thr: float, split: str, seed: int) -> dict
     bank = p_bank([i for i in allit if i["split"] == "train" and i["src"] == "ludb" and not i["af"]], rng)
     found = total = 0
     for it in items:
-        if it["src"] != "ludb" or it["lead"] != "ii" or it["af"]:
+        if it["src"] != "ludb" or it["lead"] != "ii" or it["af"] or not len(it["peaks"]):
             continue
         x, y = it["x"].copy(), it["y"].copy()
         before = y.copy()
@@ -245,8 +248,7 @@ def evaluate(data: Path, model: Path, thr: float, split: str, seed: int) -> dict
             if it["src"] == "ludb" and it["id"] == rid and it["lead"] == "ii":
                 d = peaks_from_prob(predict(sess, two(it["x"], it["rp"])), it["x"], thr)
                 d = d[(d >= it["lo"]) & (d <= it["hi"])]
-                t_, f_ = _score(d, it["peaks"], tol)
-                res[f"ludb_3avb_{rid}"] = {"gold": len(it["peaks"]), "tp": t_, "fp": f_}
+                res[f"ludb_3avb_{rid}"] = {"p_found": int(len(d)), "qrs": int(len(it["rp"]))}   # P not labelled there
     return res
 
 
