@@ -73,3 +73,13 @@ def test_probe_says_whether_the_live_frame_will_go_green_on_a_whole_sheet():
     assert float(re.search(r"LIVE_FILL = ([0-9.]+)", src).group(1)) == calc.FILL
     assert "getCapabilities" in src and "liveVerdict(photoLong, 'полное фото')" in src
     assert "лист A4 целиком пройдёт" in src and "только частями" in src
+
+
+def test_probe_asks_the_camera_as_the_capture_page_and_waits_no_longer_than_it_should():
+    """SD-163 (review of SD-160)."""
+    src = PAGE.read_text(encoding="utf-8")
+    capture = (ROOT / "src/ecgscan_service/static/miniapp_capture.html").read_text(encoding="utf-8")
+    ask = "width: { ideal: 3840 }, height: { ideal: 2160 }"
+    assert ask in src and ask in capture
+    assert "px/мм" not in src and src.count("toFixed(") == 1 and ".replace('.', ',')" in src
+    assert src.count("getPhotoCapabilities()") == 2 and src.count("within(") == 3   # both waits are bounded

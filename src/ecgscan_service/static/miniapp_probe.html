@@ -56,14 +56,20 @@ const $ = id => document.getElementById(id);
 function say(s) { lines.push(s); $('out').value = lines.join('\n'); }
 function pxmm(w, h) {
   const v = Math.max(w, h) / A4_LONG_MM;
-  return `${v.toFixed(1)} px/мм на листе A4 (${v >= FULL_READ_PX_MM ? 'хватает' : 'НЕ хватает'} для полного чтения)`;
+  return `${num(v)} т/мм на листе A4 (${v >= FULL_READ_PX_MM ? 'хватает' : 'НЕ хватает'} для полного чтения)`;
 }
 function shape(w, h) { return w >= h ? 'горизонтальный' : 'вертикальный'; }
+function num(v) { return v.toFixed(1).replace('.', ','); }     // SD-163: the report is read in Russian
+// SD-163: a WebView that never answers must not hold the page; the answer or null after ms milliseconds.
+function within(promise, ms) {
+  return Promise.race([promise, new Promise(r => setTimeout(() => r(null), ms))]);
+}
+const CAPS_WAIT_MS = 3000;
 // SD-160: what the live frame will make of a shot this size (docs/scanner/LIVE_FRAME.md: A4 297 mm across 90 % of it).
 function liveVerdict(long, source) {
   const v = long * LIVE_FILL / A4_LONG_MM;
   const parts = Math.ceil(A4_LONG_MM / (LIVE_FILL * long / LIVE_PX_MM));
-  return `  «Камера с подсказками» снимет ${source}, ${long} точек по длинной стороне: ${v.toFixed(1)} т/мм на листе A4 — ` +
+  return `  «Камера с подсказками» снимет ${source}, ${long} точек по длинной стороне: ${num(v)} т/мм на листе A4 — ` +
          (v >= LIVE_PX_MM ? 'лист A4 целиком пройдёт' : `лист A4 целиком НЕ пройдёт, только частями: ${parts}`);
 }
 
@@ -104,7 +110,7 @@ async function camOpen() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { say('  недоступна в этом окне'); return; }
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: false,
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 3072 } } });
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } } });   // as the capture page (SD-163)
   } catch (e) { say('  отказ: ' + e.name + (e.message ? ' (' + e.message.slice(0, 80) + ')' : '')); return; }
   const v = $('video');
   v.srcObject = stream; v.style.display = 'block';
@@ -119,8 +125,9 @@ async function camOpen() {
   let photoLong = 0;
   if ('ImageCapture' in window) {
     try {
-      const pc = await new ImageCapture(track).getPhotoCapabilities();
-      photoLong = Math.max((pc.imageWidth && pc.imageWidth.max) || 0, (pc.imageHeight && pc.imageHeight.max) || 0);
+      const pc = await within(new ImageCapture(track).getPhotoCapabilities(), CAPS_WAIT_MS);
+      if (!pc) say('  полное фото: камера не ответила за 3 с');
+      else photoLong = Math.max((pc.imageWidth && pc.imageWidth.max) || 0, (pc.imageHeight && pc.imageHeight.max) || 0);
     } catch (e) { photoLong = 0; }
   }
   const videoLong = Math.max(v.videoWidth, v.videoHeight);
@@ -135,7 +142,7 @@ async function camShot() {
   if ('ImageCapture' in window) {
     try {
       const ic = new ImageCapture(track);
-      const caps = await ic.getPhotoCapabilities();
+      const caps = (await within(ic.getPhotoCapabilities(), CAPS_WAIT_MS)) || {};
       const mw = caps.imageWidth && caps.imageWidth.max, mh = caps.imageHeight && caps.imageHeight.max;
       say(`  полноразмерный снимок, заявлено до: ${mw || '?'}×${mh || '?'}`);
       const blob = await ic.takePhoto(mw && mh ? { imageWidth: mw, imageHeight: mh } : undefined);
