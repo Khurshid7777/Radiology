@@ -90,6 +90,32 @@ def segment(it, rng):
     return it["x"][s:e].copy(), it["y"][s:e].copy(), it["m"][s:e].copy(), rp
 
 
+ERASE = float(os.environ.get("PDET_ERASE", "0"))   # D366 variant C: share of LUDB segments made a synthetic block
+
+
+def erase_and_train(x, y, m, bank, rng) -> None:
+    """Synthetic complete block in place: labelled P erased (+-20 ms, straight line, label 0); then, in 3 of 4 cases,
+    a regular P train at its own rate (P-P 0.45-1.0 s, random phase) is added, independent of QRS (label 1)."""
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], y.astype(int), [0]))))
+    for a, b in zip(edges[::2], edges[1::2]):
+        a, b = max(0, a - 10), min(x.size - 1, b + 10)
+        x[a:b + 1] = np.linspace(x[a], x[b], b - a + 1)
+    y[:] = 0
+    if rng.random() < 0.25 or not m.any():
+        return
+    lo, hi = int(np.flatnonzero(m)[0]), int(np.flatnonzero(m)[-1])
+    pp = int(rng.uniform(0.45, 1.0) * FS)
+    t = lo + int(rng.integers(0, pp))
+    g = float(rng.uniform(0.6, 1.4))
+    while t < hi:
+        w, on, off = bank[int(rng.integers(len(bank)))]
+        s = t - (on + off) // 2
+        if s >= 0 and s + w.size <= x.size:
+            x[s:s + w.size] += w * g
+            y[s + on:s + off] = 1
+        t += pp
+
+
 def build_model():
     from torch import nn
 
@@ -130,7 +156,9 @@ def train(data: Path, out: Path, seed: int) -> None:
             return None
         g = 1.0 + rng.normal(0, 0.15)
         x = x * (g if (it["src"] != "qtdb" or rng.random() < 0.5) else -g)
-        if not it["af"] and rng.random() < INSERT:
+        if ERASE and it["src"] == "ludb" and not it["af"] and rng.random() < ERASE:
+            erase_and_train(x, y, m, bank, rng)
+        elif not it["af"] and rng.random() < INSERT:
             lo = max(0, int(np.flatnonzero(m)[0])) if m.any() else 0
             hi = int(np.flatnonzero(m)[-1]) if m.any() else x.size
             sx, sy = x[lo:hi], y[lo:hi]
@@ -170,6 +198,48 @@ def train(data: Path, out: Path, seed: int) -> None:
     print("[train] saved", out, out.stat().st_size, "bytes")
 
 
+GATE = os.environ.get("PDET_GATE", "")      # D366 variant: "share:tol" — keep a record's P only when they form a train
+
+
+def train_gate(d: np.ndarray) -> np.ndarray:
+    """A record's detected P are kept only when at least ``share`` of P-P intervals lie within ``tol`` of their median
+    (organised atrial rhythm); otherwise none are kept — irregular bumps (f waves) are not a P train."""
+    if not GATE or len(d) < 3:
+        return d
+    if GATE.startswith("grid"):
+        return grid_gate(d, float(GATE.split(":")[1]))
+    share, tol = (float(v) for v in GATE.split(":"))
+    pp = np.diff(np.sort(d)).astype(float)
+    med = float(np.median(pp))
+    ok = float(np.mean(np.abs(pp - med) <= tol * med)) if med > 0 else 0.0
+    return d if ok >= share else d[:0]
+
+
+def grid_gate(d: np.ndarray, cov: float, tol_s: float = 0.06) -> np.ndarray:
+    """Best regular P grid (P-P 0.40-1.50 s, any phase): the detections within ``tol_s`` of it are kept when they cover
+    at least ``cov`` of the grid points between the first and last detection; otherwise none are kept."""
+    d = np.sort(d)
+    tol = tol_s * FS
+    best, keep = 0.0, d[:0]
+    for pp in np.arange(0.40, 1.50, 0.01) * FS:
+        for a in d[: max(1, len(d) // 2)]:
+            k = np.round((d - a) / pp)
+            hit = np.abs(d - (a + k * pp)) <= tol
+            if hit.sum() < 4:
+                continue
+            ks = np.unique(k[hit])
+            span = ks.max() - ks.min() + 1
+            c = len(ks) / span
+            score = len(ks) * c
+            if c >= cov and score > best:
+                best, keep = score, d[hit]
+    return keep
+
+
+def detect(sess, x: np.ndarray, rp: np.ndarray, thr: float) -> np.ndarray:
+    return train_gate(peaks_from_prob(predict(sess, two(x, rp)), x, thr))
+
+
 def predict(sess, X: np.ndarray) -> np.ndarray:
     logit = sess.run(None, {"x": X[None].astype(np.float32)})[0][0, 0]
     return 1.0 / (1.0 + np.exp(-logit))
@@ -191,7 +261,7 @@ def evaluate(data: Path, model: Path, thr: float, split: str, seed: int) -> dict
     n = fa = 0
     for it in items:
         if it["af"] and it["lead"] == "ii":
-            d = peaks_from_prob(predict(sess, two(it["x"], it["rp"])), it["x"], thr)
+            d = detect(sess, it["x"], it["rp"], thr)
             fa += int(((d >= it["lo"]) & (d <= it["hi"])).sum())
             n += 1
     res["ludb_af_false_per_record:ii"] = round(fa / max(1, n), 2)
@@ -201,7 +271,7 @@ def evaluate(data: Path, model: Path, thr: float, split: str, seed: int) -> dict
             if it["src"] != src or (lead != "all" and it["lead"] != lead) or it["af"] or (src == "ludb" and not len(it["peaks"])):
                 continue
             if src == "ludb":
-                d = peaks_from_prob(predict(sess, two(it["x"], it["rp"])), it["x"], thr)
+                d = detect(sess, it["x"], it["rp"], thr)
                 d = d[(d >= it["lo"]) & (d <= it["hi"])]
             else:
                 if not it.get("spans"):
@@ -211,7 +281,7 @@ def evaluate(data: Path, model: Path, thr: float, split: str, seed: int) -> dict
                     s = max(0, a - SEG // 2)
                     e = min(it["x"].size, s + SEG)
                     rp = it["rp"][(it["rp"] >= s) & (it["rp"] < e)] - s
-                    dd = peaks_from_prob(predict(sess, two(it["x"][s:e], rp)), it["x"][s:e], thr) + s
+                    dd = detect(sess, it["x"][s:e], rp, thr) + s
                     gold_b = it["peaks"][(it["peaks"] >= a) & (it["peaks"] < b)]
                     dd = dd[(dd >= a) & (dd < b)]
                     t_, f_ = _score(dd, gold_b, tol)
@@ -239,14 +309,46 @@ def evaluate(data: Path, model: Path, thr: float, split: str, seed: int) -> dict
         insert_p(sx, sy, bank, rng, 4)
         new = np.flatnonzero(np.diff(np.concatenate(([0], (y[lo:hi] & ~before[lo:hi]).astype(int), [0]))))
         centres = [lo + (a + b) // 2 for a, b in zip(new[::2], new[1::2])]
-        d = peaks_from_prob(predict(sess, two(x, it["rp"])), x, thr)
+        d = detect(sess, x, it["rp"], thr)
         total += len(centres)
         found += sum(bool(len(d)) and bool(np.any(np.abs(d - c) <= tol)) for c in centres)
     res["inserted"] = {"n": total, "recall": round(found / max(1, total), 3)}
+    # synthetic complete block (descriptive): the record's labelled P are erased and a regular P train at its own
+    # rate (P-P 0.55-0.90 s, random phase) is added, independent of QRS; P centred within 60 ms of an R are not counted
+    found = total = fp = 0
+    for it in items:
+        if it["src"] != "ludb" or it["lead"] != "ii" or it["af"] or not len(it["peaks"]):
+            continue
+        x = it["x"].copy()
+        lab = it["y"]
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], lab.astype(int), [0]))))
+        for a, b in zip(edges[::2], edges[1::2]):
+            a, b = max(0, a - 5), min(x.size - 1, b + 5)
+            x[a:b + 1] = np.linspace(x[a], x[b], b - a + 1)
+        lo, hi = it["lo"], it["hi"]
+        pp = int(rng.uniform(0.55, 0.90) * FS)
+        t = lo + int(rng.integers(0, pp))
+        centres = []
+        while t < hi - 60:
+            w, on, off = bank[int(rng.integers(len(bank)))]
+            s = t - (on + off) // 2
+            if s >= 0 and s + w.size <= x.size:
+                x[s:s + w.size] += w * float(rng.uniform(0.8, 1.2))
+                if not len(it["rp"]) or np.min(np.abs(it["rp"] - t)) > int(0.06 * FS):
+                    centres.append(t)
+            t += pp
+        d = detect(sess, x, it["rp"], thr)
+        d = d[(d >= lo) & (d <= hi)]
+        total += len(centres)
+        hit = [c for c in centres if len(d) and np.any(np.abs(d - c) <= tol)]
+        found += len(hit)
+        fp += int(sum(not np.any(np.abs(np.array(centres) - p) <= tol) for p in d)) if centres else len(d)
+    res["synthetic_block"] = {"n": total, "recall": round(found / max(1, total), 3),
+                              "precision": round(found / max(1, found + fp), 3)}
     for rid in (104, 111):    # LUDB complete AV block, described only
         for it in items:
             if it["src"] == "ludb" and it["id"] == rid and it["lead"] == "ii":
-                d = peaks_from_prob(predict(sess, two(it["x"], it["rp"])), it["x"], thr)
+                d = detect(sess, it["x"], it["rp"], thr)
                 d = d[(d >= it["lo"]) & (d <= it["hi"])]
                 res[f"ludb_3avb_{rid}"] = {"p_found": int(len(d)), "qrs": int(len(it["rp"]))}   # P not labelled there
     return res
