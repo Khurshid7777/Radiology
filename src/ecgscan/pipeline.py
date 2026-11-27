@@ -92,6 +92,8 @@ class ScanHints:
 class ScanDebug:
     """Intermediate results for artifacts and the bench (TZ §5.9)."""
 
+    alignment: object = None             # SD-168: ecgscan.vectorize.align.Alignment, the time shifts given to the panels
+
     rectified: Rectified | None = None
     pulses: list = field(default_factory=list)
     ocr_texts: list[str] = field(default_factory=list)
@@ -864,6 +866,12 @@ def _scan_once(image: str | Path | bytes | list[str | Path | bytes], *, hints: S
         warnings.append("MIXED_GAIN")
     elif mixed and decision.gain_for_traces and abs(mixed[0] - decision.gain_for_traces) > 1e-6:
         warnings.append("GAIN_SOURCES_DISAGREE")      # the header's limb gain is not the sheet's: nothing rescaled
+    al_cfg = v_cfg.get("align") or {}
+    if al_cfg.get("enabled") and not hints.piece:
+        # SD-168: the rows' windows put back in time by the beats of the rhythm strip (a residual skew of the sheet)
+        from ecgscan.vectorize.align import align_readings
+
+        dbg.alignment = align_readings(readings, fs_out, al_cfg)
     leads = {r.panel.lead: r.trace for r in readings if r.panel.kind == "panel"}
     rhythm = [r.trace for r in readings if r.panel.kind == "rhythm"]
     val = cfg.get("validate", {})
