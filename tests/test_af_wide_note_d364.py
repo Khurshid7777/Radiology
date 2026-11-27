@@ -39,3 +39,15 @@ def test_no_note_without_af():
     fs, audit = FindingSet(findings=[]), []
     P._af_wide_note(_m(130, 140), ADULT, fs, audit)
     assert not fs.findings
+
+
+def test_note_goes_with_the_af_on_a_page_without_a_rhythm_strip():
+    """D259 drops AF on a 3x4 page with no rhythm strip; D364's note mentions AF, so it goes too."""
+    from cardiolens.layer1_ingestion import generate_synthetic_ecg
+
+    fs, audit = _af(), []
+    P._af_wide_note(_m(130, 140), ADULT, fs, audit)
+    sig = generate_synthetic_ecg(heart_rate_bpm=72)
+    sig.provenance.lead_windows = {"II": (0.0, 2.5), "V1": (2.5, 5.0)}
+    P._withhold_rhythm_without_strip(sig, fs, audit)
+    assert "atrial_fibrillation" not in fs.codes() and "wide_qrs_tachycardia" not in fs.codes()

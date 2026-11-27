@@ -795,8 +795,10 @@ def _withhold_rhythm_without_strip(sig: SignalRepresentation, findings: FindingS
         return
     dropped = [f.code for f in findings.findings if f.code in _IRREGULARITY_CODES and not f.critical]
     if dropped:
+        # D364's note speaks of AF: it goes with the AF it was added to
         findings.findings = [f for f in findings.findings
-                             if f.code not in _IRREGULARITY_CODES or f.critical]
+                             if (f.code not in _IRREGULARITY_CODES or f.critical)
+                             and not any(e.feature == "af_wide_note" for e in f.evidence)]
         audit.append(f"[L4] no lead >= {RHYTHM_MIN_S:.0f} s on the page (longest {longest:.1f} s): "
                      f"rhythm irregularity not assessed, withheld {dropped} (D259)")
 
@@ -893,10 +895,11 @@ def _af_wide_note(m, norms: dict, findings: FindingSet, audit: list[str]) -> Non
         label_ru=f"Нерегулярная тахикардия с широкими QRS (ЧСС {hr:.0f}/мин, QRS {qrs:.0f} мс): ФП с блокадой ножки или "
                  f"предвозбуждением либо желудочковая тахикардия — срочно покажите врачу, исключите ЖТ",
         label_uz=f"Keng QRS li notekis taxikardiya (YUT {hr:.0f}/daq, QRS {qrs:.0f} ms): oyoqcha blokadasi yoki "
-                 f"oldindan qo'zg'alish bilan BF yoki qorincha taxikardiyasi — zudlik bilan shifokorga ko'rsating, "
+                 f"preeksitatsiya (WPW) bilan BF yoki qorincha taxikardiyasi — zudlik bilan shifokorga ko'rsating, "
                  f"qorincha taxikardiyasini istisno qiling",
         evidence=[Evidence(feature="heart_rate_bpm", value=f"{hr:.0f}"), Evidence(feature="qrs_ms", value=f"{qrs:.0f}"),
-                  Evidence(feature="urgent", value="yes")], confidence=0.6))
+                  Evidence(feature="urgent", value="yes"), Evidence(feature="af_wide_note", value="D364")],
+        confidence=0.6))
     audit.append(f"[L4] AF with wide QRS {qrs:.0f} ms at {hr:.0f}/min: urgent, rule out VT (D364)")
 
 
