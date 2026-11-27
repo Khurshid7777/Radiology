@@ -2,6 +2,7 @@
 D358's flutter guard — records never used by any earlier bench (svt, avb, untaken, junctional).
 
     python tools/atrial_map/fetch_af.py --out data/af_bench [--seed 359] [--workers 16]
+    (D361: --out data/af_bench2 --seed 361 — af_bench is then excluded too)
 
 Reuses the header list cached by tools/svt_bench (data/svt_bench/headers.json). Groups (each without the others'
 rhythm codes where noted): AF 400, AFL 300, SR + PAC 300, SR + PVC 300, sinus arrhythmia 200. Licensed data:
@@ -24,7 +25,7 @@ GROUPS = {"AFIB": (lambda d: AF in d and AFL not in d, 400), "AFL": (lambda d: A
           "PAC": (lambda d: PAC in d and not d & {AF, AFL}, 300),
           "PVC": (lambda d: bool(d & {PVC, PVC2}) and not d & {AF, AFL}, 300),
           "SARRH": (lambda d: SA in d and not d & {AF, AFL, PAC, PVC, PVC2}, 200)}
-USED_BENCHES = ("svt_bench", "avb_bench", "untaken_bench", "junctional_bench")
+USED_BENCHES = ("svt_bench", "avb_bench", "untaken_bench", "junctional_bench", "af_bench")
 
 
 def main() -> None:
@@ -37,6 +38,8 @@ def main() -> None:
     used = set()
     for b in USED_BENCHES:
         m = ROOT / "data" / b / "manifest.json"
+        if (ROOT / "data" / b).resolve() == a.out.resolve():
+            continue
         if m.exists():
             used |= {r["name"] for r in json.loads(m.read_text())["records"]}
     rng = random.Random(a.seed)
