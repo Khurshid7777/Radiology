@@ -874,7 +874,25 @@ def _withdraw_af_on_same_p(sig, m, findings: FindingSet, audit: list[str], cache
                       Evidence(feature="p_shape_ii", value=f"{f['shape_ii']:.2f}")], confidence=0.6))
     audit.append(f"[L4] AF withdrawn: same P before {f['share']:.2f} of QRS, PR IQR {f['pr_iqr_s'] * 1000:.0f} ms, "
                  f"shape II {f['shape_ii']:.2f} V1 {f['shape_v1']:.2f} (D358)")
+    _qt_after_af_withdrawn(findings, audit)
     return True
+
+
+def _qt_after_af_withdrawn(findings: FindingSet, audit: list[str]) -> None:
+    """D365: the QT rules ran while AF was still named — "QTc not assessable in AF" becomes a long QT with the same
+    QTc (it was above the upper limit), and a long QT loses "approximate in AF"."""
+    for i, f in enumerate(findings.findings):
+        if f.code == "qtc_unreliable_af":
+            ev = {e.feature: e.value for e in f.evidence}
+            qtc, formula = ev.get("qtc_ms"), ev.get("formula")
+            findings.findings[i] = Finding(
+                code="long_qt", group="interval",
+                label_ru=f"Удлинение QT (QTc {qtc} мс, {formula})", label_uz=f"QT uzayishi (QTc {qtc} ms, {formula})",
+                evidence=[e for e in f.evidence if e.feature != "af_long_min"], confidence=0.85)
+            audit.append(f"[L4] QTc {qtc} ms assessed as in a regular rhythm after the AF was withdrawn (D365)")
+        elif f.code == "long_qt":
+            f.label_ru = f.label_ru.replace(", при ФП ориентировочно)", ")")
+            f.label_uz = f.label_uz.replace(", BF da taxminiy)", ")")
 
 
 AF_WIDE_NOTE = True              # D364

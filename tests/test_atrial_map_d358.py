@@ -69,3 +69,24 @@ def test_visible_atrial_activity_keeps_af(sinus, monkeypatch):
         fs, audit = _af_set(), []
         P._withdraw_af_on_same_p(sig, mm, fs, audit)
         assert "atrial_fibrillation" in fs.codes() and not audit
+
+
+def test_qt_is_assessed_as_in_a_regular_rhythm_after_the_af_goes():
+    """D365: "QTc not assessable in AF" becomes a long QT with the same QTc; "approximate in AF" goes."""
+    from cardiolens.contracts.findings import Evidence
+
+    fs = FindingSet(findings=[
+        Finding(code="qtc_unreliable_af", group="interval", label_ru="QTc при фибрилляции предсердий не оценивается",
+                label_uz="BF da QTc baholanmaydi", confidence=0.5,
+                evidence=[Evidence(feature="qtc_ms", value="478"), Evidence(feature="formula", value="Bazett"),
+                          Evidence(feature="af_long_min", value="500")])])
+    audit = []
+    P._qt_after_af_withdrawn(fs, audit)
+    qt = fs.by_code("long_qt")
+    assert "qtc_unreliable_af" not in fs.codes() and qt is not None and "478" in qt.label_ru and "ФП" not in qt.label_ru
+    assert "D365" in audit[-1] and not qt.critical
+    fs2 = FindingSet(findings=[Finding(code="long_qt", group="interval", confidence=0.85,
+                                       label_ru="Удлинение QT (QTc 520 мс, Bazett, при ФП ориентировочно)",
+                                       label_uz="QT uzayishi (QTc 520 ms, Bazett, BF da taxminiy)")])
+    P._qt_after_af_withdrawn(fs2, [])
+    assert fs2.by_code("long_qt").label_ru.endswith("Bazett)") and "BF" not in fs2.by_code("long_qt").label_uz
