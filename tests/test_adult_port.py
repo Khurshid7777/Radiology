@@ -200,6 +200,8 @@ def test_af_is_withheld_on_a_paced_rhythm(monkeypatch):
         return fs
 
     monkeypatch.setattr(P, "detect_findings", with_af)
+    # D361 withdraws an AF over the same P before every QRS — the synthetic sinus control would lose the injected AF.
+    monkeypatch.setattr(P, "AF_SAME_P_WITHDRAW", False)
     paced = run_pipeline(_spiked_ecg(-0.04), mode="A").findings.codes()
     assert "paced_rhythm" in paced and "atrial_fibrillation" not in paced
     assert "atrial_fibrillation" in run_pipeline(generate_synthetic_ecg(heart_rate_bpm=72), mode="A").findings.codes()
