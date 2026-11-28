@@ -1,6 +1,6 @@
 """D367: current-core codes + D366 P positions (model C, with and without the P-P grid) per record; numbers and codes only.
 
-    python tools/avb_bench/resid_feats.py avb|ptb --model <c.onnx> --out <file.jsonl> [--shard k/n]
+    python tools/avb_bench/resid_feats.py avb|af|ptb --model <c.onnx> --out <file.jsonl> [--shard k/n]
 """
 import argparse
 import json
@@ -25,7 +25,7 @@ def main():
     from cardiolens.pipeline import run_pipeline
     from cnn import prep_signal
     ap = argparse.ArgumentParser()
-    ap.add_argument("which", choices=["avb", "ptb"])
+    ap.add_argument("which", choices=["avb", "af", "ptb"])
     ap.add_argument("--model", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--shard", default="0/1")
@@ -34,9 +34,12 @@ def main():
     o = ort.SessionOptions()
     o.intra_op_num_threads = 1
     sess = ort.InferenceSession(str(a.model), o, providers=["CPUExecutionProvider"])
-    if a.which == "avb":
-        recs = json.loads((ROOT / "data/avb_bench/manifest.json").read_text())["records"]
-        items = [(str(ROOT / "data/avb_bench" / r["folder"] / r["name"]), r["name"], r["labels"], r.get("age")) for r in recs]
+    if a.which in ("avb", "af"):
+        base = ROOT / ("data/avb_bench" if a.which == "avb" else "data/af_bench")
+        recs = json.loads((base / "manifest.json").read_text())["records"]
+        if a.which == "af":     # D367: even ids only (tuning of false blocks on AF / flutter / PAC / PVC / sinus arrhythmia)
+            recs = [r for r in recs if int("".join(c for c in r["name"] if c.isdigit())) % 2 == 0]
+        items = [(str(base / r["folder"] / r["name"]), r["name"], r["labels"], r.get("age")) for r in recs]
     else:
         recs = json.loads((ROOT / "data/ptbxl_rhythm/manifest.json").read_text())["records"]
         items = [(str(ROOT / "data/ptbxl_rhythm" / r["filename_hr"]), r["ecg_id"], r["labels"], r.get("age")) for r in recs]
