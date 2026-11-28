@@ -33,6 +33,7 @@ class AccessStore:
         self._data.setdefault("codes", {})
         self._data.setdefault("users", {})
         self._data.setdefault("groups", {})
+        self._data.setdefault("agents", {})
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +89,28 @@ class AccessStore:
             return False
         c = self._data["codes"].get(u["code"])
         return bool(c) and not c.get("revoked")
+
+    # --- desk agents (SD-152): agent id -> the doctor's chat ---
+    def add_agent(self, chat_id: int, agent_id: str) -> None:
+        with self._lock:
+            self._data["agents"][agent_id] = {"chat": int(chat_id), "at": int(time.time()), "revoked": False}
+            self._save()
+
+    def agent_chat(self, agent_id: str) -> int | None:
+        a = self._data["agents"].get(agent_id)
+        return None if not a or a.get("revoked") else int(a["chat"])
+
+    def revoke_agents(self, chat_id: int) -> int:
+        """Every agent of the chat stops being heard; how many there were."""
+        with self._lock:
+            n = 0
+            for a in self._data["agents"].values():
+                if a["chat"] == int(chat_id) and not a.get("revoked"):
+                    a["revoked"] = True
+                    n += 1
+            if n:
+                self._save()
+            return n
 
     def lang(self, user_id: int | None) -> str | None:
         u = self._data["users"].get(str(user_id)) if user_id is not None else None

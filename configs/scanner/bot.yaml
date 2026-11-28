@@ -29,3 +29,7 @@ miniapp:                           # SD-137: /scan opens the capture page inside
   ticket_minutes: 10               # how long the button works (and how long the bot waits for the photo); the server refuses more than its miniapp.max_ticket_minutes
   max_buttons: 5                   # live buttons per chat; one more /scan retires the oldest
   poll_s: 2.0                      # how often the bot asks the server for the photo
+
+agent:                             # SD-152: the desk agent on the doctor's laptop sends the recorder program's records
+  key_days: 180                    # how long the key /agent gives works (the server refuses more than its agent.max_key_days)
+  poll_s: 3.0                      # how often the bot asks the server for the agents' records

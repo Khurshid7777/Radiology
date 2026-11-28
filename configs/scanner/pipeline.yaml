@@ -123,6 +123,16 @@ segmentation:
     min_speck_px: 6
 
 vectorize:
+  align:                         # SD-168: panels' windows put back in time by the rhythm strip's beats (residual skew)
+    enabled: false               # off: stand QRS bad 17 -> 10 with no sheet worse, but on PM-ECG-ID (control) bad reads 116 -> 117, QT 66 -> 68
+    envelope_s: 0.04             # smoothing of |d/dt| that marks the QRS complexes
+    min_strip_s: 8.0             # a rhythm strip at least this long is the clock; without one nothing moves
+    min_panels: 6                # matches needed for the page's plane
+    min_peak: 0.3                # a panel's match counts from this correlation
+    max_shift_s: 0.25            # search range, and never beyond rr_share of the strip's RR (a fast heart is ambiguous)
+    rr_share: 0.45
+    max_mad_s: 0.02              # the plane is trusted only when the matches lie this close to it
+    min_span_s: 0.03             # the page is corrected only when the plane moves its windows apart this much
   labels:                        # SD-102 (tried, off): lead labels printed at a row's start are not trace
     enabled: false               # off: on the synthetic bench it lifted one limb-consistency score over 0.7 and unflagged a bad QT
     window_mm: 8.0               # from each panel's start ...
