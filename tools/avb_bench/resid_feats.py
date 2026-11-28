@@ -29,6 +29,7 @@ def main():
     ap.add_argument("--model", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--shard", default="0/1")
+    ap.add_argument("--parity", default="even", choices=["even", "odd"])   # af only: even = tuning (D367), odd = acceptance (D368)
     a = ap.parse_args()
     k, n = (int(v) for v in a.shard.split("/"))
     o = ort.SessionOptions()
@@ -37,8 +38,9 @@ def main():
     if a.which in ("avb", "af"):
         base = ROOT / ("data/avb_bench" if a.which == "avb" else "data/af_bench")
         recs = json.loads((base / "manifest.json").read_text())["records"]
-        if a.which == "af":     # D367: even ids only (tuning of false blocks on AF / flutter / PAC / PVC / sinus arrhythmia)
-            recs = [r for r in recs if int("".join(c for c in r["name"] if c.isdigit())) % 2 == 0]
+        if a.which == "af":
+            want = 0 if a.parity == "even" else 1
+            recs = [r for r in recs if int("".join(c for c in r["name"] if c.isdigit())) % 2 == want]
         items = [(str(base / r["folder"] / r["name"]), r["name"], r["labels"], r.get("age")) for r in recs]
     else:
         recs = json.loads((ROOT / "data/ptbxl_rhythm/manifest.json").read_text())["records"]
